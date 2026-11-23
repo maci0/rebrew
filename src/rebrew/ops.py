@@ -295,7 +295,7 @@ IN_PROCESS_TIMEOUT_SECONDS = 600
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "b8b64e0b7c668ee56ee99360773270c39d5ed5bdbc47bf4a8bb02007100907a0"
+DISPATCH_SCHEMA_SHA256 = "9d3fa06183a72bac4499d79d89328016159085b56b337b0060c342d6d9af5149"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4

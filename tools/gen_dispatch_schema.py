@@ -81,6 +81,8 @@ def enforced_sets() -> Iterator[tuple[str, tuple[str, ...], Collection[str]]]:
     yield "rebrew.security_scan", (*finding, "confidence"), SEVERITY_ORDER
     manifest_kind = ("response", "properties", "manifest", "items", "properties", "kinds", "items")
     yield "rebrew.report", manifest_kind, SITE_DATA_KINDS
+    kinds = ("response", "properties", "kinds", "additionalProperties", "items")
+    yield "rebrew.report", kinds, SITE_DATA_KINDS
     decompiler = ("response", "properties", "decompilers", "items", "properties")
     yield (
         "rebrew.vocabulary",

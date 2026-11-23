@@ -14,6 +14,7 @@ A reply that carries the verdict of a remote compile that never ran names why wi
 import logging
 import types
 from typing import (
+    Annotated,
     Any,
     Literal,
     NotRequired,
@@ -1179,6 +1180,47 @@ class ReleaseReply(TypedDict):
     schema_sha256: str
 
 
+class SecuritySnapshotReply(TypedDict):
+    result: SecurityScanReply
+    source_revision: str
+    source_snapshot_sha256: str
+    generation: str
+    analysis_manifest_sha256: str
+
+
+#: What a report page carries that a reader may be refused (``rebrew.report.SiteDataKind``);
+#: the dispatch schema writes its values from ``rebrew.report.SITE_DATA_KINDS``.
+SiteDataKind = Literal[
+    "call_graph", "cross_references", "decompilation", "ai_derived", "member_identities", "none"
+]
+
+
+class ReportSummary(TypedDict):
+    total_functions: int
+    covered_functions: int
+    coverage_pct: float
+    matched_pct: float
+    byte_coverage_pct: float
+    status_counts: dict[str, int]
+
+
+class ManifestEntry(TypedDict):
+    path: str
+    size: int
+    digest: str
+    kinds: Annotated[list[SiteDataKind], {"minItems": 1}]
+
+
+class ReportReply(TypedDict, total=False):
+    out: Required[str]
+    pages: Required[list[str]]
+    summary: Required[ReportSummary]
+    # a site rendered in place: each file's kinds, by file
+    kinds: dict[str, list[SiteDataKind]]
+    # a retained report: each file the site holds
+    manifest: list[ManifestEntry]
+
+
 #: Members the command an op runs prints that its reply withholds, by op: each is a
 #: path of the engine's host, which never leaves it, and no consumer reads it.  A
 #: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``), and
@@ -1235,6 +1277,8 @@ DECLARED: dict[str, Any] = {
     "rebrew.structs": StructsReply,
     "rebrew.xrefs": XrefsReply,
     "rebrew.release": ReleaseReply,
+    "rebrew.security_scan_snapshot": SecuritySnapshotReply,
+    "rebrew.report": ReportReply,
 }
 
 
@@ -1261,7 +1305,16 @@ _PRIMITIVES = {str: "string", int: "integer", float: "number", bool: "boolean"}
 
 
 def json_schema(hint: Any) -> dict[str, Any]:
-    """The JSON schema of the type *hint*: a TypedDict, a primitive, a list, a dict or a Literal."""
+    """The JSON schema of the type *hint*: a TypedDict, a primitive, a list, a dict or a Literal.
+
+    ``Annotated[T, {...}]`` adds the dict's keywords to ``T``'s schema (``minItems``).
+    """
+    if get_origin(hint) is Annotated:
+        base, *keywords = get_args(hint)
+        annotated = json_schema(base)
+        for extra in keywords:
+            annotated.update(extra)
+        return annotated
     inner, nullable = _optional_inner(hint)
     schema: dict[str, Any]
     if is_typeddict(inner):
@@ -1313,7 +1366,10 @@ def project(value: dict[str, Any], declared: Any, where: str) -> dict[str, Any]:
     for name, item in value.items():
         if name not in members:
             continue
-        inner, _nullable = _optional_inner(members[name])
+        member = members[name]
+        inner, _nullable = _optional_inner(
+            get_args(member)[0] if get_origin(member) is Annotated else member
+        )
         if is_typeddict(inner) and isinstance(item, dict):
             item = project(item, inner, f"{where}.{name}")
         elif get_origin(inner) is list and isinstance(item, list):

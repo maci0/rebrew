@@ -10721,6 +10721,20 @@
         "additionalProperties": false,
         "properties": {
           "kinds": {
+            "additionalProperties": {
+              "items": {
+                "enum": [
+                  "call_graph",
+                  "cross_references",
+                  "decompilation",
+                  "ai_derived",
+                  "member_identities",
+                  "none"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
             "type": "object"
           },
           "manifest": {
@@ -10773,6 +10787,38 @@
             "type": "array"
           },
           "summary": {
+            "additionalProperties": false,
+            "properties": {
+              "byte_coverage_pct": {
+                "type": "number"
+              },
+              "coverage_pct": {
+                "type": "number"
+              },
+              "covered_functions": {
+                "type": "integer"
+              },
+              "matched_pct": {
+                "type": "number"
+              },
+              "status_counts": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "total_functions": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total_functions",
+              "covered_functions",
+              "coverage_pct",
+              "matched_pct",
+              "byte_coverage_pct",
+              "status_counts"
+            ],
             "type": "object"
           }
         },
@@ -11517,6 +11563,102 @@
             "type": "string"
           },
           "result": {
+            "additionalProperties": false,
+            "properties": {
+              "by_severity": {
+                "additionalProperties": false,
+                "properties": {
+                  "high": {
+                    "type": "integer"
+                  },
+                  "low": {
+                    "type": "integer"
+                  },
+                  "medium": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "object"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "files_scanned": {
+                "type": "integer"
+              },
+              "findings": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "confidence": {
+                      "enum": [
+                        "high",
+                        "medium",
+                        "low"
+                      ],
+                      "type": "string"
+                    },
+                    "cwe": {
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "function": {
+                      "type": "string"
+                    },
+                    "line": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "rule": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "enum": [
+                        "high",
+                        "medium",
+                        "low"
+                      ],
+                      "type": "string"
+                    },
+                    "snippet": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "rule",
+                    "cwe",
+                    "severity",
+                    "confidence",
+                    "file",
+                    "line",
+                    "function",
+                    "snippet",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "root": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "root",
+              "files_scanned",
+              "findings",
+              "count",
+              "by_severity"
+            ],
             "type": "object"
           },
           "source_revision": {
