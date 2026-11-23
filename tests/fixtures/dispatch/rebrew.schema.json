@@ -1483,6 +1483,575 @@
             "type": "object"
           },
           "result": {
+            "additionalProperties": false,
+            "properties": {
+              "aligned_pairs": {
+                "type": "integer"
+              },
+              "candidate_instructions": {
+                "type": "integer"
+              },
+              "compile": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "execution": {
+                        "oneOf": [
+                          {
+                            "type": "object"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "flags": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "includes": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "path": {
+                              "type": "string"
+                            },
+                            "sha256": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "path",
+                            "sha256"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "source_dir": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "flags",
+                      "execution"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "compile_inputs": {
+                "additionalProperties": false,
+                "properties": {
+                  "documents": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "logical_sha256": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "logical_sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "files": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "sha256": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "files",
+                  "documents"
+                ],
+                "type": "object"
+              },
+              "context_hash": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "error": {
+                "additionalProperties": false,
+                "properties": {
+                  "error_code": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "group": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "name": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "retry_after": {
+                    "oneOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  },
+                  "status_code": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "hunks": {
+                "type": "integer"
+              },
+              "instructions": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_bytes": {
+                    "type": "integer"
+                  },
+                  "original": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "bytes": {
+                          "type": "string"
+                        },
+                        "mnemonic": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "operands": {
+                          "type": "string"
+                        },
+                        "spans": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "changed": {
+                                "type": "boolean"
+                              },
+                              "end": {
+                                "type": "integer"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "register",
+                                  "immediate"
+                                ],
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "integer"
+                              },
+                              "value": {
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "start",
+                              "end",
+                              "kind",
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "symbols": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "offset",
+                        "bytes",
+                        "mnemonic",
+                        "operands",
+                        "spans"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "rebuilt": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "bytes": {
+                          "type": "string"
+                        },
+                        "mnemonic": {
+                          "type": "string"
+                        },
+                        "offset": {
+                          "type": "integer"
+                        },
+                        "operands": {
+                          "type": "string"
+                        },
+                        "spans": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "changed": {
+                                "type": "boolean"
+                              },
+                              "end": {
+                                "type": "integer"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "register",
+                                  "immediate"
+                                ],
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "integer"
+                              },
+                              "value": {
+                                "type": "integer"
+                              }
+                            },
+                            "required": [
+                              "start",
+                              "end",
+                              "kind",
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "symbols": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "offset",
+                        "bytes",
+                        "mnemonic",
+                        "operands",
+                        "spans"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "rows": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "left": {
+                          "oneOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "op": {
+                          "enum": [
+                            "equal",
+                            "replace",
+                            "insert",
+                            "delete"
+                          ],
+                          "type": "string"
+                        },
+                        "reloc": {
+                          "type": "boolean"
+                        },
+                        "right": {
+                          "oneOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "op",
+                        "left",
+                        "right"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "max_bytes",
+                  "truncated",
+                  "original",
+                  "rebuilt",
+                  "rows"
+                ],
+                "type": "object"
+              },
+              "match_count": {
+                "type": "integer"
+              },
+              "mismatches": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "got": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "target": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "offset",
+                    "target",
+                    "got"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "not_run_reason": {
+                "enum": [
+                  "network",
+                  "http",
+                  "validation",
+                  "protocol",
+                  "service",
+                  "deadline",
+                  "compiler_withdrawn",
+                  "compiler_not_installed"
+                ],
+                "type": "string"
+              },
+              "obj_size": {
+                "type": "integer"
+              },
+              "reloc_count": {
+                "type": "integer"
+              },
+              "relocation_bindings": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "addend": {
+                      "type": "integer"
+                    },
+                    "bound_va": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "byte_order": {
+                      "type": "string"
+                    },
+                    "expected_value": {
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "native_value": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "enum": [
+                        "IGNORED",
+                        "OUT_OF_EXTENT",
+                        "UNSUPPORTED",
+                        "IAT_POLICY",
+                        "UNRESOLVED",
+                        "AMBIGUOUS",
+                        "VALIDATED",
+                        "CONFLICT"
+                      ],
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": "string"
+                    },
+                    "typed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "offset",
+                    "symbol"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "remote_compile": {
+                "additionalProperties": false,
+                "properties": {
+                  "billed_undelivered": {
+                    "type": "integer"
+                  },
+                  "count": {
+                    "type": "integer"
+                  },
+                  "unsettled": {
+                    "type": "integer"
+                  },
+                  "wait_ms": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "count",
+                  "billed_undelivered",
+                  "unsettled",
+                  "wait_ms"
+                ],
+                "type": "object"
+              },
+              "similarity": {
+                "type": "number"
+              },
+              "size": {
+                "type": "integer"
+              },
+              "source": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "target_instructions": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              },
+              "va": {
+                "type": "string"
+              },
+              "verdict_valid": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "source",
+              "symbol",
+              "va",
+              "size",
+              "status",
+              "match_count",
+              "total",
+              "reloc_count",
+              "obj_size",
+              "context_hash",
+              "mismatches",
+              "compile",
+              "remote_compile"
+            ],
             "type": "object"
           }
         },

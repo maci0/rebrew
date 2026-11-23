@@ -1221,6 +1221,29 @@ class ReportReply(TypedDict, total=False):
     manifest: list[ManifestEntry]
 
 
+class AppliedFile(TypedDict):
+    """A file the apply changed, by its project path, with its bytes in base64."""
+
+    path: str
+    size: int
+    digest: str
+    data: str
+
+
+class PublishedMetadata(TypedDict):
+    files: list[FileDigest]
+    documents: list[LogicalDocument]
+
+
+class ApplyCandidateReply(TypedDict):
+    #: the candidate's verdict, EXACT or RELOC (any other is refused)
+    result: VerifyFunctionReply
+    files: list[AppliedFile]
+    metadata: PublishedMetadata
+    attested_registry_digest: str
+    remote_compile: RemoteCompile
+
+
 #: Members the command an op runs prints that its reply withholds, by op: each is a
 #: path of the engine's host, which never leaves it, and no consumer reads it.  A
 #: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``), and
@@ -1279,6 +1302,7 @@ DECLARED: dict[str, Any] = {
     "rebrew.release": ReleaseReply,
     "rebrew.security_scan_snapshot": SecuritySnapshotReply,
     "rebrew.report": ReportReply,
+    "rebrew.apply_candidate": ApplyCandidateReply,
 }
 
 
