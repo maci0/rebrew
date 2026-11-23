@@ -939,47 +939,29 @@ def import_state(
         if fold_ident(bs_stripped) == fold_ident(local_stripped):
             continue
 
-        # If local is generic and BinSync is meaningful → safe to apply
-        if not is_meaningful(local_name) or (va, "name") in remote_changes:
+        # If local is generic and BinSync is meaningful → safe to apply.
+        # Both meaningful and different → conflict, applied only with --accept-binsync.
+        safe_rename = not is_meaningful(local_name) or (va, "name") in remote_changes
+        if not safe_rename:
+            conflicts.append(
+                {
+                    "va": f"0x{va:08x}",
+                    "local": local_name,
+                    "binsync": bs_name,
+                    "filepath": str(local_filepath),
+                }
+            )
+        if safe_rename or accept_binsync:
             if dry_run:
-                proposed.append(
-                    {"va": f"0x{va:08x}", "field": "name", "local": local_name, "binsync": bs_name}
-                )
-                applied_names += 1
-            else:
-                applied, name_reason = _try_apply_binsync_name(
-                    cfg, local, bs_stripped, local_filepath, va
-                )
-                if applied:
-                    applied_names += 1
-                    touched_vas.append(va)
-                else:
-                    skipped += 1
-                    skipped_details.append(
-                        {"va": f"0x{va:08x}", "field": "name", "reason": name_reason}
-                    )
-            continue
-
-        # Both meaningful and different → conflict
-        conflicts.append(
-            {
-                "va": f"0x{va:08x}",
-                "local": local_name,
-                "binsync": bs_name,
-                "filepath": str(local_filepath),
-            }
-        )
-        if accept_binsync:
-            if dry_run:
-                proposed.append(
-                    {
-                        "va": f"0x{va:08x}",
-                        "field": "name",
-                        "local": local_name,
-                        "binsync": bs_name,
-                        "action": "conflict (accept-binsync)",
-                    }
-                )
+                row = {
+                    "va": f"0x{va:08x}",
+                    "field": "name",
+                    "local": local_name,
+                    "binsync": bs_name,
+                }
+                if not safe_rename:
+                    row["action"] = "conflict (accept-binsync)"
+                proposed.append(row)
                 applied_names += 1
             else:
                 applied, name_reason = _try_apply_binsync_name(

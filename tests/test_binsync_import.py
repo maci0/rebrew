@@ -215,6 +215,15 @@ class TestBinsyncImportDryRun:
         data = cli_payload(result)
         assert data["dry_run"] is True
         assert data["applied_names"] == 1  # counts the would-be rename
+        assert data["proposed"] == [
+            {
+                "va": "0x10001000",
+                "field": "name",
+                "local": "_foo",
+                "binsync": "_NewName",
+                "action": "conflict (accept-binsync)",
+            }
+        ]
         assert _src_files(tmp_path) == before
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
