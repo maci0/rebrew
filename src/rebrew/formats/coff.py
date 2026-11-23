@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+lazy import io
 lazy import struct
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ def load_coff(
     if len(obj_data) < 20:
         return None
     parse_data = b"\x4c\x01" + obj_data[2:] if obj_data[:4] == b"\0\0\x01\0" else obj_data
-    coff = lief.COFF.parse(bytes(parse_data))
+    coff = lief.COFF.parse(io.BytesIO(parse_data))
     if coff is None:
         return None
     symbols = list(coff.symbols)

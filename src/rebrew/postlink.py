@@ -57,6 +57,7 @@ import dataclasses
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 lazy import contextlib
+lazy import io
 lazy import struct
 lazy from pathlib import Path
 
@@ -117,7 +118,7 @@ def _pe(raw: bytes) -> lief.PE.Binary:
     """Parse *raw* with LIEF, raising a clear error for non-PE input."""
     import lief
 
-    binary = lief.PE.parse(raw)
+    binary = lief.PE.parse(io.BytesIO(raw))
     if binary is None:
         raise ValueError("not a PE binary")
     return binary

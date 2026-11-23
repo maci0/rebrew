@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 lazy import hashlib
+lazy import io
 lazy import json
 lazy from pathlib import Path, PureWindowsPath
 
@@ -227,7 +228,7 @@ def _common_definitions(
         basename = PureWindowsPath(member).name
         if basename.casefold() not in selected:
             continue
-        obj = lief.COFF.parse(bytes(body))
+        obj = lief.COFF.parse(io.BytesIO(body))
         if obj is None:
             continue
         for symbol in obj.symbols:

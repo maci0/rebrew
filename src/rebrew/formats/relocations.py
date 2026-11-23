@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+lazy import io
+
 lazy import lief
 
 lazy from rebrew.formats.binary_loader import extract_bytes_at_va
@@ -40,7 +42,7 @@ def pe_relocation_sites(info: BinaryInfo) -> dict[int, str]:
     Raises ``ValueError`` when the image does not parse as the loaded PE layout,
     a block is not page aligned, a site has conflicting types, or the span limit is exceeded.
     """
-    binary = lief.PE.parse(info.data)
+    binary = lief.PE.parse(io.BytesIO(info.data))
     if binary is None or binary.optional_header.imagebase != info.image_base:
         raise ValueError("PE relocation image does not match its loaded layout")
     kinds = lief.PE.RelocationEntry.BASE_TYPES
@@ -72,7 +74,7 @@ def _pe_spans(info: BinaryInfo) -> list[tuple[int, int]]:
 
 
 def _elf_spans(info: BinaryInfo) -> list[tuple[int, int]]:
-    binary = lief.ELF.parse(info.data)
+    binary = lief.ELF.parse(io.BytesIO(info.data))
     if binary is None or binary.imagebase != info.image_base:
         raise ValueError("ELF relocation image does not match its loaded layout")
     if binary.header.file_type not in (

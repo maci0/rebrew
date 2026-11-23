@@ -46,6 +46,7 @@ import re
 import struct
 from dataclasses import dataclass, field
 from typing import Any, Literal
+lazy import io
 lazy import json
 lazy import os
 lazy import shutil
@@ -735,7 +736,7 @@ def _load_target(binary: Path) -> tuple[Any, bytes]:
         image = binary.read_bytes()
     except OSError as exc:
         raise PdbExportError(f"cannot read target binary {binary}: {exc}") from exc
-    pe = lief.PE.parse(bytes(image))
+    pe = lief.PE.parse(io.BytesIO(image))
     if pe is None:
         raise PdbExportError(f"target binary is not a PE image: {binary}")
     return pe, image

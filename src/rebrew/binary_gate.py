@@ -7,6 +7,7 @@ gate-relevant facts.  The ``verify --whole-binary`` wiring lives in
 ``verify.py``.
 """
 
+lazy import io
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -31,7 +32,7 @@ def pe_relocation_snapshot(data: bytes) -> tuple[list[str], dict[str, int]]:
     """Read PE fixups and separate their block bytes from reserved section space."""
     import lief
 
-    pe = lief.PE.parse(data)
+    pe = lief.PE.parse(io.BytesIO(data))
     if pe is None:
         raise ValueError("cannot parse PE base relocations")
     entries = sorted(

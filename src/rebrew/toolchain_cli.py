@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 from typing import Any
+lazy import io
 lazy import logging
 lazy import re
 lazy import shutil
@@ -3539,7 +3540,7 @@ def _object_target(obj: Path) -> tuple[str, int] | None:
 
     data = obj.read_bytes()
     if data[:4] == b"\x7fELF":
-        elf = lief.ELF.parse(bytes(data))
+        elf = lief.ELF.parse(io.BytesIO(data))
         if elf is None:
             return None
         arch = _ELF_ARCHES.get(elf.header.machine_type.name)

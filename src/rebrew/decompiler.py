@@ -693,29 +693,36 @@ def _run_kuna(
             timeout=180,
             env=env,
         )
-        if result.returncode == 0 and result.stdout:
-            return _clean_output(result.stdout)
-        if result.returncode != 0:
-            stderr = result.stderr or ""
-            if raw_image and _KUNA_NO_RAW_IMAGE_RE.search(stderr):
-                from rebrew.formats.binary_loader import UnsupportedBinaryFormat
+        if result.returncode == 0:
+            code = _clean_output(result.stdout or "")
+            if code is None:
+                detail = (result.stderr or "").strip().splitlines()
+                warnings.warn(
+                    f"kuna printed no code for 0x{va:08x} (exit 0): "
+                    f"{detail[0] if detail else 'no message'}",
+                    stacklevel=3,
+                )
+            return code
+        stderr = result.stderr or ""
+        if raw_image and _KUNA_NO_RAW_IMAGE_RE.search(stderr):
+            from rebrew.formats.binary_loader import UnsupportedBinaryFormat
 
-                raise UnsupportedBinaryFormat(
-                    "this kuna cannot decompile a 16-bit NE executable: it has no --raw-image "
-                    "(kuna v1.993 or later is needed)",
-                    magic="4d5a",
-                )
-            refusal = _KUNA_IMPORT_RE.search(stderr)
-            if refusal is not None:
-                raise KunaNoBodyError(
-                    f"kuna has no function body at 0x{va:08x}: import {refusal.group(1)}"
-                )
-            detail = stderr.strip().splitlines()
-            warnings.warn(
-                f"kuna failed decompiling 0x{va:08x} (exit {result.returncode}): "
-                f"{detail[0] if detail else 'no message'}",
-                stacklevel=3,
+            raise UnsupportedBinaryFormat(
+                "this kuna cannot decompile a 16-bit NE executable: it has no --raw-image "
+                "(kuna v1.993 or later is needed)",
+                magic="4d5a",
             )
+        refusal = _KUNA_IMPORT_RE.search(stderr)
+        if refusal is not None:
+            raise KunaNoBodyError(
+                f"kuna has no function body at 0x{va:08x}: import {refusal.group(1)}"
+            )
+        detail = stderr.strip().splitlines()
+        warnings.warn(
+            f"kuna failed decompiling 0x{va:08x} (exit {result.returncode}): "
+            f"{detail[0] if detail else 'no message'}",
+            stacklevel=3,
+        )
     except subprocess.TimeoutExpired:
         warnings.warn(f"kuna timed out decompiling 0x{va:08x}", stacklevel=3)
     except (OSError, subprocess.SubprocessError) as e:

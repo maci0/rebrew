@@ -130,6 +130,17 @@ class TestObjectArchFuzz:
             and result[1] in ("little", "big")
         )
 
+    def test_bytes_that_name_a_file_are_parsed_as_bytes(self) -> None:
+        """LIEF reads a ``bytes`` argument that names an existing path as that file.
+
+        Object bytes spelling ``mini.obj``'s path parsed mini.obj, and ``b"."``
+        opened the working directory (``std::bad_alloc`` in CI).
+        """
+        named = str(_MINI_OBJ.resolve()).encode()
+        assert object_arch(named) is None
+        assert load_coff(named) is None
+        assert object_arch(b".") is None
+
     def test_seed_corpus(self) -> None:
         assert object_arch(_MINI_OBJ.read_bytes()) == ("x86_32", "little")
         assert object_arch(_THUMB_ARM.read_bytes()) == ("arm32", "little")

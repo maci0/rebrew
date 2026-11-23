@@ -27,6 +27,7 @@ import threading
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
+lazy import io
 
 from rebrew.errors import RebrewError
 from rebrew.formats.binary_model import MAX_BINARY_SIZE, BinaryInfo, DataDirectory, SectionInfo
@@ -1523,7 +1524,7 @@ def object_arch(obj_data: bytes) -> tuple[str, str] | None:
 
     arch: str | None
     if obj_data.startswith(b"\x7fELF"):
-        elf = lief.ELF.parse(bytes(obj_data))
+        elf = lief.ELF.parse(io.BytesIO(obj_data))
         if elf is None:
             return None
         arch = _elf_arch(
@@ -1532,7 +1533,7 @@ def object_arch(obj_data: bytes) -> tuple[str, str] | None:
         big = elf.header.identity_data == lief.ELF.Header.ELF_DATA.MSB
         endian = "big" if big else "little"
     else:
-        coff = lief.COFF.parse(bytes(obj_data))
+        coff = lief.COFF.parse(io.BytesIO(obj_data))
         if coff is None:
             return None
         arch = _arch_maps()[0].get(coff.header.machine)

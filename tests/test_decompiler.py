@@ -775,6 +775,16 @@ class TestKunaBackend:
         with pytest.warns(UserWarning, match="boom"):
             assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
 
+    def test_fetch_kuna_blank_output_is_reported(self, tmp_path: Path, monkeypatch) -> None:
+        """Exit 0 with nothing printed is no decompilation, and says so."""
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        self._fake_kuna(monkeypatch, returncode=0, stdout="\n  \n", stderr="note: no function\n")
+        with pytest.warns(UserWarning, match=r"kuna printed no code for 0x00401000 .*no function"):
+            assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
+
     # Recorded from `kuna decompile tests/fixtures/mini_pe.exe 0x40104c --addr` (the IAT slot of GetTickCount).
     _KUNA_160_IMPORT = "// 0x40104c: external symbol -- no code at this address in this module\n"
     _KUNA_993_IMPORT_STDERR = (
