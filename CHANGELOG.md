@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- `rebrew <command>` starts in about 40% of the CPU it took: a run whose first argument after the root options names a built-in command mounts only that command instead of importing and registering all ~130 command modules. `rebrew test --help` costs 0.92 G user-space instructions and about 118 ms of CPU against 2.39 G and about 278 ms, and so does every child the ops server starts. Runs with no command, root `--help`, a plugin command or an option the entry scan does not know still compose the whole CLI. `rebrew.app.main.app` is composed on first access instead of at import; library callers that read it see every command as before. A plugin that reuses a built-in name is still ignored, but its warning prints only on the full path.
+
 ## [6.71.0] - 2026-11-22
 
 ### Changed

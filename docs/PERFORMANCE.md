@@ -2,6 +2,26 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## CLI startup mounts one command (2026-11-23)
+
+`rebrew --version` cost 2.01 G user-space instructions, against 0.06 G for
+`import rebrew`: composition imported and registered all ~130 command
+modules (about half of startup under cProfile), and typer converted the whole
+command tree to click (another quarter). `main()` now mounts only the invoked
+built-in when argv names one after root options alone, and
+`rebrew.app.builtins` builds each domain sub-app on first access. Base
+`22e0bd7b` against the candidate, `perf stat -r 15`, same host:
+
+| command | instructions | CPU (task-clock) |
+|---|---|---|
+| `python -P -m rebrew.app.main test --help` | 2.39 G -> 0.92 G | 278 ms -> 118 ms |
+| `rebrew ops --help` | 2.28 G -> 1.1 G | not measured |
+
+The test suite starts about 155 rebrew children per run (ops-server compiles,
+intake, the CLI contract tests). Two warm `-n auto` runs per tree: 2,676 G
+-> 2,475 G instructions, 16,256 -> 16,273 tests. Whole-suite task-clock was
+not comparable: the host's load average was 23-27 during the runs.
+
 ## Commands outside the earlier sets (2026-11-16)
 
 A one-run probe of the read-only commands the rounds above never measured

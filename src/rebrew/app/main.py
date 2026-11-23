@@ -6,6 +6,10 @@ The ``rebrew`` app is composed from components.  Every built-in tool is a
 ``rebrew.multicommands`` entry-point groups.  Both mount through the same
 :func:`rebrew.app.plugin.activate` call, so built-ins hold no privileged path and a
 component's declared service dependencies decide activation order.
+
+``app`` is composed on first access. :func:`main` mounts only the invoked
+command when argv names a built-in after root options alone, which skips
+importing the other ~130 command modules; anything else runs on ``app``.
 """
 
 from __future__ import annotations
@@ -14,7 +18,9 @@ import contextlib
 from typing import TYPE_CHECKING
 lazy import gc
 lazy import os
+lazy import re
 lazy import sys
+lazy import threading
 
 import typer
 from rich.console import Console
@@ -54,34 +60,41 @@ def _accept_output_format(value: str) -> str:
     return value
 
 
-app = typer.Typer(
-    cls=VersionedGroup,
-    help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
-    rich_markup_mode="rich",
-    context_settings={"help_option_names": ["--help", "-h"]},
-    epilog=(
-        "[bold]Examples:[/bold]\n\n"
-        "  # Create a project\n"
-        "  rebrew init\n\n"
-        "  # See reversing progress\n"
-        "  rebrew status\n\n"
-        "  # Choose the next function\n"
-        "  rebrew todo\n\n"
-        "  # Generate C source at an address\n"
-        "  rebrew skeleton 0x401000\n\n"
-        "  # Compile, compare, and record the verdict\n"
-        "  rebrew test src/game/f.c\n\n"
-        "  # Verify the project and report regressions\n"
-        "  rebrew verify --compare\n\n"
-        "  # Search for a byte match\n"
-        "  rebrew match run src/game/f.c\n\n"
-        "  # Machine-readable command document\n"
-        "  rebrew schema\n\n"
-        "test checks one function. test --all rechecks every file in the selected target without saved verdicts. verify covers every function and reuses cached verdicts unless --no-cache. --all-targets repeats a command for every configured target. Use test --no-promote to measure without recording metadata.\n\n"
-        "Use rebrew <command> --help for inputs and examples. Commands with --target use the project default unless you select another target; a final --target lists configured targets.\n\n"
-        "The schema command prints the clispec 0.3 document and stays JSON under -o text. Before any other subcommand, -o or --output selects auto, text, or json; auto stays text. After a command that writes a file, -o remains the destination path.\n\n"
-        "Exit codes: 0 success; 1 mismatch or failed check; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
-    ),
+def _new_root() -> typer.Typer:
+    """An umbrella app with the global options and no commands mounted."""
+    root = typer.Typer(
+        cls=VersionedGroup,
+        help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
+        rich_markup_mode="rich",
+        context_settings={"help_option_names": ["--help", "-h"]},
+        epilog=_ROOT_EPILOG,
+    )
+    root.callback()(_global_options)
+    return root
+
+
+_ROOT_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  # Create a project\n"
+    "  rebrew init\n\n"
+    "  # See reversing progress\n"
+    "  rebrew status\n\n"
+    "  # Choose the next function\n"
+    "  rebrew todo\n\n"
+    "  # Generate C source at an address\n"
+    "  rebrew skeleton 0x401000\n\n"
+    "  # Compile, compare, and record the verdict\n"
+    "  rebrew test src/game/f.c\n\n"
+    "  # Verify the project and report regressions\n"
+    "  rebrew verify --compare\n\n"
+    "  # Search for a byte match\n"
+    "  rebrew match run src/game/f.c\n\n"
+    "  # Machine-readable command document\n"
+    "  rebrew schema\n\n"
+    "test checks one function. test --all rechecks every file in the selected target without saved verdicts. verify covers every function and reuses cached verdicts unless --no-cache. --all-targets repeats a command for every configured target. Use test --no-promote to measure without recording metadata.\n\n"
+    "Use rebrew <command> --help for inputs and examples. Commands with --target use the project default unless you select another target; a final --target lists configured targets.\n\n"
+    "The schema command prints the clispec 0.3 document and stays JSON under -o text. Before any other subcommand, -o or --output selects auto, text, or json; auto stays text. After a command that writes a file, -o remains the destination path.\n\n"
+    "Exit codes: 0 success; 1 mismatch or failed check; 2 usage/config/build error; 130 interrupted; 141 output pipe closed."
 )
 
 
@@ -112,7 +125,6 @@ def _version_callback(value: bool) -> None:
         raise typer.Exit
 
 
-@app.callback()
 def _global_options(
     version: bool = typer.Option(
         False,
@@ -179,28 +191,89 @@ def cli_components() -> tuple[list[CliComponent], list[str]]:
     return components, warnings
 
 
+def _cli_context(root: typer.Typer) -> Context:
+    """A context providing *root* as the CLI service and the shared console."""
+    ctx = Context()
+    ctx.provide(CLI_SERVICE, root)
+    ctx.provide(CONSOLE_SERVICE, console)
+    return ctx
+
+
+#: The umbrella app; :func:`compose` mounts every component on it.
+_UMBRELLA = _new_root()
+_COMPOSE_LOCK = threading.Lock()
+
+
 def compose() -> tuple[Context, CoeffectScope]:
-    """Build the CLI context and activate every component on it.
+    """Build the CLI context and activate every component on the umbrella.
 
     Returns the context and its scope: the scope stays reactive, so a
     service provided later still activates its dependents — and the
     caller holds the fiber for teardown instead of dropping it.
     """
-    ctx = Context()
-    ctx.provide(CLI_SERVICE, app)
-    ctx.provide(CONSOLE_SERVICE, console)
+    ctx = _cli_context(_UMBRELLA)
     components, warnings = cli_components()
     for warning in warnings:
         ctx.resolve(CONSOLE_SERVICE).print(f"[yellow]warning:[/yellow] {warning}")
     return ctx, activate(components, ctx)
 
 
-# Import-time composition: importing this module mounts the CLI (library
-# callers introspect `app` without running the CLI). The module owns the
-# fiber, so the inverse accumulator is held instead of dropped —
-# compose()'s contract. Lifetime is the process: nothing unloads the
-# components before interpreter exit, so no earlier teardown point exists.
-_COMPOSED: tuple[Context, CoeffectScope] = compose()
+# `app` and `_COMPOSED` are composed on first access (module __getattr__), so
+# library callers that introspect `app` see every command while a CLI run of
+# one built-in (main) composes nothing else. The module owns the fiber, so the
+# inverse accumulator is held instead of dropped (compose()'s contract).
+# Lifetime is the process: nothing unloads the components before interpreter
+# exit, so no earlier teardown point exists.
+app: typer.Typer
+_COMPOSED: tuple[Context, CoeffectScope]
+
+
+def __getattr__(name: str) -> object:
+    if name not in ("app", "_COMPOSED"):
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    with _COMPOSE_LOCK:
+        if "_COMPOSED" not in globals():
+            globals()["_COMPOSED"] = compose()
+            globals()["app"] = _UMBRELLA
+    return globals()[name]
+
+
+#: Root options that take no value, and those that take the next argument.
+_ROOT_FLAGS = frozenset({"--version", "-V", "--verbose", "--quiet", "-q"})
+_ROOT_VALUE_OPTIONS = frozenset({"--output", "-o"})
+
+
+def _invoked_builtin(argv: list[str]) -> CliComponent | None:
+    """The built-in component *argv* runs, when only root options precede its name.
+
+    ``None`` for anything else (no command, ``--help``, a plugin or unknown
+    name, an option this scan does not know): the caller mounts the whole
+    umbrella, which handles every invocation. A plugin cannot take a built-in
+    name, so a built-in name always selects that built-in.
+    """
+    tokens = iter(argv)
+    for token in tokens:
+        if token in _ROOT_VALUE_OPTIONS:
+            next(tokens, None)
+        elif token in _ROOT_FLAGS or token.startswith("--output=") or _VERBOSE.fullmatch(token):
+            continue
+        elif token.startswith("-"):
+            return None
+        else:
+            return next((c for c in BUILTIN_COMPONENTS if c.name == token), None)
+    return None
+
+
+_VERBOSE = re.compile(r"-v+")
+
+
+def _single_command_app(
+    component: CliComponent,
+) -> tuple[typer.Typer, tuple[Context, CoeffectScope]]:
+    """A root with the global options and only *component* mounted, and its fiber."""
+    root = _new_root()
+    ctx = _cli_context(root)
+    return root, (ctx, activate([component], ctx))
 
 
 _STARTUP_GC_FROZEN = False
@@ -257,17 +330,27 @@ def _traced_command() -> Iterator[None]:
 
 
 def main() -> None:
-    """Package entry point for the ``rebrew`` umbrella CLI."""
-    # The import-time CLI graph (typer options, rich, registries) is live for
-    # the whole process but would be rescanned by every full collection. Move
-    # it to the permanent generation once, before the command allocates:
+    """Package entry point for the ``rebrew`` umbrella CLI.
+
+    A run of one built-in command mounts only that command; every other
+    invocation mounts the whole umbrella.
+    """
+    component = _invoked_builtin(sys.argv[1:])
+    # _fiber holds the single command's scope until the command returns. The
+    # module attribute (not a global lookup) reaches the lazy `app`.
+    entry, _fiber = (
+        _single_command_app(component) if component else (sys.modules[__name__].app, None)
+    )
+    # The startup CLI graph (typer options, rich, registries) is live for the
+    # whole process but would be rescanned by every full collection. Move it
+    # to the permanent generation once, before the command allocates:
     # `rebrew status` on 5,000 functions measured 0.16s of CPU in those scans.
     # Objects created after this point (including lazy command imports) stay
     # collectable, so watch and server modes keep collecting their own garbage.
     _freeze_startup_objects()
     gc.set_threshold(_GC_YOUNG_THRESHOLD, *gc.get_threshold()[1:])
     with _traced_command():
-        run_cli(app)
+        run_cli(entry)
 
 
 if __name__ == "__main__":

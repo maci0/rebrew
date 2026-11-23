@@ -15,4 +15,5 @@ Externals (the only packages this one may import): `cli`, `errors`, `registry`, 
 ## Contracts
 
 - **This package is a sink.** Nothing outside it imports it at module scope (`COMPOSITION_LAYER` in `tools/check_layering.py`); a command attaches itself to the umbrella inside its `register()`.
+- **A run of one built-in mounts only that built-in.** `main()` gives `rebrew <builtin> ...` a root with that component alone, and `builtins.py` composes a domain app on first access of `<domain>_app`. A command must not assume another component is mounted in its process; one that needs the whole command tree (`schema`) reads `rebrew.app.main.app`, which composes the umbrella on first access. `TestSingleCommandEntry` in `tests/test_main.py` checks the selection and the help it renders.
 - **New commands register here, not as console scripts.** Add a `CliComponent` row to `builtins.py`; `[project.scripts]` holds only `rebrew`. The root `AGENTS.md` CLI Conventions section owns the rest of the command rules.

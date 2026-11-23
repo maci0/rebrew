@@ -222,10 +222,16 @@ discovered components merge on top.  Conflict and failure policy per group:
 CLI tools (packaged and third-party) mount through `rebrew.app.plugin`.
 `main.compose()` provides the `cli` and `console` services, then
 `activate()` registers every `CliComponent` on a `CoeffectScope`.
-Composition runs at `rebrew.app.main` import, and the module keeps the
-context and scope (`_COMPOSED`) for the process lifetime: nothing
+Composition runs on first access of `rebrew.app.main.app`, and the module
+keeps the context and scope (`_COMPOSED`) for the process lifetime: nothing
 unmounts before interpreter exit, and there is no hot-reload. See
-[ADR 014](adr/014-component-composition.md).
+[ADR 014](adr/014-component-composition.md). A `rebrew` run whose first
+argument after the root options (`-o`/`--output`, `-v`, `-q`, `-V`) names a
+built-in command mounts only that command on a fresh root and imports no
+other command module; every other run (no command, root `--help`, a plugin
+command, an unknown name or option) composes the whole umbrella. A plugin
+that reuses a built-in name is ignored either way, but its warning prints
+only on the full path.
 The [Cordis guide](CORDIS.md) owns dependency, ownership, failure, and
 teardown contracts; the [tutorial](CORDIS_TUTORIAL.md) runs them end to end.
 

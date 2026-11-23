@@ -152,3 +152,53 @@ class TestPlainEntryErrorExit:
         assert b"Usage:" in proc.stderr
         assert b"objdiff-build" in proc.stderr
         assert b"Traceback" not in proc.stderr
+
+
+class TestSingleCommandEntry:
+    """main() mounts only the invoked built-in when argv allows it."""
+
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            (["test", "--json"], "test"),
+            (["-o", "json", "test"], "test"),
+            (["--output=json", "-vv", "--quiet", "-V", "ops", "serve"], "ops"),
+            (["--verbose", "-q", "source", "binding", "--help"], "source"),
+            ([], None),
+            (["--help"], None),
+            (["--version"], None),
+            (["-o"], None),
+            (["-x", "test"], None),
+            (["-ojson", "test"], None),
+            (["--", "test"], None),
+            (["definitely-not-a-command"], None),
+        ],
+    )
+    def test_argv_selects_a_builtin_only_after_root_options(
+        self, argv: list[str], expected: str | None
+    ) -> None:
+        from rebrew.app.main import _invoked_builtin
+
+        component = _invoked_builtin(argv)
+        assert (component.name if component else None) == expected
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["test", "--help"],  # module command
+            ["ops", "--help"],  # module group
+            ["source", "--help"],  # domain app
+            ["source", "binding", "--help"],  # domain subcommand
+            ["match", "--help"],  # domain on a module's own app
+        ],
+    )
+    def test_single_command_help_matches_the_umbrella(self, argv: list[str]) -> None:
+        from rebrew.app.main import _invoked_builtin, _single_command_app
+
+        component = _invoked_builtin(argv)
+        assert component is not None
+        single, _fiber = _single_command_app(component)
+        expected = runner.invoke(app, argv)
+        got = runner.invoke(single, argv)
+        assert expected.exit_code == got.exit_code == 0
+        assert got.output == expected.output

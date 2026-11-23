@@ -1,7 +1,8 @@
 """Packaged CLI components and their static domain membership.
 
 Domain apps use the same CliComponent activation as the umbrella. Each domain
-holds its context and scope for the app lifetime; retiring the umbrella mount
+is composed on first access of its ``<domain>_app`` attribute and then holds
+its context and scope for the app lifetime; retiring the umbrella mount
 removes the whole domain without changing another component's registrations.
 """
 
@@ -732,18 +733,29 @@ def _domain_app(name: str, *, base: typer.Typer | None = None) -> typer.Typer:
     return app
 
 
-source_app = _domain_app("source")
-types_app = _domain_app("types", base=importlib.import_module("rebrew.types_cli").app)
-build_app = _domain_app("build")
-diagnose_app = _domain_app("diagnose")
-binary_app = _domain_app("binary")
-library_app = _domain_app("library", base=importlib.import_module("rebrew.library").app)
-coverage_app = _domain_app("coverage")
-match_app = _domain_app("match", base=importlib.import_module("rebrew.match").app)
-binsync_app = _domain_app("binsync", base=importlib.import_module("rebrew.binsync.cli").app)
-similarity_app = _domain_app("similarity")
-dev_app = _domain_app("dev")
-export_app = _domain_app("export")
+#: Domains whose app starts from a module's own Typer app instead of a fresh one.
+_DOMAIN_BASES = {
+    "types": "rebrew.types_cli",
+    "library": "rebrew.library",
+    "match": "rebrew.match",
+    "binsync": "rebrew.binsync.cli",
+}
+
+
+def __getattr__(name: str) -> typer.Typer:
+    """``<domain>_app``, composed on first access and kept for the process.
+
+    The umbrella mounts each domain through ``attr="<domain>_app"``; composing
+    on access means a run that mounts one command imports no other domain.
+    """
+    domain = name.removesuffix("_app")
+    if domain == name or domain not in DOMAIN_COMPONENTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    base = _DOMAIN_BASES.get(domain)
+    app = _domain_app(domain, base=importlib.import_module(base).app if base else None)
+    globals()[name] = app
+    return app
+
 
 BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(

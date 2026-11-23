@@ -382,8 +382,9 @@ or prove that external background tasks or unmanaged resources have physically s
 new scopes, and out-of-band handles remain trusted orchestration boundaries.
 Isolation realms, service interception, typed event dispatch, asynchronous fibers,
 YAML loaders, configuration reconciliation, and hot module replacement are outside its API.
-The CLI composes at `rebrew.app.main` import and retains its context and scope in
-`_COMPOSED` for process lifetime. Incremental scope operations do not imply
+The CLI composes on first access of `rebrew.app.main.app` and retains its context and
+scope in `_COMPOSED` for process lifetime; a run of one built-in command mounts that
+command alone ([CLI composition](CLI.md)). Incremental scope operations do not imply
 that the umbrella command surface supports hot reload.
 
 Source and metadata edits, compiler artifacts, and network submissions are
