@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.74.0] - 2026-11-24
+
 ### Fixed
 
 - In-memory object and image parses read the bytes they were given again. 6.73.0 handed LIEF a `bytes` object, which LIEF opens as a file path when the bytes name an existing one: object bytes spelling a path parsed that file instead, and `b"."` opened the working directory and raised `MemoryError` (`std::bad_alloc`). `load_coff`, `object_arch`, `rebrew data list`'s archive owner scan, PDB export, toolchain object detection, and the PE parses in `binary_gate`, `postlink` and the relocation readers now pass an `io.BytesIO`.
