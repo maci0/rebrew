@@ -535,11 +535,32 @@ def _apply_output_choice(ctx: TyperContext) -> None:
     ctx.params["json_output"] = _json_mode_from_choice(ctx, bool(ctx.params.get("json_output")))
 
 
+#: Whether this process has written a stderr error object since
+#: :func:`run_cli` last reset it.
+_error_written = False
+
+#: Message of the envelope :func:`run_cli` appends when a JSON-mode command
+#: exits :data:`EXIT_ERROR` after reporting its cause only on stdout.
+_UNREPORTED_FAILURE = "command failed; the JSON document on stdout names the cause"
+
+
 def _write_error(kind: str, message: str, hint: str) -> None:
     """Write one clispec error object as the next stderr line."""
+    global _error_written
     payload = {"error": {"kind": kind, "message": message, "hint": hint}}
     sys.stderr.write(json.dumps(payload, separators=(",", ":")) + "\n")
     sys.stderr.flush()
+    _error_written = True
+
+
+def _close_unreported_failure(code: Any) -> None:
+    """Append the error object a JSON-mode ``EXIT_ERROR`` exit left out.
+
+    A command that prints its report and raises ``typer.Exit(EXIT_ERROR)``
+    would otherwise exit 2 with no error object on stderr.
+    """
+    if code == EXIT_ERROR and not _error_written and json_mode_active():
+        _write_error("failure", _UNREPORTED_FAILURE, "")
 
 
 def _install_click_error_hook() -> None:
@@ -1151,8 +1172,10 @@ def run_cli(app: Callable[[], Any]) -> None:
     shared ``--version``/``--verbose``/``--quiet`` flags from
     :func:`add_global_options`.
     """
+    global _error_written
     warnings.simplefilter("ignore", ConfigWarning)
     reset_verbosity()
+    _error_written = False
 
     def entry() -> None:
         if isinstance(app, typer.Typer):
@@ -1167,6 +1190,7 @@ def run_cli(app: Callable[[], Any]) -> None:
         except SystemExit as exc:
             if exc.code == EXIT_MISMATCH and _stdout_pipe_closed(stdout_was_fifo):
                 raise BrokenPipeError from None
+            _close_unreported_failure(exc.code)
             raise
         finally:
             # Flush here, not at interpreter exit, so a closed pipe raises
@@ -1196,6 +1220,7 @@ def run_cli(app: Callable[[], Any]) -> None:
         raise SystemExit(EXIT_SIGPIPE) from None
     except typer.Exit as e:
         # error_exit() outside click's handler: the message is already out.
+        _close_unreported_failure(e.exit_code)
         raise SystemExit(e.exit_code) from None
     except (ValueError, OSError, KeyError, RuntimeError) as e:
         if json_mode_active():

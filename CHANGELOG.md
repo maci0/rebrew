@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- A JSON-mode command that exits 2 after printing its report on stdout (`rebrew fix`, `rebrew forms`, `rebrew resource extract` on a PE without `.rsrc`, `rebrew build cmake-flags` with problems, `rebrew verify` on a 16-bit target it skips, and others) now ends stderr with `{"error":{"kind":"failure",...}}`, as `docs/CLI.md` requires; before, it wrote no error object. A command that already wrote one still writes only that one.
 - In-memory object and image parses (`load_coff`, `object_arch`, `rebrew data list`'s archive owner scan, PDB export, toolchain object detection) hand LIEF the bytes directly instead of a per-byte Python `list` copy: about 12x less CPU per parse on a 190 KB ELF, and no list of ints the size of the input.
 
 ## [6.72.0] - 2026-11-23

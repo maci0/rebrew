@@ -268,6 +268,60 @@ class TestRunCliConfigWarning:
         assert captured.out == ""
 
 
+def _report_then_fail_app(*, use_error_exit: bool = False) -> typer.Typer:
+    """A command that prints its JSON report, then exits EXIT_ERROR."""
+    app = typer.Typer()
+
+    @app.command()
+    def check(json_output: bool = typer.Option(False, "--json")) -> None:
+        json_print({"ok": False})
+        if use_error_exit:
+            error_exit("named cause", json_mode=json_output)
+        raise typer.Exit(code=EXIT_ERROR)
+
+    return app
+
+
+class TestRunCliFailureEnvelope:
+    def _run(
+        self,
+        app: typer.Typer,
+        argv: list[str],
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> tuple[int, str, str]:
+        monkeypatch.setattr(sys, "argv", ["rebrew", *argv])
+        with pytest.raises(SystemExit) as exc_info:
+            run_cli(app)
+        captured = capsys.readouterr()
+        return int(exc_info.value.code or 0), captured.out, captured.err
+
+    def test_bare_exit_error_in_json_mode_ends_stderr_with_envelope(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code, out, err = self._run(_report_then_fail_app(), ["--json"], monkeypatch, capsys)
+        assert code == EXIT_ERROR
+        assert json.loads(out) == {"ok": False}
+        assert json.loads(err.strip().splitlines()[-1])["error"]["kind"] == "failure"
+
+    def test_error_exit_envelope_is_not_duplicated(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        app = _report_then_fail_app(use_error_exit=True)
+        code, _, err = self._run(app, ["--json"], monkeypatch, capsys)
+        assert code == EXIT_ERROR
+        lines = err.strip().splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0])["error"]["message"] == "named cause"
+
+    def test_text_mode_writes_no_envelope(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        code, _, err = self._run(_report_then_fail_app(), [], monkeypatch, capsys)
+        assert code == EXIT_ERROR
+        assert '"error"' not in err
+
+
 # ---------------------------------------------------------------------------
 # require_config()
 # ---------------------------------------------------------------------------
