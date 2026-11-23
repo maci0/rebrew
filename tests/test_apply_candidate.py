@@ -1606,24 +1606,12 @@ def _target_request(entries: list[dict[str, Any]], op: str) -> bytes:
     return json.dumps(body).encode()
 
 
-@pytest.mark.parametrize(
-    ("op", "request_of"),
-    [
-        (
-            "rebrew.verify_function",
-            lambda entries: _request(entries, candidate="void fcn_00401000(void) {}\n"),
-        ),
-        ("rebrew.verify_target", lambda entries: _target_request(entries, "rebrew.verify_target")),
-        ("rebrew.build", lambda entries: _target_request(entries, "rebrew.build")),
-    ],
-    ids=["verify_function", "verify_target", "build"],
-)
+@pytest.mark.parametrize("op", ["rebrew.verify_function", "rebrew.verify_target", "rebrew.build"])
 @pytest.mark.parametrize("failure", [None, "toolchain_failure"], ids=["compiled", "rejected"])
 def test_no_reply_names_a_path_of_the_engines_host(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     op: str,
-    request_of: Any,
     failure: str | None,
 ) -> None:
     """A host or work-directory path never leaves the engine, in any member of a reply."""
@@ -1632,7 +1620,12 @@ def test_no_reply_names_a_path_of_the_engines_host(
         config, entries = _compiling_at(
             url, tmp_path, monkeypatch, ("src/function_structure.json", b"[]")
         )
-        status, raw = dispatch(config, op, request_of(entries))
+        request = (
+            _request(entries, candidate="void fcn_00401000(void) {}\n")
+            if op == "rebrew.verify_function"
+            else _target_request(entries, op)
+        )
+        status, raw = dispatch(config, op, request)
     assert status in (200, 422), raw
     roots = {str(root) for root in (tmp_path, tmp_path.resolve(), config.workspace)}
 
