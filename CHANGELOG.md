@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.73.0] - 2026-11-23
+
 ### Changed
 
 - `rebrew lint`, `rebrew recommend`, `rebrew status` and the coverage grid read `rebrew-data.toml` through the shared process cache instead of deep-copying the whole store once per run; they only read it. The read-only scans in `orphans`, `rename`, `verify` (data status lookup), `data` annotate/placement/pair, `cross-import`, `round-trip`, `reloc-diff`, `symbolize`, `source rehome`, `source units`, `source anchors`, `source merge`, relocation validation, the generated globals header, PDB export and source binding do the same for `rebrew-functions.toml` and `rebrew-data.toml`. A `lint_file` call without preloaded rows also stops rebuilding its `.data` name set on every call, since the cached document keeps its identity.
