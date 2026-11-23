@@ -57,7 +57,7 @@ def materialize_anchors(
     if config.exists():
         inputs.add(config)
     original = {path: snapshot_input(path) for path in inputs}
-    entries = load_metadata(cfg.metadata_dir)
+    entries = load_metadata(cfg.metadata_dir, deepcopy=False)
     changes = []
     bindings = []
     for path in paths:
