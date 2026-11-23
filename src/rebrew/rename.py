@@ -615,7 +615,7 @@ def _plan_data(
     from rebrew.utils import preset_module_key
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
-    rows = load_data_metadata(cfg.metadata_dir)
+    rows = load_data_metadata(cfg.metadata_dir, deepcopy=False)
     scan_files = {
         (getattr(e, "module", "") or "", getattr(e, "va", 0)): getattr(e, "filepath", "")
         for e in entries

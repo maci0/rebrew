@@ -390,7 +390,7 @@ def data_symbols(cfg: Any) -> list[DataSymbol]:
         if not entry.va or entry.storage_kind == "span" or entry.va in by_va:
             continue
         by_va[entry.va] = DataSymbol(entry.va, entry.name, entry.type_str, entry.size or None)
-    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+    for (module, va), fields in load_data_metadata(cfg.metadata_dir, deepcopy=False).items():
         name = fields.get("name")
         if not isinstance(name, str) or not name or fields.get("storage_kind") == "span":
             continue

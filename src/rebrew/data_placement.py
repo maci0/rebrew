@@ -190,7 +190,7 @@ def span_data_placements(cfg: ProjectConfig, built: Path) -> dict[tuple[str, int
     reference, image = load_binary(cfg.target_binary), load_binary(built)
     aliases = {".bss": ".data", ".idata": ".rdata"}
     result = {}
-    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+    for (module, va), fields in load_data_metadata(cfg.metadata_dir, deepcopy=False).items():
         if fields.get("storage_kind") != "span" or not module_visible_to_target(module, cfg):
             continue
         name = str(fields.get("section") or "")

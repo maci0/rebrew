@@ -394,7 +394,7 @@ class _Project:
         if self._data_rows is None:
             from rebrew.metadata.data import load_data_metadata
 
-            self._data_rows = load_data_metadata(self.metadata_dir)
+            self._data_rows = load_data_metadata(self.metadata_dir, deepcopy=False)
         return self._data_rows
 
     def stored_file(self, path: Path) -> str:
@@ -1506,7 +1506,7 @@ def plan_header_row_rename(
     """Rename a metadata-only library identity; inventory comments are never state."""
     from rebrew.metadata.functions import load_metadata
 
-    rows = load_metadata(cfg.metadata_dir)
+    rows = load_metadata(cfg.metadata_dir, deepcopy=False)
     stored = rows.get((module, va))
     if not stored or stored.get("kind") != "LIBRARY":
         return None

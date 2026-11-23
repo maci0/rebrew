@@ -60,7 +60,7 @@ def defined_data_rows(cfg: Any, link_symbols: set[str]) -> list[DataRow]:
     from rebrew.utils import is_safe_c_ident
 
     rows: list[DataRow] = []
-    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+    for (module, va), fields in load_data_metadata(cfg.metadata_dir, deepcopy=False).items():
         name = str(fields.get("name") or "")
         if (
             not name

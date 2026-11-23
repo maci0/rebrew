@@ -906,7 +906,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
             else:
                 funcs[ann.va] = key
 
-    for (mod, va), meta in load_data_metadata(cfg.metadata_dir).items():
+    for (mod, va), meta in load_data_metadata(cfg.metadata_dir, deepcopy=False).items():
         if mod == target_module_name and meta.get("name"):
             data[meta["name"]] = va
             if meta.get("link_symbol"):

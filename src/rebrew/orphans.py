@@ -117,7 +117,7 @@ def find_orphans(
         and (module, va) not in live
         and va not in known_vas
     ]
-    data_entries = load_data_metadata(cfg.metadata_dir)
+    data_entries = load_data_metadata(cfg.metadata_dir, deepcopy=False)
     data_orphans = [
         (module, va, "rebrew-data.toml")
         for (module, va) in sorted(data_entries)
@@ -178,7 +178,7 @@ def orphan_dicts(
     from rebrew.metadata.functions import load_metadata
 
     fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
-    data_entries = load_data_metadata(cfg.metadata_dir)
+    data_entries = load_data_metadata(cfg.metadata_dir, deepcopy=False)
     dicts = []
     for module, va, store in fn_orphans + data_orphans:
         entries = data_entries if store == "rebrew-data.toml" else fn_entries

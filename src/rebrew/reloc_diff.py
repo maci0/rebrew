@@ -106,7 +106,7 @@ def data_row_index(cfg: Any) -> NameIndex:
 
     rows = [
         (va, int(fields.get("size") or 0), str(fields["name"]))
-        for (module, va), fields in load_data_metadata(cfg.metadata_dir).items()
+        for (module, va), fields in load_data_metadata(cfg.metadata_dir, deepcopy=False).items()
         if fields.get("name") and module_visible_to_target(module, cfg)
     ]
     return NameIndex(rows)

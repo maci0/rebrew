@@ -397,7 +397,9 @@ def mark_literal_rows(
     conflicts: list[dict[str, Any]] = []
     unchanged = 0
     updates: list[dict[str, Any]] = []
-    for (row_module, va), row in sorted(load_data_metadata(cfg.metadata_dir).items()):
+    for (row_module, va), row in sorted(
+        load_data_metadata(cfg.metadata_dir, deepcopy=False).items()
+    ):
         names = literals.get(va)
         if row_module != module or not names:
             continue

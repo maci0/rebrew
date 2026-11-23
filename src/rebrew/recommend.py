@@ -1045,7 +1045,7 @@ def _collect_hygiene(
 
         data_entries = [
             (module, va, fields)
-            for (module, va), fields in load_data_metadata(cfg.metadata_dir).items()
+            for (module, va), fields in load_data_metadata(cfg.metadata_dir, deepcopy=False).items()
             if module_visible_to_target(module, cfg)
         ]
         drift = [

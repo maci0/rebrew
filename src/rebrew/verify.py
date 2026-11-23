@@ -1307,7 +1307,7 @@ def main(
                 set_data_fields_batch,
             )
 
-            entries = load_data_metadata(cfg.metadata_dir)
+            entries = load_data_metadata(cfg.metadata_dir, deepcopy=False)
             status_updates: list[dict[str, Any]] = []
             for row in data_report["results"]:
                 module, va, status = row["module"], int(row["va"], 16), row["status"]
