@@ -77,6 +77,8 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
         nonlocal original, expected_documents
         result = intake(binary, root, target)
         cfg = load_config(root, target=target)
+        # Mostly three-byte UTF-8 text: the registry passes 1 MiB in fewer
+        # characters, which the TOML writers and parsers walk one at a time.
         record_function_rows(
             cfg.metadata_dir,
             [
@@ -86,11 +88,11 @@ def test_fresh_capture_has_verified_self_contained_sqlite(
                     "identity": {"name": f"synthetic_function_{index:05d}"},
                     "fields": {
                         "size": 16,
-                        "blocker": f"Synthetic function {index:05d}: recover argument types, control flow and data references before compiling the implementation. "
-                        * 20,
+                        "blocker": f"合成関数 {index:05d}：実装をコンパイルする前に、引数の型、制御フロー、データ参照を復元する。"
+                        * 550,
                     },
                 }
-                for index in range(512)
+                for index in range(16)
             ],
             updated_by="intake",
         )

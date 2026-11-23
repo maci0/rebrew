@@ -7,11 +7,13 @@ import hashlib
 import json
 import shutil
 from typing import Any
+lazy from collections.abc import Callable, Iterator
 lazy from pathlib import Path
 
 import pytest
 from decompiler_engine import offer_decompilers
 from session_cache import build_once
+from test_analysis_capture_inventory import _copied_intake, _session_intake
 from test_ops import KEY, SHA256, _analyse_request, _op_schema, _store, _validate, _worker_dirs
 
 import rebrew.ops as ops
@@ -24,6 +26,24 @@ RENAMED_VA = 0x401010
 DATA_VA = 0x402000
 REGISTRY = "rebrew-functions.toml"
 CONFIG = "rebrew-project.toml"
+
+
+#: ``ops._run_intake``'s signature.
+Intake = Callable[[Path, Path, str], dict[str, Any]]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def real_intake(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Intake]:
+    """The real intake; every intake the module's analyses run is :func:`_copied_intake`.
+
+    A copy into an existing project adds only the files it lacks, as a real
+    re-intake of an unchanged published project does. :func:`_reanalysed` runs
+    the real one into its published project, once per session.
+    """
+    real = ops._run_intake
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ops, "_run_intake", _copied_intake(*_session_intake(tmp_path_factory)))
+        yield real
 
 
 def _call(config: WorkerConfig, op: str, request: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -163,13 +183,24 @@ def _published(tmp_path_factory: pytest.TempPathFactory) -> Published:
     return root.resolve(), tree
 
 
-def _reanalysed(tmp_path_factory: pytest.TempPathFactory) -> Reanalysed:
-    """The session's one plain re-analysis after :func:`_published`; never written."""
+def _reanalysed(tmp_path_factory: pytest.TempPathFactory, real: Intake) -> Reanalysed:
+    """The session's one plain re-analysis after :func:`_published`; never written.
+
+    Its intake into the published project is *real*, the capture's a copy.
+    """
 
     def build(root: Path) -> dict[str, Any]:
         published, tree = _published(tmp_path_factory)
         config, _ = _worker_copy((published, tree), root)
-        return {"tree": tree, "capture": _analyse(config)["analysis_capture"]}
+        copied = ops._run_intake
+
+        def reintake(binary: Path, project: Path, target: str) -> dict[str, Any]:
+            return (real if any(project.iterdir()) else copied)(binary, project, target)
+
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(ops, "_run_intake", reintake)
+            capture = _analyse(config)["analysis_capture"]
+        return {"tree": tree, "capture": capture}
 
     root, built = build_once(tmp_path_factory, "carry-v1-reanalysed", build)
     return root.resolve(), built["tree"], built["capture"]
@@ -197,9 +228,9 @@ def v1_published(tmp_path_factory: pytest.TempPathFactory) -> Published:
 
 
 @pytest.fixture(scope="module")
-def v1_analysed(tmp_path_factory: pytest.TempPathFactory) -> Reanalysed:
+def v1_analysed(tmp_path_factory: pytest.TempPathFactory, real_intake: Intake) -> Reanalysed:
     """The session's version 1 publish and its plain re-analysis."""
-    return _reanalysed(tmp_path_factory)
+    return _reanalysed(tmp_path_factory, real_intake)
 
 
 def _with_fresh_data(note: str) -> Any:
