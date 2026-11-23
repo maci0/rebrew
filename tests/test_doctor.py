@@ -1452,3 +1452,23 @@ class TestInventorySpanNumbers:
             json.dumps([{"va": "0x1000", "size": "0x10"}]), encoding="utf-8"
         )
         assert _inventory_spans(_make_cfg(tmp_path)) == [(0x1000, 16)]
+
+
+def test_doctor_lists_each_decompiler_and_what_it_lacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same states rebrew.vocabulary reports for the engine, with the same reasons."""
+    from rebrew import decompiler
+    from rebrew.doctor import _OK, check_decompilers
+
+    monkeypatch.setattr(decompiler, "_states", {})
+    monkeypatch.setattr(
+        decompiler,
+        "_check",
+        lambda name, _endpoint: (
+            decompiler.BackendState(name, "available")
+            if name == "kuna"
+            else decompiler.BackendState(name, "not-installed", "no-rizin")
+        ),
+    )
+    result = check_decompilers()
+    assert result.status == _OK
+    assert result.message.startswith("available: kuna; not available: r2ghidra (neither rizin")

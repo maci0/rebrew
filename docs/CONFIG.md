@@ -647,6 +647,11 @@ rebrew receives.
   (Dockerfiles / wrappers). Default: sibling of this install.
 - `REBREW_TOOLCHAIN_OVERLAY_DIR`: directory of extra toolchain TOML overlays
   (plugin-style profiles without editing host source).
+- `REBREW_GHIDRA_MCP_ENDPOINT`: the ReVa MCP endpoint of a Ghidra the `ghidra`
+  decompiler uses (an `http(s)` URL with a host and without credentials; anything
+  else fails the call that reads it). Unset, `rebrew ops` offers no `ghidra`
+  decompiler (`rebrew.vocabulary` lists it `not-installed`, `no-endpoint`), and
+  `rebrew decompile` and `rebrew doctor` use `http://localhost:8080/mcp/message`.
 - `REBREW_FLIRT_SIGS_DIR`: path to the `recondb` checkout, release 2.0.0 or later
   (an older checkout's `sigs/index.json` keys files by name and is refused).
   Default: the sibling of the rebrew source checkout, which a wheel install

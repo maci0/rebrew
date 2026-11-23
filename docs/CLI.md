@@ -709,7 +709,11 @@ Decompile one function and print the pseudo-C (pipeable to a file), or write
 C directly with `--output FILE` in text mode. The registered backends are shared
 with `types recover`; prerequisites depend on the selected provider: the `kuna`
 executable, radare2/rizin plugins, ReVa MCP, or the optional `m2c` decompiler
-from the pinned Git dependency for its supported MIPS/PPC/ARM/SH targets.
+from the pinned Git dependency for its supported MIPS/PPC/ARM/SH targets. A
+packaged backend that cannot run here is refused before anything runs (error kind
+`decompiler_not_available`, with what it lacks); `rebrew doctor` lists every
+packaged backend's state from the same check. Ghidra is reached at
+`REBREW_GHIDRA_MCP_ENDPOINT`, else `http://localhost:8080/mcp/message`.
 
 `--named` applies the **known-struct naming pass** (`rebrew.name_decomp`):
 decompiler output types struct pointers as primitives (`int a1` +
@@ -7109,7 +7113,17 @@ registry withdrew it, or the remote compile service has not installed it; nothin
 was compiled or billed, a retry is refused the same, so choose another compiler, see
 [TOOLCHAIN.md](TOOLCHAIN.md#compile-backends); `verify_target` and `build` check the
 project's compiler before anything runs, and a source whose own toolchain override
-names such a compiler reads `NOT_RUN` with the reason in its row), `candidate-not-one-function` (400),
+names such a compiler reads `NOT_RUN` with the reason in its row),
+`decompiler-not-offered` (400, `rebrew.decompile`, `rebrew.decompile_snapshot` and
+`rebrew.structs`, before any work: the decompiler the request names is not installed
+on this engine or no Ghidra endpoint is configured, the detail a fixed sentence such
+as `decompiler 'ghidra' is not offered here: no Ghidra endpoint is configured`; `auto`,
+which picks among the available backends it probes (`r2ghidra`, `r2dec`, `kuna`), is
+refused `no decompiler 'auto' probes is offered here` when none is; choose a backend
+`rebrew.vocabulary` lists `available`), `decompiler-unreachable` (503 with
+`Retry-After: 30`: the configured Ghidra endpoint did not answer, before or during
+the decompile; the transport error goes to the worker log, bounded),
+`candidate-not-one-function` (400),
 `candidate-address-comment` (400) and `candidate-name-taken` (409, see `apply_candidate`
 below), `deadline-exceeded` (504, see the deadlines below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,
 written to a caller that has already closed). An engine failure no refusal
@@ -7332,6 +7346,16 @@ Op details the contract leaves open:
   hex (optionally `_`/`@`-prefixed and `@N`/`@@N`-decorated), `fcn.<hex>`,
   `g_` plus 4 to 8 hex digits, and `fn_0x<hex>` optionally followed by `_` and
   anything. Prefixes are case-sensitive; hex digits take either case.
+  `decompilers` lists every decompiler the ops name but `auto` (`ghidra`, `kuna`,
+  `r2dec`, `r2ghidra`) with whether it can run on this engine: `{name, state}`,
+  `state` one of `available`, `not-installed` and `unreachable`, plus a `reason`
+  when it is not available: `no-rizin` (neither rizin nor radare2 on PATH),
+  `no-plugin` (rizin loads no plugin serving the backend's `pdg` or `pdd`),
+  `no-kuna`, `no-m2c`, `no-endpoint` (no `REBREW_GHIDRA_MCP_ENDPOINT`; the engine
+  has no default Ghidra) or `endpoint-unreachable` (the configured endpoint opened
+  no MCP session). Each state is checked again at most every 30 s
+  (`rebrew.decompiler.STATE_WINDOW_SECONDS`), so an installed plugin or a Ghidra
+  brought up is offered without a restart.
 - `rebrew.check_cflags` `{cflags}` answers `{cflags}`: the flag string as every
   compiling op uses it (`rebrew.ops.checked_cflags`), tokens joined by single
   spaces. A string over 256 characters, a token that is not a plain option, or

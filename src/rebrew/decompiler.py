@@ -1237,6 +1237,18 @@ DecompilerReason = Literal[
 ]
 
 
+#: What a not-available backend lacks, by :data:`DecompilerReason`: the fixed
+#: sentence every refusal and listing gives.
+REASON_TEXT: dict[str, str] = {
+    "no-rizin": "neither rizin nor radare2 is installed",
+    "no-plugin": "rizin loads no plugin for it",
+    "no-kuna": "kuna is not installed",
+    "no-m2c": "m2c is not installed",
+    "no-endpoint": "no Ghidra endpoint is configured",
+    "endpoint-unreachable": "the configured Ghidra endpoint did not answer",
+}
+
+
 @dataclass(frozen=True)
 class BackendState:
     """Whether one packaged backend can run here, and if not, why."""
@@ -1272,6 +1284,17 @@ _PLUGIN_COMMANDS = {"r2ghidra": "pdg", "r2dec": "pdd"}
 #: (name, endpoint) -> (monotonic time checked, state).
 _states: dict[tuple[str, str | None], tuple[float, BackendState]] = {}
 _states_lock = threading.Lock()
+
+
+def cli_backend_state(name: str) -> BackendState:
+    """:func:`backend_state` for a CLI run: Ghidra at the configured endpoint, else the default.
+
+    Every ``--endpoint`` option offers :data:`rebrew.ghidra.DEFAULT_MCP_ENDPOINT`,
+    so a CLI run has an endpoint even when none is configured; ``rebrew ops``
+    has none then.
+    """
+    ghidra = importlib.import_module("rebrew.ghidra")
+    return backend_state(name, endpoint=configured_ghidra_endpoint() or ghidra.DEFAULT_MCP_ENDPOINT)
 
 
 def configured_ghidra_endpoint() -> str | None:

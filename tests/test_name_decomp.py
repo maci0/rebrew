@@ -1,9 +1,12 @@
 """Tests for name_decomp.py — applying known struct names to decompiler output."""
 
+import json
 from typing import ClassVar
+lazy from pathlib import Path
 
 import pytest
 from cli_json import cli_payload
+from decompiler_engine import offer_decompilers
 from source_util import write_source
 
 from rebrew.name_decomp import (
@@ -362,6 +365,7 @@ class TestCli:
             return "int a0;\n*(char *)(a0 + 0x10) = 1;\n*(int *)(a0 + 0x14) = 2;\n", backend
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
+        offer_decompilers(monkeypatch, "kuna")
         result = CliRunner().invoke(main_mod.app, ["decompile", "0x401000", "--named", "--json"])
         assert result.exit_code == 0, result.output
         data = cli_payload(result)
@@ -403,6 +407,7 @@ class TestCli:
             return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", backend
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
+        offer_decompilers(monkeypatch, "kuna")
         out = tmp_path / "decomp.c"
         result = CliRunner().invoke(main_mod.app, ["decompile", "0x401000", "--output", str(out)])
         assert result.exit_code == 0, result.output
@@ -441,12 +446,64 @@ class TestCli:
             return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", backend
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
+        offer_decompilers(monkeypatch, "kuna")
         result = CliRunner().invoke(main_mod.app, ["decompile", "0x401000", "--json"])
         assert result.exit_code == 0, result.output
         data = cli_payload(result)
         assert data["named"] is False
         assert data["applied"] == []
         assert "*(char *)(a0 + 0x10) = 1;" in data["code"]
+
+
+class TestCliDecompilerNotAvailable:
+    @pytest.mark.parametrize(
+        ("decompiler", "detail"),
+        [
+            ("kuna", "kuna is not installed"),
+            ("ghidra", "the configured Ghidra endpoint did not answer"),
+        ],
+    )
+    def test_a_decompiler_that_cannot_run_is_refused_before_it_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, decompiler: str, detail: str
+    ) -> None:
+        """The CLI reads the same states as ``rebrew.vocabulary`` and ``rebrew doctor``."""
+        import shutil
+        import socket
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.app.main as main_mod
+        from rebrew import decompiler as dc
+
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        monkeypatch.setenv("REBREW_GHIDRA_MCP_ENDPOINT", f"http://127.0.0.1:{port}/mcp/message")
+        monkeypatch.setattr(dc, "_states", {})
+        real = shutil.which
+        monkeypatch.setattr(
+            dc.shutil,
+            "which",
+            lambda name, *a, **k: None if name == "kuna" else real(name, *a, **k),
+        )
+
+        def ran(*_args: object, **_kwargs: object) -> object:
+            raise AssertionError("the decompiler ran")
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", ran)
+        cfg = SimpleNamespace(target_binary=tmp_path / "x.exe", root=tmp_path)
+        monkeypatch.setattr("rebrew.name_decomp.require_config", lambda **kw: cfg)
+        result = CliRunner().invoke(
+            main_mod.app, ["decompile", "0x401000", "--decompiler", decompiler, "--json"]
+        )
+        assert result.exit_code != 0
+        error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
+        assert error == {
+            "kind": "decompiler_not_available",
+            "message": f"decompiler '{decompiler}' is not available here: {detail}",
+            "hint": "",
+        }
 
 
 class TestSharedModelLayouts:

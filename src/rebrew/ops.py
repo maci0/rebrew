@@ -491,17 +491,6 @@ def _invalid(detail: str) -> OpsError:
     return OpsError(detail, code=INVALID_REQUEST, status=400)
 
 
-#: What a not-available decompiler lacks, by :data:`rebrew.decompiler.DecompilerReason`.
-_DECOMPILER_MISSING = {
-    "no-rizin": "neither rizin nor radare2 is installed",
-    "no-plugin": "rizin loads no plugin for it",
-    "no-kuna": "kuna is not installed",
-    "no-m2c": "m2c is not installed",
-    "no-endpoint": "no Ghidra endpoint is configured",
-    "endpoint-unreachable": "the configured Ghidra endpoint did not answer",
-}
-
-
 def engine_decompilers() -> list[Any]:
     """The :class:`~rebrew.decompiler.BackendState` of every decompiler the ops name.
 
@@ -526,6 +515,7 @@ def _refuse_unoffered_decompiler(name: str) -> None:
     """
     from rebrew.decompiler import (
         BACKENDS,
+        REASON_TEXT,
         STATE_WINDOW_SECONDS,
         backend_state,
         configured_ghidra_endpoint,
@@ -544,7 +534,7 @@ def _refuse_unoffered_decompiler(name: str) -> None:
     state = backend_state(name, endpoint=endpoint)
     if state.reason is None:
         return
-    missing = _DECOMPILER_MISSING[state.reason]
+    missing = REASON_TEXT[state.reason]
     if state.state == "unreachable":
         raise OpsError(
             f"decompiler '{name}' is unavailable: {missing}",

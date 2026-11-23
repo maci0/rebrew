@@ -1202,6 +1202,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_external_libs(cfg))
     report.checks.append(check_layout_package(cfg))
     report.checks.append(check_optional_tools())
+    report.checks.append(check_decompilers())
     report.checks.append(check_flirt_sigs(cfg))
     report.checks.append(check_ghidra_sync(cfg))
     report.checks.append(check_binsync_state(cfg))
@@ -1364,6 +1365,31 @@ def check_optional_tools() -> CheckResult:
         status=_WARN,
         message="angr + claripy missing (for 'rebrew prove')",
         fix=_prove_install_fix(optional=True),
+    )
+
+
+def check_decompilers() -> CheckResult:
+    """Which packaged decompiler backends can run here (``rebrew.decompiler.cli_backend_state``).
+
+    The same states ``rebrew.vocabulary`` reports for the engine; Ghidra is
+    probed at the configured endpoint, else the default every ``--endpoint`` offers.
+    """
+    from rebrew.decompiler import PACKAGED_BACKEND_MAP, REASON_TEXT, cli_backend_state
+
+    states = [cli_backend_state(name) for name in PACKAGED_BACKEND_MAP]
+    available = [state.name for state in states if state.reason is None]
+    missing = [f"{state.name} ({REASON_TEXT[state.reason]})" for state in states if state.reason]
+    message = f"available: {', '.join(available) or 'none'}"
+    if missing:
+        message += f"; not available: {'; '.join(missing)}"
+    return CheckResult(
+        name="Decompilers",
+        status=_OK if available else _WARN,
+        message=message,
+        fix=""
+        if available
+        else "Install kuna or rizin with rz-ghidra, or configure Ghidra "
+        "(REBREW_GHIDRA_MCP_ENDPOINT), to decompile.",
     )
 
 

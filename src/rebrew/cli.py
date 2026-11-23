@@ -624,6 +624,10 @@ TOOLCHAIN_REJECTED_KIND = "toolchain_rejected"
 #: service's deployment): nothing was compiled or billed.
 COMPILER_NOT_OFFERED_KIND = "compiler_not_offered"
 
+#: The ``error_exit`` kind of a decompile refused before it ran because its
+#: decompiler cannot run here (``rebrew.decompiler.cli_backend_state``).
+DECOMPILER_NOT_AVAILABLE_KIND = "decompiler_not_available"
+
 
 class CommandExit(typer.Exit):
     """The exit :func:`error_exit` raises: its JSON error *kind* and *message* ride along.
@@ -1562,6 +1566,7 @@ __all__ = [
     "CFLAGS_HELP",
     "COMPILER_NOT_OFFERED_KIND",
     "CREATE_MISSING_HELP",
+    "DECOMPILER_NOT_AVAILABLE_KIND",
     "DIR_HELP",
     "EXIT_ERROR",
     "EXIT_INTERRUPTED",

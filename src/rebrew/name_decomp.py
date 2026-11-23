@@ -39,7 +39,15 @@ lazy from pathlib import Path
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    DECOMPILER_NOT_AVAILABLE_KIND,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.decompiler import BACKEND_HELP_CHOICES, complete_backends
 lazy from rebrew.struct_recover import (
     PSEUDO_TYPES,
@@ -635,8 +643,21 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
     va = parse_va(address, json_mode=json_output)
 
-    from rebrew.decompiler import fetch_decompilation
+    from rebrew.decompiler import (
+        PACKAGED_BACKEND_MAP,
+        REASON_TEXT,
+        cli_backend_state,
+        fetch_decompilation,
+    )
 
+    if decompiler in PACKAGED_BACKEND_MAP:
+        state = cli_backend_state(decompiler)
+        if state.reason is not None:
+            error_exit(
+                f"decompiler '{decompiler}' is not available here: {REASON_TEXT[state.reason]}",
+                json_mode=json_output,
+                kind=DECOMPILER_NOT_AVAILABLE_KIND,
+            )
     code, backend = fetch_decompilation(decompiler, cfg.target_binary, va, cfg.root)
     if not code:
         error_exit(
