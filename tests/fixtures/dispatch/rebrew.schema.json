@@ -68,6 +68,150 @@
       "type": "object"
     }
   },
+  "errors": {
+    "analysis-capture-failed": {
+      "status": [
+        500
+      ]
+    },
+    "caller-gone": {
+      "status": [
+        499
+      ]
+    },
+    "candidate-address-comment": {
+      "status": [
+        400
+      ]
+    },
+    "candidate-name-taken": {
+      "status": [
+        409
+      ]
+    },
+    "candidate-not-one-function": {
+      "status": [
+        400
+      ]
+    },
+    "compile-not-run": {
+      "status": [
+        503
+      ]
+    },
+    "compiler-not-offered": {
+      "status": [
+        400
+      ]
+    },
+    "coverage-input-unverified": {
+      "status": [
+        409
+      ]
+    },
+    "cross-origin": {
+      "status": [
+        403
+      ]
+    },
+    "deadline-exceeded": {
+      "status": [
+        504
+      ]
+    },
+    "decompiler-not-offered": {
+      "status": [
+        400
+      ]
+    },
+    "decompiler-unreachable": {
+      "status": [
+        503
+      ]
+    },
+    "engine-error": {
+      "status": [
+        500
+      ]
+    },
+    "host-not-allowed": {
+      "status": [
+        403
+      ]
+    },
+    "invalid-project-config": {
+      "status": [
+        400
+      ]
+    },
+    "invalid-request": {
+      "status": [
+        400,
+        411,
+        413,
+        414,
+        415,
+        431,
+        501,
+        505
+      ]
+    },
+    "malformed-signatures": {
+      "status": [
+        422
+      ]
+    },
+    "method-not-allowed": {
+      "status": [
+        405
+      ]
+    },
+    "project-import-refused": {
+      "status": [
+        422
+      ]
+    },
+    "readset-too-large": {
+      "status": [
+        422
+      ]
+    },
+    "remote-compile-headers": {
+      "status": [
+        422
+      ]
+    },
+    "report-output-invalid": {
+      "status": [
+        500
+      ]
+    },
+    "toolchain-rejected": {
+      "status": [
+        422
+      ]
+    },
+    "unauthorized": {
+      "status": [
+        401
+      ]
+    },
+    "unknown-op": {
+      "status": [
+        404
+      ]
+    },
+    "unsupported-binary-format": {
+      "status": [
+        422
+      ]
+    },
+    "worker-busy": {
+      "status": [
+        503
+      ]
+    }
+  },
   "ops": {
     "rebrew.analyse": {
       "interruptible": true,
@@ -850,7 +994,89 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
         "properties": {
+          "arch": {
+            "type": "string"
+          },
+          "binary": {
+            "type": "string"
+          },
+          "byte_coverage": {
+            "type": "object"
+          },
+          "context_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "data": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "duplicate_vas": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "fenced_naked": {
+            "type": "object"
+          },
+          "functions_checked": {
+            "type": "boolean"
+          },
+          "header_parity": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "libraries": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "match": {
+            "type": "boolean"
+          },
+          "mismatches": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "missing_sizes": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "out": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "raw_link_status_suppressed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reason_counts": {
+            "type": "object"
+          },
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
@@ -874,6 +1100,78 @@
               "wait_ms"
             ],
             "type": "object"
+          },
+          "results": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "type": "integer"
+          },
+          "sha256_original": {
+            "type": "string"
+          },
+          "sha256_reasm": {
+            "type": "string"
+          },
+          "size_divergences": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sizes_fixed": {
+            "type": "integer"
+          },
+          "sizes_protected": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "type": "boolean"
+          },
+          "skipped_catalog": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "skipped_other": {
+            "type": "integer"
+          },
+          "skipped_proven": {
+            "type": "integer"
+          },
+          "spliced": {
+            "type": "integer"
+          },
+          "strict_catalog": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "object"
+          },
+          "target": {
+            "type": "string"
+          },
+          "text": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "whole_binary": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         },
         "required": [
@@ -4960,7 +5258,135 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
         "properties": {
+          "aligned_pairs": {
+            "type": "integer"
+          },
+          "candidate_instructions": {
+            "type": "integer"
+          },
+          "compile": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "compile_inputs": {
+            "type": "object"
+          },
+          "context_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "error_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "group": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "retry_after": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "status_code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": [],
+            "type": "object"
+          },
+          "hunks": {
+            "type": "integer"
+          },
+          "instructions": {
+            "type": "object"
+          },
+          "match_count": {
+            "type": "integer"
+          },
+          "mismatches": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "got": {
+                  "type": "string"
+                },
+                "offset": {
+                  "type": "integer"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "offset",
+                "target",
+                "got"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "not_run_reason": {
+            "enum": [
+              "network",
+              "http",
+              "validation",
+              "protocol",
+              "service",
+              "deadline",
+              "compiler_withdrawn",
+              "compiler_not_installed"
+            ],
+            "type": "string"
+          },
+          "obj_size": {
+            "type": "integer"
+          },
+          "reloc_count": {
+            "type": "integer"
+          },
+          "relocation_bindings": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
@@ -4984,9 +5410,48 @@
               "wait_ms"
             ],
             "type": "object"
+          },
+          "similarity": {
+            "type": "number"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "target_instructions": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "va": {
+            "type": "string"
+          },
+          "verdict_valid": {
+            "type": "boolean"
           }
         },
         "required": [
+          "source",
+          "symbol",
+          "va",
+          "size",
+          "status",
+          "match_count",
+          "total",
+          "reloc_count",
+          "obj_size",
+          "context_hash",
+          "mismatches",
+          "compile",
           "remote_compile"
         ],
         "type": "object"
@@ -5091,7 +5556,89 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
         "properties": {
+          "arch": {
+            "type": "string"
+          },
+          "binary": {
+            "type": "string"
+          },
+          "byte_coverage": {
+            "type": "object"
+          },
+          "context_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "data": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "dry_run": {
+            "type": "boolean"
+          },
+          "duplicate_vas": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "fenced_naked": {
+            "type": "object"
+          },
+          "functions_checked": {
+            "type": "boolean"
+          },
+          "header_parity": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "libraries": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "match": {
+            "type": "boolean"
+          },
+          "mismatches": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "missing_sizes": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "out": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "raw_link_status_suppressed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reason_counts": {
+            "type": "object"
+          },
           "remote_compile": {
             "additionalProperties": false,
             "properties": {
@@ -5115,6 +5662,78 @@
               "wait_ms"
             ],
             "type": "object"
+          },
+          "results": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "type": "integer"
+          },
+          "sha256_original": {
+            "type": "string"
+          },
+          "sha256_reasm": {
+            "type": "string"
+          },
+          "size_divergences": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sizes_fixed": {
+            "type": "integer"
+          },
+          "sizes_protected": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "type": "boolean"
+          },
+          "skipped_catalog": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "skipped_other": {
+            "type": "integer"
+          },
+          "skipped_proven": {
+            "type": "integer"
+          },
+          "spliced": {
+            "type": "integer"
+          },
+          "strict_catalog": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "object"
+          },
+          "target": {
+            "type": "string"
+          },
+          "text": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "timestamp": {
+            "type": "string"
+          },
+          "whole_binary": {
+            "type": [
+              "object",
+              "null"
+            ]
           }
         },
         "required": [
