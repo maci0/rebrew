@@ -76,6 +76,7 @@ if TYPE_CHECKING:
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
     from rebrew.fingerprints import FingerprintError as FingerprintError
+    from rebrew.flirt import SignatureFileError as SignatureFileError
     from rebrew.formats.binary_loader import ExportParseError as ExportParseError
     from rebrew.formats.binary_loader import UnsupportedBinaryFormat as UnsupportedBinaryFormat
     from rebrew.formats.dfm import DfmError as DfmError
@@ -307,6 +308,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "RenameError": ("rebrew.rename_ops", "RenameError"),
     "ResidueError": ("rebrew.residue", "ResidueError"),
     "SecurityScanUnavailable": ("rebrew.security_scan", "SecurityScanUnavailable"),
+    "SignatureFileError": ("rebrew.flirt", "SignatureFileError"),
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
     "StrictRelocationError": ("rebrew.strict_relocation", "StrictRelocationError"),
     "Tc16Error": ("rebrew.compiler.tc16", "Tc16Error"),
@@ -418,6 +420,7 @@ __all__ = [
     "RenameError",
     "ResidueError",
     "SecurityScanUnavailable",
+    "SignatureFileError",
     "SimilarityUnavailable",
     "StrictRelocationError",
     "Tc16Error",
