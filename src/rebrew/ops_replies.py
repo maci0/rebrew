@@ -221,11 +221,19 @@ def project(value: dict[str, Any], declared: Any, where: str) -> dict[str, Any]:
     """The members of *value* the TypedDict *declared* names, nested declared ones projected too.
 
     A member *value* holds that the declaration does not name is dropped and logged
-    with *where*, so a reply carries exactly what the schema publishes.
+    with *where*, so a reply carries exactly what the schema publishes; with
+    :data:`rebrew.config.STRICT_REPLIES_ENV` set it raises :class:`ValueError`.
     """
     members, _required = _members(declared)
     dropped = sorted(set(value) - set(members))
     if dropped:
+        import os
+
+        from rebrew.config import STRICT_REPLIES_ENV, parse_env_bool
+
+        strict = os.environ.get(STRICT_REPLIES_ENV, "")
+        if parse_env_bool(STRICT_REPLIES_ENV, strict, default=False):
+            raise ValueError(f"{where}: undeclared reply members {', '.join(dropped)}")
         log.warning("%s: dropped undeclared reply members %s", where, ", ".join(dropped))
     out: dict[str, Any] = {}
     for name, item in value.items():

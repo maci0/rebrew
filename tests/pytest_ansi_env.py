@@ -27,6 +27,8 @@ from typing import Any
 
 # Applied at plugin import — before CliRunner tests invoke typer/Rich.
 os.environ["NO_COLOR"] = "1"
+# A reply member an op builds and rebrew.ops_replies does not declare fails the test.
+os.environ["REBREW_OPS_STRICT_REPLIES"] = "1"
 os.environ["TERM"] = "dumb"
 os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
 

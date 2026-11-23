@@ -2017,7 +2017,7 @@ class TestReconstructionOps:
                 "retained-target-"
             )
             commands.append(arguments)
-            return {"items": [], "total": 0}
+            return {"items": [], "total": 0} if arguments[0] == "data" else {"dry_run": False}
 
         monkeypatch.setattr("rebrew.ops.run_rebrew", run_rebrew)
         # Retained target commands compile only through the operator's service.
@@ -2269,7 +2269,7 @@ class TestReconstructionOps:
                 tomllib.loads((root / "rebrew-project.toml").read_text())["compiler"]["cflags"]
             )
             assert not any(a.startswith("--cflags") for a in args)
-            return {"status": "ok"}
+            return {"dry_run": False}
 
         monkeypatch.setattr(ops, "run_rebrew", run)
         monkeypatch.setattr(ops, "remote_header_refusal", lambda *args: None)
@@ -2334,7 +2334,7 @@ class TestReconstructionOps:
             assert root != live and (root / "src/add.c").read_bytes() == source
             assert "--target=mini" in args
             seen.append(root)
-            return {"status": "ok"}
+            return {"dry_run": False}
 
         monkeypatch.setattr(ops, "run_rebrew", run)
         monkeypatch.setattr(ops, "remote_header_refusal", lambda *args: None)
@@ -2355,7 +2355,7 @@ class TestReconstructionOps:
 
         def record(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
             argv.append(list(args))
-            return {"status": "ok"}
+            return {"dry_run": False}
 
         monkeypatch.setattr(ops, "run_rebrew", record)
         for extra in ({}, {"instructions": True}):
@@ -2395,7 +2395,7 @@ class TestReconstructionOps:
 
         def mutate(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
             (root / "src/add.c").write_text("changed")
-            return {"status": "ok"}
+            return {"dry_run": False}
 
         monkeypatch.setattr(ops, "run_rebrew", mutate)
         status, _ = dispatch(config, "rebrew.build", json.dumps(request).encode())

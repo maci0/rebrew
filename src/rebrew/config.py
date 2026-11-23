@@ -180,6 +180,13 @@ Unset/empty keeps the SSRF refusal; a truthy value disables it.  Parsed
 strictly by :func:`parse_env_bool`, so ``0``/``false``/``no``/``off`` keep the
 refusal and a typo raises instead of silently granting the bypass."""
 
+STRICT_REPLIES_ENV = "REBREW_OPS_STRICT_REPLIES"
+"""Env var making an op fail on a reply member its declaration does not name.
+
+Set (to ``1``) by rebrew's test suite, so a member a reply builder adds and
+``rebrew.ops_replies`` does not declare fails the test that builds it.  Unset, the
+member is dropped and logged.  Parsed by :func:`parse_env_bool`."""
+
 GHIDRA_MCP_ENDPOINT_ENV = "REBREW_GHIDRA_MCP_ENDPOINT"
 """Env var naming the ReVa MCP endpoint of a Ghidra the ``ghidra`` decompiler uses.
 
