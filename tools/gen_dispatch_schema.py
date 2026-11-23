@@ -1,11 +1,13 @@
-"""gen_dispatch_schema.py — write the closed sets rebrew enforces into the dispatch schema.
+"""gen_dispatch_schema.py — write what the code declares into the dispatch schema.
 
 ``tests/fixtures/dispatch/rebrew.schema.json`` is the dispatch contract the
 backend mirrors byte for byte (``NOTE.txt``).  A request member rebrew refuses
 every value but a closed set of, and a reply member drawn from one, carries that
-set as its ``enum``.  This script takes each set from the constant the code
-enforces, so the schema and the code cannot drift; ``tests/test_ops.py`` fails
-when the checked-in schema is not what this script writes.
+set as its ``enum``; a reply :mod:`rebrew.ops_replies` declares is its op's
+``response``; the refusal codes and their statuses (``rebrew.ops.PROBLEMS``) are
+``errors``.  This script takes each from the code, so the schema and the code
+cannot drift; ``tests/test_ops.py`` fails when the checked-in schema is not what
+this script writes.
 
 The schema is written the way the backend's generator writes it: two-space
 indent, sorted keys, a final newline.  A frozenset's values are written sorted,
@@ -13,7 +15,7 @@ a tuple's in its own order.
 
 Usage::
 
-    python tools/gen_dispatch_schema.py          # (re)write the enums
+    python tools/gen_dispatch_schema.py          # (re)write the schema
     python tools/gen_dispatch_schema.py --check  # exit 1 when the file differs
 """
 
@@ -75,8 +77,21 @@ def enforced_sets() -> Iterator[tuple[str, tuple[str, ...], Collection[str]]]:
 
 
 def render(text: str) -> str:
-    """*text*, a dispatch schema, with every enforced set written as its ``enum``."""
+    """*text*, a dispatch schema, with what the code declares written into it.
+
+    Every enforced set as its ``enum``, every reply :mod:`rebrew.ops_replies`
+    declares as its op's ``response``, and :data:`rebrew.ops.PROBLEMS` as ``errors``.
+    """
+    from rebrew import ops
+    from rebrew.ops_replies import DECLARED, json_schema
+
     schema = json.loads(text)
+    for op, declared in DECLARED.items():
+        response = schema["ops"][op]["response"]
+        schema["ops"][op]["response"] = {"$schema": response["$schema"], **json_schema(declared)}
+    schema["errors"] = {
+        code: {"status": list(statuses)} for code, statuses in sorted(ops.PROBLEMS.items())
+    }
     for op, path, values in enforced_sets():
         node: Any = schema["ops"][op]
         for step in path:

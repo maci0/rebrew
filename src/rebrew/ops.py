@@ -652,6 +652,49 @@ MALFORMED_SIGNATURES = "malformed-signatures"
 #: A project archive the worker will not import: an unsafe or oversized entry, no matching
 #: target binary, or a setting that would run something.  The caller's to fix.
 PROJECT_IMPORT_REFUSED = "project-import-refused"
+#: A retained coverage input whose files or records do not match what it names (409).
+COVERAGE_INPUT_UNVERIFIED = "coverage-input-unverified"
+#: The HTTP transport's own refusals: no or a wrong bearer token, a Host the
+#: server does not answer, a browser's cross-origin POST, a method other than POST.
+UNAUTHORIZED = "unauthorized"
+HOST_NOT_ALLOWED = "host-not-allowed"
+CROSS_ORIGIN = "cross-origin"
+METHOD_NOT_ALLOWED = "method-not-allowed"
+
+#: Every refusal code an op or the HTTP transport answers, and the statuses it is
+#: answered with.  The dispatch schema publishes it as ``errors``
+#: (``tools/gen_dispatch_schema.py``); a test holds every refusal the code raises to it.
+#: ``invalid-request`` takes the statuses the HTTP server answers a malformed
+#: request with (``BaseHTTPRequestHandler.send_error``) besides 400.
+PROBLEMS: dict[str, tuple[int, ...]] = {
+    INVALID_REQUEST: (400, 411, 413, 414, 415, 431, 501, 505),
+    UNKNOWN_OP: (404,),
+    METHOD_NOT_ALLOWED: (405,),
+    UNAUTHORIZED: (401,),
+    HOST_NOT_ALLOWED: (403,),
+    CROSS_ORIGIN: (403,),
+    ENGINE_ERROR: (500,),
+    WORKER_BUSY: (503,),
+    CALLER_GONE: (499,),
+    DEADLINE_EXCEEDED: (504,),
+    REMOTE_HEADERS: (422,),
+    INVALID_PROJECT_CONFIG: (400,),
+    COMPILE_NOT_RUN: (503,),
+    COMPILER_NOT_OFFERED: (400,),
+    DECOMPILER_NOT_OFFERED: (400,),
+    DECOMPILER_UNREACHABLE: (503,),
+    TOOLCHAIN_REJECTED: (422,),
+    CANDIDATE_NOT_ONE_FUNCTION: (400,),
+    CANDIDATE_ADDRESS_COMMENT: (400,),
+    CANDIDATE_NAME_TAKEN: (409,),
+    READSET_TOO_LARGE: (422,),
+    ANALYSIS_CAPTURE_FAILED: (500,),
+    REPORT_OUTPUT_INVALID: (500,),
+    UNSUPPORTED_BINARY_FORMAT: (422,),
+    MALFORMED_SIGNATURES: (422,),
+    PROJECT_IMPORT_REFUSED: (422,),
+    COVERAGE_INPUT_UNVERIFIED: (409,),
+}
 
 
 def _readset_limit(what: str, count: int, limit: int, unit: str = "files") -> OpsError:
@@ -777,6 +820,49 @@ def _refuse_compiler_not_offered(cfg: Any) -> None:
         assert isinstance(refusal, CompilerNotOffered)
         problem, detail = _FINAL_RECOMPILE_REFUSALS[refusal.error_code]
         raise OpsError(detail or _bounded(str(refusal)), code=problem, status=400)
+
+
+def _not_run_reason(verdict: dict[str, Any]) -> None:
+    """Replace a ``NOT_RUN`` verdict's message with its closed-set ``not_run_reason``.
+
+    The message and the error's text carry the compile client's words (a service
+    URL, the service's body); the reason is the client's outcome kind
+    (:data:`rebrew.ops_replies.NotRunReason`).
+    """
+    from typing import get_args
+
+    from rebrew.ops_replies import NotRunReason
+
+    if verdict.get("status") != "NOT_RUN":
+        return
+    verdict.pop("message", None)
+    error = verdict.get("error")
+    fields = error if isinstance(error, dict) else {}
+    # The error keeps its structured fields; its message carries the client's words.
+    fields.pop("message", None)
+    reason = (
+        fields.get("error_code")
+        if fields.get("type") == "CompilerNotOffered"
+        else fields.get("kind")
+    )
+    if reason not in get_args(NotRunReason):
+        raise ValueError(f"a NOT_RUN verdict without a known reason: {reason!r}")
+    verdict["not_run_reason"] = reason
+
+
+def _declared_reply(name: str, reply: Mapping[str, Any]) -> dict[str, Any]:
+    """*reply* as the op's declared reply (:mod:`rebrew.ops_replies`), not-run text closed."""
+    from rebrew.ops_replies import DECLARED, project
+
+    closed = dict(reply)
+    _not_run_reason(closed)
+    rows = closed.get("results")
+    if isinstance(rows, list):
+        closed["results"] = [dict(row) if isinstance(row, dict) else row for row in rows]
+        for row in closed["results"]:
+            if isinstance(row, dict):
+                _not_run_reason(row)
+    return project(closed, DECLARED[name], name)
 
 
 def _final_recompile_refusal(result: dict[str, Any]) -> dict[str, Any]:
@@ -1555,7 +1641,7 @@ def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
     ):
         raise OpsError(
             "coverage verification records are required",
-            code="coverage-input-unverified",
+            code=COVERAGE_INPUT_UNVERIFIED,
             status=409,
         )
     hints = typing.get_type_hints(cls)
@@ -2587,7 +2673,7 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
                     )
                 except ValueError as exc:
                     raise OpsError(
-                        _bounded(str(exc)), code="coverage-input-unverified", status=409
+                        _bounded(str(exc)), code=COVERAGE_INPUT_UNVERIFIED, status=409
                     ) from None
                 checked_coverage_input(snapshot, req)
                 kinds: dict[str, list[str]] = result.pop("kinds")
@@ -3890,7 +3976,7 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
     from rebrew.test import run_test
 
     if req.candidate:
-        return verify_candidate(config, req)
+        return _declared_reply("rebrew.verify_function", verify_candidate(config, req))
     if req.instructions:
         raise _invalid("instructions needs a candidate")
 
@@ -3898,8 +3984,11 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
     cfg = target_config(root, req.sha256)
     source = _project_file(root, req.source, "source")
     remote_header_refusal(cfg, [source])
-    return _final_recompile_refusal(
-        run_test(cfg, source, no_promote=req.no_promote, json_output=True)
+    return _declared_reply(
+        "rebrew.verify_function",
+        _final_recompile_refusal(
+            run_test(cfg, source, no_promote=req.no_promote, json_output=True)
+        ),
     )
 
 
@@ -4498,7 +4587,7 @@ def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, A
     ]
     if req.files:
         arguments.append("--no-promote")
-    return _run_target_command(config, req, arguments)
+    return _declared_reply("rebrew.verify_target", _run_target_command(config, req, arguments))
 
 
 def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
@@ -4508,7 +4597,7 @@ def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
     target's binary as ``<binary>.reasm``.  A byte difference is a result.
     """
     arguments = ["build", "round-trip", "--json", *_flag(req.fix_headers, "--fix-headers")]
-    return _run_target_command(config, req, arguments)
+    return _declared_reply("rebrew.build", _run_target_command(config, req, arguments))
 
 
 def skeleton(config: WorkerConfig, req: SkeletonRequest) -> dict[str, Any]:
@@ -4533,7 +4622,7 @@ def verified_coverage_inputs_required() -> None:
     """Coverage metadata needs producer custody, not merely a supplied manifest."""
     raise OpsError(
         "retained coverage requires verified inventory and result provenance",
-        code="coverage-input-unverified",
+        code=COVERAGE_INPUT_UNVERIFIED,
         status=409,
     )
 
@@ -4560,7 +4649,7 @@ def checked_coverage_input(root: Path, req: Any) -> Any:
             )
         )
     except (CoverageInputError, ValueError) as exc:
-        raise OpsError(_bounded(str(exc)), code="coverage-input-unverified", status=409) from None
+        raise OpsError(_bounded(str(exc)), code=COVERAGE_INPUT_UNVERIFIED, status=409) from None
 
 
 def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[str, Any]:
@@ -4592,7 +4681,7 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
                     summary = generate_decomp_dev_report(cfg, out, trusted=trusted)
                 except ValueError as exc:
                     raise OpsError(
-                        _bounded(str(exc)), code="coverage-input-unverified", status=409
+                        _bounded(str(exc)), code=COVERAGE_INPUT_UNVERIFIED, status=409
                     ) from None
                 checked_coverage_input(snapshot, req)
                 report = json.loads(out.read_text(encoding="utf-8"))
@@ -5577,7 +5666,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
             _trace_id(),
         )
         self._refuse(
-            "host-not-allowed", "request Host not allowed (wrong or missing Host header)", 403
+            HOST_NOT_ALLOWED, "request Host not allowed (wrong or missing Host header)", 403
         )
         return False
 
@@ -5606,7 +5695,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         # cross-origin form even if the token were somehow ambient.
         if self._cross_origin_browser_post():
             logger.warning("%s rejected cross-origin browser POST", self._request_id)
-            self._refuse("cross-origin", "cross-origin browser POST is not allowed", 403)
+            self._refuse(CROSS_ORIGIN, "cross-origin browser POST is not allowed", 403)
             return
         # /health and /metrics are GET/HEAD on this server: a POST is a
         # wrong method for a served resource (405), not an unknown op (404).
@@ -5615,9 +5704,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if urlsplit(self.path).path in ("/health", "/metrics"):
             self._send(
                 405,
-                error_body(
-                    "method-not-allowed", "health and metrics are served with GET, HEAD", 405
-                ),
+                error_body(METHOD_NOT_ALLOWED, "health and metrics are served with GET, HEAD", 405),
                 {"Allow": "GET, HEAD"},
             )
             return
@@ -5628,7 +5715,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 self._request_id,
                 _trace_id(),
             )
-            self._refuse("unauthorized", "a valid bearer token is required", 401)
+            self._refuse(UNAUTHORIZED, "a valid bearer token is required", 401)
             return
         with server._idle:
             admitted = not server._draining and server.slots.acquire(blocking=False)
@@ -5672,7 +5759,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         # CSRF defense-in-depth happens in _post before auth; this guard keeps
         # _answer safe if a future caller reaches it without _post's check.
         if self.headers.get("Origin") is not None or self.headers.get("Referer") is not None:
-            self._refuse("cross-origin", "cross-origin browser POST is not allowed", 403)
+            self._refuse(CROSS_ORIGIN, "cross-origin browser POST is not allowed", 403)
             return
         if content_type != "application/json":
             self._refuse(INVALID_REQUEST, "Content-Type must be application/json", 415)
@@ -5774,7 +5861,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
                 self.headers.get("Authorization", "").encode("utf-8"),
                 f"Bearer {server.token}".encode(),
             ):
-                self._refuse("unauthorized", "a valid bearer token is required", 401)
+                self._refuse(UNAUTHORIZED, "a valid bearer token is required", 401)
                 return
             snapshot, latency_buckets, per_op = server.metrics_snapshot()
             if path == "/health":
@@ -5887,9 +5974,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
         if path in ("/health", "/metrics"):
             self._send(
                 405,
-                error_body(
-                    "method-not-allowed", "health and metrics are served with GET, HEAD", 405
-                ),
+                error_body(METHOD_NOT_ALLOWED, "health and metrics are served with GET, HEAD", 405),
                 {"Allow": "GET, HEAD"},
             )
             return
@@ -5899,7 +5984,7 @@ class _OpsHandler(BaseHTTPRequestHandler):
             return
         self._send(
             405,
-            error_body("method-not-allowed", "ops are called with POST", 405),
+            error_body(METHOD_NOT_ALLOWED, "ops are called with POST", 405),
             {"Allow": "POST"},
         )
 

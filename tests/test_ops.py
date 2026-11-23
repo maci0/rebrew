@@ -78,6 +78,7 @@ _TYPES = {
     "array": lambda v: isinstance(v, list),
     "string": lambda v: isinstance(v, str),
     "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
     "boolean": lambda v: isinstance(v, bool),
     "null": lambda v: v is None,
 }
@@ -295,6 +296,56 @@ class TestContract:
         entry = _CONTRACT["ops"]["rebrew.report"]["response"]["properties"]["manifest"]["items"]
         assert entry["required"] == ["path", "size", "digest", "kinds"]
         assert entry["properties"]["kinds"]["items"]["enum"] == list(SITE_DATA_KINDS)
+
+    def test_every_refusal_the_code_raises_is_a_declared_code_and_status(self) -> None:
+        """``errors`` (``rebrew.ops.PROBLEMS``) holds every code and status an op or the
+        HTTP transport answers: each ``OpsError``, ``_refuse``, ``error_body`` and
+        ``cancel`` call that names a code constant and a literal status is in it."""
+        import ast
+
+        from rebrew import ops
+
+        src = Path(ops.__file__).parent
+        constants = {name: value for name, value in vars(ops).items() if isinstance(value, str)}
+        undeclared = []
+        checked = 0
+        for path in sorted(src.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                keywords = {k.arg: k.value for k in node.keywords}
+                if name == "OpsError":
+                    code_node, status_node = keywords.get("code"), keywords.get("status")
+                elif name in ("_refuse", "error_body", "cancel") and len(node.args) >= 3:
+                    code_node = node.args[1] if name == "cancel" else node.args[0]
+                    status_node = node.args[2]
+                else:
+                    continue
+                if isinstance(code_node, ast.Attribute):
+                    code = constants.get(code_node.attr)
+                elif isinstance(code_node, ast.Name):
+                    code = constants.get(code_node.id)
+                elif isinstance(code_node, ast.Constant):
+                    code = code_node.value
+                else:
+                    code = None
+                if code is None and code_node is None and name == "OpsError":
+                    code = ops.ENGINE_ERROR
+                status = status_node.value if isinstance(status_node, ast.Constant) else None
+                if status is None and status_node is None and name == "OpsError":
+                    status = 500
+                if code is None or status is None:
+                    continue  # a code or status the call takes from a variable
+                checked += 1
+                if status not in ops.PROBLEMS.get(code, ()):
+                    undeclared.append(f"{path.name}:{node.lineno} {code} {status}")
+        assert checked > 30
+        assert undeclared == []
+        assert _CONTRACT["errors"] == {
+            code: {"status": list(statuses)} for code, statuses in ops.PROBLEMS.items()
+        }
 
     def test_the_schema_is_what_the_generator_writes(self) -> None:
         """Each enum is written from the set the code enforces (tools/gen_dispatch_schema.py)."""
@@ -2654,8 +2705,10 @@ class TestReconstructionOps:
         reply = json.loads(raw)
         assert status == 200, reply
         assert reply["status"] == "NOT_RUN"
-        assert reply["message"].startswith("not run (service unavailable): ")
+        # The reason is a closed set; the compile client's message stays out of the reply.
+        assert reply["not_run_reason"] == "service" and "message" not in reply
         assert reply["error"]["error_code"] == "runner_unavailable"
+        assert "message" not in reply["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -2921,7 +2974,7 @@ def _counting_python(directory: Path) -> Path:
         'printf \'{"done": 1, "total": 3}\\n\' > "/dev/fd/$REBREW_PROGRESS_FD"\n'
         f'while [ ! -e "${_BARRIER_ENV}" ]; do sleep 0.05; done\n'
         'printf \'{"done": 3, "total": 3}\\n\' > "/dev/fd/$REBREW_PROGRESS_FD"\n'
-        "printf '{\"passed\": 3}\\n'\n"
+        "printf '{\"spliced\": 3}\\n'\n"
     )
     script.chmod(0o755)
     return script
@@ -2981,7 +3034,7 @@ class TestProgress:
         assert self._frames([first, *rest]) == [
             {"progress": {"done": 1, "total": 3}},
             {"progress": {"done": 3, "total": 3}},
-            {"status": 200, "reply": {"passed": 3, "remote_compile": NO_REMOTE_COMPILES}},
+            {"status": 200, "reply": {"spliced": 3, "remote_compile": NO_REMOTE_COMPILES}},
         ]
 
     def test_serve_answers_plain_json_to_a_caller_that_does_not_accept_counts(
@@ -3010,7 +3063,7 @@ class TestProgress:
             finally:
                 server.shutdown()
                 thread.join(timeout=WAIT_SECONDS)
-        assert (status, reply) == (200, {"passed": 3, "remote_compile": NO_REMOTE_COMPILES})
+        assert (status, reply) == (200, {"spliced": 3, "remote_compile": NO_REMOTE_COMPILES})
 
     def test_ops_call_writes_counts_to_the_descriptor_the_caller_names(
         self, world: tuple[WorkerConfig, Path], tmp_path: Path
@@ -3077,7 +3130,7 @@ class TestProgress:
             {"progress": {"done": 1, "total": 3}},
             {"progress": {"done": 3, "total": 3}},
         ]
-        assert json.loads(stdout) == {"passed": 3, "remote_compile": NO_REMOTE_COMPILES}
+        assert json.loads(stdout) == {"spliced": 3, "remote_compile": NO_REMOTE_COMPILES}
 
 
 class TestFailureDetails:

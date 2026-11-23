@@ -487,7 +487,7 @@ def test_verify_answers_a_compile_the_service_never_ran_as_a_not_run_report(
     reply = json.loads(raw)
     assert status == 200, reply
     assert reply["status"] == "NOT_RUN" and reply["verdict_valid"] is False
-    assert reply["message"].startswith("not run (service unavailable): ")
+    assert reply["not_run_reason"] == "http" and "message" not in reply
     assert (reply["error"]["status_code"], reply["error"]["retry_after"]) == (
         429,
         float(_THROTTLE_SECONDS),

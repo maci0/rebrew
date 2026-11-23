@@ -7314,9 +7314,13 @@ Op details the contract leaves open:
 - A remote compile without a verdict (the service, or the jobs owner past the
   job's budget, refused or failed it, or it was never sent) is no verdict: `rebrew.verify_function`
   answers 200 with the `rebrew test` report whose `status` is `NOT_RUN`, with
-  `message` (`not run (service unavailable): ...`), `error` (the structured
-  `RecompileError`: `status_code`, `error_code`, `retry_after`, `retryable`) and
-  `verdict_valid` false, the same status as a `verify_target` row;
+  `not_run_reason` (the compile client's outcome kind: `network`, `http`,
+  `validation`, `protocol`, `service` or `deadline`, or `compiler_withdrawn` or
+  `compiler_not_installed`; `rebrew.ops_replies.NotRunReason`), `error` (the
+  structured `RecompileError` without its message: `status_code`, `error_code`,
+  `retry_after`, `retryable`) and `verdict_valid` false, the same status as a
+  `verify_target` row, which carries the same two members; the compile client's
+  message, which can name the service's address and quote its body, is in no reply;
   `rebrew.apply_candidate` refuses 503 `compile-not-run` and applies nothing, with a
   fixed detail that names the answer by its kind, HTTP status and `code` only (the
   service's address and text go to the worker log where the client received them).
@@ -7403,6 +7407,11 @@ Op details the contract leaves open:
   `rebrew.splat_parse` read a stored file or the request text, never a
   project. `splat_parse` opens nothing the config names and refuses a config
   over 256 KiB.
+- The dispatch schema declares the refusal codes and the statuses each is answered
+  with (`errors`, from `rebrew.ops.PROBLEMS`), and the replies of `rebrew.verify_function`,
+  `rebrew.verify_target` and `rebrew.build` as closed objects (from the TypedDicts of
+  `rebrew.ops_replies`, which the ops project their replies onto, so a reply carries
+  exactly the members the schema names). `tools/gen_dispatch_schema.py` writes both.
 - `rebrew.identify_library` answers `unreadable_signatures`: the paths in the
   project's `flirt_sigs/` of the signature files it skipped because they could not
   be read or parsed (python-flirt's panics included).
