@@ -207,3 +207,27 @@ class TestBlockerShowProvenance:
             result = runner.invoke(app, ["show", "0x1000"])
         assert result.exit_code == 0, result.output
         assert "last write: diff" in result.output
+
+
+class TestResolveFunction:
+    def test_unmatched_explicit_va_keeps_va_and_file_module(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from rebrew.blocker import resolve_function
+
+        cfg = _mock_cfg(tmp_path, monkeypatch)
+        _write_annotated_source(cfg)
+        assert resolve_function(cfg, str(cfg.reversed_dir / "a.c"), "0x402000", False) == (
+            "SERVER",
+            0x402000,
+        )
+
+    def test_source_without_va_uses_its_annotation(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.blocker import resolve_function
+
+        cfg = _mock_cfg(tmp_path, monkeypatch)
+        _write_annotated_source(cfg)
+        assert resolve_function(cfg, str(cfg.reversed_dir / "a.c"), None, False) == (
+            "SERVER",
+            0x401000,
+        )

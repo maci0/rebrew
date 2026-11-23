@@ -21,7 +21,6 @@ Usage::
 from __future__ import annotations
 
 lazy import re
-lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
@@ -75,10 +74,9 @@ def resolve_function(
     va_from_flag = va_override is not None
     va_int: int | None = parse_va(va_override, json_mode=json_mode) if va_override else None
 
-    raw = function
-    # Check if positional itself is a hex VA before resolving through sources.
-    if va_int is None and _HEX_VA_RE.match(raw.strip()):
-        va_int = parse_va(raw.strip(), json_mode=json_mode)
+    raw = function.strip()
+    if va_int is None and _HEX_VA_RE.match(raw):
+        va_int = parse_va(raw, json_mode=json_mode)
         # Bare VA without a file — module comes from config marker.
         module = target_module(cfg)
         if not module:
@@ -92,11 +90,10 @@ def resolve_function(
             error_exit(f"VA must be at least 0x{min_valid_va_for(cfg):x}", json_mode=json_mode)
         return module, va_int
 
-    resolved = str(resolve_source_arg(cfg, raw))
-    source_path = Path(resolved).resolve()
+    source_path = resolve_source_arg(cfg, function).resolve()
     if not source_path.is_file():
         error_exit(
-            f"Cannot resolve function {raw!r} to a source file or VA "
+            f"Cannot resolve function {function!r} to a source file or VA "
             "(pass a .c path, 0xVA, symbol, or use --va 0x... to disambiguate)",
             json_mode=json_mode,
         )
@@ -121,29 +118,15 @@ def resolve_function(
         va_int = annos[0].va
         ann = annos[0]
     else:
-        ann = annos[0]
-        matched = False
-        for cand in annos:
-            if cand.va == va_int:
-                ann = cand
-                matched = True
-                break
-        if not matched and not va_from_flag:
-            error_exit(
-                f"No annotation for VA 0x{va_int:08x} in {source_path.name} — "
-                "the file covers different functions (pass --va 0x… to override)",
-                json_mode=json_mode,
-            )
-        # An explicit --va that matches no annotation falls through on
-        # purpose: the file's compile settings still apply, but the VA is the
-        # requested target (covers stub files whose annotation VA differs).
+        # An explicit --va that matches no annotation falls back to the first
+        # one on purpose: the file's compile settings still apply, but the VA
+        # is the requested target (covers stub files whose annotation VA differs).
+        ann = next((cand for cand in annos if cand.va == va_int), annos[0])
 
-    if va_int is not None and va_int < min_valid_va_for(cfg):
+    if va_int < min_valid_va_for(cfg):
         error_exit(f"VA must be at least 0x{min_valid_va_for(cfg):x}", json_mode=json_mode)
 
-    if va_from_flag and va_int is not None:
-        # Use the explicit VA as target; keep module from matched ann if any,
-        # else from first annotation.
+    if va_from_flag:
         return ann.module or target_module(cfg), va_int
 
     return ann.module, int(ann.va)
