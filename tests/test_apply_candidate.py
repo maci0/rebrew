@@ -1116,11 +1116,14 @@ def _keys(seen: list[dict[str, str]]) -> list[str]:
     return [headers["Idempotency-Key"] for headers in seen]
 
 
-@pytest.mark.parametrize("emit_assembly", [False, True])
 @pytest.mark.parametrize(
-    "lost",
-    ["lost", (502, {"detail": "bad gateway"}), (200, "unreadable")],
-    ids=["no-reply", "502", "unreadable-body"],
+    ("lost", "emit_assembly"),
+    # Each kind of lost reply, with and without emit_assembly, is the client's: see
+    # test_recompile_client.py (test_emit_assembly_resends_the_same_key_after_a_lost_reply
+    # for 502 and a read timeout, TestClientRulesTable, the unreadable-reply resend).
+    # Each case here starts a rebrew child, so one per compile kind is kept.
+    [("lost", False), ((502, {"detail": "bad gateway"}), True)],
+    ids=["no-reply", "502-emit-assembly"],
 )
 def test_a_lost_reply_is_sent_again_under_the_same_key_and_body(
     tmp_path: Path,
@@ -1148,41 +1151,21 @@ def test_an_unbilled_failure_that_asks_for_no_retry_is_final(
 
 @pytest.mark.parametrize(
     ("answers", "billed_undelivered", "unsettled"),
+    # One case per counter, first answer and after a lost reply. Which refusal costs
+    # what (every code, with and without a lost reply before it) is the client's
+    # table, checked row by row in test_recompile_client.py's TestClientRulesTable;
+    # each case here starts a rebrew child, so only the op's reporting is repeated.
     [
         # Billed, final, and no verdict reaches the caller (recompile's rule 4).
         (["lost", _refused(410, "artifact_expired")], 1, 0),
-        (["lost", _refused(403, "billed_not_delivered")], 1, 0),
-        ([_refused(403, "billed_not_delivered")], 1, 0),
         ([_refused(409, "retained_output_unavailable")], 1, 0),
         # This service lost the key's record: Platform may have billed it.
         ([_refused(409, "admission_unrecoverable")], 0, 1),
         # A refused credential says nothing of the key; rebrew gets no other one to
         # resend it with, so a reply lost before it stays unknown (rule 3).
         (["lost", _refused(423, "account_under_review")], 0, 1),
-        (["lost", _refused(401, "unauthenticated")], 0, 1),
-        (["lost", _refused(403, "forbidden")], 0, 1),
-        # recompile 12.0.0 (production) relays these after the compile and bills it
-        # later, and answers delivery_denied after Platform settled it: unknown even on
-        # the key's first attempt, and no new key follows.
-        ([_refused(423, "account_under_review")], 0, 1),
-        ([_refused(401, "unauthenticated")], 0, 1),
-        ([_refused(403, "forbidden")], 0, 1),
-        ([_refused(403, "delivery_denied")], 0, 1),
     ],
-    ids=[
-        "lost-410-expired",
-        "lost-403-billed-not-delivered",
-        "403-billed-not-delivered",
-        "409-retained-output",
-        "409-unrecoverable",
-        "lost-423",
-        "lost-401",
-        "lost-403",
-        "r12-423-after-compile",
-        "r12-401-after-compile",
-        "r12-403-after-compile",
-        "r12-billed-403-delivery_denied-then-ok",
-    ],
+    ids=["lost-410-expired", "409-retained-output", "409-unrecoverable", "lost-423"],
 )
 def test_a_final_refusal_reports_what_its_key_cost(
     tmp_path: Path,
@@ -1248,12 +1231,15 @@ def test_a_compile_cut_off_with_its_child_command_is_reported_unsettled(
     assert refusal["remote_compile"]["unsettled"] == 1
 
 
-@pytest.mark.parametrize("edge", [520, 521, 522, 523, 524])
 def test_an_edge_timeout_reads_the_compile_under_the_same_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edge: int
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The edge's own 52x answers are lost replies: the same key reads the compile."""
-    reply, seen = _verify(tmp_path, monkeypatch, [(edge, None), _OK])
+    """The edge's own 52x answers are lost replies: the same key reads the compile.
+
+    One rebrew child for 524; every 52x is the client's, in test_recompile_client.py
+    (TestEdgeTimeout.test_an_edge_answer_is_sent_again_under_the_same_key).
+    """
+    reply, seen = _verify(tmp_path, monkeypatch, [(524, None), _OK])
     assert len(seen) == 2 and len(set(_keys(seen))) == 1
     assert reply["remote_compile"]["count"] == 1
     assert reply["remote_compile"]["unsettled"] == 0
@@ -1272,11 +1258,10 @@ def test_a_reply_lost_on_every_attempt_is_reported_unsettled(
 
 @pytest.mark.parametrize(
     ("first", "new_key"),
+    # A new-key answer and a wait under the same key; which answers do which, with
+    # what cost, is TestClientRulesTable's in test_recompile_client.py.
     [
         (_refused(409, "admission_expired"), True),
-        (_refused(409, "admission_abandoned"), True),
-        (_failed("publish_failed"), True),
-        (_refused(503, "credit_ledger_unavailable"), False),
         (_refused(503, "settlement_pending"), False),
     ],
 )
@@ -1304,29 +1289,29 @@ def test_a_refusal_of_a_key_never_admitted_is_settled(
 
 
 @pytest.mark.parametrize(
-    "lost",
-    [(503, {"detail": "busy", "code": "runtime_unavailable"}), (502, {"detail": "bad gateway"})],
-    ids=["503", "502"],
-)
-@pytest.mark.parametrize(
-    ("settled", "unsettled"),
+    ("lost", "settled"),
+    # Before recompile 14.0.1 a known key may be refused for credits before Platform
+    # looks it up, so a 402 says nothing of the attempt lost before it. Every 402
+    # after a lost reply is TestClientRulesTable's (test_recompile_client.py); one
+    # rebrew child each for a credits refusal (SILENT) and a plan one (an answer an
+    # earlier release sends after billing), after each kind of lost reply.
     [
-        # Before recompile 14.0.1 a known key may be refused for credits before Platform
-        # looks it up, so a 402 says nothing of the attempt lost before it.
-        (_refused(402, "model_credits_exhausted"), 1),
-        (_refused(402, "allowance_exhausted"), 1),
-        (_refused(402, "workbench_plan_required"), 1),
+        (
+            (503, {"detail": "busy", "code": "runtime_unavailable"}),
+            _refused(402, "model_credits_exhausted"),
+        ),
+        ((502, {"detail": "bad gateway"}), _refused(402, "workbench_plan_required")),
     ],
-    ids=["credits", "allowance", "plan"],
+    ids=["503-credits", "502-plan"],
 )
 def test_a_same_key_402_settles_an_earlier_lost_reply_as_rule_4_says(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lost: Answer, settled: Answer, unsettled: int
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lost: Answer, settled: Answer
 ) -> None:
     reply, seen = _verify(tmp_path, monkeypatch, [lost, settled, _OK])
     assert (reply["status"], len(seen)) == ("NOT_RUN", 2)
     assert _keys(seen)[0] == _keys(seen)[1]
     assert reply["remote_compile"]["count"] == 0
-    assert reply["remote_compile"]["unsettled"] == unsettled
+    assert reply["remote_compile"]["unsettled"] == 1
 
 
 def test_a_refusal_after_an_unsettled_compile_reports_it(
