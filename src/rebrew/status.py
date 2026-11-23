@@ -1241,7 +1241,7 @@ def collect_status(
 
     data_spans: dict[str, list[tuple[int, int]]] = {"verified": [], "drift": [], "unchecked": []}
     copied = postlink_copied_ranges(cfg)
-    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+    for (module, va), fields in load_data_metadata(cfg.metadata_dir, deepcopy=False).items():
         if not module_visible_to_target(module, cfg):
             continue
         if not fields.get("name"):

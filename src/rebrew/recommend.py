@@ -972,7 +972,7 @@ def _collect_hygiene(
         # path for each source, which is O(files × store size).
         metadata_dir = cfg.metadata_dir
         preloaded_metadata = load_metadata(metadata_dir, deepcopy=False)
-        preloaded_data_metadata = load_data_metadata(metadata_dir)
+        preloaded_data_metadata = load_data_metadata(metadata_dir, deepcopy=False)
         historical_sources = {
             path
             for row in preloaded_metadata.values()

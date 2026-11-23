@@ -339,7 +339,7 @@ def build_coverage_data(
         from rebrew.metadata.data import load_data_metadata, module_visible_to_target
 
         try:
-            data_entries = load_data_metadata(metadata_dir)
+            data_entries = load_data_metadata(metadata_dir, deepcopy=False)
         except OSError as exc:
             # A degraded grid (every global back to "no status") must not be
             # written as if it were the real one — say so, the way the binary

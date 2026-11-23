@@ -1109,7 +1109,7 @@ def _check_W038_data_row_overlap(cfg: ProjectConfig) -> list[LintResult]:
 
     arch = str(getattr(cfg, "arch", "") or "x86_32")
     by_module: dict[str, list[tuple[int, int, str]]] = {}
-    for (module, va), entry in load_data_metadata(cfg.metadata_dir).items():
+    for (module, va), entry in load_data_metadata(cfg.metadata_dir, deepcopy=False).items():
         name = str(entry.get("name") or "")
         if not name:
             continue
@@ -2245,7 +2245,7 @@ def lint_file(
     _data_metadata_entries = (
         preloaded_data_metadata
         if preloaded_data_metadata is not None
-        else load_data_metadata(_metadata_dir)
+        else load_data_metadata(_metadata_dir, deepcopy=False)
     )
     if not all_headers:
         from rebrew.metadata.binding_history import historical_source_files
@@ -2647,7 +2647,7 @@ def main(
     _preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None
     if cfg:
         _preloaded_metadata = load_metadata(metadata_directory, deepcopy=False)
-        _preloaded_data_metadata = load_data_metadata(metadata_directory)
+        _preloaded_data_metadata = load_data_metadata(metadata_directory, deepcopy=False)
     historical_sources: set[Path] | None = None
     source_files: frozenset[str] | None = None
     if cfg is not None:
