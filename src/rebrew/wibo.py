@@ -23,6 +23,7 @@ lazy import shutil
 lazy import stat
 lazy import sys
 lazy import tempfile
+lazy from collections.abc import Callable
 lazy from urllib.parse import urljoin, urlparse
 
 lazy from rebrew.errors import RebrewError
@@ -99,38 +100,55 @@ def _trusted_wibo_download_url(url: str) -> str:
     return url
 
 
-def _download_with_trusted_redirects(url: str, asset_name: str) -> bytes:
-    """The body of *url*, following redirects only while each hop stays on the allow-list.
+#: Redirect hops followed before a wibo GET gives up.
+_MAX_WIBO_REDIRECTS = 10
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
-    Each hop is a stream closed before the next GET, so a multi-redirect download
-    does not pin one connection (and its pool slot) per hop until GC, and the body
-    is read with a running cap of ``_MAX_WIBO_DOWNLOAD_BYTES``, so an oversized
-    asset is refused before it is all in memory.
+
+def _get_with_trusted_redirects(
+    url: str, trust: Callable[[str], str], max_bytes: int, label: str, verb: str
+) -> tuple[bytes | None, str]:
+    """GET *url*, following redirects only while *trust* accepts each hop.
+
+    Returns the body (``None`` past *max_bytes*) and the URL that answered.
+    Each hop is a stream closed before the next GET, so a multi-redirect
+    download does not pin one connection (and its pool slot) per hop until GC,
+    and the body is read with a running cap, so an oversized response is
+    refused before it is all in memory.
     """
     import httpx  # deferred: ~46 ms of startup for non-wibo commands
 
-    current = _trusted_wibo_download_url(url)
-    for _ in range(10):
+    current = trust(url)
+    for _ in range(_MAX_WIBO_REDIRECTS):
         try:
             with httpx.stream(
                 "GET", current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False, trust_env=False
             ) as resp:
-                if resp.status_code in {301, 302, 303, 307, 308}:
+                if resp.status_code in _REDIRECT_STATUSES:
                     location = resp.headers.get("location")
                     if not location:
-                        raise WiboError(f"wibo download redirect missing Location from {current!r}")
-                    current = _trusted_wibo_download_url(urljoin(current, location))
+                        raise WiboError(f"{label} redirect missing Location from {current!r}")
+                    current = trust(urljoin(current, location))
                     continue
                 resp.raise_for_status()
-                body = read_capped_body(resp, _MAX_WIBO_DOWNLOAD_BYTES)
+                return read_capped_body(resp, max_bytes), current
         except httpx.HTTPError as exc:
-            raise WiboError(
-                f"Failed to download wibo asset {asset_name} from {url}: {exc}"
-            ) from exc
-        if body is None:
-            raise WiboError(f"wibo asset exceeds {_MAX_WIBO_DOWNLOAD_BYTES} bytes: {asset_name}")
-        return body
-    raise WiboError(f"wibo download exceeded redirect limit from {url!r}")
+            raise WiboError(f"Failed to {verb} {label} from {current!r}: {exc}") from exc
+    raise WiboError(f"{label} exceeded redirect limit from {url!r}")
+
+
+def _download_with_trusted_redirects(url: str, asset_name: str) -> bytes:
+    """The body of *url*, following redirects only while each hop stays on the allow-list."""
+    body, _ = _get_with_trusted_redirects(
+        url,
+        _trusted_wibo_download_url,
+        _MAX_WIBO_DOWNLOAD_BYTES,
+        f"wibo asset {asset_name}",
+        "download",
+    )
+    if body is None:
+        raise WiboError(f"wibo asset exceeds {_MAX_WIBO_DOWNLOAD_BYTES} bytes: {asset_name}")
+    return body
 
 
 def _trusted_wibo_metadata_url(url: str) -> str:
@@ -149,40 +167,22 @@ def _read_release_metadata() -> dict[str, Any]:
     ``/releases/latest`` is a same-host 302; an off-host ``Location`` would
     substitute the JSON that supplies the asset digest.
     """
-    import httpx  # deferred: ~46 ms of startup for non-wibo commands
-
-    current = _trusted_wibo_metadata_url(_WIBO_API_URL)
-    for _ in range(10):
-        try:
-            with httpx.stream(
-                "GET", current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False, trust_env=False
-            ) as resp:
-                if resp.status_code in {301, 302, 303, 307, 308}:
-                    location = resp.headers.get("location")
-                    if not location:
-                        raise WiboError(
-                            f"wibo release metadata redirect missing Location from {current!r}"
-                        )
-                    current = _trusted_wibo_metadata_url(urljoin(current, location))
-                    continue
-                resp.raise_for_status()
-                body = read_capped_body(resp, _MAX_WIBO_METADATA_BYTES)
-        except httpx.HTTPError as exc:
-            raise WiboError(
-                f"Failed to fetch wibo release metadata from {current!r}: {exc}"
-            ) from exc
-        if body is None:
-            raise WiboError(f"wibo release metadata exceeds {_MAX_WIBO_METADATA_BYTES} bytes")
-        try:
-            data = json.loads(body)
-        except ValueError as exc:
-            raise WiboError(
-                f"Invalid JSON in wibo release metadata from {current!r}: {exc}"
-            ) from exc
-        if not isinstance(data, dict):
-            raise WiboError("Invalid wibo release metadata response")
-        return data
-    raise WiboError(f"wibo release metadata exceeded redirect limit from {_WIBO_API_URL!r}")
+    body, current = _get_with_trusted_redirects(
+        _WIBO_API_URL,
+        _trusted_wibo_metadata_url,
+        _MAX_WIBO_METADATA_BYTES,
+        "wibo release metadata",
+        "fetch",
+    )
+    if body is None:
+        raise WiboError(f"wibo release metadata exceeds {_MAX_WIBO_METADATA_BYTES} bytes")
+    try:
+        data = json.loads(body)
+    except ValueError as exc:
+        raise WiboError(f"Invalid JSON in wibo release metadata from {current!r}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise WiboError("Invalid wibo release metadata response")
+    return data
 
 
 def download_wibo(dest: Path) -> str:
