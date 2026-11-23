@@ -1610,7 +1610,7 @@ class TestBinaryLoaderRegistry:
 
         junk = tmp_path / "junk.bin"
         junk.write_bytes(b"\x00" * 64)
-        with pytest.raises(ValueError, match="unknown format"):
+        with pytest.raises(ValueError, match="cannot be parsed as an executable"):
             bl.load_binary(junk)
 
     def test_wrong_return_type_loader_skipped(
@@ -1628,7 +1628,7 @@ class TestBinaryLoaderRegistry:
         monkeypatch.setattr(bl, "_PLUGIN_LOADERS", bl._discover_binary_loaders())
         junk = tmp_path / "junk.bin"
         junk.write_bytes(b"\x00" * 64)
-        with pytest.raises(ValueError, match="unknown format"):
+        with pytest.raises(ValueError, match="cannot be parsed as an executable"):
             bl.load_binary(junk)
         assert "expected BinaryInfo | None" in caplog.text
 

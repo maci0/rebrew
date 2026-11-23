@@ -229,17 +229,21 @@ def _crt_candidates(cfg: Any) -> list[LibCandidate]:
     return out
 
 
-def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
+def _flirt_candidates(
+    cfg: Any, default_module: str, unreadable: list[str] | None = None
+) -> list[LibCandidate]:
     """FLIRT hits from the project's flirt_sigs (skipped when absent).
 
     Each signature file is scanned independently so its module attribution
     comes from the file name (``msvcrt_vc6.pat`` → MSVCRT, ``zlib_vc6.pat`` →
-    ZLIB); the name-prefix tables (CRT/zlib) refine individual hits.
+    ZLIB); the name-prefix tables (CRT/zlib) refine individual hits.  A file that
+    cannot be read or parsed is skipped, and its path in ``flirt_sigs/`` goes to
+    *unreadable* when given.
     """
     sig_dir = cfg.root / "flirt_sigs" if getattr(cfg, "root", None) else None
     if sig_dir is None or not sig_dir.is_dir():
         return []
-    from rebrew.flirt import signature_files
+    from rebrew.flirt import SignatureFileError, parse_signature_file, signature_files
 
     # The set a scan loads: one file per stem in each directory, the .sig preferred.
     sig_files = signature_files([sig_dir])
@@ -264,12 +268,11 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
     out: list[LibCandidate] = []
     for sig_file in sig_files:
         try:
-            if sig_file.suffix == ".sig":
-                sigs = flirt.parse_sig(sig_file.read_bytes())
-            else:
-                sigs = flirt.parse_pat(sig_file.read_text(encoding="utf-8", errors="replace"))
-        except Exception as exc:  # one bad file must not abort the rest
+            sigs = parse_signature_file(sig_file)
+        except (OSError, SignatureFileError) as exc:  # one bad file must not abort the rest
             console.print(f"[yellow]warning:[/yellow] unreadable signature {sig_file.name}: {exc}")
+            if unreadable is not None:
+                unreadable.append(sig_file.relative_to(sig_dir).as_posix())
             continue
         if not sigs:
             continue
@@ -399,8 +402,14 @@ def _existing_vas(cfg: Any) -> set[int]:
     return set(load_existing_vas(cfg.reversed_dir, cfg))
 
 
-def collect_candidates(cfg: Any, default_module: str | None = None) -> list[LibCandidate]:
-    """Run all three backends and merge by VA (best provenance wins)."""
+def collect_candidates(
+    cfg: Any, default_module: str | None = None, *, unreadable: list[str] | None = None
+) -> list[LibCandidate]:
+    """Run all three backends and merge by VA (best provenance wins).
+
+    A signature file the FLIRT backend cannot read or parse is skipped, and its
+    path in ``flirt_sigs/`` goes to *unreadable* when given.
+    """
     if not default_module:
         # ``library_modules`` is a set: sort so the default module is stable
         # across processes (set iteration order varies with hash randomization).
@@ -410,7 +419,7 @@ def collect_candidates(cfg: Any, default_module: str | None = None) -> list[LibC
     merged: dict[int, LibCandidate] = {}
     for cand in (
         _crt_candidates(cfg)
-        + _flirt_candidates(cfg, default_module)
+        + _flirt_candidates(cfg, default_module, unreadable)
         + _import_candidates(cfg, default_module)
     ):
         existing = merged.get(cand.va)

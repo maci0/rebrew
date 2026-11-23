@@ -4743,3 +4743,97 @@ class TestDecompilersOffered:
         assert set(fields["name"]["enum"]) == ops.DECOMPILER_BACKENDS - {"auto"}
         assert fields["state"]["enum"] == list(get_args(DecompilerState))
         assert fields["reason"]["enum"] == list(get_args(DecompilerReason))
+
+
+#: Inputs that crashed a parser (sixth review's fuzzing): a ``.sig`` whose library
+#: name is not UTF-8, on which python-flirt panics; a PE and an MZ cut short.
+MALFORMED = FIXTURES / "malformed"
+
+
+class TestMalformedInput:
+    """A caller's malformed file is answered, never an engine fault or no answer."""
+
+    def test_a_project_signature_python_flirt_panics_on_is_skipped_and_named(
+        self, world: tuple[WorkerConfig, Path]
+    ) -> None:
+        config, project = world
+        sigs = project / "flirt_sigs"
+        sigs.mkdir(exist_ok=True)
+        bad = sigs / "bad.sig"
+        shutil.copyfile(MALFORMED / "flirt-panic.sig", bad)
+        try:
+            reply = _call(config, "rebrew.identify_library", {"project_dir": str(project)})
+        finally:
+            bad.unlink()
+        assert reply["unreadable_signatures"] == ["bad.sig"]
+
+    def test_an_uploaded_signature_python_flirt_panics_on_is_the_callers_422(
+        self, world: tuple[WorkerConfig, Path]
+    ) -> None:
+        config, project = world
+        digest, key = _store(config.filestore, (MALFORMED / "flirt-panic.sig").read_bytes())
+        request = {
+            "project_dir": str(project),
+            "sha256": SHA256,
+            "format": "sig",
+            "signatures": {"sha256": digest, "file": key},
+            "min_size": 0,
+        }
+        refusal = _refusal(config, "rebrew.reference_flirt", json.dumps(request).encode())
+        assert (refusal["error"], refusal["status"], refusal["detail"]) == (
+            "malformed-signatures",
+            422,
+            "the signatures are not a sig file python-flirt reads",
+        )
+
+    @pytest.mark.parametrize("name", ["truncated-pe.exe", "truncated-mz.exe"])
+    def test_a_truncated_binary_is_the_callers_422(self, tmp_path: Path, name: str) -> None:
+        filestore, workspace = _worker_dirs(tmp_path)
+        data = (MALFORMED / name).read_bytes()
+        digest, key = _store(filestore, data)
+        request = {"binary_id": 1, "sha256": digest, "name": name, "file_key": key}
+        refusal = _refusal(
+            WorkerConfig(filestore.resolve(), workspace.resolve()),
+            "rebrew.analyse",
+            json.dumps(request).encode(),
+        )
+        assert (refusal["error"], refusal["status"]) == ("unsupported-binary-format", 422)
+        assert refusal["detail"].endswith("it is truncated or malformed")
+        assert str(filestore) not in refusal["detail"]
+
+    def test_no_exception_ends_an_http_call_without_a_reply(self) -> None:
+        """A native panic is a BaseException; the server answers 500 and keeps serving."""
+        from rebrew.ops import OpsServer
+
+        class Panic(BaseException):
+            pass
+
+        calls: list[str] = []
+
+        def answer(_config: WorkerConfig, name: str, _body: bytes) -> tuple[int, bytes]:
+            calls.append(name)
+            if len(calls) == 1:
+                raise Panic("invalid string: FromUtf8Error")
+            return 200, b"{}"
+
+        with OpsServer(
+            ("127.0.0.1", 0), WorkerConfig(), TOKEN, 1, ops={"x.y"}, answer=answer
+        ) as server:
+            thread = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            thread.start()
+            try:
+                port = server.server_address[1]
+                first = TestCallerOpTable._call(port, "POST", "/x.y", b"{}")
+                second = TestCallerOpTable._call(port, "POST", "/x.y", b"{}")
+            finally:
+                server.shutdown()
+                thread.join(timeout=WAIT_SECONDS)
+        assert first[0] == 500
+        assert json.loads(first[2]) == {
+            "error": "engine-error",
+            "detail": "the engine failed while answering this call",
+            "status": 500,
+        }
+        assert second[0] == 200

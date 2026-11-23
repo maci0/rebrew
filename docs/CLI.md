@@ -7099,8 +7099,13 @@ wrong JSON type, is refused. A refusal is
 exceeds 16 MiB; also a wrapped command's `usage` error, with its message, and a
 compile recompile refused `400 invalid_attribution`: "the recompile service refused
 the attribution", nothing billed),
-`unknown-op` (404), `engine-error` (500),
-`remote-compile-headers` (422, see below), `toolchain-rejected` (422: the toolchain
+`unknown-op` (404), `engine-error` (500; over HTTP a fault nothing above explains,
+a native panic among them, answers `the engine failed while answering this call`
+and the server keeps serving), `unsupported-binary-format` (422: a binary of a
+format rebrew does not read, or a PE, ELF, Mach-O or MZ file that is truncated or
+malformed; the detail names the file, not its path), `malformed-signatures` (422,
+`rebrew.reference_flirt`: the uploaded `.sig` or `.pat` is not one python-flirt
+reads), `remote-compile-headers` (422, see below), `toolchain-rejected` (422: the toolchain
 ran and rejected the source; the detail is `COMPILE_ERROR: ` and its diagnostics,
 one per line, and there is no verdict), `invalid-project-config` (400, see
 `rebrew.project_targets`), `project-import-refused` (422, see
@@ -7398,6 +7403,9 @@ Op details the contract leaves open:
   `rebrew.splat_parse` read a stored file or the request text, never a
   project. `splat_parse` opens nothing the config names and refuses a config
   over 256 KiB.
+- `rebrew.identify_library` answers `unreadable_signatures`: the paths in the
+  project's `flirt_sigs/` of the signature files it skipped because they could not
+  be read or parsed (python-flirt's panics included).
 - Reconstruction ops (`reference_flirt`, `verify_function`, `verify_target`,
   `build`, `skeleton`, `coverage_report`, `data_list`, `data_set`) take
   `project_dir` and an optional target `sha256`. Their `source` is

@@ -18,6 +18,7 @@ except ImportError:  # optional dependency
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.errors import RebrewError
 lazy from rebrew.config import REBREW_FLIRT_SIGS_DIR_ENV, ConfigError, env_dir_path
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.utils import SOURCE_CHECKOUT, atomic_write_bytes, read_json_text
@@ -226,6 +227,35 @@ def _matched_sig_names(linkage: str) -> set[str]:
     return names
 
 
+class SignatureFileError(RebrewError, ValueError):
+    """A ``.sig`` or ``.pat`` file python-flirt cannot parse."""
+
+
+#: Exceptions a parse never turns into :class:`SignatureFileError`: the process is ending.
+_EXITS = (KeyboardInterrupt, SystemExit, GeneratorExit)
+
+
+def parse_signature_file(path: Path) -> list[Any]:
+    """The signatures of one ``.sig`` (binary) or ``.pat`` (text) file.
+
+    Raises :class:`SignatureFileError` for a file python-flirt cannot parse:
+    its errors, and its panics, which pyo3 raises as a ``BaseException``
+    (``pyo3_runtime.PanicException``) that ``except Exception`` does not catch.
+    A ``.pat`` is decoded with ``errors="replace"``, not ``"ignore"``: dropping a
+    byte merges distinct names (``b"foo\xe9"`` would become the unrelated ``"foo"``).
+    Raises :class:`OSError` when the file cannot be read.
+    """
+    content = path.read_bytes()
+    try:
+        if path.suffix.lower() == ".sig":
+            return list(flirt.parse_sig(content))
+        return list(flirt.parse_pat(content.decode("utf-8", errors="replace")))
+    except _EXITS:
+        raise
+    except BaseException as exc:  # a python-flirt panic is a BaseException
+        raise SignatureFileError(f"{path.name} is not a signature file python-flirt reads") from exc
+
+
 def _parse_sig_files(files: list[Path]) -> list[Any]:
     """Parse each FLIRT signature file, warning (not aborting) on bad ones."""
     if flirt is None:
@@ -234,21 +264,13 @@ def _parse_sig_files(files: list[Path]) -> list[Any]:
     sigs: list[Any] = []
     for filepath in files:
         try:
-            content = filepath.read_bytes()
-            if filepath.suffix.lower() == ".sig":
-                parsed = flirt.parse_sig(content)
-            else:
-                # "replace", not "ignore": dropping a byte merges distinct
-                # names (b"foo\xe9" would become the unrelated "foo").
-                parsed = flirt.parse_pat(content.decode("utf-8", errors="replace"))
-            sigs.extend(parsed)
-            console.print(f"Loaded {len(parsed)} signatures from {filepath.name}")
-        except (OSError, ValueError, TypeError) as e:
+            parsed = parse_signature_file(filepath)
+        except (OSError, SignatureFileError) as e:
+            # One bad file must not abort the whole scan.
             warnings.warn(f"Error loading {filepath}: {e}", stacklevel=2)
-        except Exception as e:  # python-flirt can raise
-            # struct.error / IndexError / UnicodeDecodeError on malformed
-            # signatures; one bad file must not abort the whole scan.
-            warnings.warn(f"Error parsing {filepath}: {e}", stacklevel=2)
+            continue
+        sigs.extend(parsed)
+        console.print(f"Loaded {len(parsed)} signatures from {filepath.name}")
     return sigs
 
 

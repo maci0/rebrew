@@ -71,7 +71,9 @@ class TestCollectCandidates:
             )
         ]
         monkeypatch.setattr("rebrew.identify_library._crt_candidates", lambda cfg: crt)
-        monkeypatch.setattr("rebrew.identify_library._flirt_candidates", lambda cfg, m: flirt)
+        monkeypatch.setattr(
+            "rebrew.identify_library._flirt_candidates", lambda cfg, m, _unreadable: flirt
+        )
         monkeypatch.setattr("rebrew.identify_library._import_candidates", lambda cfg, m: imp)
         out = collect_candidates(_cfg(tmp_path))
         assert len(out) == 1
@@ -83,7 +85,9 @@ class TestCollectCandidates:
             LibCandidate(va=0x1000, name="a", module="MSVCRT", kind="import", confidence=0.3),
         ]
         monkeypatch.setattr("rebrew.identify_library._crt_candidates", lambda cfg: [])
-        monkeypatch.setattr("rebrew.identify_library._flirt_candidates", lambda cfg, m: [])
+        monkeypatch.setattr(
+            "rebrew.identify_library._flirt_candidates", lambda cfg, m, _unreadable: []
+        )
         monkeypatch.setattr("rebrew.identify_library._import_candidates", lambda cfg, m: imp)
         out = collect_candidates(_cfg(tmp_path))
         assert [c.va for c in out] == [0x1000, 0x2000]
@@ -98,7 +102,9 @@ class TestCollectCandidates:
             )
         ]
         monkeypatch.setattr("rebrew.identify_library._crt_candidates", lambda cfg: [])
-        monkeypatch.setattr("rebrew.identify_library._flirt_candidates", lambda cfg, m: flirt)
+        monkeypatch.setattr(
+            "rebrew.identify_library._flirt_candidates", lambda cfg, m, _unreadable: flirt
+        )
         monkeypatch.setattr("rebrew.identify_library._import_candidates", lambda cfg, m: imp)
         out = collect_candidates(_cfg(tmp_path))
         assert {(c.va, c.kind) for c in out} == {(0x3000, "flirt"), (0x4000, "import")}
@@ -345,7 +351,7 @@ class TestDefaultModuleDeterminism:
         monkeypatch.setattr(il, "_import_candidates", lambda cfg, m: [])
         seen: dict[str, str] = {}
 
-        def _flirt(cfg: Any, default_module: str) -> list[Any]:
+        def _flirt(cfg: Any, default_module: str, _unreadable: Any) -> list[Any]:
             seen["module"] = default_module
             return []
 

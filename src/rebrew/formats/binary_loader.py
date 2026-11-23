@@ -394,7 +394,7 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         # is not supported.
         binary = fat_or_binary.at(0)
         if binary is None:
-            raise ValueError(f"Empty Mach-O fat binary: {path}")
+            raise _unparseable(path, "a Mach-O")
     else:
         binary = fat_or_binary
 
@@ -649,6 +649,15 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     return result
 
 
+def _unparseable(path: str | Path, kind: str) -> UnsupportedBinaryFormat:
+    """A file whose magic names a format LIEF then cannot parse: truncated or malformed."""
+    with open(path, "rb") as f:
+        magic = f.read(_MAGIC_BYTES).hex()
+    return UnsupportedBinaryFormat(
+        f"{Path(path).name} cannot be parsed as {kind}: it is truncated or malformed", magic=magic
+    )
+
+
 def _parse_regular(path: Path, fmt: str) -> BinaryInfo:
     """Parse a PE/ELF/Mach-O binary via LIEF (used by load_binary)."""
     import lief
@@ -662,7 +671,7 @@ def _parse_regular(path: Path, fmt: str) -> BinaryInfo:
         if fmt == "auto":
             binary = lief.parse(spath)
             if binary is None:
-                raise ValueError(f"Failed to parse binary (unknown format): {path}")
+                raise _unparseable(path, "an executable")
             if isinstance(binary, lief.PE.Binary):
                 result = _load_pe(binary, path)
             elif isinstance(binary, lief.ELF.Binary):
@@ -670,21 +679,21 @@ def _parse_regular(path: Path, fmt: str) -> BinaryInfo:
             elif isinstance(binary, (lief.MachO.FatBinary, lief.MachO.Binary)):
                 result = _load_macho(binary, path)
             else:
-                raise ValueError(f"Unsupported binary format: {path}")
+                raise _unparseable(path, "an executable rebrew reads")
         elif fmt == "pe":
             binary = lief.PE.parse(spath)
             if binary is None:
-                raise ValueError(f"Failed to parse PE: {path}")
+                raise _unparseable(path, "a PE")
             result = _load_pe(binary, path)
         elif fmt == "elf":
             binary = lief.ELF.parse(spath)
             if binary is None:
-                raise ValueError(f"Failed to parse ELF: {path}")
+                raise _unparseable(path, "an ELF")
             result = _load_elf(binary, path)
         elif fmt == "macho":
             binary = lief.MachO.parse(spath)
             if binary is None:
-                raise ValueError(f"Failed to parse Mach-O: {path}")
+                raise _unparseable(path, "a Mach-O")
             result = _load_macho(binary, path)
         elif fmt == "ne":
             # A real NE file is routed to the native loader by is_ne() before
@@ -1575,7 +1584,7 @@ def parse_mz_header(path: str | Path) -> dict[str, int]:
     with open(path, "rb") as f:
         head = f.read(0x40)
     if len(head) < 0x40 or head[:2] != b"MZ":
-        raise ValueError(f"not an MZ executable: {path}")
+        raise _unparseable(path, "an MZ executable")
     cparhdr = int.from_bytes(head[0x08:0x0A], "little")
     crlc = int.from_bytes(head[0x06:0x08], "little")
     lfarlc = int.from_bytes(head[0x18:0x1A], "little")
@@ -1586,7 +1595,7 @@ def parse_mz_header(path: str | Path) -> dict[str, int]:
 
     # Degenerate header (no header paragraphs, no pages) — not a real MZ.
     if cparhdr == 0 and cp == 0:
-        raise ValueError(f"invalid MZ header (no header/pages): {path}")
+        raise _unparseable(path, "an MZ executable")
     # Per the MZ spec, cblp == 0 means the last page is exactly 512 bytes
     # (a full page), so the true size is cp * 512 — the (cp-1)*512 + cblp
     # formula would undercount by 512 and yield an empty code region for

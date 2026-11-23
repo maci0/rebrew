@@ -120,13 +120,15 @@ class TestLoadBinaryFmtDispatch:
     def test_fmt_macho_parse_failure(self, tmp_path: Path) -> None:
         f = tmp_path / "x.macho"
         f.write_bytes(b"\x7fELF" + b"\x00" * 100)  # not a Mach-O
-        with pytest.raises(ValueError, match="Failed to parse Mach-O"):
+        with pytest.raises(ValueError, match="cannot be parsed as a Mach-O"):
             bl.load_binary(f, fmt="macho")
 
     def test_unknown_fmt(self, tmp_path: Path) -> None:
         f = tmp_path / "x.bin"
         f.write_bytes(b"MZ" + b"\x00" * 100)
-        with pytest.raises(ValueError, match="(Unknown binary format|invalid MZ header)"):
+        with pytest.raises(
+            ValueError, match="(Unknown binary format|cannot be parsed as an MZ executable)"
+        ):
             bl.load_binary(f, fmt="wat")
 
     def test_missing_file(self, tmp_path: Path) -> None:

@@ -91,7 +91,7 @@ lazy from rebrew.compiler.compile import (
     current_remote_compiles,
 )
 lazy from rebrew.compiler.recompile_client import Attribution
-lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
+lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat, load_binary
 lazy from rebrew.utils import fold_host, split_source_lines
 
 logger = logging.getLogger(__name__)
@@ -647,6 +647,8 @@ REPORT_OUTPUT_INVALID = "report-output-invalid"
 MAX_REPORT_FILES = 4096
 MAX_REPORT_BYTES = 64 * 1024 * 1024
 UNSUPPORTED_BINARY_FORMAT = "unsupported-binary-format"
+#: A ``.sig`` or ``.pat`` file the caller supplied that python-flirt cannot parse (422).
+MALFORMED_SIGNATURES = "malformed-signatures"
 #: A project archive the worker will not import: an unsafe or oversized entry, no matching
 #: target binary, or a setting that would run something.  The caller's to fix.
 PROJECT_IMPORT_REFUSED = "project-import-refused"
@@ -2207,7 +2209,8 @@ def identify_library(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any
     from rebrew.naming import load_existing_vas
 
     cfg = load_config(project_root(config, req.project_dir))
-    candidates = collect_candidates(cfg)
+    unreadable: list[str] = []
+    candidates = collect_candidates(cfg, unreadable=unreadable)
     existing = set(load_existing_vas(cfg.reversed_dir, cfg))
     fresh = sum(1 for candidate in candidates if candidate.va not in existing)
     return {
@@ -2226,6 +2229,7 @@ def identify_library(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any
             }
             for candidate in candidates
         ],
+        "unreadable_signatures": unreadable,
     }
 
 
@@ -2879,6 +2883,10 @@ def analyse(config: WorkerConfig, req: AnalyseRequest) -> dict[str, Any]:
         project.mkdir(parents=True, exist_ok=True)
         if _inside(workspace, relative, "analysis project") != project:
             raise _invalid("analysis project must not traverse symlinks")
+        # A file rebrew cannot parse is the caller's (422), refused before the intake
+        # child degrades to string evidence and finds no functions.  The capture
+        # below reads the same parse from load_binary's cache.
+        load_binary(binary)
         intake = _run_intake(binary, project, target_name(req.name))
         capture, report = capture_fresh_analysis(config, binary, req.sha256, target_name(req.name))
         for item in report["targets"]:
@@ -3842,6 +3850,8 @@ def reference_flirt(config: WorkerConfig, req: ReferenceFlirtRequest) -> dict[st
     matches of at least ``min_size`` bytes, and the count of ambiguous ones
     skipped.  The signatures are a stored file like a binary.
     """
+    from rebrew.flirt import SignatureFileError, parse_signature_file
+
     if req.format not in FLIRT_FORMATS:
         raise _invalid(f"format must be one of {', '.join(sorted(FLIRT_FORMATS))}")
     if req.min_size < 0:
@@ -3855,7 +3865,16 @@ def reference_flirt(config: WorkerConfig, req: ReferenceFlirtRequest) -> dict[st
     ) as path:
         scratch.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="flirt-", dir=scratch) as directory:
-            shutil.copyfile(path, Path(directory) / f"reference.{req.format}")
+            reference = Path(directory) / f"reference.{req.format}"
+            shutil.copyfile(path, reference)
+            try:
+                parse_signature_file(reference)
+            except SignatureFileError:
+                raise OpsError(
+                    f"the signatures are not a {req.format} file python-flirt reads",
+                    code=MALFORMED_SIGNATURES,
+                    status=422,
+                ) from None
             arguments = ["library", "scan-signatures", "--json", f"--min-size={req.min_size}"]
             return run_rebrew([*arguments, *target, "--", directory], root, COMMAND_TIMEOUT_SECONDS)
 
@@ -5031,6 +5050,10 @@ def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str
     return _run_parsed(config, name, op, request)
 
 
+#: Exceptions an op never turns into a refusal: the process is ending.
+_EXITS = (KeyboardInterrupt, SystemExit, GeneratorExit)
+
+
 def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mapping[str, Any]:
     try:
         return op.run(config, request)
@@ -5048,6 +5071,11 @@ def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mappin
     except Exception as exc:  # the engine is a trust boundary: log it, answer it sanitized
         logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
         raise _refused(_failure_detail(config, name, exc)) from None
+    except _EXITS:
+        raise
+    except BaseException:  # a native panic (pyo3) escapes ``except Exception``
+        logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
+        raise _refused(f"{name} failed: the engine raised an unexpected error") from None
 
 
 #: Headers the HTTP transport adds to the reply of the call in flight
@@ -5699,6 +5727,13 @@ class _OpsHandler(BaseHTTPRequestHandler):
             status, reply = server.answer(
                 server.config, urlsplit(self.path).path.removeprefix("/"), body
             )
+        except _EXITS:
+            raise
+        except BaseException:  # no call ends without a reply
+            logger.exception("%s answer failed trace_id=%s", self._request_id, _trace_id())
+            server.record_unhandled()
+            status = 500
+            reply = error_body(ENGINE_ERROR, "the engine failed while answering this call", 500)
         finally:
             answered.set()
             _REPLY_HEADERS.reset(replied)

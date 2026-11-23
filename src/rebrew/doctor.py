@@ -1447,7 +1447,7 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
         )
 
     try:
-        import flirt
+        import flirt  # noqa: F401  # presence probe; the parse goes through rebrew.flirt
     except ImportError:
         return CheckResult(
             name="FLIRT signatures",
@@ -1455,22 +1455,21 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
             message=f"{len(sig_files)} sig file(s) found, but python-flirt is not installed",
             fix="Install python-flirt to use 'rebrew library scan-signatures': 'uv add python-flirt'.",
         )
+    from rebrew.flirt import parse_signature_file
 
     total = 0
     problems: list[str] = []
     for filepath in sig_files:
         try:
-            content = filepath.read_bytes()
-            if filepath.suffix == ".sig":
-                parsed = flirt.parse_sig(content)
-            else:
+            if filepath.suffix == ".pat":
                 # Strict: rebrew writes .pat as UTF-8, so an undecodable
                 # byte is corruption (the scan paths would show it as U+FFFD).
-                parsed = flirt.parse_pat(content.decode("utf-8"))
+                filepath.read_bytes().decode("utf-8")
+            parsed = parse_signature_file(filepath)
             total += len(parsed)
             if not parsed:
                 problems.append(f"{filepath.name} (0 signatures)")
-        except (OSError, ValueError, TypeError, UnicodeDecodeError) as e:
+        except (OSError, ValueError) as e:  # SignatureFileError and UnicodeDecodeError among them
             problems.append(f"{filepath.name} (corrupt: {e})")
 
     if problems:
