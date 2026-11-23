@@ -4,6 +4,10 @@
 
 - `rebrew <command>` starts in about 40% of the CPU it took: a run whose first argument after the root options names a built-in command mounts only that command instead of importing and registering all ~130 command modules. `rebrew test --help` costs 0.92 G user-space instructions and about 118 ms of CPU against 2.39 G and about 278 ms, and so does every child the ops server starts. Runs with no command, root `--help`, a plugin command or an option the entry scan does not know still compose the whole CLI. `rebrew.app.main.app` is composed on first access instead of at import; library callers that read it see every command as before. A plugin that reuses a built-in name is still ignored, but its warning prints only on the full path.
 
+### Fixed
+
+- recompile 14.0.1's client rules settle two answers rebrew read as saying nothing of a key: `503 credit_ledger_unavailable` reaches only a new compile (a key already admitted is replayed before the credit check), and `402 model_credits_exhausted` and `allowance_exhausted` refuse only a new compile, so each settles the key free, also after a lost reply (it was left unsettled). `402 workbench_plan_required` still says nothing of the key: an admitted key without a retained result answers it while the org has no plan.
+
 ## [6.71.0] - 2026-11-22
 
 ### Changed

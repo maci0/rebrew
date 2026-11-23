@@ -204,11 +204,12 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("compile", 401, "unauthenticated"): _AnswerRule(None, "final"),
         ("compile", 401, "authentication_required"): _AnswerRule(None, "final"),
         ("compile", 401, _ANY_CODE): _AnswerRule(None, "final"),
-        # A new compile refused until the account can pay; a key already admitted
-        # may be refused the same before Platform looks it up, its outcome standing.
-        ("compile", 402, "model_credits_exhausted"): _AnswerRule(None, "final"),
+        # A new compile refused until the account can pay: a key already admitted is
+        # answered its outcome, except that one without a retained result answers
+        # workbench_plan_required while the org has no plan.
+        ("compile", 402, "model_credits_exhausted"): _AnswerRule("free", "final"),
         ("compile", 402, "workbench_plan_required"): _AnswerRule(None, "final"),
-        ("compile", 402, "allowance_exhausted"): _AnswerRule(None, "final"),
+        ("compile", 402, "allowance_exhausted"): _AnswerRule("free", "final"),
         ("compile", 402, _ANY_CODE): _AnswerRule(None, "final"),
         # Billed, and this credential may not receive the result.
         ("compile", 403, "billed_not_delivered"): _AnswerRule("billed", "final"),
@@ -252,8 +253,9 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("compile", 503, "platform_unavailable"): _AnswerRule("unknown", "wait"),
         ("compile", 503, "settlement_pending"): _AnswerRule("unknown", "wait"),
         ("compile", 503, "store_unavailable"): _AnswerRule("unknown", "wait"),
-        # The credit ledger did not answer: this attempt admitted nothing.
-        ("compile", 503, "credit_ledger_unavailable"): _AnswerRule(None, "wait"),
+        # The credit ledger did not answer a new compile's reservation: nothing was
+        # admitted, and a key already admitted is replayed before the credit check.
+        ("compile", 503, "credit_ledger_unavailable"): _AnswerRule("free", "wait"),
         ("compile", 503, _ANY_CODE): _AnswerRule("unknown", "wait"),
         ("compile", 504, _ANY_CODE): _AnswerRule("unknown", "retry"),
         # The edge gave up on a compile running past its 100 s: a lost reply,

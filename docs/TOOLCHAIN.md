@@ -66,14 +66,17 @@ billed and whose verdict the op got: an object, or the compiler's rejection.
 the object's download failed after `status: "ok"`, or the key was answered
 `403 billed_not_delivered`, `409 retained_output_unavailable` or
 `410 artifact_expired`. `unsettled` is a call whose key may have been billed and no
-answer said: a reply lost on every attempt, a 5xx or 503 waited out to the
-deadline, `admission_unrecoverable`, or an answer that says nothing of the key (a
-refused credential, `423 account_under_review`, a `402` (Platform refuses a key's
-retry `402` before it looks the key up), a throttle, `503 credit_ledger_unavailable`)
-after one of those. A call in none of them was free: the service's other
-`error_code` values, `delivery_denied` and the spent-key codes, a new compile or a
-malformed request refused (`400`, `409 admission_conflict`, `413`, `415`, `422`), or
-an answer that says nothing of the key on its first attempt. The service answers a known key
+answer said: a reply lost on every attempt, a 5xx or 503 other than
+`credit_ledger_unavailable` waited out to the deadline, `admission_unrecoverable`,
+or an answer that says nothing of the key (a refused credential,
+`423 account_under_review`, `402 workbench_plan_required`, which an admitted key
+without a retained result answers while the org has no plan, a throttle) after one
+of those. A call in none of them was free: the service's other `error_code` values,
+`delivery_denied` and the spent-key codes, a new compile or a malformed request
+refused (`400`, `402 model_credits_exhausted` or `allowance_exhausted`,
+`409 admission_conflict`, `413`, `415`, `422`, `503 credit_ledger_unavailable`,
+which recompile answers only to a new compile), or an answer that says nothing of
+the key on its first attempt. The service answers a known key
 with its first outcome, so a settling answer also settles a reply lost before it.
 The three counts are in the op's reply and in a refusal after a recompile call.
 

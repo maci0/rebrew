@@ -2121,6 +2121,9 @@ class TestClientRulesTable:
         (200, "publish_failed", "free"),
         (200, "provenance_unavailable", "free"),
         (200, "missing_artifact", "free"),
+        (402, "model_credits_exhausted", "free"),
+        (402, "allowance_exhausted", "free"),
+        (503, "credit_ledger_unavailable", "free"),
     )
 
     @pytest.mark.parametrize(("status", "code", "cost"), PUBLISHED)
@@ -2133,9 +2136,7 @@ class TestClientRulesTable:
         (401, "unauthenticated"),
         (403, "forbidden"),
         (423, "account_under_review"),
-        (402, "model_credits_exhausted"),
         (402, "workbench_plan_required"),
-        (402, "allowance_exhausted"),
         (429, "rate_limited"),
         (429, "concurrency_limit"),
         (429, "failure_throttle"),

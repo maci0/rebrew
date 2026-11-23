@@ -1252,20 +1252,25 @@ def test_a_refusal_of_a_key_never_admitted_is_settled(
     ids=["503", "502"],
 )
 @pytest.mark.parametrize(
-    "settled",
-    [_refused(402, "model_credits_exhausted"), _refused(402, "workbench_plan_required")],
-    ids=["credits", "plan"],
+    ("settled", "unsettled"),
+    [
+        # Only a new compile is refused for credits: the key was never admitted.
+        (_refused(402, "model_credits_exhausted"), 0),
+        (_refused(402, "allowance_exhausted"), 0),
+        # An admitted key without a retained result answers this while the org has no
+        # plan (recompile's client rules, rule 4): the earlier attempt stays unknown.
+        (_refused(402, "workbench_plan_required"), 1),
+    ],
+    ids=["credits", "allowance", "plan"],
 )
-def test_a_same_key_402_leaves_an_earlier_lost_reply_unsettled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lost: Answer, settled: Answer
+def test_a_same_key_402_settles_an_earlier_lost_reply_as_rule_4_says(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lost: Answer, settled: Answer, unsettled: int
 ) -> None:
-    """Platform refuses a key's retry 402 before it looks the key up (recompile's client
-    rules, rule 4), so the 402 says nothing of the attempt lost before it."""
     reply, seen = _verify(tmp_path, monkeypatch, [lost, settled, _OK])
     assert (reply["status"], len(seen)) == ("NOT_RUN", 2)
     assert _keys(seen)[0] == _keys(seen)[1]
     assert reply["remote_compile"]["count"] == 0
-    assert reply["remote_compile"]["unsettled"] == 1
+    assert reply["remote_compile"]["unsettled"] == unsettled
 
 
 def test_a_refusal_after_an_unsettled_compile_reports_it(
