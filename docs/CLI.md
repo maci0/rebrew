@@ -6177,9 +6177,12 @@ The scan loads one file per stem in each directory, the `.sig` preferred over th
 index keys each file by its path relative to `sigs/`, a file listed under another
 architecture than the target's is skipped, one listed with an unknown
 architecture loads, and a file the index does not list is not loaded (the scan
-prints how many and names the first). It needs recondb 2.0.0 or later: an older
-checkout's index keys files by name and is refused with that release named, as
-is an index that cannot be read. A directory without an index (a project's
+prints how many and names the first). It reads an index of `schema_version` 3
+(recondb 3.0.0 or later, published as `sigs/index.schema.json`): an index without
+that member or with another value (an older checkout) is refused with that release
+named, as is an index that cannot be read. The recondb library is not public: a
+checkout needs access to it; without one the scan reads only the project's
+`flirt_sigs/`. A directory without an index (a project's
 `flirt_sigs/`, your own) loads every file, except a copy whose path the
 checkout's index lists under another architecture.
 
@@ -6197,12 +6200,15 @@ checkout's index lists under another architecture.
 
 `rebrew library init-signatures [OPTIONS]`
 
-Copy shared signature files from the `recondb` checkout (2.0.0 or later) into the
+Copy shared signature files from the `recondb` checkout (3.0.0 or later; the library is
+not public, so this needs a checkout you have access to) into the
 project's `flirt_sigs/`, each under its path relative to the checkout's `sigs/`
 (`flirt_sigs/msvc/vc6/libcmt_vc6.sig`), so two files of one name in different
 directories both arrive and the checkout's index still filters the copies.
-Existing project files are retained; this is a setup operation, separate from
-scanning the binary.
+Existing project files are retained; a copy at a key recondb renamed (its
+`docs/renamed-3.0.0.tsv`) is moved to the new key first, so the checkout's index
+names it, and `--json` counts those in `renamed`. This is a setup operation,
+separate from scanning the binary.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

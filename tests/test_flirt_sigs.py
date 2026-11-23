@@ -74,7 +74,7 @@ def test_flirt_sigs_repo_env_expands_tilde(monkeypatch: pytest.MonkeyPatch) -> N
         _flirt_sigs_repo()
 
 
-# recondb 2.0.0's sigs/index.json keys each file by its path relative to sigs/, and
+# recondb 3.0.0's sigs/index.json (schema_version 3) keys each file by its path relative to sigs/, and
 # a scan loads one file per stem in each directory, the .sig preferred.
 
 _BOTH = {"gcc/x86/lib.pat": "x86", "gcc/arm/lib.pat": "arm"}
@@ -91,14 +91,16 @@ def _pat(path: Path, patterns: int) -> None:
     path.write_text("\n".join([*lines, "---"]) + "\n", encoding="utf-8")
 
 
-def _checkout(tmp_path: Path, files: dict[str, str]) -> Path:
+def _checkout(tmp_path: Path, files: dict[str, str], schema_version: int | str | None = 3) -> Path:
     """A recondb-shaped checkout: one pattern in gcc/x86/lib.pat, two in gcc/arm/lib.pat."""
     import json
 
     repo = tmp_path / "recondb"
     _pat(repo / "sigs" / "gcc" / "x86" / "lib.pat", 1)
     _pat(repo / "sigs" / "gcc" / "arm" / "lib.pat", 2)
-    index = {"files": {key: {"arch": arch} for key, arch in files.items()}}
+    index: dict[str, object] = {"files": {key: {"arch": arch} for key, arch in files.items()}}
+    if schema_version is not None:
+        index["schema_version"] = schema_version
     (repo / "sigs" / "index.json").write_text(json.dumps(index), encoding="utf-8")
     return repo
 
@@ -120,12 +122,23 @@ def test_one_file_per_stem_per_directory_with_the_sig_preferred(tmp_path: Path) 
     ]
 
 
-def test_an_index_keyed_by_file_name_is_refused_with_the_release_it_needs(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("files", "schema_version"),
+    [
+        ({"lib.pat": "x86"}, None),  # recondb 1.x: keyed by file name
+        (_BOTH, None),  # recondb 2.0.0: keyed by path, no version member
+        (_BOTH, 2),
+        (_BOTH, 4),
+        (_BOTH, "3"),
+    ],
+    ids=["names", "paths-2.0.0", "version-2", "version-4", "version-text"],
+)
+def test_an_index_of_another_format_is_refused_with_the_release_it_needs(
+    tmp_path: Path, files: dict[str, str], schema_version: int | str | None
 ) -> None:
-    """recondb before 2.0.0 keyed by name, which cannot tell the two lib.pat apart."""
-    repo = _checkout(tmp_path, {"lib.pat": "x86"})
-    with pytest.raises(ConfigError, match=r"recondb 2\.0\.0 or later"):
+    """Only schema_version 3 is read; its absence or any other value is not guessed at."""
+    repo = _checkout(tmp_path, files, schema_version)
+    with pytest.raises(ConfigError, match=r"recondb 3\.0\.0 or later"):
         flirt.load_signatures_for([repo], "x86")
 
 
@@ -192,3 +205,26 @@ def test_a_recondb_checkout_loads_for_an_architecture_what_its_index_counts(
     selected = flirt.load_signatures_for([repo], "x86")
     assert len(flirt.signature_files([repo])) == len(index)
     assert len(selected) == sum(1 for meta in index.values() if meta["arch"] in ("", "x86"))
+
+
+def test_init_signatures_moves_copies_the_checkout_renamed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project copy at a key recondb 3.0.0 renamed moves to the new key once."""
+    from types import SimpleNamespace
+
+    repo = _checkout(tmp_path, {"gcc/x86/lib-2.pat": "x86", "gcc/arm/lib.pat": "arm"})
+    (repo / "sigs" / "gcc" / "x86" / "lib.pat").rename(repo / "sigs" / "gcc" / "x86" / "lib-2.pat")
+    (repo / "docs").mkdir()
+    (repo / "docs" / "renamed-3.0.0.tsv").write_text(
+        "# old\tnew\ngcc/x86/lib.pat\tgcc/x86/lib-2.pat\n", encoding="utf-8"
+    )
+    project = tmp_path / "project"
+    _pat(project / "flirt_sigs" / "gcc" / "x86" / "lib.pat", 1)
+    monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(repo))
+    flirt._init_project_sigs(SimpleNamespace(root=project), json_output=True)
+    copies = sorted(
+        p.relative_to(project / "flirt_sigs").as_posix()
+        for p in (project / "flirt_sigs").rglob("*.pat")
+    )
+    assert copies == ["gcc/arm/lib.pat", "gcc/x86/lib-2.pat"]

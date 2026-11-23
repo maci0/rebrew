@@ -103,7 +103,8 @@ class TestLoadSignatures:
         [
             pytest.param("[]", id="array"),
             pytest.param("1", id="number"),
-            pytest.param('{"files": []}', id="files-array"),
+            pytest.param('{"files": []}', id="no-version"),
+            pytest.param('{"schema_version": 3, "files": []}', id="files-array"),
         ],
     )
     def test_index_of_another_shape_is_refused(self, tmp_path: Path, index: str) -> None:

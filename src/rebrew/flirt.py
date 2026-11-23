@@ -36,11 +36,28 @@ _MAX_AMBIGUOUS_REPORT = 12  # cap on candidate names kept per ambiguous match
 #: system ``lib`` that could hold an unrelated directory of the same name.
 NO_SIGS_CHECKOUT = Path("__no_rebrew_flirt_sigs_checkout__")
 
+#: Where the recondb signature library lives.  It is not a public repository: a
+#: checkout needs access to it.
 FLIRT_SIGS_REPO_URL = "https://github.com/relumea/recondb"
 
-#: The first recondb release whose ``sigs/index.json`` keys each file by its path
-#: relative to ``sigs/``; an older checkout keys it by file name and is refused.
-RECONDB_PATH_INDEX_RELEASE = "2.0.0"
+#: What a user without a recondb checkout is told: the library is not public,
+#: and what rebrew reads instead.
+_NO_LIBRARY_HINT = (
+    f"the recondb signature library ({FLIRT_SIGS_REPO_URL}) is not public: point "
+    f"{REBREW_FLIRT_SIGS_DIR_ENV} at a checkout you have access to; without one only the "
+    "project's own flirt_sigs/ is read"
+)
+
+#: The ``schema_version`` of the ``sigs/index.json`` rebrew reads (published as
+#: ``sigs/index.schema.json``), and the first recondb release that writes it: each
+#: file keyed by its path relative to ``sigs/``.  An index without the member or with
+#: another value is refused, never read by guessing its shape.
+SIGNATURE_INDEX_SCHEMA_VERSION = 3
+RECONDB_INDEX_RELEASE = "3.0.0"
+
+#: recondb 3.0.0's table of the signature files it renamed (old and new key,
+#: tab-separated, ``#`` comment lines), relative to the checkout.
+RECONDB_RENAME_TABLE = "docs/renamed-3.0.0.tsv"
 
 
 def _flirt_sigs_repo() -> Path:
@@ -136,16 +153,11 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
     if not repo.is_dir():
         if repo == NO_SIGS_CHECKOUT:
             error_exit(
-                "no ReconDB checkout: this rebrew is installed as a "
-                "package, so no source checkout sits beside it — clone "
-                f"{FLIRT_SIGS_REPO_URL} into ../recondb or set {REBREW_FLIRT_SIGS_DIR_ENV}",
+                "no recondb checkout: this rebrew is installed as a package, so no "
+                f"source checkout sits beside it; {_NO_LIBRARY_HINT}",
                 json_mode=json_output,
             )
-        error_exit(
-            f"signature source not found: {repo} — clone {FLIRT_SIGS_REPO_URL} "
-            f"into ../recondb or set {REBREW_FLIRT_SIGS_DIR_ENV}",
-            json_mode=json_output,
-        )
+        error_exit(f"signature source not found: {repo}; {_NO_LIBRARY_HINT}", json_mode=json_output)
     wanted: set[str] | None = None
     linkage = ""
     if matched_only:
@@ -153,6 +165,7 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
         wanted = _matched_sig_names(linkage)
     dest = Path(cfg.root) / "flirt_sigs"
     dest.mkdir(parents=True, exist_ok=True)
+    renamed = _follow_renames(repo, dest)
     copied = 0
     for src, base in _sig_entries([repo]):
         key = _sig_key(src, base)
@@ -170,9 +183,42 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
         copied += 1
     total = len(signature_files([dest]))
     if json_output:
-        json_print({"copied": copied, "total": total, "dir": str(dest), "linkage": linkage})
+        json_print(
+            {
+                "copied": copied,
+                "renamed": renamed,
+                "total": total,
+                "dir": str(dest),
+                "linkage": linkage,
+            }
+        )
         return
     console.print(f"[green]flirt_sigs/: {copied} copied, {total} total[/green]")
+
+
+def _follow_renames(repo: Path, dest: Path) -> int:
+    """Move the project's copies of files the checkout renamed to their new keys; how many moved.
+
+    A copy keeps its checkout key (``flirt_sigs/<key>``), and the key is what the
+    checkout's index filters it by; recondb 3.0.0 renamed 312 files
+    (:data:`RECONDB_RENAME_TABLE`), so a copy at an old key would be unlisted.  A
+    copy whose new key is already taken stays where it is.  Without the table
+    (another checkout) nothing moves.
+    """
+    table = repo / RECONDB_RENAME_TABLE
+    if not table.is_file():
+        return 0
+    moved = 0
+    for line in table.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        old, new = line.split("\t")
+        source, target = dest / old, dest / new
+        if source.is_file() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(source, target)
+            moved += 1
+    return moved
 
 
 def _detect_crt_linkage(cfg: Any) -> str:
@@ -310,9 +356,8 @@ def _arch_index(dirs: list[Path]) -> tuple[dict[str, str], set[Path]]:
     not tell, and such a file always loads.  An earlier root's entry wins.  A
     root without an index (a project's ``flirt_sigs/``, a user's own directory)
     has none to read.  Raises :class:`ConfigError` for an index that cannot be
-    read, or whose keys are bare file names: a recondb before
-    :data:`RECONDB_PATH_INDEX_RELEASE`, whose index cannot tell two files of
-    one name apart.
+    read, or whose ``schema_version`` is not :data:`SIGNATURE_INDEX_SCHEMA_VERSION`
+    (a recondb before :data:`RECONDB_INDEX_RELEASE`).
     """
     index: dict[str, str] = {}
     indexed: set[Path] = set()
@@ -327,15 +372,16 @@ def _arch_index(dirs: list[Path]) -> tuple[dict[str, str], set[Path]]:
             data = json.loads(read_json_text(candidate))
         except (OSError, ValueError) as exc:
             raise ConfigError(f"signature index {candidate} cannot be read: {exc}") from None
-        files = data.get("files") if isinstance(data, dict) else None
+        version = data.get("schema_version") if isinstance(data, dict) else None
+        if type(version) is not int or version != SIGNATURE_INDEX_SCHEMA_VERSION:
+            raise ConfigError(
+                f"signature index {candidate} is not schema_version "
+                f"{SIGNATURE_INDEX_SCHEMA_VERSION}; update the checkout to recondb "
+                f"{RECONDB_INDEX_RELEASE} or later"
+            )
+        files = data.get("files")
         if not isinstance(files, dict):
             raise ConfigError(f"signature index {candidate} has no object of files")
-        if files and not any("/" in key for key in files):
-            raise ConfigError(
-                f"signature index {candidate} keys its files by name, as recondb before "
-                f"{RECONDB_PATH_INDEX_RELEASE} wrote it; update the checkout to recondb "
-                f"{RECONDB_PATH_INDEX_RELEASE} or later"
-            )
         indexed.add(base)
         for key, meta in files.items():
             index.setdefault(key, str(meta.get("arch", "") if isinstance(meta, dict) else ""))
@@ -382,9 +428,7 @@ def load_signatures_for(dirs: list[Path], arch: str = "") -> list[Any]:
         )
     if not files:
         console.print(
-            f"No signature files in {', '.join(str(d) for d in dirs)} — "
-            "clone the recondb checkout next to this repo "
-            "(or set REBREW_FLIRT_SIGS_DIR)."
+            f"No signature files in {', '.join(str(d) for d in dirs)}; {_NO_LIBRARY_HINT}."
         )
         return []
     return _parse_sig_files(files)

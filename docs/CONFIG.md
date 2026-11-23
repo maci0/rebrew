@@ -653,7 +653,7 @@ rebrew receives.
   else fails the call that reads it). Unset, `rebrew ops` offers no `ghidra`
   decompiler (`rebrew.vocabulary` lists it `not-installed`, `no-endpoint`), and
   `rebrew decompile` and `rebrew doctor` use `http://localhost:8080/mcp/message`.
-- `REBREW_FLIRT_SIGS_DIR`: path to the `recondb` checkout, release 2.0.0 or later
+- `REBREW_FLIRT_SIGS_DIR`: path to the `recondb` checkout, release 3.0.0 or later
   (an older checkout's `sigs/index.json` keys files by name and is refused).
   Default: the sibling of the rebrew source checkout, which a wheel install
   has none of, so a packaged rebrew needs this set. When set, a path that is
