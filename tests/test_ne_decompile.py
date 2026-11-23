@@ -48,6 +48,8 @@ def _fake_kuna(monkeypatch: pytest.MonkeyPatch, result: _Run) -> list[dict[str, 
         seen.append({"cmd": cmd, "image": image.read_bytes() if image.exists() else b""})
         return result
 
+    # A dispatched decompile caches "kuna available" for STATE_WINDOW_SECONDS.
+    monkeypatch.setattr(dc, "_states", {})
     monkeypatch.setattr(dc.shutil, "which", lambda name: "/usr/bin/kuna")
     monkeypatch.setattr(dc, "run_process_group", run)
     return seen
