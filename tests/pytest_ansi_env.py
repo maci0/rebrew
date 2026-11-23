@@ -12,10 +12,16 @@ idle (106 s against 59 s for the same CPU time on 32 workers).  A
 ``python -m slipcover`` run stays one process: it sets ``SLIPCOVER_ENABLED``
 (the slipcover pytest plugin is loaded on every run, so it is not that
 signal), and ``make coverage`` shards serial slipcover runs instead.
+
+After collection every process moves the collected graph (modules, test
+items, fixtures) to the permanent GC generation and raises the young
+threshold, as the ``rebrew`` CLI does at startup: cyclic collections during
+the tests rescanned that graph. Objects the tests allocate stay collectable.
 """
 
 from __future__ import annotations
 
+import gc
 import os
 from typing import Any
 
@@ -25,6 +31,18 @@ os.environ["TERM"] = "dumb"
 os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
 
 _SERIAL_FLAGS = frozenset({"--collect-only", "--pdb", "--trace"})
+
+#: Young-generation GC threshold for the test run (CPython's is 2000), the
+#: value ``rebrew.app.main`` uses. With the freeze below, a full ``-n auto``
+#: run took 2,437 G -> 2,380 G user-space instructions; the freeze alone
+#: 2,391 G.
+_GC_YOUNG_THRESHOLD = 20_000
+
+
+def pytest_collection_finish() -> None:
+    """Freeze the collected graph out of cyclic GC passes; see the module docstring."""
+    gc.freeze()
+    gc.set_threshold(_GC_YOUNG_THRESHOLD, *gc.get_threshold()[1:])
 
 
 def pytest_configure() -> None:
