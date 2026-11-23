@@ -26,8 +26,6 @@ from typing import (
     is_typeddict,
 )
 
-lazy from rebrew.security_scan import Level
-
 log = logging.getLogger(__name__)
 
 #: Why a remote compile has no verdict (status ``NOT_RUN``): the kind of the
@@ -723,6 +721,11 @@ class ReferenceFlirtReply(TypedDict):
     ambiguous_matches: list[FlirtAmbiguousMatch]
     # code sections smaller than a match window
     warning: NotRequired[str]
+
+
+#: A security finding's severity and confidence; the dispatch schema writes its values
+#: from ``rebrew.security_scan.SEVERITY_ORDER`` (``tools/gen_dispatch_schema.py``).
+Level = Literal["high", "medium", "low"]
 
 
 class SecurityFinding(TypedDict):

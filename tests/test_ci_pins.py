@@ -1642,6 +1642,8 @@ class TestCiPins:
             "source_util",
             "-p",
             "typer_command_cache",
+            "-p",
+            "reply_paths",
         ]
 
     def test_coverage_floor_matches_pyproject(self) -> None:
