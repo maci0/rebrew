@@ -521,10 +521,11 @@ class RecompileError(RebrewError, RuntimeError):
     ``403 billed_not_delivered``, ``409 retained_output_unavailable``,
     ``410 artifact_expired``), ``"unknown"`` when it may have been billed and no
     answer under it said (a lost or unreadable reply, a 5xx other than
-    ``credit_ledger_unavailable``, ``admission_unrecoverable``, and a refused
-    credential, throttle or other answer that says nothing of the key after one
-    of those), else ``"free"``.  Each answer is read by one table, the client
-    rules of recompile ``docs/API.md``.
+    ``credit_ledger_unavailable``, ``admission_unrecoverable``, an answer an
+    earlier recompile release sends after billing such as ``403 delivery_denied``
+    or a refused credential, and a throttle or other answer that says nothing of
+    the key after one of those), else ``"free"``.  Each answer is read by one
+    table, :data:`_ANSWERS`.
     """
 
     #: Set by :func:`compile_source` on the error it raises.
@@ -994,10 +995,10 @@ def compile_source(
     ``error_code``: ``toolchain_failure`` (the compiler rejected the source)
     maps to ``ok=False`` with the service log; the service's own failures
     raise :class:`RecompileError` with ``kind="service"`` and that
-    ``error_code``, retryable for ``capacity``, ``timeout``,
-    ``runner_unavailable``, ``publish_failed`` and ``provenance_unavailable``
-    and not for ``missing_artifact`` and ``replay_rejected``; a missing or
-    unknown code is a protocol error.  Unreachable service / non-2xx /
+    ``error_code``, retryable for ``capacity``, ``runner_unavailable`` and
+    ``publish_failed`` and final for ``timeout``, ``provenance_unavailable``,
+    ``missing_artifact`` and ``replay_rejected``; a missing or unknown code is a
+    protocol error.  Unreachable service / non-2xx /
     malformed replies raise :class:`RecompileError` — callers decide whether
     that is fatal or a local-docker fallback.
 
@@ -1011,23 +1012,26 @@ def compile_source(
     same-origin artifact endpoint. Job-socket compiles use their own capability and
     never forward this credential.
 
-    Every call is one logical attempt with its own random ``Idempotency-Key``. A
-    retry after a lost reply resends that key, so the service reconciles the
-    attempt it may already have run instead of running another; a retry after
-    ``capacity``, ``runner_unavailable`` or ``publish_failed`` refusal, or a
-    refusal whose ``code`` says the key can never yield a result and billed
-    nothing (``admission_abandoned``, ``admission_expired``,
-    ``result_unavailable``, ``delivery_denied``), is a new attempt with a new key,
-    because a hosted service keeps the refusal under the old one; those are
-    retryable (recompile's client rules, rule 5).  ``timeout``,
-    ``provenance_unavailable`` and ``admission_unrecoverable`` are final, and a
-    401 or a 403 other than ``delivery_denied`` is never resent: the key stays
-    unsettled (:attr:`RecompileError.unsettled`). A later call,
-    including one after a failure or an image update, sends a new key and never
-    replays an earlier call. Neither key nor request is persisted.
+    Every call is one logical attempt with its own random ``Idempotency-Key``.
+    Each answer is read by :data:`_ANSWERS`, which says what the key cost
+    (:attr:`RecompileError.cost`) and what comes next.  A retry after a lost reply,
+    the edge's ``520`` to ``524``, a 5xx or ``409 admission_conflict`` resends that
+    key, so the service reconciles the attempt it may already have run instead of
+    running another; a retry after a ``capacity``, ``runner_unavailable`` or
+    ``publish_failed`` refusal, or a refusal whose ``code`` says the key can never
+    yield a result and billed nothing in any recompile release
+    (``admission_abandoned``, ``admission_expired``), is a new attempt with a new
+    key, because a hosted service keeps the refusal under the old one (recompile's
+    client rules, rule 5).  Every other refusal is final and never resent:
+    ``timeout``, ``provenance_unavailable``, ``admission_unrecoverable``,
+    ``result_unavailable``, ``delivery_denied`` and a refused credential among them,
+    the last three unknown because recompile 12.0.0 sends them after billing.  A
+    later call, including one after a failure or an image update, sends a new key
+    and never replays an earlier call. Neither key nor request is persisted.
 
     A refusal that says the service has no room for the compile now (a
-    ``capacity`` or ``runner_unavailable`` refusal, a 429, a 503) is waited out
+    ``capacity`` or ``runner_unavailable`` refusal, a 429, a 503), and the edge's
+    ``520`` to ``524``, are waited out
     and tried again until *deadline*, a :func:`time.monotonic` value; without
     one, for :data:`NO_DEADLINE_WAIT_SECONDS` from the call's start.  *retries*
     re-attempts after any other :class:`RecompileError` with

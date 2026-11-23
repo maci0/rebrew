@@ -164,7 +164,8 @@ print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 # "protocol", resent under the same key like a lost reply.
 # An HTTP refusal carries the body's `code` in `error_code` (recompile 11
 # answers `{"detail", "code"}`); a code saying the key can never yield a result
-# and billed nothing (`admission_expired`, `delivery_denied`, ...) is retried
+# and billed nothing in every recompile release (`admission_abandoned`,
+# `admission_expired`) is retried
 # under a new key. `RecompileError.cost` is what the call's last key cost:
 # "billed" (billed and no verdict reached the call: the download failed after
 # ok, or billed_not_delivered, retained_output_unavailable, artifact_expired),
