@@ -1515,8 +1515,8 @@ def _merge_definitions(
             )
         except (OSError, ValueError) as exc:
             error_exit(str(exc), json_mode=json_output)
-    entries = load_metadata(meta)
-    data_entries = load_data_metadata(meta)
+    entries = load_metadata(meta, deepcopy=False)
+    data_entries = load_data_metadata(meta, deepcopy=False)
     layouts, problems, out_encoding, input_eol = _read_layouts(
         meta,
         input_files,

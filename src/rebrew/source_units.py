@@ -146,7 +146,7 @@ def source_unit_evidence(info: BinaryInfo, functions: list[dict[str, Any]]) -> d
 def collect_source_units(cfg: ProjectConfig) -> dict[str, Any]:
     """Join native path evidence with the selected target's managed bindings."""
     info = load_binary(cfg.target_binary)
-    rows = load_metadata(cfg.metadata_dir)
+    rows = load_metadata(cfg.metadata_dir, deepcopy=False)
     module = target_module(cfg)
     bindings: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for (target_module_name, va), row in rows.items():
