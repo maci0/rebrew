@@ -47,6 +47,10 @@ SCHEMA = _project_root() / "tests" / "fixtures" / "dispatch" / "rebrew.schema.js
 #: renderer inlines every definition and has no ``$ref``.
 WORKSPACE_PATH = {"format": "workspace-path", "type": "string"}
 
+#: Text the backend's renderer (Go types through invopop/jsonschema, every definition
+#: inline) never writes; the schema must equal its rendering, so it holds none of it.
+UNRENDERABLE = ('"$ref"', '"$defs"', '"type": [', '"required": []')
+
 
 def enforced_sets() -> Iterator[tuple[str, tuple[str, ...], Collection[str]]]:
     """``(op, path inside the op's entry, values)`` for every closed set the schema publishes."""

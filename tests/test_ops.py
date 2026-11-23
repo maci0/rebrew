@@ -441,13 +441,14 @@ class TestContract:
         }
 
     def test_the_schema_holds_no_form_the_backend_cannot_render(self) -> None:
-        """The schema must equal the backend's rendering byte for byte, which has neither
-        a ``type`` array nor an empty ``required``."""
-        from tools.gen_dispatch_schema import SCHEMA
+        """The schema must equal the backend's rendering byte for byte, which inlines every
+        definition (no ``$ref``, no ``$defs``) and has no ``type`` array and no empty
+        ``required`` (``tools.gen_dispatch_schema.UNRENDERABLE``)."""
+        from tools.gen_dispatch_schema import SCHEMA, UNRENDERABLE
 
         text = SCHEMA.read_text(encoding="utf-8")
-        assert '"type": [' not in text
-        assert '"required": []' not in text
+        assert set(UNRENDERABLE) == {'"$ref"', '"$defs"', '"type": [', '"required": []'}
+        assert [form for form in UNRENDERABLE if form in text] == []
 
     def test_each_op_declares_the_refusals_its_code_reaches(self) -> None:
         """An op's ``errors`` are :data:`rebrew.ops.DISPATCH_PROBLEMS` and its
@@ -488,14 +489,6 @@ class TestContract:
             assert _CONTRACT["ops"][name]["errors"] == {
                 code: {"status": list(ops.PROBLEMS[code])} for code in sorted(codes)
             }
-
-    def test_the_schema_holds_no_reference(self) -> None:
-        """The backend renders the schema with every definition inline: no ``$ref``, no ``$defs``."""
-        from tools.gen_dispatch_schema import SCHEMA
-
-        text = SCHEMA.read_text(encoding="utf-8")
-        assert '"$ref"' not in text
-        assert '"$defs"' not in text
 
     def test_a_workspace_path_member_is_marked_by_its_format(self) -> None:
         """Each member :data:`rebrew.ops_replies.WORKSPACE_PATHS` names, and no other, is a
