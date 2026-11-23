@@ -33,13 +33,19 @@ def _copied_intake(
 ) -> Callable[[Path, Path, str], dict[str, Any]]:
     """An ``ops._run_intake`` that copies *tree* into the project and answers a copy of *report*.
 
-    *tree* is one real intake of :data:`BINARY` as target ``mini``. The ``.rebrew``
-    caches are left behind; they name the original paths and are rebuilt on demand.
+    *tree* is one real intake of :data:`BINARY` as target ``mini``. A file the
+    project already has stays as it is. The ``.rebrew`` caches are left behind;
+    they name the original paths and are rebuilt on demand.
     """
 
     def run(binary: Path, root: Path, target: str) -> dict[str, Any]:
         assert (hashlib.sha256(binary.read_bytes()).hexdigest(), target) == (SHA256, "mini")
-        shutil.copytree(tree, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
+
+        def kept(directory: str, names: list[str]) -> set[str]:
+            there = root / Path(directory).relative_to(tree)
+            return {name for name in names if name == ".rebrew" or (there / name).is_file()}
+
+        shutil.copytree(tree, root, dirs_exist_ok=True, ignore=kept)
         return copy.deepcopy(report)
 
     return run
@@ -66,6 +72,32 @@ def _intake(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, A
 def intake_copy(_intake: tuple[Path, dict[str, Any]], monkeypatch: pytest.MonkeyPatch) -> None:
     """Every intake in the test is a private copy of the session's one intake."""
     monkeypatch.setattr(ops, "_run_intake", _copied_intake(*_intake))
+
+
+def _first_intake_copied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every intake after the test's first is a copy of that first, real intake.
+
+    ``analyse`` runs one intake into its new project and a second for the capture,
+    of the same binary as the same target into an empty directory. The ``.rebrew``
+    caches are left behind, as in :func:`_copied_intake`.
+    """
+    intake = ops._run_intake
+    first: list[tuple[str, str, Path, dict[str, Any]]] = []
+
+    def run(binary: Path, root: Path, target: str) -> dict[str, Any]:
+        digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+        if first:
+            seen, name, tree, report = first[0]
+            assert (digest, target) == (seen, name)
+            shutil.copytree(
+                tree, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew")
+            )
+            return copy.deepcopy(report)
+        report = intake(binary, root, target)
+        first.append((digest, target, root, copy.deepcopy(report)))
+        return report
+
+    monkeypatch.setattr(ops, "_run_intake", run)
 
 
 def _capture(tmp_path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -141,7 +173,9 @@ def test_default_inventory_and_real_worker_dispatch(
     assert [row["name"] for row in normalized["functions"]] == ["fcn_00401000", "fcn_00401010"]
 
 
-def test_elf_symbol_names_are_bound_to_normalized_report(tmp_path: Path) -> None:
+def test_elf_symbol_names_are_bound_to_normalized_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import shutil
 
     compiler = shutil.which("cc")
@@ -153,6 +187,7 @@ def test_elf_symbol_names_are_bound_to_normalized_report(tmp_path: Path) -> None
     )
     binary = tmp_path / "fixture.elf"
     subprocess.run([compiler, "-O0", "-no-pie", "-o", str(binary), str(source)], check=True)
+    _first_intake_copied(monkeypatch)
     files, workspace = _worker_dirs(tmp_path)
     digest, key = _store(files, binary.read_bytes())
     status, raw = ops.dispatch(
@@ -359,7 +394,9 @@ NOTEPAD = (
 NOTEPAD_SHA256 = "d765da6b0ad1a3f1a4b0a0beadc854b9b12d76ccf73d3855e7a5409bb6b42916"
 
 
-def test_notepad_function_and_import_stub_share_no_report_identity(tmp_path: Path) -> None:
+def test_notepad_function_and_import_stub_share_no_report_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Windows 2000 Notepad analyses without `invalid fresh analysis report identity`.
 
     Offending row: VA 0x10065dc is both the function row `fcn_010065dc` (size 20,
@@ -369,6 +406,7 @@ def test_notepad_function_and_import_stub_share_no_report_identity(tmp_path: Pat
     """
     if not NOTEPAD.is_file() or hashlib.sha256(NOTEPAD.read_bytes()).hexdigest() != NOTEPAD_SHA256:
         pytest.skip("needs rebrew-test-projects/win2k-notepad-rebrew/notepad.exe")
+    _first_intake_copied(monkeypatch)
     files, workspace = _worker_dirs(tmp_path)
     digest, key = _store(files, NOTEPAD.read_bytes())
     status, raw = ops.dispatch(

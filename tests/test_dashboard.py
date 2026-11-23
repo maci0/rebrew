@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import threading
 import time
+from functools import cache
 from pathlib import Path
 from typing import Any
 lazy from collections.abc import Mapping
@@ -5107,7 +5108,9 @@ class TestInvisibleControlScrub:
 _SPEC = Path(__file__).resolve().parents[1] / "docs" / "dashboard-api.yaml"
 
 
+@cache
 def _spec() -> dict:
+    """The parsed spec, once per process (a YAML parse cost ~0.6 G per call); callers only read it."""
     import yaml
 
     return yaml.safe_load(_SPEC.read_text(encoding="utf-8"))

@@ -160,6 +160,11 @@ class _Definition:
     names: set[str]
 
 
+#: Calls whose code and status arguments :func:`_refusal_sites` records, besides ``OpsError``.
+_POSITIONAL_REFUSALS = ("_refuse", "error_body", "cancel")
+_REFUSAL_CALLS = ("OpsError", *_POSITIONAL_REFUSALS)
+
+
 def _refusal_sites(*modules: str) -> dict[str, _Definition]:
     """Each top-level definition of rebrew's *modules* (every module when none is named), by
     name: its ``OpsError``, ``_refuse``, ``error_body`` and ``cancel`` calls, and what it calls."""
@@ -172,7 +177,12 @@ def _refusal_sites(*modules: str) -> dict[str, _Definition]:
     sites: dict[str, _Definition] = {}
     paths = [src / f"{module}.py" for module in modules] or sorted(src.rglob("*.py"))
     for path in paths:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        # A whole-tree scan is read for its refusals only, and a file that names
+        # none of the refusal calls has none; parsing all of src dominated it.
+        if not modules and not any(call in text for call in _REFUSAL_CALLS):
+            continue
+        tree = ast.parse(text)
         for top in tree.body:
             if not isinstance(top, ast.FunctionDef | ast.ClassDef):
                 continue
@@ -194,7 +204,7 @@ def _refusal_sites(*modules: str) -> dict[str, _Definition]:
                 keywords = {k.arg: k.value for k in node.keywords}
                 if name == "OpsError":
                     code_node, status_node = keywords.get("code"), keywords.get("status")
-                elif name in ("_refuse", "error_body", "cancel") and len(node.args) >= 3:
+                elif name in _POSITIONAL_REFUSALS and len(node.args) >= 3:
                     code_node = node.args[1] if name == "cancel" else node.args[0]
                     status_node = node.args[2]
                 else:

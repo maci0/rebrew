@@ -28,8 +28,10 @@ from functools import cache
 from importlib.metadata import distribution
 from pathlib import Path, PurePosixPath
 from typing import Any
+lazy from collections.abc import Mapping
 
 import pytest
+from session_cache import build_once
 from stmt_walk import iter_statements
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,17 +121,55 @@ def _declared_distributions() -> set[str]:
     return names
 
 
-def _imported_modules(root: Path = SRC) -> set[str]:
+def _imported_modules(
+    root: Path = SRC, scanned: Mapping[Path, frozenset[str]] | None = None
+) -> set[str]:
     """Top-level modules imported, statically or by name, under ``root``.
 
-    Each file is parsed once per process, whichever file or directory scan
+    A path in *scanned* (a :func:`_shared_imports` map) is read from it. Any
+    other file is parsed once per process, whichever file or directory scan
     reaches it first. The suite does not rewrite a path it has already scanned.
     """
     paths = [root] if root.is_file() else root.rglob("*.py")
+    known = scanned or {}
     found: set[str] = set()
     for path in paths:
-        found |= _file_imports(path)
+        found |= known[path] if path in known else _file_imports(path)
     return found
+
+
+def _shared_imports(
+    tmp_path_factory: pytest.TempPathFactory, name: str, trees: tuple[Path, ...]
+) -> dict[Path, frozenset[str]]:
+    """:func:`_file_imports` of every file under *trees*, scanned once per session.
+
+    The first xdist worker to ask parses the files; the others read its
+    result, so a repo scan costs one parse per file per session.
+    """
+
+    def _scan(_directory: Path) -> dict[str, list[str]]:
+        return {
+            path.relative_to(ROOT).as_posix(): sorted(_file_imports(path))
+            for tree in trees
+            for path in tree.rglob("*.py")
+        }
+
+    _, scanned = build_once(tmp_path_factory, f"package-metadata-{name}", _scan)
+    return {ROOT / rel: frozenset(names) for rel, names in scanned.items()}
+
+
+@pytest.fixture(scope="module")
+def src_imports(tmp_path_factory: pytest.TempPathFactory) -> dict[Path, frozenset[str]]:
+    """Each file's imports under ``src/rebrew``."""
+    return _shared_imports(tmp_path_factory, "src-imports", (SRC,))
+
+
+@pytest.fixture(scope="module")
+def dev_imports(tmp_path_factory: pytest.TempPathFactory) -> dict[Path, frozenset[str]]:
+    """Each file's imports under the dev trees (``tests/``, ``tools/``)."""
+    return _shared_imports(
+        tmp_path_factory, "dev-imports", tuple(ROOT / name for name in _DEV_TREES)
+    )
 
 
 @cache
@@ -203,13 +243,15 @@ def _unpinned(specs: list[str]) -> list[str]:
 
 
 class TestDeclaredDependencies:
-    def test_every_third_party_import_is_declared(self) -> None:
+    def test_every_third_party_import_is_declared(
+        self, src_imports: Mapping[Path, frozenset[str]]
+    ) -> None:
         """An import with no Requires-Dist line installs cleanly and fails at
         runtime, so the stdlib set comes from the running interpreter."""
         stdlib = set(sys.stdlib_module_names)
         declared = _declared_distributions()
         undeclared = set()
-        for name in _imported_modules():
+        for name in _imported_modules(SRC, src_imports):
             if name in stdlib or name in _LOCAL_IMPORTS or name in _OPTIONAL_IMPORTS:
                 continue
             if name in declared or _IMPORT_NAME_TO_DISTRIBUTION.get(name, name) in declared:
@@ -221,7 +263,9 @@ class TestDeclaredDependencies:
             f"{sorted(undeclared)}"
         )
 
-    def test_every_declared_requirement_is_imported(self) -> None:
+    def test_every_declared_requirement_is_imported(
+        self, src_imports: Mapping[Path, frozenset[str]]
+    ) -> None:
         """A requirement nothing imports is installed on every user's machine
         and reachable by nothing, so it widens the install-time and CVE surface
         for no feature.  Its ``Requires-Dist`` line reads as a contract the code
@@ -232,7 +276,7 @@ class TestDeclaredDependencies:
         half of it is invoked as a tool rather than imported, so gating it
         would encode the tool-versus-library split as an allowlist.
         """
-        imported = _imported_modules()
+        imported = _imported_modules(SRC, src_imports)
         unused = []
         for name in sorted(_declared_distributions()):
             if name in _PIN_ONLY_REQUIREMENTS:
@@ -421,7 +465,9 @@ class TestDevTreeDependencies:
         assert _imported_modules(tree) == found
         assert parsed == []
 
-    def test_every_dev_tree_import_is_declared(self) -> None:
+    def test_every_dev_tree_import_is_declared(
+        self, dev_imports: Mapping[Path, frozenset[str]]
+    ) -> None:
         stdlib = set(sys.stdlib_module_names)
         declared = self._declared_everywhere()
         local = self._local_module_names()
@@ -429,7 +475,7 @@ class TestDevTreeDependencies:
         for tree in self._dev_trees():
             for path in tree.rglob("*.py"):
                 external = _EXTERNAL_INTERPRETER_IMPORTS.get(path.relative_to(ROOT).as_posix(), {})
-                for name in _imported_modules(path):
+                for name in _imported_modules(path, dev_imports):
                     if name in stdlib or name in local or name in external:
                         continue
                     if name in declared or _IMPORT_NAME_TO_DISTRIBUTION.get(name, name) in declared:
@@ -449,17 +495,22 @@ class TestDevTreeDependencies:
         tests = tmp_path / "tests"
         tests.mkdir()
         (tests / "binsync_peer.py").write_text("import binsync\n", encoding="utf-8")
-        self.test_every_dev_tree_import_is_declared()
+        self.test_every_dev_tree_import_is_declared({})
         (tests / "ordinary_test.py").write_text("import binsync\n", encoding="utf-8")
         with pytest.raises(AssertionError, match="binsync"):
-            self.test_every_dev_tree_import_is_declared()
+            self.test_every_dev_tree_import_is_declared({})
 
-    def test_every_group_requirement_is_reachable(self) -> None:
+    def test_every_group_requirement_is_reachable(
+        self,
+        src_imports: Mapping[Path, frozenset[str]],
+        dev_imports: Mapping[Path, frozenset[str]],
+    ) -> None:
         groups = _pyproject().get("dependency-groups", {})
         assert isinstance(groups, dict)
         imported = set()
+        scanned = {**src_imports, **dev_imports}
         for tree in [SRC, *self._dev_trees()]:
-            for name in _imported_modules(tree):
+            for name in _imported_modules(tree, scanned):
                 imported.add(_IMPORT_NAME_TO_DISTRIBUTION.get(name, name))
         unused = sorted(
             _requirement_name(spec)

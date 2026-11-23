@@ -2269,11 +2269,13 @@ class TestEdgeTimeout:
     """The edge answers 524 when a compile runs past its 100 s: a lost reply, waited
     out under the same key until the call's deadline (recompile's client rules, rule 3)."""
 
-    def test_a_524_is_sent_again_under_the_same_key(self) -> None:
+    @pytest.mark.parametrize("edge", [520, 521, 522, 523, 524])
+    def test_an_edge_answer_is_sent_again_under_the_same_key(self, edge: int) -> None:
+        """The edge's own 52x answers are lost replies, 524 its compile timeout."""
         keys: list[str] = []
         replies = [
-            _Resp(524, text="timeout"),
-            _Resp(524, text="timeout"),
+            _Resp(edge, text="timeout"),
+            _Resp(edge, text="timeout"),
             _Resp(200, json_body=_COMPILED),
         ]
 

@@ -51,7 +51,10 @@ includes = ""
 libs = ""
 """
 
-_FILLER_COUNT = 2000
+#: The large tree's address-free files. The gate is the parse and scan
+#: counts, so this only has to exceed the few files a correct rescan parses;
+#: every file it adds is scanned three times.
+_FILLER_COUNT = 200
 _HELPER_VA = 0x2000
 _OTHER_HELPER_VA = 0x6000
 _ONLY_OTHER_VA = 0x5000

@@ -9,7 +9,7 @@ lazy from pathlib import Path
 import pytest
 import typer
 from rich.cells import cell_len
-from typer._click.core import Context
+from typer._click.core import Command, Context
 from typer.core import TyperOption
 from typer.testing import CliRunner
 
@@ -25,16 +25,29 @@ def _commands(command: Any, path: tuple[str, ...] = ()) -> Iterator[tuple[Any, t
             yield from _commands(command.get_command(context, name), (*path, name))
 
 
+@pytest.fixture(scope="module")
+def mounted_root(tmp_path_factory: pytest.TempPathFactory) -> Command:
+    """The composed command with global options, built once in an empty directory.
+
+    Every width renders this one tree; help rendering does not change it.
+    """
+    cwd = tmp_path_factory.mktemp("no-project")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.chdir(cwd)
+        root = add_global_options(typer.main.get_command(app))
+    assert list(cwd.iterdir()) == []
+    return root
+
+
 class TestMountedHelp:
     @pytest.mark.parametrize("width", [60, 80, 100, 120])
     def test_every_help_page_renders_without_project_state(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, width: int
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mounted_root: Command, width: int
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        root = add_global_options(typer.main.get_command(app))
         runner = CliRunner()
         missing_flags = []
-        for command, path in _commands(root):
+        for command, path in _commands(mounted_root):
             route = " ".join(("rebrew", *path))
             assert command.help, route
             assert "Example" in (command.epilog or ""), route
@@ -47,7 +60,7 @@ class TestMountedHelp:
                 }
             ) as streams:
                 with pytest.raises(SystemExit) as exited:
-                    root.main([*path, "--help"], prog_name="rebrew", terminal_width=width)
+                    mounted_root.main([*path, "--help"], prog_name="rebrew", terminal_width=width)
                 assert exited.value.code == 0, route
                 rendered = streams[0].getvalue().decode()
                 errors = streams[1].getvalue().decode()

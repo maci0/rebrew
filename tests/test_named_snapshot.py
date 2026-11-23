@@ -557,6 +557,8 @@ def test_named_decompile_reads_a_store_over_one_mib(
     tree, report = intake
     seeded = tmp_path / "intake"
     shutil.copytree(tree, seeded, ignore=shutil.ignore_patterns(".rebrew"))
+    # Mostly three-byte UTF-8 text: the store passes 1 MiB in fewer characters,
+    # which the TOML writers and parsers walk one at a time.
     record_function_rows(
         load_config(seeded, target="mini").metadata_dir,
         [
@@ -564,9 +566,12 @@ def test_named_decompile_reads_a_store_over_one_mib(
                 "module": "MINI",
                 "va": 0x500000 + index * 16,
                 "identity": {"name": f"synthetic_function_{index:05d}"},
-                "fields": {"size": 16, "blocker": f"Synthetic function {index:05d}. " * 96},
+                "fields": {
+                    "size": 16,
+                    "blocker": f"合成関数 {index:05d}：引数型と制御フローを復元する。" * 1050,
+                },
             }
-            for index in range(512)
+            for index in range(16)
         ],
         updated_by="intake",
     )
