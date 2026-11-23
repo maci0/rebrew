@@ -1000,6 +1000,35 @@
             "type": "string"
           },
           "byte_coverage": {
+            "additionalProperties": false,
+            "properties": {
+              "passthrough_bytes": {
+                "type": "integer"
+              },
+              "passthrough_pct": {
+                "type": "number"
+              },
+              "proven_bytes": {
+                "type": "integer"
+              },
+              "spliced_bytes": {
+                "type": "integer"
+              },
+              "spliced_pct": {
+                "type": "number"
+              },
+              "text_size": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "text_size",
+              "spliced_bytes",
+              "proven_bytes",
+              "passthrough_bytes",
+              "spliced_pct",
+              "passthrough_pct"
+            ],
             "type": "object"
           },
           "context_hash": {
@@ -1027,11 +1056,44 @@
           },
           "duplicate_vas": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "dropped": {
+                  "type": "string"
+                },
+                "kept": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "kept",
+                "dropped"
+              ],
               "type": "object"
             },
             "type": "array"
           },
           "fenced_naked": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "vas": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "count",
+              "vas"
+            ],
             "type": "object"
           },
           "functions_checked": {
@@ -1039,12 +1101,92 @@
           },
           "header_parity": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "configured": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "field": {
+                  "type": "string"
+                },
+                "match": {
+                  "type": "boolean"
+                },
+                "original": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reasm": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "original",
+                "reasm",
+                "match",
+                "configured"
+              ],
               "type": "object"
             },
             "type": "array"
           },
           "libraries": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "library": {
+                  "type": "string"
+                },
+                "member": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "provider": {
+                  "enum": [
+                    "compiled",
+                    "prebuilt",
+                    "unresolved"
+                  ],
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "name",
+                "provider"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1054,12 +1196,72 @@
           },
           "mismatches": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "detail": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "symbol",
+                "va",
+                "status",
+                "reason",
+                "detail"
+              ],
               "type": "object"
             },
             "type": "array"
           },
           "missing_sizes": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "annotation_size": {
+                  "type": "integer"
+                },
+                "binary_size": {
+                  "type": "integer"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "annotation_size",
+                "binary_size",
+                "name",
+                "module"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1102,6 +1304,293 @@
           },
           "results": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "compile": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "execution": {
+                          "oneOf": [
+                            {
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "flags": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "includes": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "path": {
+                                "type": "string"
+                              },
+                              "sha256": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "path",
+                              "sha256"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "source_dir": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "flags",
+                        "execution"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "context_hash": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "delta": {
+                  "type": "integer"
+                },
+                "diff_lines": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "effective_match": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error_code": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "group": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "kind": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "name": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "retry_after": {
+                      "oneOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "status_code": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "filepath": {
+                  "type": "string"
+                },
+                "instructions": {
+                  "type": "object"
+                },
+                "match_count": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "match_percent": {
+                  "type": "number"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "not_run_reason": {
+                  "enum": [
+                    "network",
+                    "http",
+                    "validation",
+                    "protocol",
+                    "service",
+                    "deadline",
+                    "compiler_withdrawn",
+                    "compiler_not_installed"
+                  ],
+                  "type": "string"
+                },
+                "obj_size": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "passed": {
+                  "type": "boolean"
+                },
+                "reg_delta": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reloc_count": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "relocation_bindings": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "similarity": {
+                  "oneOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "source": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "total": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "name",
+                "symbol",
+                "module",
+                "filepath",
+                "size",
+                "status"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1117,6 +1606,34 @@
           },
           "size_divergences": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "annotation_size": {
+                  "type": "integer"
+                },
+                "binary_size": {
+                  "type": "integer"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "annotation_size",
+                "binary_size",
+                "name",
+                "module"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1126,6 +1643,34 @@
           },
           "sizes_protected": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "annotation_size": {
+                  "type": "integer"
+                },
+                "binary_size": {
+                  "type": "integer"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "annotation_size",
+                "binary_size",
+                "name",
+                "module"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1135,6 +1680,38 @@
           },
           "skipped_catalog": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "detail": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "symbol",
+                "va",
+                "status",
+                "reason",
+                "detail"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1152,6 +1729,100 @@
             "type": "boolean"
           },
           "summary": {
+            "additionalProperties": false,
+            "properties": {
+              "byte_matched": {
+                "type": "integer"
+              },
+              "compile_error": {
+                "type": "integer"
+              },
+              "exact": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              },
+              "inventory_count": {
+                "type": "integer"
+              },
+              "library_excluded": {
+                "type": "integer"
+              },
+              "library_passed": {
+                "type": "integer"
+              },
+              "library_providers": {
+                "additionalProperties": false,
+                "properties": {
+                  "compiled": {
+                    "type": "integer"
+                  },
+                  "prebuilt": {
+                    "type": "integer"
+                  },
+                  "unresolved": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "compiled",
+                  "prebuilt",
+                  "unresolved"
+                ],
+                "type": "object"
+              },
+              "library_total": {
+                "type": "integer"
+              },
+              "matching": {
+                "type": "integer"
+              },
+              "missing_file": {
+                "type": "integer"
+              },
+              "not_run": {
+                "type": "integer"
+              },
+              "orphans_pruned": {
+                "type": "integer"
+              },
+              "passed": {
+                "type": "integer"
+              },
+              "reloc": {
+                "type": "integer"
+              },
+              "size_mismatch": {
+                "type": "integer"
+              },
+              "stub": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total",
+              "passed",
+              "failed",
+              "exact",
+              "reloc",
+              "stub",
+              "matching",
+              "size_mismatch",
+              "compile_error",
+              "not_run",
+              "missing_file",
+              "byte_matched",
+              "library_passed",
+              "library_total",
+              "library_providers",
+              "library_excluded",
+              "orphans_pruned",
+              "inventory_count"
+            ],
             "type": "object"
           },
           "target": {
@@ -5276,6 +5947,51 @@
           "compile": {
             "oneOf": [
               {
+                "additionalProperties": false,
+                "properties": {
+                  "execution": {
+                    "oneOf": [
+                      {
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flags": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "includes": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "path": {
+                          "type": "string"
+                        },
+                        "sha256": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "path",
+                        "sha256"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "source_dir": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "flags",
+                  "execution"
+                ],
                 "type": "object"
               },
               {
@@ -5284,6 +6000,51 @@
             ]
           },
           "compile_inputs": {
+            "additionalProperties": false,
+            "properties": {
+              "documents": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "logical_sha256": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "logical_sha256"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "files": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "sha256"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "files",
+              "documents"
+            ],
             "type": "object"
           },
           "context_hash": {
@@ -5600,6 +6361,35 @@
             "type": "string"
           },
           "byte_coverage": {
+            "additionalProperties": false,
+            "properties": {
+              "passthrough_bytes": {
+                "type": "integer"
+              },
+              "passthrough_pct": {
+                "type": "number"
+              },
+              "proven_bytes": {
+                "type": "integer"
+              },
+              "spliced_bytes": {
+                "type": "integer"
+              },
+              "spliced_pct": {
+                "type": "number"
+              },
+              "text_size": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "text_size",
+              "spliced_bytes",
+              "proven_bytes",
+              "passthrough_bytes",
+              "spliced_pct",
+              "passthrough_pct"
+            ],
             "type": "object"
           },
           "context_hash": {
@@ -5627,11 +6417,44 @@
           },
           "duplicate_vas": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "dropped": {
+                  "type": "string"
+                },
+                "kept": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "kept",
+                "dropped"
+              ],
               "type": "object"
             },
             "type": "array"
           },
           "fenced_naked": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "vas": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "count",
+              "vas"
+            ],
             "type": "object"
           },
           "functions_checked": {
@@ -5639,12 +6462,92 @@
           },
           "header_parity": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "configured": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "field": {
+                  "type": "string"
+                },
+                "match": {
+                  "type": "boolean"
+                },
+                "original": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reasm": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "field",
+                "original",
+                "reasm",
+                "match",
+                "configured"
+              ],
               "type": "object"
             },
             "type": "array"
           },
           "libraries": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "library": {
+                  "type": "string"
+                },
+                "member": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "provider": {
+                  "enum": [
+                    "compiled",
+                    "prebuilt",
+                    "unresolved"
+                  ],
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "name",
+                "provider"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -5654,12 +6557,72 @@
           },
           "mismatches": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "detail": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "symbol",
+                "va",
+                "status",
+                "reason",
+                "detail"
+              ],
               "type": "object"
             },
             "type": "array"
           },
           "missing_sizes": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "annotation_size": {
+                  "type": "integer"
+                },
+                "binary_size": {
+                  "type": "integer"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "annotation_size",
+                "binary_size",
+                "name",
+                "module"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -5702,6 +6665,293 @@
           },
           "results": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "compile": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "execution": {
+                          "oneOf": [
+                            {
+                              "type": "object"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "flags": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "includes": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "path": {
+                                "type": "string"
+                              },
+                              "sha256": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "path",
+                              "sha256"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "source_dir": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "flags",
+                        "execution"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "context_hash": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "delta": {
+                  "type": "integer"
+                },
+                "diff_lines": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "effective_match": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error_code": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "group": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "kind": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "name": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "retry_after": {
+                      "oneOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "status_code": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "type": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "filepath": {
+                  "type": "string"
+                },
+                "instructions": {
+                  "type": "object"
+                },
+                "match_count": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "match_percent": {
+                  "type": "number"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "not_run_reason": {
+                  "enum": [
+                    "network",
+                    "http",
+                    "validation",
+                    "protocol",
+                    "service",
+                    "deadline",
+                    "compiler_withdrawn",
+                    "compiler_not_installed"
+                  ],
+                  "type": "string"
+                },
+                "obj_size": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "passed": {
+                  "type": "boolean"
+                },
+                "reg_delta": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reloc_count": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "relocation_bindings": {
+                  "items": {
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "similarity": {
+                  "oneOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "source": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "total": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "name",
+                "symbol",
+                "module",
+                "filepath",
+                "size",
+                "status"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -5717,6 +6967,34 @@
           },
           "size_divergences": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "annotation_size": {
+                  "type": "integer"
+                },
+                "binary_size": {
+                  "type": "integer"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "annotation_size",
+                "binary_size",
+                "name",
+                "module"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -5726,6 +7004,34 @@
           },
           "sizes_protected": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "annotation_size": {
+                  "type": "integer"
+                },
+                "binary_size": {
+                  "type": "integer"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "annotation_size",
+                "binary_size",
+                "name",
+                "module"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -5735,6 +7041,38 @@
           },
           "skipped_catalog": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "detail": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "symbol",
+                "va",
+                "status",
+                "reason",
+                "detail"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -5752,6 +7090,100 @@
             "type": "boolean"
           },
           "summary": {
+            "additionalProperties": false,
+            "properties": {
+              "byte_matched": {
+                "type": "integer"
+              },
+              "compile_error": {
+                "type": "integer"
+              },
+              "exact": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              },
+              "inventory_count": {
+                "type": "integer"
+              },
+              "library_excluded": {
+                "type": "integer"
+              },
+              "library_passed": {
+                "type": "integer"
+              },
+              "library_providers": {
+                "additionalProperties": false,
+                "properties": {
+                  "compiled": {
+                    "type": "integer"
+                  },
+                  "prebuilt": {
+                    "type": "integer"
+                  },
+                  "unresolved": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "compiled",
+                  "prebuilt",
+                  "unresolved"
+                ],
+                "type": "object"
+              },
+              "library_total": {
+                "type": "integer"
+              },
+              "matching": {
+                "type": "integer"
+              },
+              "missing_file": {
+                "type": "integer"
+              },
+              "not_run": {
+                "type": "integer"
+              },
+              "orphans_pruned": {
+                "type": "integer"
+              },
+              "passed": {
+                "type": "integer"
+              },
+              "reloc": {
+                "type": "integer"
+              },
+              "size_mismatch": {
+                "type": "integer"
+              },
+              "stub": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total",
+              "passed",
+              "failed",
+              "exact",
+              "reloc",
+              "stub",
+              "matching",
+              "size_mismatch",
+              "compile_error",
+              "not_run",
+              "missing_file",
+              "byte_matched",
+              "library_passed",
+              "library_total",
+              "library_providers",
+              "library_excluded",
+              "orphans_pruned",
+              "inventory_count"
+            ],
             "type": "object"
           },
           "target": {
