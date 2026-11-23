@@ -235,7 +235,7 @@ def _split_definitions(
         error_exit(str(exc), json_mode=json_output)
     functions = [span for span in spans if span.kind == "function"]
     stores = [span for span in spans if span.kind == "storage"]
-    entries = load_metadata(meta)
+    entries = load_metadata(meta, deepcopy=False)
     eol = source_newline(text)
 
     selected: list[SourceSpan]

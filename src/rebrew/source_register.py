@@ -38,8 +38,8 @@ def plan_registration(
     function_rows: list[dict[str, Any]] = []
     data_rows: list[dict[str, Any]] = []
     metadata_dir = cfg.metadata_dir
-    functions = load_metadata(metadata_dir)
-    data = load_data_metadata(metadata_dir)
+    functions = load_metadata(metadata_dir, deepcopy=False)
+    data = load_data_metadata(metadata_dir, deepcopy=False)
     seen: dict[tuple[str, int, bool], tuple[Path, str]] = {}
     library_modules = {preset_module_key(m) for m in (getattr(cfg, "library_modules", ()) or ())}
     allowed = {
