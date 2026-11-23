@@ -5141,6 +5141,47 @@
             },
             "type": "array"
           },
+          "decompilers": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "enum": [
+                    "ghidra",
+                    "kuna",
+                    "r2dec",
+                    "r2ghidra"
+                  ],
+                  "type": "string"
+                },
+                "reason": {
+                  "enum": [
+                    "no-rizin",
+                    "no-plugin",
+                    "no-kuna",
+                    "no-m2c",
+                    "no-endpoint",
+                    "endpoint-unreachable"
+                  ],
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "available",
+                    "not-installed",
+                    "unreachable"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "state"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "discovery_rule": {
             "type": "integer"
           },
@@ -5207,7 +5248,8 @@
         "required": [
           "statuses",
           "cache_files",
-          "placeholder_name"
+          "placeholder_name",
+          "decompilers"
         ],
         "type": "object"
       },
