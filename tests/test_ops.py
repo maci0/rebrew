@@ -4652,7 +4652,8 @@ class TestDecompilersOffered:
     def test_an_available_decompiler_runs_and_auto_picks_among_the_available(
         self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._engine(monkeypatch, kuna=True)
+        """Production: rizin without plugins and kuna; only kuna runs."""
+        self._engine(monkeypatch, rizin=True, kuna=True)
         asked: list[str] = []
 
         def decompiled(backend: str, *_args: Any, **_kwargs: Any) -> tuple[str, str]:
@@ -4667,6 +4668,14 @@ class TestDecompilersOffered:
                 config, "rebrew.decompile", {**request, "backend": backend, "named": False}
             )
             assert reply == {"code": "int f(void) { return 0; }", "backend": "kuna"}
+        assert asked == ["kuna", "auto"]
+        for backend, missing in (("r2ghidra", "no plugin"), ("ghidra", "no Ghidra endpoint")):
+            refusal = _refusal(
+                config,
+                "rebrew.decompile",
+                json.dumps({**request, "backend": backend, "named": False}).encode(),
+            )
+            assert refusal["error"] == "decompiler-not-offered" and missing in refusal["detail"]
         assert asked == ["kuna", "auto"]
 
     @pytest.mark.parametrize(
@@ -4696,6 +4705,16 @@ class TestDecompilersOffered:
                 ],
             ),
             (
+                # The production image: a static rizin without plugins, kuna, no Ghidra.
+                {"rizin": True, "kuna": True},
+                [
+                    {"name": "ghidra", "state": "not-installed", "reason": "no-endpoint"},
+                    {"name": "kuna", "state": "available"},
+                    {"name": "r2dec", "state": "not-installed", "reason": "no-plugin"},
+                    {"name": "r2ghidra", "state": "not-installed", "reason": "no-plugin"},
+                ],
+            ),
+            (
                 {"ghidra": "http://ghidra.internal:8080/mcp/message", "answers": True},
                 [
                     {"name": "ghidra", "state": "available"},
@@ -4705,7 +4724,7 @@ class TestDecompilersOffered:
                 ],
             ),
         ],
-        ids=["bare", "production-like", "ghidra"],
+        ids=["bare", "rizin-with-ghidra-plugin", "production", "ghidra"],
     )
     def test_vocabulary_lists_each_decompiler_and_whether_it_runs_here(
         self, monkeypatch: pytest.MonkeyPatch, engine: dict[str, Any], expected: list[Any]
