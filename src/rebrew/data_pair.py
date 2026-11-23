@@ -247,7 +247,11 @@ def _section_name(info: Any) -> Any:
 def _module_rows(meta: Any, module: str) -> dict[int, dict[str, Any]]:
     from rebrew.metadata.data import load_data_metadata
 
-    return {va: dict(r) for (m, va), r in load_data_metadata(meta).items() if m == module}
+    return {
+        va: dict(r)
+        for (m, va), r in load_data_metadata(meta, deepcopy=False).items()
+        if m == module
+    }
 
 
 def pair(
