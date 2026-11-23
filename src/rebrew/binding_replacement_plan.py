@@ -186,7 +186,7 @@ def _plan_binding_replacement(
         watched.update(closures[target])
         files.update(path for path in closures[target] if path.is_relative_to(root))
         contexts[target] = cfg.as_dict()
-        rows = load_metadata(cfg.metadata_dir)
+        rows = load_metadata(cfg.metadata_dir, deepcopy=False)
         metadata_flags[target] = {}
         for (module, _va), row in rows.items():
             if module == cfg.module and row.get("file") and row.get("cflags"):

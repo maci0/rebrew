@@ -278,7 +278,10 @@ def pair(
     a_va, b_va = parse_int_literal(va_a), parse_int_literal(va_b)
     mod_a, mod_b = target_module(cfg_a), target_module(cfg_b)
     if size is None:
-        size = int(load_metadata(cfg_a.metadata_dir).get((mod_a, a_va), {}).get("size") or 0)
+        size = int(
+            load_metadata(cfg_a.metadata_dir, deepcopy=False).get((mod_a, a_va), {}).get("size")
+            or 0
+        )
     if size <= 0:
         error_exit(f"no size for {mod_a}.0x{a_va:08x}; pass --size", json_mode=json_output)
     info_a, info_b = load_binary(cfg_a.target_binary), load_binary(cfg_b.target_binary)
@@ -321,8 +324,8 @@ def pair(
     writes = list(writes_by_identity.values())
     calls = []
     if call_pairs:
-        functions_a = load_metadata(cfg_a.metadata_dir)
-        functions_b = load_metadata(cfg_b.metadata_dir)
+        functions_a = load_metadata(cfg_a.metadata_dir, deepcopy=False)
+        functions_b = load_metadata(cfg_b.metadata_dir, deepcopy=False)
         calls = [
             {
                 "offset": p.offset,

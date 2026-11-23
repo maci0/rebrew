@@ -803,7 +803,7 @@ def plan_rebound_references(
         chosen_modules=frozenset({module}),
         other_modules=frozenset(
             preset_module_key(mod)
-            for (mod, address), entry in load_metadata(project.metadata_dir).items()
+            for (mod, address), entry in load_metadata(project.metadata_dir, deepcopy=False).items()
             if (mod, address) != (selected.module, selected.va)
             and entry.get("file")
             and entry.get("name") == old_name

@@ -265,7 +265,7 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
     statuses = annotations_by_va(cfg_src)
     entries = registry(cfg_src)
     metadata_dir = getattr(cfg_src, "metadata_dir", None)
-    metadata = load_metadata(metadata_dir) if metadata_dir is not None else {}
+    metadata = load_metadata(metadata_dir, deepcopy=False) if metadata_dir is not None else {}
     module = (target_module(cfg_src) or "") if metadata else ""
     sizes = {
         va: int(metadata.get((module, va), {}).get("size") or reg.get("canonical_size") or 0)
@@ -561,8 +561,8 @@ def _retire_shared_stub(cfg: ProjectConfig, path: Path, claim: tuple[str, int]) 
     text, encoding = read_source_text(path)
     rel = identity_file(path, cfg.metadata_dir)
     owners = [
-        *load_metadata(cfg.metadata_dir).values(),
-        *load_data_metadata(cfg.metadata_dir).values(),
+        *load_metadata(cfg.metadata_dir, deepcopy=False).values(),
+        *load_data_metadata(cfg.metadata_dir, deepcopy=False).values(),
     ]
     syntax = getattr(cfg, "address_comments", None)
     kept = _strip_claim(text, claim, syntax=syntax)
@@ -695,14 +695,14 @@ def _retarget_moved_identity(cfg: Any, old_path: Path, new_path: Path) -> None:
 
     rows = [
         {"module": module, "va": va, "identity": {"file": new_rel}}
-        for (module, va), entry in load_metadata(meta).items()
+        for (module, va), entry in load_metadata(meta, deepcopy=False).items()
         if _matches(entry)
     ]
     if rows:
         record_function_rows(meta, rows)
     data_rows = [
         {"module": module, "va": va, "identity": {"file": new_rel}}
-        for (module, va), entry in load_data_metadata(meta).items()
+        for (module, va), entry in load_data_metadata(meta, deepcopy=False).items()
         if _matches(entry)
     ]
     if data_rows:

@@ -295,21 +295,22 @@ def _obsolete_body(
         return None
     root = cfg.root if current.get("kind") == "LIBRARY" else cfg.metadata_dir
     old: Path = (root / current["file"]).absolute()
-    if old.resolve() == source or old.is_symlink() or not old.is_file():
+    resolved = old.resolve()
+    if resolved == source or old.is_symlink() or not old.is_file():
         return None
-    if not old.resolve().is_relative_to(cfg.root.resolve()):
+    if not resolved.is_relative_to(cfg.root.resolve()):
         return None
     rows = [
         row
-        for (module, address), row in load_metadata(cfg.metadata_dir).items()
+        for (module, address), row in load_metadata(cfg.metadata_dir, deepcopy=False).items()
         if (module, address) != (target_module(cfg), va)
-    ] + list(load_data_metadata(cfg.metadata_dir).values())
+    ] + list(load_data_metadata(cfg.metadata_dir, deepcopy=False).values())
     for row in rows:
         base = cfg.root if row.get("kind") == "LIBRARY" else cfg.metadata_dir
-        if row.get("file") and (base / row["file"]).resolve() == old.resolve():
+        if row.get("file") and (base / row["file"]).resolve() == resolved:
             return None
     if any(
-        (cfg.metadata_dir / row.file).resolve() == old.resolve()
+        (cfg.metadata_dir / row.file).resolve() == resolved
         for row in load_source_files(cfg.metadata_dir)
     ):
         return None
