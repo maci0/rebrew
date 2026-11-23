@@ -999,9 +999,6 @@
           "arch": {
             "type": "string"
           },
-          "binary": {
-            "type": "string"
-          },
           "byte_coverage": {
             "type": "object"
           },
@@ -1058,12 +1055,6 @@
               "type": "object"
             },
             "type": "array"
-          },
-          "out": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "provenance": {
             "type": "string"
@@ -5561,9 +5552,6 @@
           "arch": {
             "type": "string"
           },
-          "binary": {
-            "type": "string"
-          },
           "byte_coverage": {
             "type": "object"
           },
@@ -5620,12 +5608,6 @@
               "type": "object"
             },
             "type": "array"
-          },
-          "out": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "provenance": {
             "type": "string"
