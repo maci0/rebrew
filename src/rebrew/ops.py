@@ -292,6 +292,11 @@ IMPORT_TIMEOUT_SECONDS = 600
 #: analysis and its 120 s decompile command (``rebrew.decompiler``).
 IN_PROCESS_TIMEOUT_SECONDS = 600
 
+#: SHA-256 of the dispatch schema this engine serves
+#: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
+#: a test holds it to the file, so a schema change updates it in the same commit.
+DISPATCH_SCHEMA_SHA256 = "d84fc349b66333d364f9efc39cd73587398d9a6fe33ad4053722ff9aad90e03b"
+
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
 
@@ -1488,6 +1493,11 @@ class RetainedFile:
 @dataclass(frozen=True)
 class VocabularyRequest:
     """No fields: the vocabulary is the worker's own."""
+
+
+@dataclass(frozen=True)
+class ReleaseRequest:
+    """No fields: the release is the worker's own."""
 
 
 @dataclass(frozen=True)
@@ -3582,6 +3592,17 @@ def _metadata_answer[T](read: Callable[[], T]) -> T:
         raise _invalid(f"invalid metadata set: {exc}") from exc
 
 
+def release(_config: WorkerConfig, _req: ReleaseRequest) -> dict[str, Any]:
+    """The engine's rebrew release and the SHA-256 of the dispatch schema it serves.
+
+    A caller compares ``schema_sha256`` with the schema it was built against and
+    refuses an engine that serves another before it relies on any other op.
+    """
+    from rebrew import __version__
+
+    return {"release": __version__, "schema_sha256": DISPATCH_SCHEMA_SHA256}
+
+
 def vocabulary(_config: WorkerConfig, _req: VocabularyRequest) -> dict[str, Any]:
     """The names rebrew owns that a client must match rather than copy.
 
@@ -5116,6 +5137,7 @@ OPS: dict[str, Op] = {
     "rebrew.data_list": Op(DataListRequest, data_list, COMMAND_TIMEOUT_SECONDS, interruptible=True),
     "rebrew.data_set": Op(DataSetRequest, data_set, COMMAND_TIMEOUT_SECONDS, interruptible=True),
     "rebrew.vocabulary": Op(VocabularyRequest, vocabulary, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.release": Op(ReleaseRequest, release, IN_PROCESS_TIMEOUT_SECONDS),
     "rebrew.check_cflags": Op(CheckCflagsRequest, check_cflags, IN_PROCESS_TIMEOUT_SECONDS),
     "rebrew.rename_identifier": Op(
         RenameIdentifierRequest, rename_identifier, IN_PROCESS_TIMEOUT_SECONDS

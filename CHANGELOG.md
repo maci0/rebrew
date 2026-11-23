@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew.release` (`{}`) answers this engine's `release` (its rebrew version) and `schema_sha256`, the SHA-256 of the dispatch schema it serves (`rebrew.ops.DISPATCH_SCHEMA_SHA256`, held to the checked-in schema by a test), so a caller can refuse at start an engine that serves another schema than the one it reads.
+
 ### Changed
 
 - `rebrew status`'s file similarity (`compare_file_bytes`) and the binary gate's first difference (`binary_gate.compare_bytes`) work on the XOR of the two images, counted or searched in C, instead of one Python comparison per byte: 0.18 G user-space instructions per 4 MB comparison instead of 1.15 G, the same counts and offsets (a differential test against the byte-by-byte count over generated inputs).

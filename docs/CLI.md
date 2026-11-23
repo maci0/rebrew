@@ -7231,6 +7231,11 @@ Op details the contract leaves open:
   count, and the counts agree with its status (EXACT and RELOC cover every byte,
   with relocations only for RELOC; NEAR_MATCHING, STUB and SIZE_MISMATCH stay below
   a full match). Any other status, a tooling failure, is no verdict.
+- `rebrew.release` `{}` answers `release`, this engine's rebrew version, and
+  `schema_sha256`, the SHA-256 of the dispatch schema it serves
+  (`rebrew.ops.DISPATCH_SCHEMA_SHA256`, held to
+  `tests/fixtures/dispatch/rebrew.schema.json` by a test). A caller compares it with
+  the schema it was built against and refuses an engine that serves another.
 - `rebrew.vocabulary` `{}` answers the names rebrew owns. `statuses` is the
   function STATUS table from `rebrew.workspace.status`: `known` (every status a
   row may hold), `matched` (byte matches: EXACT, RELOC), `earned` (adds PROVEN,

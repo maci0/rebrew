@@ -8833,6 +8833,96 @@
       },
       "timeout_seconds": 600
     },
+    "rebrew.release": {
+      "errors": {
+        "caller-gone": {
+          "status": [
+            499
+          ]
+        },
+        "cross-origin": {
+          "status": [
+            403
+          ]
+        },
+        "deadline-exceeded": {
+          "status": [
+            504
+          ]
+        },
+        "engine-error": {
+          "status": [
+            500
+          ]
+        },
+        "host-not-allowed": {
+          "status": [
+            403
+          ]
+        },
+        "invalid-request": {
+          "status": [
+            400,
+            411,
+            413,
+            414,
+            415,
+            431,
+            501,
+            505
+          ]
+        },
+        "method-not-allowed": {
+          "status": [
+            405
+          ]
+        },
+        "toolchain-rejected": {
+          "status": [
+            422
+          ]
+        },
+        "unauthorized": {
+          "status": [
+            401
+          ]
+        },
+        "unsupported-binary-format": {
+          "status": [
+            422
+          ]
+        },
+        "worker-busy": {
+          "status": [
+            503
+          ]
+        }
+      },
+      "interruptible": false,
+      "request": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "type": "object"
+      },
+      "response": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "release": {
+            "type": "string"
+          },
+          "schema_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "release",
+          "schema_sha256"
+        ],
+        "type": "object"
+      },
+      "timeout_seconds": 600
+    },
     "rebrew.rename_identifier": {
       "errors": {
         "caller-gone": {

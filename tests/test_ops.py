@@ -526,6 +526,18 @@ class TestContract:
         }
         assert {op: found for op, found in published.items() if found} == declared
 
+    def test_the_engine_states_its_release_and_the_schema_it_serves(self) -> None:
+        """``rebrew.release`` answers this rebrew's version and the SHA-256 of the
+        checked-in dispatch schema, so a caller can refuse an engine serving another."""
+        from rebrew import __version__
+        from tools.gen_dispatch_schema import SCHEMA
+
+        reply = _call(WorkerConfig(), "rebrew.release", {})
+        assert reply == {
+            "release": __version__,
+            "schema_sha256": hashlib.sha256(SCHEMA.read_bytes()).hexdigest(),
+        }
+
     def test_the_schema_is_what_the_generator_writes(self) -> None:
         """Each enum is written from the set the code enforces (tools/gen_dispatch_schema.py)."""
         from tools.gen_dispatch_schema import SCHEMA, render

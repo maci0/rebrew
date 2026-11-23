@@ -854,6 +854,11 @@ class DataSetReply(TypedDict):
     set: list[DataSetRow]
 
 
+class ReleaseReply(TypedDict):
+    release: str
+    schema_sha256: str
+
+
 #: Members the command an op runs prints that its reply withholds, by op: each is a
 #: path of the engine's host, which never leaves it, and no consumer reads it.  A
 #: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``).
@@ -905,6 +910,7 @@ DECLARED: dict[str, Any] = {
     "rebrew.strings": StringsReply,
     "rebrew.structs": StructsReply,
     "rebrew.xrefs": XrefsReply,
+    "rebrew.release": ReleaseReply,
 }
 
 
