@@ -73,6 +73,169 @@ class NotRunError(TypedDict, total=False):
     retry_after: float | None
 
 
+class FileDigest(TypedDict):
+    """A file named by its path relative to the project, and its SHA-256."""
+
+    path: str
+    sha256: str
+
+
+class CompileRecord(TypedDict, total=False):
+    """What a remote compile ran with (``CompareResult.remote_compile``)."""
+
+    flags: Required[list[str]]
+    #: The service's execution provenance, verbatim (recompile ``ExecutionProvenance``).
+    execution: Required[dict[str, Any] | None]
+    source_dir: str
+    includes: list[FileDigest]
+
+
+class LogicalDocument(TypedDict):
+    """A metadata settings document by its path and its logical digest."""
+
+    path: str
+    logical_sha256: str
+
+
+class CompileInputs(TypedDict):
+    """The files and documents a candidate's verdict was compiled from."""
+
+    files: list[FileDigest]
+    documents: list[LogicalDocument]
+
+
+class VerifyRow(TypedDict, total=False):
+    """One function's row of ``rebrew verify --json`` (``verify_cache.RESULT_FIELDS`` and the
+    report-only members)."""
+
+    va: Required[str]
+    name: Required[str]
+    symbol: Required[str]
+    module: Required[str]
+    filepath: Required[str]
+    size: Required[int]
+    status: Required[str]
+    message: str
+    passed: bool
+    match_percent: float
+    delta: int
+    match_count: int | None
+    total: int | None
+    obj_size: int | None
+    reloc_count: int | None
+    diff_lines: int | None
+    similarity: float | None
+    reg_delta: int | None
+    effective_match: bool
+    context_hash: str | None
+    relocation_bindings: list[dict[str, Any]]
+    source: str | None
+    compile: CompileRecord | None
+    instructions: dict[str, Any]
+    error: NotRunError
+    not_run_reason: NotRunReason
+
+
+class LibraryProviders(TypedDict):
+    """How many library functions each kind of provider supplies."""
+
+    compiled: int
+    prebuilt: int
+    unresolved: int
+
+
+class VerifySummary(TypedDict):
+    """``rebrew verify``'s counts."""
+
+    total: int
+    passed: int
+    failed: int
+    exact: int
+    reloc: int
+    stub: int
+    matching: int
+    size_mismatch: int
+    compile_error: int
+    not_run: int
+    missing_file: int
+    byte_matched: int
+    library_passed: int
+    library_total: int
+    library_providers: LibraryProviders
+    library_excluded: int
+    orphans_pruned: int
+    inventory_count: int
+
+
+class SizeFix(TypedDict, total=False):
+    """An annotation size that differs from the binary's, or is missing."""
+
+    va: Required[str]
+    annotation_size: Required[int]
+    binary_size: Required[int]
+    name: Required[str]
+    module: Required[str]
+    status: str
+
+
+class DuplicateVa(TypedDict):
+    """A VA two sources claim: the one kept and the one dropped."""
+
+    va: str
+    kept: str
+    dropped: str
+
+
+class LibraryProvider(TypedDict, total=False):
+    """Who supplies one library function (``function_providers.resolve_library_providers``)."""
+
+    va: Required[str]
+    name: Required[str]
+    provider: Required[Literal["compiled", "prebuilt", "unresolved"]]
+    file: str
+    symbol: str
+    library: str
+    member: str
+
+
+class SpliceMismatch(TypedDict):
+    """A function ``rebrew build round-trip`` could not splice, and why."""
+
+    symbol: str
+    va: str
+    status: str
+    reason: str
+    detail: str | None
+
+
+class FencedNaked(TypedDict):
+    """Naked functions the round trip fenced off, and their VAs."""
+
+    count: int
+    vas: list[str]
+
+
+class HeaderParity(TypedDict):
+    """One PE header field of the original and the rebuilt image."""
+
+    field: str
+    original: int | None
+    reasm: int | None
+    match: bool
+    configured: int | None
+
+
+class ByteCoverage(TypedDict):
+    """How much of ``.text`` the rebuilt image splices, proves, or passes through."""
+
+    text_size: int
+    spliced_bytes: int
+    proven_bytes: int
+    passthrough_bytes: int
+    spliced_pct: float
+    passthrough_pct: float
+
+
 class VerifyFunctionReply(TypedDict, total=False):
     """``rebrew.verify_function``: the ``rebrew test --json`` result of one source."""
 
@@ -87,7 +250,7 @@ class VerifyFunctionReply(TypedDict, total=False):
     obj_size: Required[int]
     context_hash: Required[str | None]
     mismatches: Required[list[ByteMismatch]]
-    compile: Required[dict[str, Any] | None]
+    compile: Required[CompileRecord | None]
     remote_compile: Required[RemoteCompile]
     not_run_reason: NotRunReason
     error: NotRunError
@@ -98,7 +261,7 @@ class VerifyFunctionReply(TypedDict, total=False):
     hunks: int
     similarity: float
     instructions: dict[str, Any]
-    compile_inputs: dict[str, Any]
+    compile_inputs: CompileInputs
     verdict_valid: bool
 
 
@@ -119,19 +282,19 @@ class TargetReportReply(TypedDict, total=False):
     target: str
     context_hash: str | None
     dry_run: bool
-    summary: dict[str, Any]
-    size_divergences: list[dict[str, Any]]
-    missing_sizes: list[dict[str, Any]]
-    duplicate_vas: list[dict[str, Any]]
-    results: list[dict[str, Any]]
-    libraries: list[dict[str, Any]]
+    summary: VerifySummary
+    size_divergences: list[SizeFix]
+    missing_sizes: list[SizeFix]
+    duplicate_vas: list[DuplicateVa]
+    results: list[VerifyRow]
+    libraries: list[LibraryProvider]
     data: dict[str, Any] | None
     text: dict[str, Any] | None
     whole_binary: dict[str, Any] | None
     functions_checked: bool
     raw_link_status_suppressed: bool
     sizes_fixed: int
-    sizes_protected: list[dict[str, Any]]
+    sizes_protected: list[SizeFix]
     skipped: bool
     reason: str
     arch: str
@@ -143,18 +306,19 @@ class TargetReportReply(TypedDict, total=False):
     spliced: int
     skipped_proven: int
     skipped_other: int
-    fenced_naked: dict[str, Any]
-    skipped_catalog: list[dict[str, Any]]
-    mismatches: list[dict[str, Any]]
+    fenced_naked: FencedNaked
+    skipped_catalog: list[SpliceMismatch]
+    mismatches: list[SpliceMismatch]
     reason_counts: dict[str, int]
-    header_parity: list[dict[str, Any]]
-    byte_coverage: dict[str, Any]
+    header_parity: list[HeaderParity]
+    byte_coverage: ByteCoverage
 
 
 #: Members the command an op runs prints that its reply withholds, by op: each is a
-#: path of the engine's host, which never leaves it, and no consumer reads it.
+#: path of the engine's host, which never leaves it, and no consumer reads it.  A
+#: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``).
 WITHHELD: dict[str, tuple[str, ...]] = {
-    "rebrew.verify_target": ("binary",),
+    "rebrew.verify_target": ("binary", "libraries[].map"),
     "rebrew.build": ("binary", "out"),
 }
 

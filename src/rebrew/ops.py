@@ -854,7 +854,18 @@ def _declared_reply(name: str, reply: Mapping[str, Any]) -> dict[str, Any]:
     """*reply* as the op's declared reply (:mod:`rebrew.ops_replies`), not-run text closed."""
     from rebrew.ops_replies import DECLARED, WITHHELD, project
 
-    closed = {key: value for key, value in reply.items() if key not in WITHHELD.get(name, ())}
+    withheld = WITHHELD.get(name, ())
+    closed = {key: value for key, value in reply.items() if key not in withheld}
+    for path in withheld:
+        if "[]." in path:
+            listed, member = path.split("[].")
+            if isinstance(closed.get(listed), list):
+                closed[listed] = [
+                    {key: value for key, value in row.items() if key != member}
+                    if isinstance(row, dict)
+                    else row
+                    for row in closed[listed]
+                ]
     _not_run_reason(closed)
     rows = closed.get("results")
     if isinstance(rows, list):
