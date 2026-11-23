@@ -11,6 +11,7 @@ table, the other half CONTRIBUTING holds unfrozen.
 from __future__ import annotations
 
 import ast
+import gc
 import os
 import re
 import subprocess
@@ -120,10 +121,16 @@ class TestSurfaceGate:
         The consumer-facing half of the contract: a note that does not name the
         symbol cannot be acted on, and an unflagged move fails the import.
         """
-        old = surface_at_ref(_last_tag(), PKG, cwd=ROOT)
-        if old is None:
-            pytest.skip(f"cannot read {_last_tag()} from this checkout")
-        current = public_surface(PKG)
+        # Each surface holds every module's AST at once. AST nodes form no
+        # reference cycle, so a cyclic GC pass over them frees nothing.
+        gc.disable()
+        try:
+            old = surface_at_ref(_last_tag(), PKG, cwd=ROOT)
+            if old is None:
+                pytest.skip(f"cannot read {_last_tag()} from this checkout")
+            current = public_surface(PKG)
+        finally:
+            gc.enable()
         removed, changed, added = diff_surfaces(old, current)
 
         broken = {
