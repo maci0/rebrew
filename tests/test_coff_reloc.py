@@ -333,7 +333,7 @@ def test_function_catalog_scan_is_marker_scoped(
             SimpleNamespace(data_annotations=[], globals={})
         ),
     )
-    monkeypatch.setattr(dm_mod, "load_data_metadata", lambda _dir: {})
+    monkeypatch.setattr(dm_mod, "load_data_metadata", lambda _dir, *, deepcopy=True: {})
 
     cfg = SimpleNamespace(
         reversed_dir=src,

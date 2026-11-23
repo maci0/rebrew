@@ -79,7 +79,7 @@ def _rows_naming(
 
     return (
         naming(load_metadata(metadata_dir, deepcopy=False)),
-        naming(load_data_metadata(metadata_dir)),
+        naming(load_data_metadata(metadata_dir, deepcopy=False)),
     )
 
 

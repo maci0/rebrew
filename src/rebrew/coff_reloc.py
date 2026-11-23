@@ -326,7 +326,7 @@ def build_name_to_va(
         # them, DIR32 absolute-address validation silently no-ops.
         from rebrew.metadata.data import load_data_metadata
 
-        meta = load_data_metadata(cfg.metadata_dir)
+        meta = load_data_metadata(cfg.metadata_dir, deepcopy=False)
         for (_module, va), entry in meta.items():
             if (
                 active_module

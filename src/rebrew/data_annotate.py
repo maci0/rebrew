@@ -600,7 +600,7 @@ def gen_globals_header(
 
     target_module_name = target_module(cfg)
     metadata_dir = cfg.metadata_dir
-    metadata = load_data_metadata(metadata_dir)
+    metadata = load_data_metadata(metadata_dir, deepcopy=False)
     # One store read for the whole walk: read_source_bindings otherwise
     # re-resolves and re-fingerprints it once per source.
     function_entries = load_metadata(metadata_dir, deepcopy=False)
