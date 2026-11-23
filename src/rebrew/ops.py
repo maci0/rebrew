@@ -2310,7 +2310,7 @@ def identify_library(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any
     candidates = collect_candidates(cfg, unreadable=unreadable)
     existing = set(load_existing_vas(cfg.reversed_dir, cfg))
     fresh = sum(1 for candidate in candidates if candidate.va not in existing)
-    return {
+    reply = {
         "sigs_written": 0,
         "identified": len(candidates),
         "already_annotated": len(candidates) - fresh,
@@ -2328,6 +2328,7 @@ def identify_library(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any
         ],
         "unreadable_signatures": unreadable,
     }
+    return _declared_reply("rebrew.identify_library", reply)
 
 
 def structs(config: WorkerConfig, req: StructsRequest) -> dict[str, Any]:
@@ -4696,10 +4697,10 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
                     ) from None
                 checked_coverage_input(snapshot, req)
                 report = json.loads(out.read_text(encoding="utf-8"))
-                return {
-                    "summary": {k: v for k, v in summary.items() if k != "out"},
-                    "report": report,
-                }
+                return _declared_reply(
+                    "rebrew.coverage_report",
+                    {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report},
+                )
     if req.coverage_input.version or req.coverage_input_digest or req.verification_records:
         raise _invalid("coverage input requires a retained snapshot")
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
@@ -4709,7 +4710,10 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
         out = Path(directory) / "report.json"
         summary = generate_decomp_dev_report(cfg, out)
         report = json.loads(out.read_text(encoding="utf-8"))
-    return {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report}
+    return _declared_reply(
+        "rebrew.coverage_report",
+        {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report},
+    )
 
 
 def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:

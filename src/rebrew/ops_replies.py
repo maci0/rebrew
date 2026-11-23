@@ -314,6 +314,97 @@ class TargetReportReply(TypedDict, total=False):
     byte_coverage: ByteCoverage
 
 
+class LibraryCandidate(TypedDict):
+    va: str
+    name: str
+    module: str
+    kind: Literal["crt", "flirt", "import"]
+    confidence: float
+
+
+class IdentifyLibraryReply(TypedDict):
+    sigs_written: int
+    identified: int
+    already_annotated: int
+    to_write: int
+    written: int
+    candidates: list[LibraryCandidate]
+    unreadable_signatures: list[str]
+
+
+class CoverageSummary(TypedDict):
+    total_functions: int
+    matched_functions: int
+    total_code: int
+    matched_code: int
+    fuzzy_match_percent: float
+    units: int
+    # trusted coverage only: the library account
+    original_code: NotRequired[int]
+    library_functions: NotRequired[int]
+    library_code: NotRequired[int]
+    library_verified_functions: NotRequired[int]
+    library_verified_code: NotRequired[int]
+
+
+class CoverageMeasures(TypedDict):
+    fuzzy_match_percent: float
+    total_code: int
+    matched_code: int
+    matched_code_percent: float
+    total_data: int
+    matched_data: int
+    matched_data_percent: float
+    total_functions: int
+    matched_functions: int
+    matched_functions_percent: float
+    complete_code: int
+    complete_code_percent: float
+    complete_data: int
+    complete_data_percent: float
+    total_units: int
+    complete_units: int
+    original_code: NotRequired[int]
+    library_functions: NotRequired[int]
+    library_code: NotRequired[int]
+    library_verified_functions: NotRequired[int]
+    library_verified_code: NotRequired[int]
+
+
+class CoverageUnitMeasures(TypedDict):
+    total_code: int
+    matched_code: int
+    fuzzy_match_percent: float
+    total_functions: int
+    matched_functions: int
+
+
+class CoverageFunction(TypedDict):
+    name: str
+    size: int
+    fuzzy_match_percent: float
+    address: int
+
+
+class CoverageUnit(TypedDict):
+    name: str
+    measures: CoverageUnitMeasures
+    functions: list[CoverageFunction]
+
+
+class CoverageDocument(TypedDict):
+    """objdiff's ``report.json``, version 2, as ``rebrew coverage report --decomp-dev`` writes it."""
+
+    version: int
+    measures: CoverageMeasures
+    units: list[CoverageUnit]
+
+
+class CoverageReportReply(TypedDict):
+    summary: CoverageSummary
+    report: CoverageDocument
+
+
 #: Members the command an op runs prints that its reply withholds, by op: each is a
 #: path of the engine's host, which never leaves it, and no consumer reads it.  A
 #: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``).
@@ -327,6 +418,8 @@ DECLARED: dict[str, Any] = {
     "rebrew.verify_function": VerifyFunctionReply,
     "rebrew.verify_target": TargetReportReply,
     "rebrew.build": TargetReportReply,
+    "rebrew.identify_library": IdentifyLibraryReply,
+    "rebrew.coverage_report": CoverageReportReply,
 }
 
 
