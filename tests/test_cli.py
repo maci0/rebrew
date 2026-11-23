@@ -458,6 +458,22 @@ class TestRequireConfigErrors:
             require_config(root=tmp_path)
         assert exc_info.value.exit_code == EXIT_ERROR
 
+    def test_missing_project_puts_remedy_in_hint(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(typer.Exit) as exc_info:
+            require_config(json_mode=True)
+        assert exc_info.value.exit_code == EXIT_ERROR
+        error = json.loads(capsys.readouterr().err.strip().splitlines()[-1])["error"]
+        assert error["message"] == (
+            "Could not find rebrew-project.toml in any parent of the current directory."
+        )
+        assert "rebrew init" in error["hint"]
+
 
 class TestLoadVerifyCacheRaw:
     def test_verify_cache_copy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

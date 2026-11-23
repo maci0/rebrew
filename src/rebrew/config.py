@@ -2776,8 +2776,7 @@ def find_root(start: Path | str | None = None) -> Path:
     found = walk_up_to_root(Path.cwd())
     if found is None:
         raise ConfigNotFoundError(
-            "Could not find rebrew-project.toml in any parent of the current directory. "
-            "Run rebrew commands from within a project that contains rebrew-project.toml."
+            "Could not find rebrew-project.toml in any parent of the current directory."
         )
     return found
 

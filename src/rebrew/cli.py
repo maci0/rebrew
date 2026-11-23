@@ -360,6 +360,10 @@ def source_targets_run(
     return True
 
 
+#: Remedy carried in the error object's ``hint`` when no project config is found.
+_MISSING_PROJECT_HINT = "Run rebrew inside a project directory, or create one with 'rebrew init'."
+
+
 def require_config(
     target: str | None = None,
     *,
@@ -374,6 +378,8 @@ def require_config(
     """
     try:
         cfg = load_config(root=root, target=target)
+    except ConfigNotFoundError as exc:
+        error_exit(str(exc), json_mode=json_mode, code=EXIT_ERROR, hint=_MISSING_PROJECT_HINT)
     except FileNotFoundError as exc:
         error_exit(str(exc), json_mode=json_mode, code=EXIT_ERROR)
     except (KeyError, ValueError) as exc:
@@ -416,7 +422,7 @@ def require_root(root: Path | None = None, *, json_mode: bool = False) -> Path:
     try:
         return find_root()
     except ConfigNotFoundError as exc:
-        error_exit(str(exc), json_mode=json_mode, code=EXIT_ERROR)
+        error_exit(str(exc), json_mode=json_mode, code=EXIT_ERROR, hint=_MISSING_PROJECT_HINT)
 
 
 # ---------------------------------------------------------------------------
