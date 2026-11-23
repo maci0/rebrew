@@ -197,9 +197,11 @@ def json_schema(hint: Any) -> dict[str, Any]:
         schema = {
             "additionalProperties": False,
             "properties": {name: json_schema(member) for name, member in members.items()},
-            "required": [name for name in members if name in required],
             "type": "object",
         }
+        # The backend's renderer omits an empty ``required``.
+        if names := [name for name in members if name in required]:
+            schema["required"] = names
     elif get_origin(inner) is Literal:
         schema = {"enum": list(get_args(inner)), "type": "string"}
     elif get_origin(inner) is list:
@@ -211,9 +213,8 @@ def json_schema(hint: Any) -> dict[str, Any]:
         schema = {"type": _PRIMITIVES[inner]}
     else:
         raise TypeError(f"no JSON schema for {inner!r}")
-    if nullable:
-        schema["type"] = [schema["type"], "null"]
-    return schema
+    # The backend's renderer writes a nullable member this way and has no ``type`` array.
+    return {"oneOf": [schema, {"type": "null"}]} if nullable else schema
 
 
 def project(value: dict[str, Any], declared: Any, where: str) -> dict[str, Any]:

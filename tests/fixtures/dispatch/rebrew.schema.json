@@ -1003,15 +1003,23 @@
             "type": "object"
           },
           "context_hash": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "data": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "dry_run": {
@@ -1150,18 +1158,26 @@
             "type": "string"
           },
           "text": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "timestamp": {
             "type": "string"
           },
           "whole_binary": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },
@@ -5258,67 +5274,98 @@
             "type": "integer"
           },
           "compile": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "compile_inputs": {
             "type": "object"
           },
           "context_hash": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "error": {
             "additionalProperties": false,
             "properties": {
               "error_code": {
-                "type": [
-                  "string",
-                  "null"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "group": {
-                "type": [
-                  "string",
-                  "null"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "kind": {
-                "type": [
-                  "string",
-                  "null"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "name": {
-                "type": [
-                  "string",
-                  "null"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "retry_after": {
-                "type": [
-                  "number",
-                  "null"
+                "oneOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "retryable": {
                 "type": "boolean"
               },
               "status_code": {
-                "type": [
-                  "integer",
-                  "null"
+                "oneOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "type": {
                 "type": "string"
               }
             },
-            "required": [],
             "type": "object"
           },
           "hunks": {
@@ -5556,15 +5603,23 @@
             "type": "object"
           },
           "context_hash": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "data": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "dry_run": {
@@ -5703,18 +5758,26 @@
             "type": "string"
           },
           "text": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "timestamp": {
             "type": "string"
           },
           "whole_binary": {
-            "type": [
-              "object",
-              "null"
+            "oneOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         },

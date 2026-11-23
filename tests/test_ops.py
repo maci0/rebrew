@@ -347,6 +347,45 @@ class TestContract:
             code: {"status": list(statuses)} for code, statuses in ops.PROBLEMS.items()
         }
 
+    def test_a_nullable_member_is_written_as_one_of_its_type_or_null(self) -> None:
+        """The backend renders a nullable as ``oneOf``; it has no ``type`` array."""
+        from typing import TypedDict
+
+        from rebrew.ops_replies import json_schema
+
+        class Reply(TypedDict):
+            hash: str | None
+            record: dict[str, int] | None
+
+        assert json_schema(Reply)["properties"] == {
+            "hash": {"oneOf": [{"type": "string"}, {"type": "null"}]},
+            "record": {"oneOf": [{"type": "object"}, {"type": "null"}]},
+        }
+
+    def test_an_object_with_no_required_member_has_no_required(self) -> None:
+        """The backend omits an empty ``required``."""
+        from typing import TypedDict
+
+        from rebrew.ops_replies import json_schema
+
+        class Reply(TypedDict, total=False):
+            code: str
+
+        assert json_schema(Reply) == {
+            "additionalProperties": False,
+            "properties": {"code": {"type": "string"}},
+            "type": "object",
+        }
+
+    def test_the_schema_holds_no_form_the_backend_cannot_render(self) -> None:
+        """The schema must equal the backend's rendering byte for byte, which has neither
+        a ``type`` array nor an empty ``required``."""
+        from tools.gen_dispatch_schema import SCHEMA
+
+        text = SCHEMA.read_text(encoding="utf-8")
+        assert '"type": [' not in text
+        assert '"required": []' not in text
+
     def test_the_schema_is_what_the_generator_writes(self) -> None:
         """Each enum is written from the set the code enforces (tools/gen_dispatch_schema.py)."""
         from tools.gen_dispatch_schema import SCHEMA, render
