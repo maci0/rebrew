@@ -61,12 +61,13 @@ where every one of them says the key was not billed, so an answer 14.0.1 calls
 unbilled that 12.0.0 or 14.0.0 sends after billing the compile is unknown and final,
 and a refusal 14.0.1 makes only of a new compile says nothing of the key. An op's
 `remote_compile` puts each compile call in at most one of three counts by what its
-last key cost. `count` is a call the service billed and whose verdict the op got:
-an object, or the compiler's rejection. `billed_undelivered` is a call the
-service billed whose verdict the op did not get: the object's download failed after
-`status: "ok"`, or the key was answered `403 billed_not_delivered`,
+last key cost. `count` is a call the service billed and whose verdict the op got and
+stored: an object written, or the compiler's rejection. `billed_undelivered` is a call the
+service billed whose verdict the op did not get or store: the object's download
+failed after `status: "ok"` or the object could not be written, or the key was answered `403 billed_not_delivered`,
 `409 retained_output_unavailable` or `410 artifact_expired`. `unsettled` is a call
-whose key may have been billed and no answer said: a reply lost on every attempt, a
+whose key may have been billed and no answer said: a call its command was killed
+during (each call is in the op's ledger before it is sent), a reply lost on every attempt, a
 5xx or 503 other than `credit_ledger_unavailable` waited out to the deadline,
 `409 admission_unrecoverable`; `403 delivery_denied` (12.0.0 answers it after
 Platform settled the compile), a `401`, `403 forbidden` or `423

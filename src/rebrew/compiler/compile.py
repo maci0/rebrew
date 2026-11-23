@@ -59,6 +59,7 @@ lazy import json
 lazy import logging
 lazy import math
 lazy import os
+lazy import secrets
 lazy import shlex
 lazy import shutil
 lazy import subprocess
@@ -1499,14 +1500,16 @@ _OUTCOME_MARKS: dict[RemoteOutcome, str] = {
 class RemoteCompiles:
     """Where one dispatch op call counts its recompile calls, and whom they are for.
 
-    Each finished call to the service appends one line to *ledger*: its
-    :data:`RemoteOutcome` (``1`` billed with a verdict, a compiled object or the
-    compiler's rejection; ``b`` billed without one, the
-    :attr:`~rebrew.compiler.recompile_client.RecompileError.cost` ``billed``; ``?``
-    billing unknown, the cost ``unknown``; ``0`` free), then the wall milliseconds
-    the call waited, retries and capacity waits included.  A line is one
-    ``O_APPEND`` write, so the threads of a batch and the child commands an op
-    runs share the file.
+    A call to the service appends ``+ <call>`` to *ledger* before anything is
+    sent (:meth:`begin`), and one line when it ends (:meth:`record`): its
+    :data:`RemoteOutcome` (``1`` billed with a verdict the caller stored, a compiled
+    object written or the compiler's rejection; ``b`` billed without one, the
+    :attr:`~rebrew.compiler.recompile_client.RecompileError.cost` ``billed`` or an
+    object that could not be written; ``?`` billing unknown, the cost ``unknown``;
+    ``0`` free), the wall milliseconds the call waited, retries and capacity waits
+    included, and the call.  A call begun and never ended (its process killed) is
+    unknown.  A line is one ``O_APPEND`` write, so the threads of a batch and the
+    child commands an op runs share the file.
     """
 
     ledger: Path
@@ -1523,12 +1526,20 @@ class RemoteCompiles:
             ),
         }
 
-    def record(self, *, outcome: RemoteOutcome, wait_ms: int) -> None:
-        """Append one finished recompile call."""
-        line = f"{_OUTCOME_MARKS[outcome]} {wait_ms}\n".encode("ascii")
+    def begin(self) -> str:
+        """Append a recompile call about to be sent; its id goes to :meth:`record`."""
+        call = secrets.token_hex(8)
+        self._append(f"+ {call}\n")
+        return call
+
+    def record(self, call: str, *, outcome: RemoteOutcome, wait_ms: int) -> None:
+        """Append the end of the recompile call :meth:`begin` named *call*."""
+        self._append(f"{_OUTCOME_MARKS[outcome]} {wait_ms} {call}\n")
+
+    def _append(self, line: str) -> None:
         descriptor = os.open(self.ledger, os.O_WRONLY | os.O_APPEND)
         try:
-            os.write(descriptor, line)
+            os.write(descriptor, line.encode("ascii"))
         finally:
             os.close(descriptor)
 
@@ -1541,15 +1552,24 @@ class RemoteCompiles:
 
         ``count`` is the calls billed with a verdict, ``billed_undelivered`` the
         calls billed without one, ``unsettled`` the calls whose billing no answer
-        settled; each call is in at most one of them.  ``wait_ms`` is the total wait.
+        settled, a call begun and never ended among them; each call is in at most one
+        of them.  ``wait_ms`` is the total wait of the calls that ended.
         """
         totals = dict.fromkeys(("count", "billed_undelivered", "unsettled", "wait_ms"), 0)
         member = {"1": "count", "b": "billed_undelivered", "?": "unsettled"}
+        begun: set[str] = set()
+        ended: set[str] = set()
         for line in self.ledger.read_text(encoding="ascii").splitlines():
-            mark, waited = line.split()
+            fields = line.split()
+            if fields[0] == "+":
+                begun.add(fields[1])
+                continue
+            mark, waited, call = fields
+            ended.add(call)
             if mark in member:
                 totals[member[mark]] += 1
             totals["wait_ms"] += int(waited)
+        totals["unsettled"] += len(begun - ended)
         return totals
 
 
@@ -2081,6 +2101,7 @@ def _compile_via_recompile(
     remote = current_remote_compiles()
     waited_from = time.monotonic()
     outcome: RemoteOutcome = "free"
+    call = None if remote is None else remote.begin()
     try:
         res = compile_source(
             url,
@@ -2105,6 +2126,24 @@ def _compile_via_recompile(
             deadline=None if called_by is None else called_by - timeout,
             attribution=None if remote is None else remote.attribution,
         )
+        # Billed; the verdict counts once it is stored (the object written).
+        outcome = "billed"
+        if not res.ok:
+            outcome = "verdict"
+            err = _compiler_error_excerpt(res.log or "", limit=400)
+            return None, err or "recompile service reported failure with no log"
+        if res.obj_bytes is None:
+            return None, "recompile service reported an object it did not deliver"
+        obj_file = workdir / obj_name
+        try:
+            obj_file.write_bytes(res.obj_bytes)
+        except OSError as exc:
+            return _not_run(
+                backend_errors,
+                f"Failed to write recompile artifact: {exc}",
+                kind="invocation",
+                name=profile,
+            )
         outcome = "verdict"
     except RecompileError as exc:
         outcome = exc.cost
@@ -2112,8 +2151,9 @@ def _compile_via_recompile(
             backend_errors.append(exc)
         return None, f"recompile service error: {exc}"
     finally:
-        if remote is not None:
+        if remote is not None and call is not None:
             remote.record(
+                call,
                 outcome=outcome,
                 wait_ms=round((time.monotonic() - waited_from) * 1000),
             )
@@ -2121,19 +2161,6 @@ def _compile_via_recompile(
             client.close()
         else:
             _recompile_release(client)
-    if not res.ok or res.obj_bytes is None:
-        err = _compiler_error_excerpt(res.log or "", limit=400)
-        return None, err or "recompile service reported failure with no log"
-    obj_file = workdir / obj_name
-    try:
-        obj_file.write_bytes(res.obj_bytes)
-    except OSError as exc:
-        return _not_run(
-            backend_errors,
-            f"Failed to write recompile artifact: {exc}",
-            kind="invocation",
-            name=profile,
-        )
     record: dict[str, Any] = {"flags": list(all_flags), "execution": res.execution}
     if bundle is not None:
         record["source_dir"] = bundle.source_dir

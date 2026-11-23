@@ -1288,7 +1288,7 @@ class TestCompileViaRecompile:
         )
 
         # An unreachable service gave no verdict: not run, not a compile error.
-        assert result.status == "NOT_RUN"
+        assert not result.matched
         assert isinstance(result.error, RecompileError)
         assert result.error.kind == "network"
         assert result.error.retryable is True
@@ -1411,7 +1411,7 @@ class TestCallDeadline:
         result = compile_and_compare(cfg, src, "_f", b"\x55\x8b\xec", [], use_cache=False)
 
         assert client.calls == []
-        assert result.status == "NOT_RUN"
+        assert not result.matched
         assert isinstance(result.error, RecompileError) and result.error.kind == "deadline"
 
 
@@ -1782,7 +1782,7 @@ class TestCapacityWaits:
 
         result = self._compile(tmp_path)
 
-        assert result.status == "NOT_RUN"
+        assert not result.matched
         assert isinstance(result.error, RecompileError) and result.error.status_code == 502
         assert len(keys) == 3 and clock.elapsed() < 600
 
@@ -2007,6 +2007,58 @@ class TestRecompileElevenCodes:
         assert result.status == "NOT_RUN" and not result.matched
         assert isinstance(result.error, RecompileError)
         assert (result.error.status_code, result.error.error_code) == (409, "admission_abandoned")
+
+
+class TestCountedOnlyWhenStored:
+    """A compile counts as billed with a verdict only once its object is written."""
+
+    def test_an_object_that_cannot_be_written_is_billed_without_a_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler.compile import (
+            RemoteCompiles,
+            compile_and_compare,
+            counting_remote_compiles,
+        )
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
+        _sequence_client(
+            monkeypatch,
+            [_Resp(200, json_body=_COMPILED)],
+            [_Resp(200, content=b"OBJ")],
+        )
+        write_bytes = Path.write_bytes
+
+        def full_disk(path: Path, data: bytes) -> int:
+            if path.suffix == ".obj":
+                raise OSError(28, "No space left on device")
+            return write_bytes(path, data)
+
+        monkeypatch.setattr(Path, "write_bytes", full_disk)
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://svc",
+            recompile_emit_assembly=False,
+            recompile_retries=0,
+            compile_timeout=30,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+        )
+        ledger = tmp_path / "ledger"
+        ledger.touch()
+        with counting_remote_compiles(RemoteCompiles(ledger)) as remote:
+            result = compile_and_compare(cfg, src, "_f", b"\x55\x8b\xec", [], use_cache=False)
+        assert not result.matched
+        totals = remote.totals()
+        assert (totals["count"], totals["billed_undelivered"], totals["unsettled"]) == (0, 1, 0)
 
 
 class TestCompilerListing:

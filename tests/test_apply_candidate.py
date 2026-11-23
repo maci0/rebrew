@@ -719,6 +719,7 @@ def _recompile(
     answers: list[Answer] | None = None,
     installed: list[str] | None = None,
     meet: int = 0,
+    held: tuple[threading.Event, threading.Event] | None = None,
 ) -> Iterator[str]:
     """A recompile stand-in: every compile fails with the ``error_code`` *failure*, or is a ``ret`` object.
 
@@ -732,7 +733,9 @@ def _recompile(
     above.  *seen* also gets each compile's body under ``body``.  *installed* names
     the compilers ``GET /api/v1/compilers`` lists ``admitted`` among every MSVC
     profile; ``None`` answers that route 404.  The first *meet* compiles are held
-    until all of them have arrived, so that many calls are in flight at once.
+    until all of them have arrived, so that many calls are in flight at once.  With
+    *held* ``(arrived, release)``, each compile sets *arrived* and is answered only once
+    *release* is set.
     """
     from bin_util import make_coff_obj
 
@@ -753,6 +756,9 @@ def _recompile(
             seen.append({**dict(self.headers.items()), "body": raw.decode()})
             if arrived is not None and len(seen) <= meet:
                 arrived.wait(_WAIT_SECONDS)
+            if held is not None:
+                held[0].set()
+                held[1].wait(_WAIT_SECONDS)
             if answers:
                 scripted = answers.pop(0)
                 if isinstance(scripted, str):
@@ -1204,6 +1210,42 @@ def test_a_billed_delivery_denied_is_never_compiled_again_under_a_new_key(
     assert (reply["status"], len(seen)) == ("NOT_RUN", 1)
     assert reply["remote_compile"]["count"] == 0
     assert reply["remote_compile"]["unsettled"] == 1
+
+
+def test_a_compile_cut_off_with_its_child_command_is_reported_unsettled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The call is in the op's ledger before it is sent: a child killed while its POST
+    is in flight (here the caller leaves) still counts it, as unsettled."""
+    from rebrew import ops
+
+    arrived, release = threading.Event(), threading.Event()
+    seen: list[dict[str, str]] = []
+    answer: dict[str, tuple[int, bytes]] = {}
+    cancellation = ops._Cancellation()
+    with _recompile(seen, held=(arrived, release)) as url:
+        config, entries = _compiling_at(url, tmp_path, monkeypatch)
+
+        def call() -> None:
+            token = ops._CANCELLATION.set(cancellation)
+            try:
+                answer["reply"] = dispatch(config, "rebrew.apply_candidate", _request(entries))
+            finally:
+                ops._CANCELLATION.reset(token)
+
+        worker = threading.Thread(target=call)
+        worker.start()
+        try:
+            assert arrived.wait(_WAIT_SECONDS)
+            cancellation.cancel("the caller closed the connection", ops.CALLER_GONE, 499)
+            worker.join(_WAIT_SECONDS)
+        finally:
+            release.set()
+    status, raw = answer["reply"]
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (499, "caller-gone"), refusal
+    assert refusal["remote_compile"]["count"] == 0
+    assert refusal["remote_compile"]["unsettled"] == 1
 
 
 @pytest.mark.parametrize("edge", [520, 521, 522, 523, 524])
