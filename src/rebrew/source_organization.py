@@ -92,7 +92,8 @@ def review_organization(
                 candidates.add(library)
         for candidate in candidates:
             if input_exists(candidate):
-                inputs.setdefault(candidate, snapshot_input(candidate))
+                if candidate not in inputs:
+                    inputs[candidate] = snapshot_input(candidate)
             else:
                 absent_inputs.add(candidate)
     definitions: dict[str, dict[str, Any]] = {}
@@ -188,7 +189,8 @@ def review_organization(
         contexts, missing = contract_contexts(cfg, selected_sources=active)
         unknown.extend({"target": cfg.target_name, **item} for item in missing)
         for path in contexts:
-            inputs.setdefault(path, snapshot_input(path))
+            if path not in inputs:
+                inputs[path] = snapshot_input(path)
         header_locals: list[dict[str, Any]] = []
         for header, users in contexts.items():
             if header in paths:
@@ -324,15 +326,16 @@ def review_organization(
             graph[after].add(before)
             edges.append({"target": cfg.target_name, "before": before, "after": after})
         for path in metadata_store_paths(metadata_dir):
-            inputs.setdefault(path, snapshot_input(path))
-        if (cfg.root / "rebrew-project.toml").is_file():
-            inputs.setdefault(
-                cfg.root / "rebrew-project.toml", (cfg.root / "rebrew-project.toml").read_bytes()
-            )
+            if path not in inputs:
+                inputs[path] = snapshot_input(path)
+        project_toml = cfg.root / "rebrew-project.toml"
+        if project_toml not in inputs and project_toml.is_file():
+            inputs[project_toml] = project_toml.read_bytes()
         raw_link = cfg.raw_link
         baseline: dict[str, Any] = {"path": str(raw_link) if raw_link else None, "available": False}
         if raw_link is not None and raw_link.is_file():
-            inputs.setdefault(raw_link, raw_link.read_bytes())
+            if raw_link not in inputs:
+                inputs[raw_link] = raw_link.read_bytes()
             baseline.update(
                 available=True,
                 sha256=hashlib.sha256(inputs[raw_link]).hexdigest(),
