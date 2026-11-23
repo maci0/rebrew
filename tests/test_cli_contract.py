@@ -20,6 +20,7 @@ precede the options in the signature.
 from __future__ import annotations
 
 import ast
+import functools
 import importlib
 import inspect
 import re
@@ -29,6 +30,7 @@ from typing import Any
 
 import pytest
 import typer
+from route_help import composed_route_help
 from typer.models import OptionInfo
 
 from rebrew.app.builtins import BUILTIN_COMPONENTS
@@ -72,8 +74,13 @@ VA_HELP_ALLOWED = frozenset(
 )
 
 
-def _command_functions():
-    """``(component, command, fn)`` for every registered command function."""
+@functools.cache
+def _command_functions() -> tuple[tuple[str, str, Any], ...]:
+    """``(component, command, fn)`` for every registered command function.
+
+    Built once per process: building every component's click group re-inspects
+    every callback, and a dozen tests read the same callbacks.
+    """
     out = []
 
     def collect(component: str, command: Any, path: str = "main") -> None:
@@ -92,7 +99,22 @@ def _command_functions():
             fn = getattr(module, comp.attr or "main", None)
             if fn is not None:
                 out.append((comp.name, "main", fn))
-    return out
+    return tuple(out)
+
+
+@functools.cache
+def _component_option_names() -> tuple[tuple[str, frozenset[str]], ...]:
+    """``(component, option spellings)`` of each component group after global injection."""
+    from rebrew.cli import add_global_options
+
+    out = []
+    for comp in BUILTIN_COMPONENTS:
+        app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
+        if app is None:
+            continue
+        cmd = add_global_options(typer.main.get_group(app))
+        out.append((comp.name, frozenset(opt for param in cmd.params for opt in param.opts)))
+    return tuple(out)
 
 
 def _options(fn) -> dict[str, OptionInfo]:
@@ -336,19 +358,7 @@ class TestVersionFlag:
         Shared options work after the subcommand name and during direct
         module execution, in addition to the root callback's options.
         """
-        import typer
-
-        from rebrew.cli import add_global_options
-
-        bad = []
-        for comp in BUILTIN_COMPONENTS:
-            app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
-            if app is None:
-                continue
-            cmd = add_global_options(typer.main.get_group(app))
-            names = {opt for param in cmd.params for opt in param.opts}
-            if "--version" not in names:
-                bad.append(comp.name)
+        bad = [name for name, names in _component_option_names() if "--version" not in names]
         assert not bad, f"command without --version: {bad}"
 
     def test_umbrella_subcommand_reports_version(self) -> None:
@@ -405,20 +415,11 @@ class TestVerbosityFlags:
         only ahead of the subcommand name, so `rebrew diff -v` and the flat
         `rebrew-diff -v` used to exit 2 with "No such option: --verbose".
         """
-        import typer
-
-        from rebrew.cli import add_global_options
-
         missing: dict[str, list[str]] = {}
-        for comp in BUILTIN_COMPONENTS:
-            app = getattr(importlib.import_module(comp.module), comp.attr or "app", None)
-            if app is None:
-                continue
-            cmd = add_global_options(typer.main.get_group(app))
-            names = {opt for param in cmd.params for opt in param.opts}
+        for name, names in _component_option_names():
             absent = [f for f in ("--verbose", "-v", "--quiet", "-q") if f not in names]
             if absent:
-                missing[comp.name] = absent
+                missing[name] = absent
         assert not missing, f"commands missing verbosity flags: {missing}"
 
     def test_command_declared_flag_wins_over_injection(self) -> None:
@@ -740,11 +741,14 @@ class TestScriptDispatch:
 class TestComposedHelp:
     """Nested help and examples must remain usable after route migrations."""
 
-    def test_every_route_renders_help_and_version(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_every_route_renders_help_and_version(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
         from click.testing import CliRunner
 
         from rebrew.app.main import app
 
+        pages = composed_route_help(tmp_path_factory)
         builds: list[int] = []
         real_get_command = typer.main.get_command
 
@@ -755,18 +759,21 @@ class TestComposedHelp:
         monkeypatch.setattr(typer.main, "get_command", _count_builds)
         command = typer.main.get_command(app)
         pending = [((), command)]
+        routes = set()
         runner = CliRunner()
         while pending:
             path, current = pending.pop()
-            result = runner.invoke(command, [*path, "--help"], env={"COLUMNS": "200"})
-            assert result.exit_code == 0, (path, result.output)
-            assert "Examples:" in result.output, path
-            assert "Exit codes:" in result.output, path
+            routes.add(" ".join(path))
+            exit_code, output = pages[" ".join(path)]
+            assert exit_code == 0, (path, output)
+            assert "Examples:" in output, path
+            assert "Exit codes:" in output, path
             version = runner.invoke(command, [*path, "--version"])
             assert version.exit_code == 0, (path, version.output)
             assert version.stdout.startswith("rebrew "), path
             for name, child in getattr(current, "commands", {}).items():
                 pending.append(((*path, name), child))
+        assert routes == set(pages)
         # Typer rebuilds the click tree, and re-inspects every callback, on each
         # CliRunner.invoke. One build serves every route. The count does not
         # move when the machine is busy.

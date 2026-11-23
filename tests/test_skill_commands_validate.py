@@ -6,7 +6,8 @@ registered in the CLI.  Does NOT invoke real rebrew commands; it only confirms
 ``--help`` works and referenced flags are registered on the resolved command.
 
 Note: validation renders ``--help`` on the composed command tree. It does not
-spawn a process per subcommand.
+spawn a process per subcommand. The pages come from the session's
+``route_help.composed_route_help`` table, which ``test_cli_contract.py`` also asserts on.
 """
 
 from __future__ import annotations
@@ -27,18 +28,37 @@ def _script_available() -> bool:
 @pytest.mark.skipif(not _script_available(), reason="validate_skill_commands.py not found")
 class TestValidateSkillCommands:
     @pytest.fixture(scope="session")
-    def _validate_once(self) -> bool:
+    def _validate_once(self, tmp_path_factory: pytest.TempPathFactory) -> bool:
         """Run the full validation ONCE per session and cache the boolean.
 
         Help is rendered on the composed command tree. Sharing that result
         keeps the two tests that only need the boolean from rendering twice.
+        ``_run_help`` reads a route's page from ``composed_route_help``, the
+        same render ``test_cli_contract.py`` asserts on; one route is rendered
+        through the real ``_run_help`` and must match its page exactly.
         """
+        from route_help import composed_route_help
+
         spec = importlib.util.spec_from_file_location("validate_skill_commands", _SCRIPT)
         assert spec is not None
         mod = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(mod)
-        return bool(mod.validate(quiet=False, docs=True))
+        pages = composed_route_help(tmp_path_factory)
+        run_help = mod._run_help
+
+        def rendered_help(subcommand: str) -> tuple[bool, str]:
+            if subcommand not in pages:
+                rendered: tuple[bool, str] = run_help(subcommand)
+                return rendered
+            exit_code, output = pages[subcommand]
+            return exit_code == 0, mod._ANSI_RE.sub("", output)
+
+        probe = min(route for route in pages if route)
+        assert run_help(probe) == rendered_help(probe), probe
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(mod, "_run_help", rendered_help)
+            return bool(mod.validate(quiet=False, docs=True))
 
     def test_script_is_importable(self) -> None:
         """The script must be importable (no syntax errors)."""

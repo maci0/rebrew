@@ -454,6 +454,7 @@ files = [
     "tests/test_resource.py",
     "tests/test_security_scan.py",
     "tests/test_skill_commands_validate.py",
+    "tests/route_help.py",
     "tests/test_skills_extended.py",
     "tests/test_skills_sync.py",
     "tests/test_solutions.py",
