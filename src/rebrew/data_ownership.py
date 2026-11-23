@@ -227,7 +227,7 @@ def _common_definitions(
         basename = PureWindowsPath(member).name
         if basename.casefold() not in selected:
             continue
-        obj = lief.COFF.parse(list(body))
+        obj = lief.COFF.parse(bytes(body))
         if obj is None:
             continue
         for symbol in obj.symbols:

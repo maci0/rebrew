@@ -735,7 +735,7 @@ def _load_target(binary: Path) -> tuple[Any, bytes]:
         image = binary.read_bytes()
     except OSError as exc:
         raise PdbExportError(f"cannot read target binary {binary}: {exc}") from exc
-    pe = lief.PE.parse(list(image))
+    pe = lief.PE.parse(bytes(image))
     if pe is None:
         raise PdbExportError(f"target binary is not a PE image: {binary}")
     return pe, image

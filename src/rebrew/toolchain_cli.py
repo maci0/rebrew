@@ -3539,7 +3539,7 @@ def _object_target(obj: Path) -> tuple[str, int] | None:
 
     data = obj.read_bytes()
     if data[:4] == b"\x7fELF":
-        elf = lief.ELF.parse(list(data))
+        elf = lief.ELF.parse(bytes(data))
         if elf is None:
             return None
         arch = _ELF_ARCHES.get(elf.header.machine_type.name)
