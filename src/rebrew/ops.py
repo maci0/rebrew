@@ -852,9 +852,9 @@ def _not_run_reason(verdict: dict[str, Any]) -> None:
 
 def _declared_reply(name: str, reply: Mapping[str, Any]) -> dict[str, Any]:
     """*reply* as the op's declared reply (:mod:`rebrew.ops_replies`), not-run text closed."""
-    from rebrew.ops_replies import DECLARED, project
+    from rebrew.ops_replies import DECLARED, WITHHELD, project
 
-    closed = dict(reply)
+    closed = {key: value for key, value in reply.items() if key not in WITHHELD.get(name, ())}
     _not_run_reason(closed)
     rows = closed.get("results")
     if isinstance(rows, list):

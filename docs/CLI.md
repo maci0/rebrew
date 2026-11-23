@@ -7412,6 +7412,8 @@ Op details the contract leaves open:
   `rebrew.verify_target` and `rebrew.build` as closed objects (from the TypedDicts of
   `rebrew.ops_replies`, which the ops project their replies onto, so a reply carries
   exactly the members the schema names). `tools/gen_dispatch_schema.py` writes both.
+  `verify_target` and `build` withhold the reports' `binary` and `out`: a path of the
+  engine's host never leaves it.
 - `rebrew.identify_library` answers `unreadable_signatures`: the paths in the
   project's `flirt_sigs/` of the signature files it skipped because they could not
   be read or parsed (python-flirt's panics included).

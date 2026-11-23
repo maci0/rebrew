@@ -106,7 +106,9 @@ class TargetReportReply(TypedDict, total=False):
     """``rebrew.verify_target`` (``rebrew verify --json``) and ``rebrew.build``'s report members.
 
     ``results`` rows of status ``NOT_RUN`` carry ``not_run_reason`` in place of
-    the compile client's message.
+    the compile client's message.  The commands' ``binary`` (the target's path)
+    and ``out`` (where the rebuilt image was written) are not declared: a path of
+    the engine's host never leaves it, and no consumer reads either.
     """
 
     remote_compile: Required[RemoteCompile]
@@ -115,7 +117,6 @@ class TargetReportReply(TypedDict, total=False):
     provenance: str
     timestamp: str
     target: str
-    binary: str
     context_hash: str | None
     dry_run: bool
     summary: dict[str, Any]
@@ -135,7 +136,6 @@ class TargetReportReply(TypedDict, total=False):
     reason: str
     arch: str
     # rebrew build round-trip --json
-    out: str | None
     sha256_original: str
     sha256_reasm: str
     match: bool
@@ -150,6 +150,13 @@ class TargetReportReply(TypedDict, total=False):
     header_parity: list[dict[str, Any]]
     byte_coverage: dict[str, Any]
 
+
+#: Members the command an op runs prints that its reply withholds, by op: each is a
+#: path of the engine's host, which never leaves it, and no consumer reads it.
+WITHHELD: dict[str, tuple[str, ...]] = {
+    "rebrew.verify_target": ("binary",),
+    "rebrew.build": ("binary", "out"),
+}
 
 #: The op each declared reply answers.
 DECLARED: dict[str, Any] = {
