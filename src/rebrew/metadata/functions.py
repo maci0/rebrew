@@ -353,6 +353,27 @@ def _require_module(module: str) -> None:
         raise ValueError("metadata writes require a non-empty module")
 
 
+_SET_STATUS_ERROR = "Use update_source_status() for STATUS changes — it enforces promotion rules"
+_BATCH_STATUS_ERROR = "Use update_statuses_batch() for STATUS changes"
+_DELETE_STATUS_ERROR = "Cannot delete STATUS directly"
+
+
+def _reject_reserved_field(key: Any, status_error: str) -> None:
+    """Refuse a generic write or delete of a field with its own writer.
+
+    *status_error* is the message for ``status``, naming the writer the
+    caller's context offers instead.
+    """
+    if key == "similarity":
+        raise ValueError("similarity is written only by test/verify evidence")
+    if key in {"status_history", "binding_history", "native_identity"}:
+        raise ValueError(
+            "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
+        )
+    if key == "status":
+        raise ValueError(status_error)
+
+
 METADATA_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
     "size": int,
     "blocker_delta": (int, str),
@@ -694,16 +715,7 @@ def set_fields(
         changed = False
         for key, value in fields.items():
             key = key.lower()
-            if key == "similarity":
-                raise ValueError("similarity is written only by test/verify evidence")
-            if key in {"status_history", "binding_history", "native_identity"}:
-                raise ValueError(
-                    "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
-                )
-            if key == "status":
-                raise ValueError(
-                    "Use update_source_status() for STATUS changes — it enforces promotion rules"
-                )
+            _reject_reserved_field(key, _SET_STATUS_ERROR)
             safe = toml_safe(validate_metadata_field(key, value))
             if entry.get(key) != safe:
                 entry[key] = safe
@@ -772,14 +784,7 @@ def set_fields_batch(
             changed = False
             for key, value in fields.items():
                 key = key.lower()
-                if key == "similarity":
-                    raise ValueError("similarity is written only by test/verify evidence")
-                if key in {"status_history", "binding_history", "native_identity"}:
-                    raise ValueError(
-                        "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
-                    )
-                if key == "status":
-                    raise ValueError("Use update_statuses_batch() for STATUS changes")
+                _reject_reserved_field(key, _BATCH_STATUS_ERROR)
                 safe = toml_safe(validate_metadata_field(key, value))
                 if entry.get(key) != safe:
                     entry[key] = safe
@@ -1004,14 +1009,7 @@ def record_function_rows(
             updates: dict[str, Any] = {}
             for key, value in (row.get("fields") or {}).items():
                 key = key.lower()
-                if key == "similarity":
-                    raise ValueError("similarity is written only by test/verify evidence")
-                if key in {"status_history", "binding_history", "native_identity"}:
-                    raise ValueError(
-                        "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
-                    )
-                if key == "status":
-                    raise ValueError("Use update_statuses_batch() for STATUS changes")
+                _reject_reserved_field(key, _BATCH_STATUS_ERROR)
                 updates[key] = toml_safe(validate_metadata_field(key, value))
             updates.update(
                 _identity_updates(entry, row.get("identity"), overwrite_name=overwrite_name)
@@ -1167,14 +1165,7 @@ def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, 
             changed = False
             for key in keys:
                 key = key.lower() if isinstance(key, str) else key
-                if key == "similarity":
-                    raise ValueError("similarity is written only by test/verify evidence")
-                if key in {"status_history", "binding_history", "native_identity"}:
-                    raise ValueError(
-                        "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
-                    )
-                if key == "status":
-                    raise ValueError("Cannot delete STATUS directly")
+                _reject_reserved_field(key, _DELETE_STATUS_ERROR)
                 if not isinstance(key, str) or key.upper() not in METADATA_FIELDS:
                     raise ValueError(
                         f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
@@ -1341,16 +1332,7 @@ def update_field(
 
     """
     key = key.lower()
-    if key == "similarity":
-        raise ValueError("similarity is written only by test/verify evidence")
-    if key in {"status_history", "binding_history", "native_identity"}:
-        raise ValueError(
-            "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
-        )
-    if key == "status":
-        raise ValueError(
-            "Use update_source_status() for STATUS changes — it enforces promotion rules"
-        )
+    _reject_reserved_field(key, _SET_STATUS_ERROR)
     _set_field(
         directory,
         va,
@@ -1382,14 +1364,7 @@ def remove_field(directory: Path | str | Any, va: int, key: str, module: str) ->
 
     """
     key = key.lower()
-    if key == "similarity":
-        raise ValueError("similarity is written only by test/verify evidence")
-    if key in {"status_history", "binding_history", "native_identity"}:
-        raise ValueError(
-            "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
-        )
-    if key == "status":
-        raise ValueError("Cannot delete STATUS directly")
+    _reject_reserved_field(key, _DELETE_STATUS_ERROR)
     if key not in _LOWER_METADATA_FIELDS:
         raise ValueError(
             f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
@@ -1658,14 +1633,7 @@ def update_statuses_batch(
                     entry.pop("blocker_delta", None)
             for key, value in (u.get("fields") or {}).items():
                 key = key.lower()
-                if key == "similarity":
-                    raise ValueError("similarity is written only by test/verify evidence")
-                if key in {"status_history", "binding_history", "native_identity"}:
-                    raise ValueError(
-                        "Use import_status_history() for comparison history; change_source_binding() for binding history; record_native_identity() for native identity"
-                    )
-                if key == "status":
-                    raise ValueError("Use new_status for STATUS changes")
+                _reject_reserved_field(key, "Use new_status for STATUS changes")
                 safe = toml_safe(validate_metadata_field(key, value))
                 if entry.get(key) != safe:
                     entry[key] = safe
