@@ -54,10 +54,11 @@ def test_flag_search_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         assert (project / "f.c").read_bytes() == source.read_bytes()
         assert (project / "original/game.exe").read_bytes() == binary.read_bytes()
         seen.append((args, timeout, outcome_exit))
-        return {"matched": False}
+        # A flag sweep names its source by the staged snapshot's path, which the reply withholds.
+        return {"source": str(project / "f.c"), "mode": "flag_sweep", "exact": False, "results": []}
 
     monkeypatch.setattr(ops, "run_rebrew", run)
-    assert ops.flag_search(worker, req) == {"matched": False}
+    assert ops.flag_search(worker, req)["mode"] == "flag_sweep"
     assert seen[0][0][:2] == ["match", "flags"]
     assert "--jobs=2" in seen[0][0] and "--target=main" in seen[0][0]
     assert seen[0][1:] == (ops.SEARCH_TIMEOUT_SECONDS, True)
@@ -77,14 +78,16 @@ def test_flag_search_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     # A compiling op reports its remote compiles; this run made none.
     assert status == 200
     assert json.loads(reply) == {
-        "matched": False,
+        "mode": "flag_sweep",
+        "exact": False,
+        "results": [],
         "remote_compile": {"count": 0, "billed_undelivered": 0, "unsettled": 0, "wait_ms": 0},
     }
     _validate(_op_schema("rebrew.flag_search", "response"), json.loads(reply))
     comparison = dataclasses.replace(
         req, compare_toolchains=True, with_flags=True, tier="quick", toolchains="msvc-6.0"
     )
-    assert ops.flag_search(worker, comparison) == {"matched": False}
+    assert ops.flag_search(worker, comparison)["mode"] == "flag_sweep"
     assert seen[-1][0][1] == "toolchains" and "--flags" in seen[-1][0]
     assert "--toolchains=msvc-6.0" in seen[-1][0]
     escaped = dataclasses.replace(

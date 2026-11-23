@@ -122,7 +122,16 @@ testpaths = ["tests"]
 pythonpath = ["src", ".", "tests"]
 # Force the same ANSI-off env as ``make test`` / CI so bare ``uv run pytest``
 # stays green when FORCE_COLOR or GITHUB_ACTIONS is set in the developer shell.
-addopts = ["-p", "pytest_ansi_env", "-p", "source_util", "-p", "typer_command_cache"]
+addopts = [
+    "-p",
+    "pytest_ansi_env",
+    "-p",
+    "source_util",
+    "-p",
+    "typer_command_cache",
+    "-p",
+    "reply_paths",
+]
 filterwarnings = [
     # LIEF C extension emits this when parsing minimal Mach-O stubs with zeroed headers
     "ignore:0 is not a valid CPU_TYPE:RuntimeWarning",
@@ -348,6 +357,7 @@ files = [
     "tools",
     "tests/pytest_ansi_env.py",
     "tests/typer_command_cache.py",
+    "tests/reply_paths.py",
     "tests/bin_util.py",
     "tests/cache_util.py",
     "tests/html_validate.py",

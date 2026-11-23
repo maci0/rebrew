@@ -696,6 +696,63 @@ PROBLEMS: dict[str, tuple[int, ...]] = {
     COVERAGE_INPUT_UNVERIFIED: (409,),
 }
 
+#: The codes every op can answer: the HTTP transport's, the dispatcher's (a call
+#: cut short, a worker that is busy, an exception it translates), and an
+#: invalid request or engine failure.
+DISPATCH_PROBLEMS = frozenset(
+    {
+        INVALID_REQUEST,
+        METHOD_NOT_ALLOWED,
+        UNAUTHORIZED,
+        HOST_NOT_ALLOWED,
+        CROSS_ORIGIN,
+        ENGINE_ERROR,
+        WORKER_BUSY,
+        CALLER_GONE,
+        DEADLINE_EXCEEDED,
+        UNSUPPORTED_BINARY_FORMAT,
+        TOOLCHAIN_REJECTED,
+    }
+)
+
+_RETAINED_PROBLEMS = frozenset({INVALID_PROJECT_CONFIG, READSET_TOO_LARGE})
+_COMPILE_PROBLEMS = frozenset({COMPILER_NOT_OFFERED, READSET_TOO_LARGE, REMOTE_HEADERS})
+_CANDIDATE_PROBLEMS = _COMPILE_PROBLEMS | {
+    CANDIDATE_ADDRESS_COMMENT,
+    CANDIDATE_NAME_TAKEN,
+    CANDIDATE_NOT_ONE_FUNCTION,
+    COMPILE_NOT_RUN,
+}
+_DECOMPILE_PROBLEMS = frozenset({DECOMPILER_NOT_OFFERED, DECOMPILER_UNREACHABLE})
+_COVERAGE_PROBLEMS = _RETAINED_PROBLEMS | {COVERAGE_INPUT_UNVERIFIED}
+
+#: The codes an op answers besides :data:`DISPATCH_PROBLEMS`, by op; an op not
+#: named answers no other.  The dispatch schema publishes each op's codes as its
+#: ``errors``; a test holds every refusal an op's code reaches to its entry.
+OP_PROBLEMS: dict[str, frozenset[str]] = {
+    "rebrew.analyse": frozenset({ANALYSIS_CAPTURE_FAILED, COMPILER_NOT_OFFERED, READSET_TOO_LARGE}),
+    "rebrew.apply_candidate": _CANDIDATE_PROBLEMS,
+    "rebrew.verify_function": _CANDIDATE_PROBLEMS,
+    "rebrew.build": _COMPILE_PROBLEMS | {INVALID_PROJECT_CONFIG},
+    "rebrew.verify_target": _COMPILE_PROBLEMS | {INVALID_PROJECT_CONFIG},
+    "rebrew.retained_source_operation": _COMPILE_PROBLEMS
+    | {INVALID_PROJECT_CONFIG, CANDIDATE_NAME_TAKEN},
+    "rebrew.flag_search": _COMPILE_PROBLEMS,
+    "rebrew.coverage_report": _COVERAGE_PROBLEMS,
+    "rebrew.report": _COVERAGE_PROBLEMS | {REPORT_OUTPUT_INVALID},
+    "rebrew.data_list": _COVERAGE_PROBLEMS | {COMPILER_NOT_OFFERED},
+    "rebrew.data_set": frozenset({COMPILER_NOT_OFFERED}),
+    "rebrew.reference_flirt": frozenset({COMPILER_NOT_OFFERED, MALFORMED_SIGNATURES}),
+    "rebrew.decompile": _DECOMPILE_PROBLEMS,
+    "rebrew.decompile_snapshot": _DECOMPILE_PROBLEMS,
+    "rebrew.structs": _DECOMPILE_PROBLEMS,
+    "rebrew.import_archive": _RETAINED_PROBLEMS | {ANALYSIS_CAPTURE_FAILED, PROJECT_IMPORT_REFUSED},
+    "rebrew.project_targets": _RETAINED_PROBLEMS,
+    "rebrew.metadata_carry": frozenset({READSET_TOO_LARGE}),
+    "rebrew.metadata_describe": frozenset({READSET_TOO_LARGE}),
+    "rebrew.metadata_diff": frozenset({READSET_TOO_LARGE}),
+}
+
 
 def _readset_limit(what: str, count: int, limit: int, unit: str = "files") -> OpsError:
     """The binary's own analysis is larger than the engine bounds: not the caller's fault."""
@@ -2310,7 +2367,7 @@ def identify_library(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any
     candidates = collect_candidates(cfg, unreadable=unreadable)
     existing = set(load_existing_vas(cfg.reversed_dir, cfg))
     fresh = sum(1 for candidate in candidates if candidate.va not in existing)
-    reply = {
+    return {
         "sigs_written": 0,
         "identified": len(candidates),
         "already_annotated": len(candidates) - fresh,
@@ -2328,7 +2385,6 @@ def identify_library(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any
         ],
         "unreadable_signatures": unreadable,
     }
-    return _declared_reply("rebrew.identify_library", reply)
 
 
 def structs(config: WorkerConfig, req: StructsRequest) -> dict[str, Any]:
@@ -2734,7 +2790,15 @@ def security_scan(config: WorkerConfig, req: SecurityScanRequest) -> dict[str, A
     if req.min_severity not in SEVERITY_ORDER:
         raise _invalid(f"min_severity must be one of {', '.join(SEVERITY_ORDER)}")
     cfg = load_config(project_root(config, req.project_dir))
-    return filter_by_severity(scan(cfg.reversed_dir), req.min_severity)
+    root, directory = cfg.root.resolve(), cfg.reversed_dir.resolve()
+    if not directory.is_relative_to(root):
+        raise _invalid("the reversed sources lie outside the project")
+    result = filter_by_severity(scan(directory), req.min_severity)
+    # Paths relative to the project: the engine's own paths never leave it.
+    result["root"] = directory.relative_to(root).as_posix()
+    for finding in result["findings"]:
+        finding["file"] = Path(finding["file"]).relative_to(root).as_posix()
+    return result
 
 
 def target_name(display_name: str) -> str:
@@ -3988,7 +4052,7 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
     from rebrew.test import run_test
 
     if req.candidate:
-        return _declared_reply("rebrew.verify_function", verify_candidate(config, req))
+        return verify_candidate(config, req)
     if req.instructions:
         raise _invalid("instructions needs a candidate")
 
@@ -3996,12 +4060,11 @@ def verify_function(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
     cfg = target_config(root, req.sha256)
     source = _project_file(root, req.source, "source")
     remote_header_refusal(cfg, [source])
-    return _declared_reply(
-        "rebrew.verify_function",
-        _final_recompile_refusal(
-            run_test(cfg, source, no_promote=req.no_promote, json_output=True)
-        ),
-    )
+    result = run_test(cfg, source, no_promote=req.no_promote, json_output=True)
+    if "source" in result:
+        # The project's path for it, as a candidate's report names it: the host's never leaves.
+        result["source"] = req.source
+    return _final_recompile_refusal(result)
 
 
 def verify_candidate(config: WorkerConfig, req: VerifyRequest) -> dict[str, Any]:
@@ -4599,7 +4662,7 @@ def verify_target(config: WorkerConfig, req: VerifyTargetRequest) -> dict[str, A
     ]
     if req.files:
         arguments.append("--no-promote")
-    return _declared_reply("rebrew.verify_target", _run_target_command(config, req, arguments))
+    return _run_target_command(config, req, arguments)
 
 
 def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
@@ -4609,7 +4672,7 @@ def build(config: WorkerConfig, req: BuildRequest) -> dict[str, Any]:
     target's binary as ``<binary>.reasm``.  A byte difference is a result.
     """
     arguments = ["build", "round-trip", "--json", *_flag(req.fix_headers, "--fix-headers")]
-    return _declared_reply("rebrew.build", _run_target_command(config, req, arguments))
+    return _run_target_command(config, req, arguments)
 
 
 def skeleton(config: WorkerConfig, req: SkeletonRequest) -> dict[str, Any]:
@@ -4697,10 +4760,10 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
                     ) from None
                 checked_coverage_input(snapshot, req)
                 report = json.loads(out.read_text(encoding="utf-8"))
-                return _declared_reply(
-                    "rebrew.coverage_report",
-                    {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report},
-                )
+                return {
+                    "summary": {k: v for k, v in summary.items() if k != "out"},
+                    "report": report,
+                }
     if req.coverage_input.version or req.coverage_input_digest or req.verification_records:
         raise _invalid("coverage input requires a retained snapshot")
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
@@ -4710,10 +4773,7 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
         out = Path(directory) / "report.json"
         summary = generate_decomp_dev_report(cfg, out)
         report = json.loads(out.read_text(encoding="utf-8"))
-    return _declared_reply(
-        "rebrew.coverage_report",
-        {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report},
-    )
+    return {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report}
 
 
 def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
@@ -5159,8 +5219,11 @@ _EXITS = (KeyboardInterrupt, SystemExit, GeneratorExit)
 
 
 def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mapping[str, Any]:
+    """*op*'s reply to *request*, as its declared reply when :mod:`rebrew.ops_replies` declares one."""
+    from rebrew.ops_replies import DECLARED
+
     try:
-        return op.run(config, request)
+        reply = op.run(config, request)
     except OpsError:
         raise
     except typer.Exit as exc:
@@ -5180,6 +5243,7 @@ def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mappin
     except BaseException:  # a native panic (pyo3) escapes ``except Exception``
         logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
         raise _refused(f"{name} failed: the engine raised an unexpected error") from None
+    return _declared_reply(name, reply) if name in DECLARED else reply
 
 
 #: Headers the HTTP transport adds to the reply of the call in flight

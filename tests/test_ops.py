@@ -55,6 +55,26 @@ NO_REMOTE_COMPILES = {"count": 0, "billed_undelivered": 0, "unsettled": 0, "wait
 
 _CONTRACT = json.loads((FIXTURES / "dispatch" / "rebrew.schema.json").read_text())
 
+#: What ``rebrew data list --json`` prints for a target with no data.
+_EMPTY_DATA_LIST = {
+    "globals": {},
+    "data_annotations": [],
+    "type_conflicts": [],
+    "summary": dict.fromkeys(
+        (
+            "total",
+            "annotated",
+            "unannotated",
+            "data_entries",
+            "conflicts",
+            "multiple_definitions",
+            "library_owned",
+        ),
+        0,
+    ),
+    "sections": {},
+}
+
 # ---------------------------------------------------------------------------
 # A strict JSON Schema subset: exactly the keywords the contract uses.  An
 # unknown keyword fails, so a contract that grows one is noticed here.
@@ -72,6 +92,8 @@ _KEYWORDS = {
     "contentEncoding",
     "oneOf",
     "enum",
+    "$ref",
+    "description",
 }
 _TYPES = {
     "object": lambda v: isinstance(v, dict),
@@ -89,6 +111,9 @@ def _validate(schema: Any, value: Any, where: str = "$") -> None:
         return
     unknown = set(schema) - _KEYWORDS
     assert not unknown, f"{where}: validator does not implement {sorted(unknown)}"
+    if "$ref" in schema:
+        definition = schema["$ref"].removeprefix("#/$defs/")
+        _validate(_CONTRACT["$defs"][definition], value, where)
     if "type" in schema:
         types = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
         assert any(_TYPES[t](value) for t in types), f"{where}: {value!r} is not {types}"
@@ -113,15 +138,86 @@ def _validate(schema: Any, value: Any, where: str = "$") -> None:
         if schema.get("additionalProperties") is False:
             extra = set(value) - set(properties)
             assert not extra, f"{where}: unexpected {sorted(extra)}"
+        additional = schema.get("additionalProperties")
         for name, item in value.items():
             if name in properties:
                 _validate(properties[name], item, f"{where}.{name}")
+            elif isinstance(additional, dict):
+                _validate(additional, item, f"{where}.{name}")
     if isinstance(value, list):
         assert len(value) >= schema.get("minItems", 0), where
         assert len(value) <= schema.get("maxItems", len(value)), where
         if "items" in schema:
             for index, item in enumerate(value):
                 _validate(schema["items"], item, f"{where}[{index}]")
+
+
+@dataclasses.dataclass(frozen=True)
+class _Definition:
+    """One top-level function or class of the engine's dispatch code, as the refusal tests read it."""
+
+    #: ``(file:line, code, status)`` of each refusal call; None where a variable gives it.
+    refusals: list[tuple[str, str | None, int | None]]
+    #: The functions it calls by name.
+    calls: set[str]
+    #: Every name it reads.
+    names: set[str]
+
+
+def _refusal_sites(*modules: str) -> dict[str, _Definition]:
+    """Each top-level definition of rebrew's *modules* (every module when none is named), by
+    name: its ``OpsError``, ``_refuse``, ``error_body`` and ``cancel`` calls, and what it calls."""
+    import ast
+
+    from rebrew import ops
+
+    constants = {name: value for name, value in vars(ops).items() if isinstance(value, str)}
+    src = Path(ops.__file__).parent
+    sites: dict[str, _Definition] = {}
+    paths = [src / f"{module}.py" for module in modules] or sorted(src.rglob("*.py"))
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for top in tree.body:
+            if not isinstance(top, ast.FunctionDef | ast.ClassDef):
+                continue
+            definition = sites.setdefault(top.name, _Definition([], set(), set()))
+            for node in ast.walk(top):
+                if isinstance(node, ast.Name):
+                    definition.names.add(node.id)
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if isinstance(func, ast.Name):
+                    definition.calls.add(func.id)
+                elif isinstance(func, ast.Attribute) and getattr(func.value, "id", "") in (
+                    "ops",
+                    "snapshot_mutations",
+                ):
+                    definition.calls.add(func.attr)
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                keywords = {k.arg: k.value for k in node.keywords}
+                if name == "OpsError":
+                    code_node, status_node = keywords.get("code"), keywords.get("status")
+                elif name in ("_refuse", "error_body", "cancel") and len(node.args) >= 3:
+                    code_node = node.args[1] if name == "cancel" else node.args[0]
+                    status_node = node.args[2]
+                else:
+                    continue
+                if isinstance(code_node, ast.Attribute):
+                    code = constants.get(code_node.attr)
+                elif isinstance(code_node, ast.Name):
+                    code = constants.get(code_node.id)
+                elif isinstance(code_node, ast.Constant):
+                    code = code_node.value
+                else:
+                    code = None
+                if code is None and code_node is None and name == "OpsError":
+                    code = ops.ENGINE_ERROR
+                status = status_node.value if isinstance(status_node, ast.Constant) else None
+                if status is None and status_node is None and name == "OpsError":
+                    status = 500
+                definition.refusals.append((f"{path.name}:{node.lineno}", code, status))
+    return sites
 
 
 def _op_schema(op: str, part: str) -> Any:
@@ -301,46 +397,17 @@ class TestContract:
         """``errors`` (``rebrew.ops.PROBLEMS``) holds every code and status an op or the
         HTTP transport answers: each ``OpsError``, ``_refuse``, ``error_body`` and
         ``cancel`` call that names a code constant and a literal status is in it."""
-        import ast
-
         from rebrew import ops
 
-        src = Path(ops.__file__).parent
-        constants = {name: value for name, value in vars(ops).items() if isinstance(value, str)}
         undeclared = []
         checked = 0
-        for path in sorted(src.rglob("*.py")):
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if not isinstance(node, ast.Call):
-                    continue
-                func = node.func
-                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-                keywords = {k.arg: k.value for k in node.keywords}
-                if name == "OpsError":
-                    code_node, status_node = keywords.get("code"), keywords.get("status")
-                elif name in ("_refuse", "error_body", "cancel") and len(node.args) >= 3:
-                    code_node = node.args[1] if name == "cancel" else node.args[0]
-                    status_node = node.args[2]
-                else:
-                    continue
-                if isinstance(code_node, ast.Attribute):
-                    code = constants.get(code_node.attr)
-                elif isinstance(code_node, ast.Name):
-                    code = constants.get(code_node.id)
-                elif isinstance(code_node, ast.Constant):
-                    code = code_node.value
-                else:
-                    code = None
-                if code is None and code_node is None and name == "OpsError":
-                    code = ops.ENGINE_ERROR
-                status = status_node.value if isinstance(status_node, ast.Constant) else None
-                if status is None and status_node is None and name == "OpsError":
-                    status = 500
+        for definition in _refusal_sites().values():
+            for where, code, status in definition.refusals:
                 if code is None or status is None:
                     continue  # a code or status the call takes from a variable
                 checked += 1
                 if status not in ops.PROBLEMS.get(code, ()):
-                    undeclared.append(f"{path.name}:{node.lineno} {code} {status}")
+                    undeclared.append(f"{where} {code} {status}")
         assert checked > 30
         assert undeclared == []
         assert _CONTRACT["errors"] == {
@@ -385,6 +452,46 @@ class TestContract:
         text = SCHEMA.read_text(encoding="utf-8")
         assert '"type": [' not in text
         assert '"required": []' not in text
+
+    def test_each_op_declares_the_refusals_its_code_reaches(self) -> None:
+        """An op's ``errors`` are :data:`rebrew.ops.DISPATCH_PROBLEMS` and its
+        ``OP_PROBLEMS``, which are exactly the other codes its handler reaches: every
+        refusal call in a function the handler calls, transitively.  A code taken from
+        :data:`rebrew.ops._FINAL_RECOMPILE_REFUSALS` counts each code that table holds."""
+        from rebrew import ops
+
+        sites = _refusal_sites("ops", "snapshot_mutations")
+        table = {code for code, _detail in ops._FINAL_RECOMPILE_REFUSALS.values()}
+
+        def reached(name: str) -> set[str]:
+            seen: set[str] = set()
+            todo = [name]
+            codes: set[str] = set()
+            while todo:
+                function = todo.pop()
+                if function in seen or function not in sites:
+                    continue
+                seen.add(function)
+                definition = sites[function]
+                codes |= {code for _where, code, _status in definition.refusals if code}
+                if "_FINAL_RECOMPILE_REFUSALS" in definition.names:
+                    codes |= table
+                todo.extend(definition.calls)
+            return codes
+
+        wrong = {}
+        for name, op in ops.OPS.items():
+            other = reached(op.run.__name__) - ops.DISPATCH_PROBLEMS
+            if other != ops.OP_PROBLEMS.get(name, frozenset()):
+                wrong[name] = sorted(other)
+        assert wrong == {}
+        assert set(ops.OP_PROBLEMS) <= set(ops.OPS)
+        assert not ops.DISPATCH_PROBLEMS - set(ops.PROBLEMS)
+        for name in ops.OPS:
+            codes = ops.DISPATCH_PROBLEMS | ops.OP_PROBLEMS.get(name, frozenset())
+            assert _CONTRACT["ops"][name]["errors"] == {
+                code: {"status": list(ops.PROBLEMS[code])} for code in sorted(codes)
+            }
 
     def test_the_schema_is_what_the_generator_writes(self) -> None:
         """Each enum is written from the set the code enforces (tools/gen_dispatch_schema.py)."""
@@ -2017,7 +2124,7 @@ class TestReconstructionOps:
                 "retained-target-"
             )
             commands.append(arguments)
-            return {"items": [], "total": 0} if arguments[0] == "data" else {"dry_run": False}
+            return _EMPTY_DATA_LIST if arguments[0] == "data" else {"dry_run": False}
 
         monkeypatch.setattr("rebrew.ops.run_rebrew", run_rebrew)
         # Retained target commands compile only through the operator's service.

@@ -7414,12 +7414,21 @@ Op details the contract leaves open:
   project. `splat_parse` opens nothing the config names and refuses a config
   over 256 KiB.
 - The dispatch schema declares the refusal codes and the statuses each is answered
-  with (`errors`, from `rebrew.ops.PROBLEMS`), and the replies of `rebrew.verify_function`,
-  `rebrew.verify_target` and `rebrew.build` as closed objects (from the TypedDicts of
-  `rebrew.ops_replies`, which the ops project their replies onto, so a reply carries
-  exactly the members the schema names). `tools/gen_dispatch_schema.py` writes both.
-  `verify_target` and `build` withhold the reports' `binary` and `out`: a path of the
-  engine's host never leaves it.
+  with (`errors`, from `rebrew.ops.PROBLEMS`), and per op the codes that op answers
+  (its entry's `errors`: `rebrew.ops.DISPATCH_PROBLEMS`, which every op can answer,
+  and its `rebrew.ops.OP_PROBLEMS`). Every reply is a closed object: the ones
+  `rebrew.ops_replies` declares come from its TypedDicts, which the dispatcher
+  projects each reply onto, so a reply carries exactly the members the schema names.
+  `tools/gen_dispatch_schema.py` writes all of it.
+- A path of the engine's host leaves it only in a member the schema declares as
+  `$defs.workspace_path` (`rebrew.ops_replies.WORKSPACE_PATHS`): `analyse`,
+  `import-project` and `import_archive`'s `project`, `coverage_dir` and each target's
+  `document` and `path`, and `report`'s `out`. Replies withhold the paths the commands
+  they run print (`rebrew.ops_replies.WITHHELD`): `binary` of `verify_target`, `build`,
+  `analyze`, `crypto_scan`, `imports`, `pe_info`, `strings` and `reference_flirt`,
+  `build`'s `out`, `reference_flirt`'s `sig_dirs`, `flag_search`'s `source`, `structs`' `applied`, and a
+  `verify_target` library's `map`. `verify_function` answers the request's `source`,
+  and `security_scan` its `root` and each finding's `file` relative to the project.
 - `rebrew.identify_library` answers `unreadable_signatures`: the paths in the
   project's `flirt_sigs/` of the signature files it skipped because they could not
   be read or parsed (python-flirt's panics included).

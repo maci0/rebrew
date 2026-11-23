@@ -26,6 +26,8 @@ from typing import (
     is_typeddict,
 )
 
+lazy from rebrew.security_scan import Level
+
 log = logging.getLogger(__name__)
 
 #: Why a remote compile has no verdict (status ``NOT_RUN``): the kind of the
@@ -405,12 +407,476 @@ class CoverageReportReply(TypedDict):
     report: CoverageDocument
 
 
+class CfgBlock(TypedDict):
+    va: str
+    size: int
+    instruction_count: int
+    first: str
+    last: str
+
+
+CfgEdge = TypedDict(
+    "CfgEdge",
+    {
+        "from": str,
+        "to": str,
+        "back_edge": bool,
+        "kind": Literal["taken", "not_taken", "unconditional", "switch"],
+    },
+)
+
+
+class ControlFlowGraphReply(TypedDict):
+    va: str
+    size: int
+    block_count: int
+    block_total: int
+    block_cap: int
+    truncated: bool
+    note: str | None
+    blocks: list[CfgBlock]
+    edges: list[CfgEdge]
+
+
+class Xref(TypedDict):
+    kind: str
+    from_va: int
+    instruction: str | None
+
+
+class XrefsReply(TypedDict):
+    target: int
+    import_name: str | None
+    count: int
+    refs: list[Xref]
+
+
+class DescribeCaller(TypedDict):
+    from_va: int
+    name: str
+
+
+class DescribeCallee(TypedDict):
+    to_va: int
+    name: str | None
+    kind: str
+
+
+class DescribeString(TypedDict):
+    va: int
+    text: str
+
+
+class DescribeGlobal(TypedDict):
+    va: int
+    kind: str
+
+
+class DescribeImport(TypedDict):
+    slot: int
+    name: str
+
+
+class DescribeReply(TypedDict):
+    va: int
+    name: str
+    status: str | None
+    size: int | None
+    cflags: str | None
+    pattern: str | None
+    convention: str | None
+    callers: list[DescribeCaller]
+    callees: list[DescribeCallee]
+    strings: list[DescribeString]
+    globals: list[DescribeGlobal]
+    imports: list[DescribeImport]
+
+
+class RecoveredStruct(TypedDict):
+    name: str
+    anonymous: bool
+    new: bool
+    definition: str
+    offsets: list[str]
+    evidence: int
+    # anonymous structs only
+    semantic: NotRequired[bool]
+    var: NotRequired[str]
+    va: NotRequired[int]
+    functions: NotRequired[int]
+
+
+class StructsReply(TypedDict, total=False):
+    # 0 when no function was selected, which answers no other count
+    functions: int
+    decompiled: int
+    skipped: int
+    structs: Required[list[RecoveredStruct]]
+
+
+class ImportEntry(TypedDict):
+    dll: str
+    name: str
+    iat_va: str
+    ordinal: int | None
+    hint_name_rva: str | None
+
+
+class ImportStub(TypedDict):
+    va: str
+    name: str
+
+
+class ImportsReply(TypedDict):
+    imports: list[ImportEntry]
+    stubs: list[ImportStub]
+
+
+class StringXref(TypedDict):
+    kind: str
+    from_va: int
+
+
+class FoundString(TypedDict):
+    va: int
+    section: str
+    kind: str
+    size: int
+    text: str
+    xrefs: list[StringXref]
+
+
+class StringsReply(TypedDict):
+    count: int
+    strings: list[FoundString]
+
+
+class SectionEntropy(TypedDict):
+    name: str
+    va: int
+    vsize: int
+    raw_size: int
+    entropy: float
+
+
+class FingerprintReply(TypedDict):
+    md5: str
+    sha1: str
+    sha256: str
+    sha512: str
+    sha3_224: str
+    sha3_256: str
+    sha3_384: str
+    sha3_512: str
+    crc32: str
+    format: str | None
+    arch: str | None
+    size: int
+    imphash: str | None
+    export_hash: str | None
+    rich_header_hash: str | None
+    section_entropies: list[SectionEntropy]
+    # only when the hash's backend is installed
+    tlsh: NotRequired[str | None]
+    ssdeep: NotRequired[str | None]
+
+
+class Vtordisp(TypedDict):
+    va: str
+    target: str
+    disp: int
+    addend: int
+    size: int
+
+
+class FloatConst(TypedDict):
+    va: str
+    size: int
+    value: str
+
+
+class AnalyzeReply(TypedDict):
+    meta: dict[str, Any]
+    toolchain: dict[str, Any] | None
+    strings: dict[str, Any]
+    imports: dict[str, Any]
+    references: dict[str, Any]
+    far_calls: list[dict[str, Any]] | None
+    functions: dict[str, Any] | None
+    near_match: list[dict[str, Any]] | None
+    dispatch_tables: list[dict[str, Any]]
+    vtordisp: list[Vtordisp]
+    float_consts: list[FloatConst]
+    flirt: dict[str, Any] | None
+    library: list[LibraryCandidate]
+
+
+class CryptoFinding(TypedDict):
+    kind: Literal["constant", "import", "name"]
+    name: str
+    confidence: Literal["high", "medium"]
+    # a constant's place
+    va: NotRequired[int]
+    section: NotRequired[str]
+    # an import's or a name's match
+    detail: NotRequired[str]
+
+
+class CryptoConfidence(TypedDict):
+    high: int
+    medium: int
+
+
+class CryptoScanReply(TypedDict):
+    findings: list[CryptoFinding]
+    count: int
+    by_confidence: CryptoConfidence
+
+
+class ImageSection(TypedDict):
+    name: str
+    virtual_address: int
+    virtual_size: int
+    raw_size: int
+    raw_offset: int
+    entropy: float | None
+    characteristics_value: int
+    characteristics: list[str]
+    read: bool
+    write: bool
+    execute: bool
+
+
+class PeInfoReply(TypedDict, total=False):
+    """The header facts of one image; which members it carries depends on ``format``."""
+
+    format: Required[Literal["pe", "ne", "mz", "elf", "macho"]]
+    arch: Required[str]
+    bits: Required[int | None]
+    image_base: Required[int | None]
+    entry_point: Required[int]
+    size: Required[int]
+    # PE, ELF and Mach-O
+    entry_bytes: str | None
+    note: str
+    sections: list[ImageSection]
+    # PE
+    type: str
+    subsystem: str
+    timestamp: int
+    timestamp_iso: str
+    checksum: int
+    export_timestamp: int | None
+    security_flags: dict[str, Any]
+    security: dict[str, Any]
+    security_score: dict[str, int]
+    flags_summary: list[str]
+    exports: list[dict[str, Any]]
+    export_count: int
+    resource_count: int
+    authenticode: dict[str, Any]
+    debug: list[dict[str, Any]]
+    rich_header: dict[str, Any]
+    presence: dict[str, bool]
+    counts: dict[str, int]
+    delay_imports: list[dict[str, Any]] | None
+    tls_callbacks: list[int] | None
+    safe_seh_handlers: list[int] | None
+    cfg_targets: list[int] | None
+    version_info: dict[str, str] | None
+    # MZ and NE
+    dos_stub_size: int
+    # MZ
+    code_size: int
+    # NE
+    module_name: str | None
+    description: str | None
+    target_os: str
+    entry_address: str | None
+    entry_segment: int
+    entry_offset: int
+    segment_count: int
+    segments: list[dict[str, Any]]
+    imported_modules: list[str]
+
+
+class FlirtMatch(TypedDict):
+    va: str
+    size: int
+    names: list[str]
+
+
+class FlirtAmbiguousMatch(TypedDict):
+    va: str
+    size: int
+    names: list[str]
+    more: bool
+
+
+class ReferenceFlirtReply(TypedDict):
+    signature_count: int
+    text_size: int
+    min_size: int
+    match_count: int
+    skipped_ambiguous: int
+    matches: list[FlirtMatch]
+    ambiguous_matches: list[FlirtAmbiguousMatch]
+    # code sections smaller than a match window
+    warning: NotRequired[str]
+
+
+class SecurityFinding(TypedDict):
+    rule: str
+    cwe: str
+    severity: Level
+    confidence: Level
+    file: str
+    line: int
+    function: str
+    snippet: str
+    message: str
+
+
+class SecuritySeverities(TypedDict):
+    high: int
+    medium: int
+    low: int
+
+
+class SecurityScanReply(TypedDict):
+    #: the reversed sources' directory, relative to the project
+    root: str
+    files_scanned: int
+    findings: list[SecurityFinding]
+    count: int
+    by_severity: SecuritySeverities
+
+
+class FlagSearchRow(TypedDict, total=False):
+    # flag sweep
+    score: float
+    flags: str
+    exact: bool
+    # toolchain sweep
+    toolchain: str
+    matched: bool
+    bytes: str
+    # toolchain and flag sweep: score, flags and exact as a flag sweep's
+    best_score: float | None
+
+
+class FlagSearchReply(TypedDict, total=False):
+    """``rebrew match flags`` or ``match toolchains``: a count, a flag sweep or a toolchain sweep."""
+
+    remote_compile: Required[RemoteCompile]
+    # count_only
+    candidates: int
+    # flag sweep
+    symbol: str
+    mode: str
+    tier: str
+    best_score: float | None
+    best_flags: str | None
+    exact: bool
+    structural_similarity: dict[str, Any]
+    # flag sweep and toolchain sweeps
+    results: list[FlagSearchRow]
+    # toolchain sweeps
+    sweep: str
+    best: str | None
+    not_installed: list[str]
+
+
+class GlobalVariable(TypedDict):
+    name: str
+    type: str
+    va: NotRequired[str]
+    section: NotRequired[str]
+    declared_in: list[str]
+    defined_in: list[str]
+    referenced_in: list[str]
+    library_owners: list[dict[str, str]]
+    storage_kind: str
+    size: int | None
+    backing: str
+    link_symbol: str
+    generated_owners: list[str]
+    annotated: bool
+    conflict: NotRequired[bool]
+
+
+class DataSummary(TypedDict):
+    total: int
+    annotated: int
+    unannotated: int
+    data_entries: int
+    conflicts: int
+    multiple_definitions: int
+    library_owned: int
+
+
+class DataSection(TypedDict):
+    va: str
+    size: int
+
+
+class DataListReply(TypedDict):
+    globals: dict[str, GlobalVariable]
+    data_annotations: list[dict[str, Any]]
+    type_conflicts: list[dict[str, Any]]
+    summary: DataSummary
+    sections: dict[str, DataSection]
+
+
+class DataSetRow(TypedDict, total=False):
+    va: Required[str]
+    module: Required[str]
+    # the fields the call set
+    name: str
+    type: str
+    section: str
+    kind: str
+    note: str
+    storage_kind: str
+    backing: str
+    link_symbol: str
+    file: str
+    size: int
+
+
+class DataSetReply(TypedDict):
+    dry_run: bool
+    input_digest: str
+    changed: int
+    set: list[DataSetRow]
+
+
 #: Members the command an op runs prints that its reply withholds, by op: each is a
 #: path of the engine's host, which never leaves it, and no consumer reads it.  A
 #: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``).
 WITHHELD: dict[str, tuple[str, ...]] = {
     "rebrew.verify_target": ("binary", "libraries[].map"),
     "rebrew.build": ("binary", "out"),
+    "rebrew.analyze": ("binary",),
+    "rebrew.crypto_scan": ("binary",),
+    "rebrew.imports": ("binary",),
+    "rebrew.pe_info": ("binary",),
+    "rebrew.strings": ("binary",),
+    "rebrew.reference_flirt": ("binary", "sig_dirs"),
+    "rebrew.flag_search": ("source",),
+    # the file new definitions went to; the op writes none, so it is always null
+    "rebrew.structs": ("applied",),
+}
+
+#: The reply members that name a path in the engine's workspace, by op (``<list>[].<member>``
+#: for a list's items): the project an analysis wrote, its coverage snapshots, each target's
+#: document and binary, and a report's site.  The dispatch schema declares each as
+#: ``$defs.workspace_path``; no other member of any reply names a path of the engine's host.
+WORKSPACE_PATHS: dict[str, tuple[str, ...]] = {
+    "rebrew.analyse": ("project", "coverage_dir", "targets[].document", "targets[].path"),
+    "rebrew.import-project": ("project", "coverage_dir", "targets[].document", "targets[].path"),
+    "rebrew.import_archive": ("project", "coverage_dir", "targets[].document", "targets[].path"),
+    "rebrew.report": ("out",),
 }
 
 #: The op each declared reply answers.
@@ -420,6 +886,21 @@ DECLARED: dict[str, Any] = {
     "rebrew.build": TargetReportReply,
     "rebrew.identify_library": IdentifyLibraryReply,
     "rebrew.coverage_report": CoverageReportReply,
+    "rebrew.analyze": AnalyzeReply,
+    "rebrew.control_flow_graph": ControlFlowGraphReply,
+    "rebrew.crypto_scan": CryptoScanReply,
+    "rebrew.data_list": DataListReply,
+    "rebrew.data_set": DataSetReply,
+    "rebrew.describe": DescribeReply,
+    "rebrew.fingerprint": FingerprintReply,
+    "rebrew.flag_search": FlagSearchReply,
+    "rebrew.imports": ImportsReply,
+    "rebrew.pe_info": PeInfoReply,
+    "rebrew.reference_flirt": ReferenceFlirtReply,
+    "rebrew.security_scan": SecurityScanReply,
+    "rebrew.strings": StringsReply,
+    "rebrew.structs": StructsReply,
+    "rebrew.xrefs": XrefsReply,
 }
 
 
@@ -464,6 +945,8 @@ def json_schema(hint: Any) -> dict[str, Any]:
     elif get_origin(inner) is list:
         (item,) = get_args(inner)
         schema = {"items": json_schema(item), "type": "array"}
+    elif get_origin(inner) is dict and is_typeddict(get_args(inner)[1]):
+        schema = {"additionalProperties": json_schema(get_args(inner)[1]), "type": "object"}
     elif inner is dict or get_origin(inner) is dict:
         schema = {"type": "object"}
     elif inner in _PRIMITIVES:
@@ -506,5 +989,14 @@ def project(value: dict[str, Any], declared: Any, where: str) -> dict[str, Any]:
                     project(row, element, f"{where}.{name}") if isinstance(row, dict) else row
                     for row in item
                 ]
+        elif get_origin(inner) is dict and isinstance(item, dict):
+            value_type = get_args(inner)[1]
+            if is_typeddict(value_type):
+                item = {
+                    key: project(row, value_type, f"{where}.{name}")
+                    if isinstance(row, dict)
+                    else row
+                    for key, row in item.items()
+                }
         out[name] = item
     return out
