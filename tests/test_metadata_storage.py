@@ -403,7 +403,10 @@ class TestStorageBoundary:
                 "metadata/replication.py",
             }:
                 continue
-            for node in ast.walk(ast.parse(path.read_text())):
+            source = path.read_text()
+            if "rebrew.metadata.files" not in source:
+                continue  # cannot import it; parsing every file dominated the cost
+            for node in ast.walk(ast.parse(source)):
                 if isinstance(node, ast.ImportFrom) and node.module == "rebrew.metadata.files":
                     violations.append(str(path.relative_to(root)))
         assert violations == []

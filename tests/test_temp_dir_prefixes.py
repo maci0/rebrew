@@ -34,7 +34,10 @@ def _shipped_prefixes() -> set[str]:
     """
     found: set[str] = set()
     for path in sorted(_SRC.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        source = path.read_text(encoding="utf-8")
+        if not any(factory in source for factory in _SANDBOX_FACTORIES):
+            continue  # no call to a factory; parsing every file dominated the cost
+        tree = ast.parse(source, filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue

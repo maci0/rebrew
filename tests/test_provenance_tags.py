@@ -42,7 +42,10 @@ def _stamped_tags() -> set[str]:
     for path in sorted(_SRC.rglob("*.py")):
         if path.relative_to(_SRC).as_posix() == "metadata/functions.py":
             continue  # declares the vocabulary and names tags in error text
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        source = path.read_text(encoding="utf-8")
+        if "updated_by" not in source:
+            continue  # neither form below can appear; parsing every file dominated the cost
+        tree = ast.parse(source, filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 for kw in node.keywords:
