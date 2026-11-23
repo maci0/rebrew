@@ -7420,14 +7420,23 @@ Op details the contract leaves open:
   `rebrew.ops_replies` declares come from its TypedDicts, which the dispatcher
   projects each reply onto, so a reply carries exactly the members the schema names.
   `tools/gen_dispatch_schema.py` writes all of it.
-- A path of the engine's host leaves it only in a member the schema declares as
-  `$defs.workspace_path` (`rebrew.ops_replies.WORKSPACE_PATHS`): `analyse`,
+- The backend renders the same file independently, from its Go types
+  (`go run ./cmd/surface-tracker`, invopop/jsonschema with every definition inline),
+  and the two copies are compared byte for byte (`tests/fixtures/dispatch/NOTE.txt`
+  records the SHA-256). The generator must therefore write only forms that renderer
+  writes: no `$ref` and no `$defs` (every schema inline), no `type` array (a
+  nullable member is `"oneOf": [{...}, {"type": "null"}]`), no empty `required`
+  (omitted). `tests/test_ops.py` fails the file on each of these. Check with the
+  backend lane that its renderer can express a form before the generator writes a
+  new one.
+- A path of the engine's host leaves it only in a member the schema marks
+  `"format": "workspace-path"` (`rebrew.ops_replies.WORKSPACE_PATHS`): `analyse`,
   `import-project` and `import_archive`'s `project`, `coverage_dir` and each target's
   `document` and `path`, and `report`'s `out`. Replies withhold the paths the commands
   they run print (`rebrew.ops_replies.WITHHELD`): `binary` of `verify_target`, `build`,
   `analyze`, `crypto_scan`, `imports`, `pe_info`, `strings` and `reference_flirt`,
-  `build`'s `out`, `reference_flirt`'s `sig_dirs`, `flag_search`'s `source`, `structs`' `applied`, and a
-  `verify_target` library's `map`. `verify_function` answers the request's `source`,
+  `build`'s `out`, `reference_flirt`'s `sig_dirs`, `flag_search`'s `source`,
+  `structs`' `applied`, and a `verify_target` library's `map`. `verify_function` answers the request's `source`,
   and `security_scan` its `root` and each finding's `file` relative to the project.
 - `rebrew.identify_library` answers `unreadable_signatures`: the paths in the
   project's `flirt_sigs/` of the signature files it skipped because they could not

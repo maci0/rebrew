@@ -5,7 +5,7 @@ backend mirrors byte for byte (``NOTE.txt``).  A request member rebrew refuses
 every value but a closed set of, and a reply member drawn from one, carries that
 set as its ``enum``; a reply :mod:`rebrew.ops_replies` declares is its op's
 ``response``, each reply member naming a workspace path
-(``rebrew.ops_replies.WORKSPACE_PATHS``) a reference to ``$defs.workspace_path``;
+(``rebrew.ops_replies.WORKSPACE_PATHS``) a string of ``format`` ``workspace-path``;
 the refusal codes and their statuses (``rebrew.ops.PROBLEMS``) are ``errors``, and
 each op's entry carries the ones that op answers as its own ``errors``
 (``rebrew.ops.DISPATCH_PROBLEMS`` and its ``OP_PROBLEMS``).  This script takes each
@@ -42,16 +42,10 @@ def _project_root() -> Path:
 
 SCHEMA = _project_root() / "tests" / "fixtures" / "dispatch" / "rebrew.schema.json"
 
-#: The one schema of a reply member naming a path in the engine's workspace
-#: (``rebrew.ops_replies.WORKSPACE_PATHS``), and the reference each such member is.
-WORKSPACE_PATH_SCHEMA = {
-    "description": (
-        "An absolute path in the engine's workspace, on the engine's host. No other reply"
-        " member names a path of the engine's host."
-    ),
-    "type": "string",
-}
-WORKSPACE_PATH_REF = {"$ref": "#/$defs/workspace_path"}
+#: The schema of a reply member naming a path in the engine's workspace
+#: (``rebrew.ops_replies.WORKSPACE_PATHS``), written inline on each: the backend's
+#: renderer inlines every definition and has no ``$ref``.
+WORKSPACE_PATH = {"format": "workspace-path", "type": "string"}
 
 
 def enforced_sets() -> Iterator[tuple[str, tuple[str, ...], Collection[str]]]:
@@ -97,8 +91,8 @@ def render(text: str) -> str:
     """*text*, a dispatch schema, with what the code declares written into it.
 
     Every enforced set as its ``enum``, every reply :mod:`rebrew.ops_replies`
-    declares as its op's ``response``, each workspace path member as the
-    ``$defs.workspace_path`` reference, :data:`rebrew.ops.PROBLEMS` as ``errors``, and
+    declares as its op's ``response``, each workspace path member as
+    :data:`WORKSPACE_PATH`, :data:`rebrew.ops.PROBLEMS` as ``errors``, and
     each op's own codes as the ``errors`` of its entry.
     """
     from rebrew import ops
@@ -108,7 +102,6 @@ def render(text: str) -> str:
     for op, declared in DECLARED.items():
         response = schema["ops"][op]["response"]
         schema["ops"][op]["response"] = {"$schema": response["$schema"], **json_schema(declared)}
-    schema["$defs"] = {"workspace_path": WORKSPACE_PATH_SCHEMA}
     for op, paths in WORKSPACE_PATHS.items():
         for member_path in paths:
             parent: Any = schema["ops"][op]["response"]
@@ -120,9 +113,7 @@ def render(text: str) -> str:
                 "type", ()
             )
             parent["properties"][member] = (
-                {"oneOf": [WORKSPACE_PATH_REF, {"type": "null"}]}
-                if nullable
-                else WORKSPACE_PATH_REF
+                {"oneOf": [WORKSPACE_PATH, {"type": "null"}]} if nullable else WORKSPACE_PATH
             )
     schema["errors"] = {
         code: {"status": list(statuses)} for code, statuses in sorted(ops.PROBLEMS.items())

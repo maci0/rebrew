@@ -92,8 +92,7 @@ _KEYWORDS = {
     "contentEncoding",
     "oneOf",
     "enum",
-    "$ref",
-    "description",
+    "format",
 }
 _TYPES = {
     "object": lambda v: isinstance(v, dict),
@@ -111,9 +110,6 @@ def _validate(schema: Any, value: Any, where: str = "$") -> None:
         return
     unknown = set(schema) - _KEYWORDS
     assert not unknown, f"{where}: validator does not implement {sorted(unknown)}"
-    if "$ref" in schema:
-        definition = schema["$ref"].removeprefix("#/$defs/")
-        _validate(_CONTRACT["$defs"][definition], value, where)
     if "type" in schema:
         types = schema["type"] if isinstance(schema["type"], list) else [schema["type"]]
         assert any(_TYPES[t](value) for t in types), f"{where}: {value!r} is not {types}"
@@ -492,6 +488,40 @@ class TestContract:
             assert _CONTRACT["ops"][name]["errors"] == {
                 code: {"status": list(ops.PROBLEMS[code])} for code in sorted(codes)
             }
+
+    def test_the_schema_holds_no_reference(self) -> None:
+        """The backend renders the schema with every definition inline: no ``$ref``, no ``$defs``."""
+        from tools.gen_dispatch_schema import SCHEMA
+
+        text = SCHEMA.read_text(encoding="utf-8")
+        assert '"$ref"' not in text
+        assert '"$defs"' not in text
+
+    def test_a_workspace_path_member_is_marked_by_its_format(self) -> None:
+        """Each member :data:`rebrew.ops_replies.WORKSPACE_PATHS` names, and no other, is a
+        string of ``format`` ``workspace-path``."""
+        from rebrew.ops_replies import WORKSPACE_PATHS
+
+        handle = {"format": "workspace-path", "type": "string"}
+
+        def marked(node: Any, where: str) -> list[str]:
+            if not isinstance(node, dict):
+                return []
+            found = [where] if node == handle else []
+            for name, child in node.get("properties", {}).items():
+                found += marked(child, f"{where}.{name}")
+            found += marked(node.get("items"), f"{where}[]")
+            for option in node.get("oneOf", ()):
+                found += marked(option, where)
+            return found
+
+        published = {
+            op: sorted(marked(entry["response"], "")) for op, entry in _CONTRACT["ops"].items()
+        }
+        declared = {
+            op: sorted(f".{path}" for path in paths) for op, paths in WORKSPACE_PATHS.items()
+        }
+        assert {op: found for op, found in published.items() if found} == declared
 
     def test_the_schema_is_what_the_generator_writes(self) -> None:
         """Each enum is written from the set the code enforces (tools/gen_dispatch_schema.py)."""

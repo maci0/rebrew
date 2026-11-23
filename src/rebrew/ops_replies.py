@@ -874,7 +874,8 @@ WITHHELD: dict[str, tuple[str, ...]] = {
 #: The reply members that name a path in the engine's workspace, by op (``<list>[].<member>``
 #: for a list's items): the project an analysis wrote, its coverage snapshots, each target's
 #: document and binary, and a report's site.  The dispatch schema declares each as
-#: ``$defs.workspace_path``; no other member of any reply names a path of the engine's host.
+#: a string of ``format`` ``workspace-path``; no other member of any reply names a path of
+#: the engine's host.
 WORKSPACE_PATHS: dict[str, tuple[str, ...]] = {
     "rebrew.analyse": ("project", "coverage_dir", "targets[].document", "targets[].path"),
     "rebrew.import-project": ("project", "coverage_dir", "targets[].document", "targets[].path"),

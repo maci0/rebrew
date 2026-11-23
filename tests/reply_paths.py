@@ -4,7 +4,7 @@ Every reply ``rebrew.ops`` answers in the suite is walked beside its op's respon
 schema in ``tests/fixtures/dispatch/rebrew.schema.json``: a string naming a path
 under the run's temporary directory (where every test's workspace, filestore and
 project live) fails the test unless the schema declares that member
-``$defs.workspace_path`` (``rebrew.ops_replies.WORKSPACE_PATHS``).  Strings in open
+``format: workspace-path`` (``rebrew.ops_replies.WORKSPACE_PATHS``).  Strings in open
 members and child-command output count like any other.  A refusal's ``detail`` is
 not a reply and is not walked.  Loaded through ``addopts`` like ``pytest_ansi_env``.
 """
@@ -23,7 +23,7 @@ import rebrew.ops as ops
 _SCHEMA = json.loads(
     (Path(__file__).parent / "fixtures" / "dispatch" / "rebrew.schema.json").read_text()
 )
-_HANDLE = {"$ref": "#/$defs/workspace_path"}
+_HANDLE = {"format": "workspace-path", "type": "string"}
 _ROOTS: list[str] = []
 _FOUND: list[str] = []
 _run_parsed = ops._run_parsed
