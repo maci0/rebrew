@@ -658,6 +658,27 @@
         "properties": {
           "dispatch_tables": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "entries": {
+                  "type": "integer"
+                },
+                "resolved": {
+                  "type": "integer"
+                },
+                "section": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "section",
+                "entries",
+                "resolved"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -666,6 +687,34 @@
             "oneOf": [
               {
                 "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "type": "string"
+                    },
+                    "segment": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "selector": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selector",
+                    "offset",
+                    "count",
+                    "segment"
+                  ],
                   "type": "object"
                 },
                 "type": "array"
@@ -678,6 +727,39 @@
           "flirt": {
             "oneOf": [
               {
+                "additionalProperties": false,
+                "properties": {
+                  "matches": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "size": {
+                          "type": "integer"
+                        },
+                        "va": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "va",
+                        "size",
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "signature_count": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "signature_count",
+                  "matches"
+                ],
                 "type": "object"
               },
               {
@@ -711,6 +793,23 @@
           "functions": {
             "oneOf": [
               {
+                "additionalProperties": false,
+                "properties": {
+                  "covered": {
+                    "type": "integer"
+                  },
+                  "total": {
+                    "type": "integer"
+                  },
+                  "total_bytes": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "total",
+                  "covered",
+                  "total_bytes"
+                ],
                 "type": "object"
               },
               {
@@ -719,6 +818,63 @@
             ]
           },
           "imports": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "dlls": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "dll": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "dll",
+                    "count"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "entries": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "dll": {
+                      "type": "string"
+                    },
+                    "iat_va": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "dll",
+                    "name",
+                    "iat_va"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "iat_stubs": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "dlls",
+              "iat_stubs",
+              "entries"
+            ],
             "type": "object"
           },
           "library": {
@@ -758,12 +914,78 @@
             "type": "array"
           },
           "meta": {
+            "additionalProperties": false,
+            "properties": {
+              "format": {
+                "type": "string"
+              },
+              "image_base": {
+                "type": "integer"
+              },
+              "sections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "file_offset": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "raw_size": {
+                      "type": "integer"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "va": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "va",
+                    "size",
+                    "file_offset",
+                    "raw_size"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "text_size": {
+                "type": "integer"
+              },
+              "text_va": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "format",
+              "image_base",
+              "text_va",
+              "text_size",
+              "sections"
+            ],
             "type": "object"
           },
           "near_match": {
             "oneOf": [
               {
                 "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "blocker": {
+                      "type": "string"
+                    },
+                    "va": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "va",
+                    "blocker"
+                  ],
                   "type": "object"
                 },
                 "type": "array"
@@ -774,14 +996,121 @@
             ]
           },
           "references": {
+            "additionalProperties": false,
+            "properties": {
+              "by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total",
+              "by_kind"
+            ],
             "type": "object"
           },
           "strings": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "top": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "type": "string"
+                    },
+                    "refs": {
+                      "type": "integer"
+                    },
+                    "section": {
+                      "type": "string"
+                    },
+                    "size": {
+                      "type": "integer"
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "va": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "va",
+                    "size",
+                    "kind",
+                    "section",
+                    "refs",
+                    "text"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "count",
+              "top"
+            ],
             "type": "object"
           },
           "toolchain": {
             "oneOf": [
               {
+                "additionalProperties": false,
+                "properties": {
+                  "confidence": {
+                    "type": "string"
+                  },
+                  "detected_by": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "family": {
+                    "type": "string"
+                  },
+                  "flags": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "opt_level": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "version_hint": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "family",
+                  "version_hint",
+                  "confidence",
+                  "detected_by",
+                  "flags",
+                  "opt_level",
+                  "evidence"
+                ],
                 "type": "object"
               },
               {
@@ -1681,16 +2010,6 @@
               }
             ]
           },
-          "data": {
-            "oneOf": [
-              {
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "dry_run": {
             "type": "boolean"
           },
@@ -1916,6 +2235,9 @@
             "type": "string"
           },
           "reason_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
             "type": "object"
           },
           "remote_compile": {
@@ -2103,6 +2425,204 @@
                   "type": "string"
                 },
                 "instructions": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_bytes": {
+                      "type": "integer"
+                    },
+                    "original": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bytes": {
+                            "type": "string"
+                          },
+                          "mnemonic": {
+                            "type": "string"
+                          },
+                          "offset": {
+                            "type": "integer"
+                          },
+                          "operands": {
+                            "type": "string"
+                          },
+                          "spans": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "changed": {
+                                  "type": "boolean"
+                                },
+                                "end": {
+                                  "type": "integer"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "register",
+                                    "immediate"
+                                  ],
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "integer"
+                                },
+                                "value": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "start",
+                                "end",
+                                "kind",
+                                "value"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "symbols": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "offset",
+                          "bytes",
+                          "mnemonic",
+                          "operands",
+                          "spans"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "rebuilt": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bytes": {
+                            "type": "string"
+                          },
+                          "mnemonic": {
+                            "type": "string"
+                          },
+                          "offset": {
+                            "type": "integer"
+                          },
+                          "operands": {
+                            "type": "string"
+                          },
+                          "spans": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "changed": {
+                                  "type": "boolean"
+                                },
+                                "end": {
+                                  "type": "integer"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "register",
+                                    "immediate"
+                                  ],
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "integer"
+                                },
+                                "value": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "start",
+                                "end",
+                                "kind",
+                                "value"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "symbols": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "offset",
+                          "bytes",
+                          "mnemonic",
+                          "operands",
+                          "spans"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "rows": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "left": {
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "op": {
+                            "enum": [
+                              "equal",
+                              "replace",
+                              "insert",
+                              "delete"
+                            ],
+                            "type": "string"
+                          },
+                          "reloc": {
+                            "type": "boolean"
+                          },
+                          "right": {
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "op",
+                          "left",
+                          "right"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "max_bytes",
+                    "truncated",
+                    "original",
+                    "rebuilt",
+                    "rows"
+                  ],
                   "type": "object"
                 },
                 "match_count": {
@@ -2175,6 +2695,60 @@
                 },
                 "relocation_bindings": {
                   "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "addend": {
+                        "type": "integer"
+                      },
+                      "bound_va": {
+                        "oneOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "byte_order": {
+                        "type": "string"
+                      },
+                      "expected_value": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "native_value": {
+                        "type": "integer"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "status": {
+                        "enum": [
+                          "IGNORED",
+                          "OUT_OF_EXTENT",
+                          "UNSUPPORTED",
+                          "IAT_POLICY",
+                          "UNRESOLVED",
+                          "AMBIGUOUS",
+                          "VALIDATED",
+                          "CONFLICT"
+                        ],
+                        "type": "string"
+                      },
+                      "symbol": {
+                        "type": "string"
+                      },
+                      "typed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "offset",
+                      "symbol"
+                    ],
                     "type": "object"
                   },
                   "type": "array"
@@ -2468,28 +3042,8 @@
           "target": {
             "type": "string"
           },
-          "text": {
-            "oneOf": [
-              {
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "timestamp": {
             "type": "string"
-          },
-          "whole_binary": {
-            "oneOf": [
-              {
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "required": [
@@ -3868,6 +4422,35 @@
         "properties": {
           "data_annotations": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "filepath": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "section": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "name",
+                "size",
+                "section",
+                "note",
+                "filepath"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -3905,6 +4488,41 @@
                 },
                 "library_owners": {
                   "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "archive_hash": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "enum": [
+                          "link-map",
+                          "link-map+archive-symbol"
+                        ],
+                        "type": "string"
+                      },
+                      "library": {
+                        "type": "string"
+                      },
+                      "linked_va": {
+                        "type": "string"
+                      },
+                      "map_hash": {
+                        "type": "string"
+                      },
+                      "member": {
+                        "type": "string"
+                      },
+                      "symbol": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "symbol",
+                      "library",
+                      "member",
+                      "map_hash",
+                      "evidence"
+                    ],
                     "type": "object"
                   },
                   "type": "array"
@@ -4019,6 +4637,25 @@
           },
           "type_conflicts": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "types": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "name",
+                "types"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -5673,6 +6310,43 @@
             "type": "array"
           },
           "structural_similarity": {
+            "additionalProperties": false,
+            "properties": {
+              "exact": {
+                "type": "integer"
+              },
+              "flag_sensitive": {
+                "type": "boolean"
+              },
+              "mnemonic_match_ratio": {
+                "type": "number"
+              },
+              "register_only": {
+                "type": "integer"
+              },
+              "reloc_only": {
+                "type": "integer"
+              },
+              "structural": {
+                "type": "integer"
+              },
+              "structural_ratio": {
+                "type": "number"
+              },
+              "total_insns": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total_insns",
+              "exact",
+              "reloc_only",
+              "register_only",
+              "structural",
+              "mnemonic_match_ratio",
+              "structural_ratio",
+              "flag_sensitive"
+            ],
             "type": "object"
           },
           "sweep": {
@@ -8167,6 +8841,26 @@
             "type": "string"
           },
           "authenticode": {
+            "additionalProperties": false,
+            "properties": {
+              "present": {
+                "type": "boolean"
+              },
+              "signature_count": {
+                "type": "integer"
+              },
+              "signers": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "present",
+              "signature_count",
+              "signers"
+            ],
             "type": "object"
           },
           "bits": {
@@ -8199,10 +8893,49 @@
             "type": "integer"
           },
           "counts": {
+            "additionalProperties": false,
+            "properties": {
+              "exports": {
+                "type": "integer"
+              },
+              "import_dlls": {
+                "type": "integer"
+              },
+              "imports": {
+                "type": "integer"
+              },
+              "relocations": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "exports",
+              "imports",
+              "import_dlls",
+              "relocations"
+            ],
             "type": "object"
           },
           "debug": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "age": {
+                  "type": "integer"
+                },
+                "guid": {
+                  "type": "string"
+                },
+                "pdb_path": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -8211,6 +8944,41 @@
             "oneOf": [
               {
                 "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "dll": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ordinal": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "va": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "dll",
+                    "name",
+                    "ordinal",
+                    "va"
+                  ],
                   "type": "object"
                 },
                 "type": "array"
@@ -8277,6 +9045,48 @@
           },
           "exports": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "forwarder": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "ordinal": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "va": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "va",
+                "ordinal",
+                "forwarder"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -8327,12 +9137,76 @@
             "type": "string"
           },
           "presence": {
+            "additionalProperties": false,
+            "properties": {
+              "exports": {
+                "type": "boolean"
+              },
+              "imports": {
+                "type": "boolean"
+              },
+              "load_config": {
+                "type": "boolean"
+              },
+              "relocations": {
+                "type": "boolean"
+              },
+              "resources": {
+                "type": "boolean"
+              },
+              "tls_directory": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "tls_directory",
+              "load_config",
+              "resources",
+              "relocations",
+              "exports",
+              "imports"
+            ],
             "type": "object"
           },
           "resource_count": {
             "type": "integer"
           },
           "rich_header": {
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "build_id": {
+                      "type": "integer"
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "id": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "build_id",
+                    "count"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "key": {
+                "type": "integer"
+              },
+              "present": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "present"
+            ],
             "type": "object"
           },
           "safe_seh_handlers": {
@@ -8414,12 +9288,464 @@
             "type": "array"
           },
           "security": {
+            "additionalProperties": false,
+            "properties": {
+              "app_container": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "aslr": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "bound_image": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "cfg": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "code_integrity": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "dep": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "driver_model": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "high_entropy": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "image_isolation": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "seh": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              },
+              "terminal_server_aware": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag": {
+                    "oneOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "flag_name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "flag",
+                  "flag_name"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "aslr",
+              "dep",
+              "cfg",
+              "driver_model",
+              "app_container",
+              "terminal_server_aware",
+              "image_isolation",
+              "code_integrity",
+              "high_entropy",
+              "seh",
+              "bound_image"
+            ],
             "type": "object"
           },
           "security_flags": {
+            "additionalProperties": false,
+            "properties": {
+              "aslr": {
+                "type": "boolean"
+              },
+              "certificate_table": {
+                "type": "boolean"
+              },
+              "cfg": {
+                "type": "boolean"
+              },
+              "dll_characteristics": {
+                "type": "integer"
+              },
+              "force_integrity": {
+                "type": "boolean"
+              },
+              "gs": {
+                "type": "boolean"
+              },
+              "high_entropy_va": {
+                "type": "boolean"
+              },
+              "isolation": {
+                "type": "boolean"
+              },
+              "nx": {
+                "type": "boolean"
+              },
+              "safe_seh": {
+                "type": "boolean"
+              },
+              "seh": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "dll_characteristics",
+              "aslr",
+              "nx",
+              "cfg",
+              "gs",
+              "safe_seh",
+              "seh",
+              "high_entropy_va",
+              "force_integrity",
+              "isolation",
+              "certificate_table"
+            ],
             "type": "object"
           },
           "security_score": {
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "enabled",
+              "total"
+            ],
             "type": "object"
           },
           "segment_count": {
@@ -8427,6 +9753,43 @@
           },
           "segments": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "file_offset": {
+                  "type": "integer"
+                },
+                "flags": {
+                  "type": "integer"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "iterated": {
+                  "type": "boolean"
+                },
+                "kind": {
+                  "enum": [
+                    "code",
+                    "data"
+                  ],
+                  "type": "string"
+                },
+                "min_allocation": {
+                  "type": "integer"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "index",
+                "file_offset",
+                "size",
+                "min_allocation",
+                "flags",
+                "kind",
+                "iterated"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -8465,6 +9828,21 @@
           "version_info": {
             "oneOf": [
               {
+                "additionalProperties": false,
+                "properties": {
+                  "company_name": {
+                    "type": "string"
+                  },
+                  "file_version": {
+                    "type": "string"
+                  },
+                  "original_filename": {
+                    "type": "string"
+                  },
+                  "product_name": {
+                    "type": "string"
+                  }
+                },
                 "type": "object"
               },
               {
@@ -11286,6 +12664,204 @@
             "type": "integer"
           },
           "instructions": {
+            "additionalProperties": false,
+            "properties": {
+              "max_bytes": {
+                "type": "integer"
+              },
+              "original": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "bytes": {
+                      "type": "string"
+                    },
+                    "mnemonic": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "operands": {
+                      "type": "string"
+                    },
+                    "spans": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "changed": {
+                            "type": "boolean"
+                          },
+                          "end": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "enum": [
+                              "register",
+                              "immediate"
+                            ],
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "integer"
+                          },
+                          "value": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end",
+                          "kind",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "symbols": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "offset",
+                    "bytes",
+                    "mnemonic",
+                    "operands",
+                    "spans"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "rebuilt": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "bytes": {
+                      "type": "string"
+                    },
+                    "mnemonic": {
+                      "type": "string"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "operands": {
+                      "type": "string"
+                    },
+                    "spans": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "changed": {
+                            "type": "boolean"
+                          },
+                          "end": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "enum": [
+                              "register",
+                              "immediate"
+                            ],
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "integer"
+                          },
+                          "value": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "start",
+                          "end",
+                          "kind",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "symbols": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "offset",
+                    "bytes",
+                    "mnemonic",
+                    "operands",
+                    "spans"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "rows": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "left": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "op": {
+                      "enum": [
+                        "equal",
+                        "replace",
+                        "insert",
+                        "delete"
+                      ],
+                      "type": "string"
+                    },
+                    "reloc": {
+                      "type": "boolean"
+                    },
+                    "right": {
+                      "oneOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "left",
+                    "right"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "max_bytes",
+              "truncated",
+              "original",
+              "rebuilt",
+              "rows"
+            ],
             "type": "object"
           },
           "match_count": {
@@ -11335,6 +12911,60 @@
           },
           "relocation_bindings": {
             "items": {
+              "additionalProperties": false,
+              "properties": {
+                "addend": {
+                  "type": "integer"
+                },
+                "bound_va": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "byte_order": {
+                  "type": "string"
+                },
+                "expected_value": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "native_value": {
+                  "type": "integer"
+                },
+                "offset": {
+                  "type": "integer"
+                },
+                "status": {
+                  "enum": [
+                    "IGNORED",
+                    "OUT_OF_EXTENT",
+                    "UNSUPPORTED",
+                    "IAT_POLICY",
+                    "UNRESOLVED",
+                    "AMBIGUOUS",
+                    "VALIDATED",
+                    "CONFLICT"
+                  ],
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "typed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "offset",
+                "symbol"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -11639,16 +13269,6 @@
               }
             ]
           },
-          "data": {
-            "oneOf": [
-              {
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "dry_run": {
             "type": "boolean"
           },
@@ -11874,6 +13494,9 @@
             "type": "string"
           },
           "reason_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
             "type": "object"
           },
           "remote_compile": {
@@ -12061,6 +13684,204 @@
                   "type": "string"
                 },
                 "instructions": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "max_bytes": {
+                      "type": "integer"
+                    },
+                    "original": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bytes": {
+                            "type": "string"
+                          },
+                          "mnemonic": {
+                            "type": "string"
+                          },
+                          "offset": {
+                            "type": "integer"
+                          },
+                          "operands": {
+                            "type": "string"
+                          },
+                          "spans": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "changed": {
+                                  "type": "boolean"
+                                },
+                                "end": {
+                                  "type": "integer"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "register",
+                                    "immediate"
+                                  ],
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "integer"
+                                },
+                                "value": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "start",
+                                "end",
+                                "kind",
+                                "value"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "symbols": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "offset",
+                          "bytes",
+                          "mnemonic",
+                          "operands",
+                          "spans"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "rebuilt": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "bytes": {
+                            "type": "string"
+                          },
+                          "mnemonic": {
+                            "type": "string"
+                          },
+                          "offset": {
+                            "type": "integer"
+                          },
+                          "operands": {
+                            "type": "string"
+                          },
+                          "spans": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "changed": {
+                                  "type": "boolean"
+                                },
+                                "end": {
+                                  "type": "integer"
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "register",
+                                    "immediate"
+                                  ],
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "integer"
+                                },
+                                "value": {
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "start",
+                                "end",
+                                "kind",
+                                "value"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "symbols": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "offset",
+                          "bytes",
+                          "mnemonic",
+                          "operands",
+                          "spans"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "rows": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "left": {
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "op": {
+                            "enum": [
+                              "equal",
+                              "replace",
+                              "insert",
+                              "delete"
+                            ],
+                            "type": "string"
+                          },
+                          "reloc": {
+                            "type": "boolean"
+                          },
+                          "right": {
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "op",
+                          "left",
+                          "right"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "max_bytes",
+                    "truncated",
+                    "original",
+                    "rebuilt",
+                    "rows"
+                  ],
                   "type": "object"
                 },
                 "match_count": {
@@ -12133,6 +13954,60 @@
                 },
                 "relocation_bindings": {
                   "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "addend": {
+                        "type": "integer"
+                      },
+                      "bound_va": {
+                        "oneOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "byte_order": {
+                        "type": "string"
+                      },
+                      "expected_value": {
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "native_value": {
+                        "type": "integer"
+                      },
+                      "offset": {
+                        "type": "integer"
+                      },
+                      "status": {
+                        "enum": [
+                          "IGNORED",
+                          "OUT_OF_EXTENT",
+                          "UNSUPPORTED",
+                          "IAT_POLICY",
+                          "UNRESOLVED",
+                          "AMBIGUOUS",
+                          "VALIDATED",
+                          "CONFLICT"
+                        ],
+                        "type": "string"
+                      },
+                      "symbol": {
+                        "type": "string"
+                      },
+                      "typed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "offset",
+                      "symbol"
+                    ],
                     "type": "object"
                   },
                   "type": "array"
@@ -12426,28 +14301,8 @@
           "target": {
             "type": "string"
           },
-          "text": {
-            "oneOf": [
-              {
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "timestamp": {
             "type": "string"
-          },
-          "whole_binary": {
-            "oneOf": [
-              {
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ]
           }
         },
         "required": [

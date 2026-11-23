@@ -104,6 +104,69 @@ class CompileInputs(TypedDict):
     documents: list[LogicalDocument]
 
 
+class RelocationBinding(TypedDict, total=False):
+    """One relocated operand and what binds it (``rebrew.coff_reloc.relocation_binding_evidence``).
+
+    A row read back from the verify cache lacks the members the cache stores as null.
+    """
+
+    offset: Required[int]
+    symbol: Required[str]
+    kind: str
+    typed: bool
+    status: Literal[
+        "IGNORED",
+        "OUT_OF_EXTENT",
+        "UNSUPPORTED",
+        "IAT_POLICY",
+        "UNRESOLVED",
+        "AMBIGUOUS",
+        "VALIDATED",
+        "CONFLICT",
+    ]
+    addend: int
+    bound_va: int | None
+    byte_order: str
+    expected_value: int
+    native_value: int
+
+
+class OperandSpan(TypedDict, total=False):
+    start: Required[int]
+    end: Required[int]
+    kind: Required[Literal["register", "immediate"]]
+    value: Required[int]
+    # set when the paired instruction's operand differs
+    changed: bool
+
+
+class ListedInstruction(TypedDict, total=False):
+    offset: Required[int]
+    bytes: Required[str]
+    mnemonic: Required[str]
+    operands: Required[str]
+    spans: Required[list[OperandSpan]]
+    # the rebuilt side: the relocation symbols inside the instruction
+    symbols: list[str]
+
+
+class ComparisonRow(TypedDict, total=False):
+    op: Required[Literal["equal", "replace", "insert", "delete"]]
+    left: Required[int | None]
+    right: Required[int | None]
+    reloc: bool
+
+
+class InstructionComparison(TypedDict):
+    """``rebrew.instruction_diff.instruction_diff``: the original and rebuilt listings paired."""
+
+    max_bytes: int
+    truncated: bool
+    original: list[ListedInstruction]
+    rebuilt: list[ListedInstruction]
+    rows: list[ComparisonRow]
+
+
 class VerifyRow(TypedDict, total=False):
     """One function's row of ``rebrew verify --json`` (``verify_cache.RESULT_FIELDS`` and the
     report-only members)."""
@@ -128,10 +191,10 @@ class VerifyRow(TypedDict, total=False):
     reg_delta: int | None
     effective_match: bool
     context_hash: str | None
-    relocation_bindings: list[dict[str, Any]]
+    relocation_bindings: list[RelocationBinding]
     source: str | None
     compile: CompileRecord | None
-    instructions: dict[str, Any]
+    instructions: InstructionComparison
     error: NotRunError
     not_run_reason: NotRunReason
 
@@ -254,13 +317,13 @@ class VerifyFunctionReply(TypedDict, total=False):
     remote_compile: Required[RemoteCompile]
     not_run_reason: NotRunReason
     error: NotRunError
-    relocation_bindings: list[dict[str, Any]]
+    relocation_bindings: list[RelocationBinding]
     aligned_pairs: int
     target_instructions: int
     candidate_instructions: int
     hunks: int
     similarity: float
-    instructions: dict[str, Any]
+    instructions: InstructionComparison
     compile_inputs: CompileInputs
     verdict_valid: bool
 
@@ -288,9 +351,6 @@ class TargetReportReply(TypedDict, total=False):
     duplicate_vas: list[DuplicateVa]
     results: list[VerifyRow]
     libraries: list[LibraryProvider]
-    data: dict[str, Any] | None
-    text: dict[str, Any] | None
-    whole_binary: dict[str, Any] | None
     functions_checked: bool
     raw_link_status_suppressed: bool
     sizes_fixed: int
@@ -593,19 +653,118 @@ class FloatConst(TypedDict):
     value: str
 
 
+class MetaSection(TypedDict):
+    name: str
+    va: str
+    size: int
+    file_offset: int
+    raw_size: int
+
+
+class BinaryMeta(TypedDict):
+    format: str
+    image_base: int
+    text_va: int
+    text_size: int
+    sections: list[MetaSection]
+
+
+class DossierToolchain(TypedDict):
+    family: str
+    version_hint: str
+    confidence: str
+    detected_by: str
+    flags: list[str]
+    opt_level: str | None
+    evidence: list[str]
+
+
+class TopString(TypedDict):
+    va: str
+    size: int
+    kind: str
+    section: str
+    refs: int
+    text: str
+
+
+class StringCensus(TypedDict):
+    count: int
+    top: list[TopString]
+
+
+class DllCount(TypedDict):
+    dll: str
+    count: int
+
+
+class DossierImport(TypedDict):
+    dll: str
+    name: str
+    iat_va: str
+
+
+class ImportSummary(TypedDict):
+    count: int
+    dlls: list[DllCount]
+    iat_stubs: int
+    entries: list[DossierImport]
+
+
+class ReferenceProfile(TypedDict):
+    total: int
+    by_kind: dict[str, int]
+
+
+class FarCall(TypedDict):
+    selector: str
+    offset: str
+    count: int
+    segment: int | None
+
+
+class FunctionCoverage(TypedDict):
+    total: int
+    covered: int
+    total_bytes: int
+
+
+class NearMatch(TypedDict):
+    va: str
+    blocker: str
+
+
+class DispatchTable(TypedDict):
+    va: str
+    section: str
+    entries: int
+    resolved: int
+
+
+class FlirtSignatureMatch(TypedDict):
+    va: str
+    size: int
+    name: str
+
+
+class FlirtSection(TypedDict):
+    signature_count: int
+    matches: list[FlirtSignatureMatch]
+
+
 class AnalyzeReply(TypedDict):
-    meta: dict[str, Any]
-    toolchain: dict[str, Any] | None
-    strings: dict[str, Any]
-    imports: dict[str, Any]
-    references: dict[str, Any]
-    far_calls: list[dict[str, Any]] | None
-    functions: dict[str, Any] | None
-    near_match: list[dict[str, Any]] | None
-    dispatch_tables: list[dict[str, Any]]
+    meta: BinaryMeta
+    toolchain: DossierToolchain | None
+    strings: StringCensus
+    imports: ImportSummary
+    references: ReferenceProfile
+    far_calls: list[FarCall] | None
+    functions: FunctionCoverage | None
+    near_match: list[NearMatch] | None
+    dispatch_tables: list[DispatchTable]
     vtordisp: list[Vtordisp]
     float_consts: list[FloatConst]
-    flirt: dict[str, Any] | None
+    flirt: FlirtSection | None
     library: list[LibraryCandidate]
 
 
@@ -645,6 +804,123 @@ class ImageSection(TypedDict):
     execute: bool
 
 
+class SecurityFlags(TypedDict):
+    """The DllCharacteristics mitigations and the load configuration's GS and SafeSEH."""
+
+    dll_characteristics: int
+    aslr: bool
+    nx: bool
+    cfg: bool
+    gs: bool
+    safe_seh: bool
+    seh: bool
+    high_entropy_va: bool
+    force_integrity: bool
+    isolation: bool
+    certificate_table: bool
+
+
+class SecurityItem(TypedDict):
+    """One mitigation; ``enabled`` and ``flag`` are null when the image does not state it."""
+
+    enabled: bool | None
+    flag: int | None
+    flag_name: str
+
+
+class SecurityChecklist(TypedDict):
+    aslr: SecurityItem
+    dep: SecurityItem
+    cfg: SecurityItem
+    driver_model: SecurityItem
+    app_container: SecurityItem
+    terminal_server_aware: SecurityItem
+    image_isolation: SecurityItem
+    code_integrity: SecurityItem
+    high_entropy: SecurityItem
+    seh: SecurityItem
+    bound_image: SecurityItem
+
+
+class SecurityScore(TypedDict):
+    enabled: int
+    total: int
+
+
+class PeExport(TypedDict):
+    name: str
+    va: int | None
+    ordinal: int | None
+    forwarder: str | None
+
+
+class Authenticode(TypedDict):
+    present: bool
+    signature_count: int
+    signers: list[str]
+
+
+class DebugEntry(TypedDict, total=False):
+    type: Required[str]
+    # CodeView, when the image carries them
+    pdb_path: str
+    guid: str
+    age: int
+
+
+class RichEntry(TypedDict):
+    id: int
+    build_id: int
+    count: int
+
+
+class RichHeader(TypedDict, total=False):
+    present: Required[bool]
+    # when the header was parsed
+    key: int
+    entries: list[RichEntry]
+
+
+class Presence(TypedDict):
+    tls_directory: bool
+    load_config: bool
+    resources: bool
+    relocations: bool
+    exports: bool
+    imports: bool
+
+
+class DirectoryCounts(TypedDict):
+    exports: int
+    imports: int
+    import_dlls: int
+    relocations: int
+
+
+class DelayImport(TypedDict):
+    dll: str
+    name: str | None
+    ordinal: int | None
+    va: int
+
+
+class VersionInfo(TypedDict, total=False):
+    company_name: str
+    product_name: str
+    file_version: str
+    original_filename: str
+
+
+class NeSegment(TypedDict):
+    index: int
+    file_offset: int
+    size: int
+    min_allocation: int
+    flags: int
+    kind: Literal["code", "data"]
+    iterated: bool
+
+
 class PeInfoReply(TypedDict, total=False):
     """The header facts of one image; which members it carries depends on ``format``."""
 
@@ -665,23 +941,23 @@ class PeInfoReply(TypedDict, total=False):
     timestamp_iso: str
     checksum: int
     export_timestamp: int | None
-    security_flags: dict[str, Any]
-    security: dict[str, Any]
-    security_score: dict[str, int]
+    security_flags: SecurityFlags
+    security: SecurityChecklist
+    security_score: SecurityScore
     flags_summary: list[str]
-    exports: list[dict[str, Any]]
+    exports: list[PeExport]
     export_count: int
     resource_count: int
-    authenticode: dict[str, Any]
-    debug: list[dict[str, Any]]
-    rich_header: dict[str, Any]
-    presence: dict[str, bool]
-    counts: dict[str, int]
-    delay_imports: list[dict[str, Any]] | None
+    authenticode: Authenticode
+    debug: list[DebugEntry]
+    rich_header: RichHeader
+    presence: Presence
+    counts: DirectoryCounts
+    delay_imports: list[DelayImport] | None
     tls_callbacks: list[int] | None
     safe_seh_handlers: list[int] | None
     cfg_targets: list[int] | None
-    version_info: dict[str, str] | None
+    version_info: VersionInfo | None
     # MZ and NE
     dos_stub_size: int
     # MZ
@@ -694,7 +970,7 @@ class PeInfoReply(TypedDict, total=False):
     entry_segment: int
     entry_offset: int
     segment_count: int
-    segments: list[dict[str, Any]]
+    segments: list[NeSegment]
     imported_modules: list[str]
 
 
@@ -755,6 +1031,19 @@ class SecurityScanReply(TypedDict):
     by_severity: SecuritySeverities
 
 
+class StructuralSimilarity(TypedDict):
+    """``rebrew.matcher.core.StructuralSimilarity`` of the best candidate against the target."""
+
+    total_insns: int
+    exact: int
+    reloc_only: int
+    register_only: int
+    structural: int
+    mnemonic_match_ratio: float
+    structural_ratio: float
+    flag_sensitive: bool
+
+
 class FlagSearchRow(TypedDict, total=False):
     # flag sweep
     score: float
@@ -781,13 +1070,27 @@ class FlagSearchReply(TypedDict, total=False):
     best_score: float | None
     best_flags: str | None
     exact: bool
-    structural_similarity: dict[str, Any]
+    structural_similarity: StructuralSimilarity
     # flag sweep and toolchain sweeps
     results: list[FlagSearchRow]
     # toolchain sweeps
     sweep: str
     best: str | None
     not_installed: list[str]
+
+
+class LibraryOwner(TypedDict, total=False):
+    """Which library a global belongs to, from the link map and its archives."""
+
+    symbol: Required[str]
+    library: Required[str]
+    member: Required[str]
+    map_hash: Required[str]
+    evidence: Required[Literal["link-map", "link-map+archive-symbol"]]
+    # link-map: where the map places it
+    linked_va: str
+    # link-map+archive-symbol: the archive the symbol was found in
+    archive_hash: str
 
 
 class GlobalVariable(TypedDict):
@@ -798,7 +1101,7 @@ class GlobalVariable(TypedDict):
     declared_in: list[str]
     defined_in: list[str]
     referenced_in: list[str]
-    library_owners: list[dict[str, str]]
+    library_owners: list[LibraryOwner]
     storage_kind: str
     size: int | None
     backing: str
@@ -823,10 +1126,27 @@ class DataSection(TypedDict):
     size: int
 
 
+class DataAnnotation(TypedDict):
+    """A data binding (``rebrew.data_scan.scan_data_annotations``)."""
+
+    va: str
+    name: str
+    size: int
+    section: str
+    note: str
+    filepath: str
+
+
+class TypeConflict(TypedDict):
+    name: str
+    #: each declared type and the files declaring it
+    types: dict[str, list[str]]
+
+
 class DataListReply(TypedDict):
     globals: dict[str, GlobalVariable]
-    data_annotations: list[dict[str, Any]]
-    type_conflicts: list[dict[str, Any]]
+    data_annotations: list[DataAnnotation]
+    type_conflicts: list[TypeConflict]
     summary: DataSummary
     sections: dict[str, DataSection]
 
@@ -861,9 +1181,12 @@ class ReleaseReply(TypedDict):
 
 #: Members the command an op runs prints that its reply withholds, by op: each is a
 #: path of the engine's host, which never leaves it, and no consumer reads it.  A
-#: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``).
+#: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``), and
+#: of an object's values ``<object>.*.<member>``.
 WITHHELD: dict[str, tuple[str, ...]] = {
-    "rebrew.verify_target": ("binary", "libraries[].map"),
+    # data, text and whole_binary are the --data, --text and --whole-binary checks, which
+    # the op never asks for, so they are always null (and data's link_map is a host path)
+    "rebrew.verify_target": ("binary", "libraries[].map", "data", "text", "whole_binary"),
     "rebrew.build": ("binary", "out"),
     "rebrew.analyze": ("binary",),
     "rebrew.crypto_scan": ("binary",),
@@ -874,6 +1197,7 @@ WITHHELD: dict[str, tuple[str, ...]] = {
     "rebrew.flag_search": ("source",),
     # the file new definitions went to; the op writes none, so it is always null
     "rebrew.structs": ("applied",),
+    "rebrew.data_list": ("globals.*.library_owners[].map",),
 }
 
 #: The reply members that name a path in the engine's workspace, by op (``<list>[].<member>``
@@ -955,7 +1279,7 @@ def json_schema(hint: Any) -> dict[str, Any]:
     elif get_origin(inner) is list:
         (item,) = get_args(inner)
         schema = {"items": json_schema(item), "type": "array"}
-    elif get_origin(inner) is dict and is_typeddict(get_args(inner)[1]):
+    elif get_origin(inner) is dict and get_args(inner)[1] is not Any:
         schema = {"additionalProperties": json_schema(get_args(inner)[1]), "type": "object"}
     elif inner is dict or get_origin(inner) is dict:
         schema = {"type": "object"}

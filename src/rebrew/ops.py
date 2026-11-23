@@ -295,7 +295,7 @@ IN_PROCESS_TIMEOUT_SECONDS = 600
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "d84fc349b66333d364f9efc39cd73587398d9a6fe33ad4053722ff9aad90e03b"
+DISPATCH_SCHEMA_SHA256 = "b8b64e0b7c668ee56ee99360773270c39d5ed5bdbc47bf4a8bb02007100907a0"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -912,22 +912,30 @@ def _not_run_reason(verdict: dict[str, Any]) -> None:
     verdict["not_run_reason"] = reason
 
 
+def _withheld(value: Any, steps: list[str]) -> Any:
+    """*value* without the member *steps* lead to: a member name, ``[]`` for each item
+    of a list, ``*`` for each value of an object.  Copies what it changes."""
+    step, rest = steps[0], steps[1:]
+    if step == "[]":
+        return [_withheld(item, rest) for item in value] if isinstance(value, list) else value
+    if not isinstance(value, dict):
+        return value
+    if step == "*":
+        return {key: _withheld(item, rest) for key, item in value.items()}
+    if not rest:
+        return {key: item for key, item in value.items() if key != step}
+    if step not in value:
+        return value
+    return {**value, step: _withheld(value[step], rest)}
+
+
 def _declared_reply(name: str, reply: Mapping[str, Any]) -> dict[str, Any]:
     """*reply* as the op's declared reply (:mod:`rebrew.ops_replies`), not-run text closed."""
     from rebrew.ops_replies import DECLARED, WITHHELD, project
 
-    withheld = WITHHELD.get(name, ())
-    closed = {key: value for key, value in reply.items() if key not in withheld}
-    for path in withheld:
-        if "[]." in path:
-            listed, member = path.split("[].")
-            if isinstance(closed.get(listed), list):
-                closed[listed] = [
-                    {key: value for key, value in row.items() if key != member}
-                    if isinstance(row, dict)
-                    else row
-                    for row in closed[listed]
-                ]
+    closed = dict(reply)
+    for path in WITHHELD.get(name, ()):
+        closed = _withheld(closed, path.replace("[]", ".[]").split("."))
     _not_run_reason(closed)
     rows = closed.get("results")
     if isinstance(rows, list):

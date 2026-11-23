@@ -428,7 +428,7 @@ class TestContract:
 
         class Reply(TypedDict):
             hash: str | None
-            record: dict[str, int] | None
+            record: dict[str, Any] | None
 
         assert json_schema(Reply)["properties"] == {
             "hash": {"oneOf": [{"type": "string"}, {"type": "null"}]},
