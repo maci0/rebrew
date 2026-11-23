@@ -2181,6 +2181,233 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "report": {
+            "additionalProperties": false,
+            "properties": {
+              "measures": {
+                "additionalProperties": false,
+                "properties": {
+                  "complete_code": {
+                    "type": "integer"
+                  },
+                  "complete_code_percent": {
+                    "type": "number"
+                  },
+                  "complete_data": {
+                    "type": "integer"
+                  },
+                  "complete_data_percent": {
+                    "type": "number"
+                  },
+                  "complete_units": {
+                    "type": "integer"
+                  },
+                  "fuzzy_match_percent": {
+                    "type": "number"
+                  },
+                  "library_code": {
+                    "type": "integer"
+                  },
+                  "library_functions": {
+                    "type": "integer"
+                  },
+                  "library_verified_code": {
+                    "type": "integer"
+                  },
+                  "library_verified_functions": {
+                    "type": "integer"
+                  },
+                  "matched_code": {
+                    "type": "integer"
+                  },
+                  "matched_code_percent": {
+                    "type": "number"
+                  },
+                  "matched_data": {
+                    "type": "integer"
+                  },
+                  "matched_data_percent": {
+                    "type": "number"
+                  },
+                  "matched_functions": {
+                    "type": "integer"
+                  },
+                  "matched_functions_percent": {
+                    "type": "number"
+                  },
+                  "original_code": {
+                    "type": "integer"
+                  },
+                  "total_code": {
+                    "type": "integer"
+                  },
+                  "total_data": {
+                    "type": "integer"
+                  },
+                  "total_functions": {
+                    "type": "integer"
+                  },
+                  "total_units": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "fuzzy_match_percent",
+                  "total_code",
+                  "matched_code",
+                  "matched_code_percent",
+                  "total_data",
+                  "matched_data",
+                  "matched_data_percent",
+                  "total_functions",
+                  "matched_functions",
+                  "matched_functions_percent",
+                  "complete_code",
+                  "complete_code_percent",
+                  "complete_data",
+                  "complete_data_percent",
+                  "total_units",
+                  "complete_units"
+                ],
+                "type": "object"
+              },
+              "units": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "functions": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "address": {
+                            "type": "integer"
+                          },
+                          "fuzzy_match_percent": {
+                            "type": "number"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "size": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "size",
+                          "fuzzy_match_percent",
+                          "address"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "measures": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "fuzzy_match_percent": {
+                          "type": "number"
+                        },
+                        "matched_code": {
+                          "type": "integer"
+                        },
+                        "matched_functions": {
+                          "type": "integer"
+                        },
+                        "total_code": {
+                          "type": "integer"
+                        },
+                        "total_functions": {
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "total_code",
+                        "matched_code",
+                        "fuzzy_match_percent",
+                        "total_functions",
+                        "matched_functions"
+                      ],
+                      "type": "object"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "measures",
+                    "functions"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "version",
+              "measures",
+              "units"
+            ],
+            "type": "object"
+          },
+          "summary": {
+            "additionalProperties": false,
+            "properties": {
+              "fuzzy_match_percent": {
+                "type": "number"
+              },
+              "library_code": {
+                "type": "integer"
+              },
+              "library_functions": {
+                "type": "integer"
+              },
+              "library_verified_code": {
+                "type": "integer"
+              },
+              "library_verified_functions": {
+                "type": "integer"
+              },
+              "matched_code": {
+                "type": "integer"
+              },
+              "matched_functions": {
+                "type": "integer"
+              },
+              "original_code": {
+                "type": "integer"
+              },
+              "total_code": {
+                "type": "integer"
+              },
+              "total_functions": {
+                "type": "integer"
+              },
+              "units": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total_functions",
+              "matched_functions",
+              "total_code",
+              "matched_code",
+              "fuzzy_match_percent",
+              "units"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "summary",
+          "report"
+        ],
         "type": "object"
       },
       "timeout_seconds": 600
@@ -3213,6 +3440,75 @@
       },
       "response": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "already_annotated": {
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "confidence": {
+                  "type": "number"
+                },
+                "kind": {
+                  "enum": [
+                    "crt",
+                    "flirt",
+                    "import"
+                  ],
+                  "type": "string"
+                },
+                "module": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "va": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "va",
+                "name",
+                "module",
+                "kind",
+                "confidence"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "identified": {
+            "type": "integer"
+          },
+          "sigs_written": {
+            "type": "integer"
+          },
+          "to_write": {
+            "type": "integer"
+          },
+          "unreadable_signatures": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "written": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sigs_written",
+          "identified",
+          "already_annotated",
+          "to_write",
+          "written",
+          "candidates",
+          "unreadable_signatures"
+        ],
         "type": "object"
       },
       "timeout_seconds": 600
