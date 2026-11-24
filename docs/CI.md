@@ -134,9 +134,9 @@ through the local composite action `.github/actions/uv-env`, which holds the
 one `uv-version` / `python-version` / `resembl-ref` / `resembl-sha` pin set both workflows
 share (commit-SHA-pinned `setup-uv` / `checkout` Actions; Dependabot scans the
 action's directory as well as `.github/workflows/`).
-Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
-Python patch from `.python-version`; the test matrix pins that patch for its
-3.15 entry under the coverage gate. Jobs run on pinned `ubuntu-24.04` (not
+Lint, pre-commit, package, and cli-contract use the exact Python patch from
+`.python-version`, as does the test matrix's coverage entry. The separate
+nightly workflow `.github/workflows/toolchain-sync.yml` uses the same pin. Jobs run on pinned `ubuntu-24.04` (not
 `ubuntu-latest`). Both workflows also take `workflow_dispatch`: the apt
 install and resembl clone helpers retry three times, so a network that stays
 down past that needs a manual re-run, and re-running a failed job alone
@@ -201,14 +201,14 @@ between them have to be in the clone. Tag refs alone are not enough.
 Dev installs use `uv sync --locked --all-extras --group similarity` (Makefile
 `make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.
 
-The workflow runs three distinct sync shapes, so the environment a gate sees
-is not the same everywhere:
+Jobs use three dependency environments. The package job uses a separate
+wheel-test environment created by `make smoke-wheel`.
 
 | Job | Sync | Why |
 |-----|------|-----|
 | `lint`, `test` | `uv sync --locked --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves; `--locked` fails a `pyproject.toml` edit that never reached `uv.lock` |
-| `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --python .venv-pkg --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
-| `cli-contract`, `toolchain-sync`, `pre-commit` | `uv sync --locked` | default groups only: the CLI surface being grepped, the toolchain drift check, and the pre-commit hooks need no extra. The hooks the `pre-commit` job runs are file hygiene, the two SKILL.md validators, the AST import checks, and shellcheck/yamllint; the only one that reaches an extra is the mypy hook, which it skips because the `lint` job runs `make mypy` |
+| `package` via `make smoke-wheel` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --python .venv-pkg --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
+| `cli-contract`, `pre-commit` | `uv sync --locked` | default groups only for CLI help and pre-commit. The hooks the `pre-commit` job runs are file hygiene, the two SKILL.md validators, the AST import checks, and shellcheck/yamllint; the only one that reaches an extra is the mypy hook, which it skips because the `lint` job runs `make mypy` |
 
 The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
 forced-ANSI mode it enables whenever `GITHUB_ACTIONS` is set. Without it the
@@ -252,7 +252,7 @@ id, with the `test` matrix expanded per entry, so the required contexts are
 
 | Job | Gate |
 |-----|------|
-| `jobs-service` | Go formatting, vet, and race tests using a SHA-256 verified Go release; Docker and real-peer tests require separate fixtures |
+| `jobs-service` | Go formatting, vet, and race tests for the [jobs service](../services/jobs/README.md), using a SHA-256 verified Go release |
 | `lint` | ruff, ruff format, mypy, `uv audit` |
 | `test` | the full suite on Python 3.15 under the coverage floor, fixture freshness, idempotency sweep, W3C validation of the HTML surfaces |
 | `pre-commit` | hook parity, including shellcheck, yamllint and biome |
@@ -267,7 +267,8 @@ is edited; the test is what keeps the two from drifting apart unnoticed.
 
 `toolchain-sync.yml` is deliberately absent: it is a nightly drift check, not
 a merge gate, and requiring it would hold a pull request on an upstream
-release-asset lookup.
+release-asset lookup. Its locked sync uses the default dependency groups and clones the
+sibling Resembl checkout.
 
 ## Project / workspace CI
 

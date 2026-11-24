@@ -1,11 +1,9 @@
 # Metadata & Derived-State Architecture (the "store tiers")
 
-This is the one-page map of **every place rebrew persists or caches data**
-and, crucially, which of them is authoritative for which fact.  It exists
-so the "why are there so many files?" question has a written answer: most
-of the surface is *derived snapshots and caches*, not competing sources of
-truth.  Pages 6–7 of [architecture.drawio](architecture.drawio) draw the
-same tiers and the data/globals/layout pipeline.
+Use [backend selection](#storage-api-and-backend-selection) to choose where
+Rebrew stores metadata and [backup and restore](#backup-and-restore) to
+preserve it. See [field ownership](#who-owns-which-fact) for authoritative
+writers and [store formats](#store-formats) for on-disk artifacts.
 
 ## Storage API and backend selection
 
@@ -739,20 +737,11 @@ whenever the reference binary changes: the layout files carry
 
 ## Store formats
 
-A store **rebrew owns** is clear-text TOML, one format for all of them:
-`rebrew-project.toml`, `rebrew-functions.toml`, `rebrew-data.toml`,
-`rebrew-types.toml`, `rebrew-libraries.toml`,
-`snapshots/coverage-<target>.toml`, and the verify cache and
-`--compare` baseline (`.rebrew/verify_cache.toml` / `.rebrew/verify_baseline.toml`,
-or the same filenames under `.rebrew/targets/<sha256-of-exact-target-name>/` once
-the project keeps per-target verification state). Normal dashboards read canonical project
-inputs through `load_project_coverage`; no generated coverage store or project
-`db_dir` is required. `coverage export --output <directory>` creates portable
-TOML snapshots for explicit offline use. Readers use `tomllib`; owning writers
-preserve documents with `tomlkit`.
-
-The stores that stay in another tool's format are that tool's contract, not
-rebrew's to rename:
+Managed function, data, type, and library settings use logical TOML
+documents. The [selected backend](#storage-api-and-backend-selection)
+determines whether records live in TOML files, SQLite, or PostgreSQL.
+`rebrew-project.toml`, portable coverage exports, verification caches, and
+verification baselines use TOML files. Other artifacts have their own formats.
 
 | File | Owner of the format |
 |---|---|

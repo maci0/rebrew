@@ -1735,17 +1735,17 @@ class TestCiPins:
     def test_github_release_attaches_verified_ci_artifacts(self) -> None:
         """Releases attach the exact CI distributions and provenance to GitHub."""
         text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-        bullet = text.split("Nothing publishes\n", 1)[1].split("\n- **", 1)[0]
-        assert "gh release create" in bullet
+        release = text.split("### Cut a release\n", 1)[1].split("\n## ", 1)[0]
+        assert "gh release create" in release
         for name in (
             "dist/rebrew-*.tar.gz",
             "dist/rebrew-*.whl",
             "dist/rebrew.buildinfo",
             "dist/rebrew.cdx.json",
         ):
-            assert name in bullet
-        assert "rebrew-dist-" in bullet and "make verify-dist" in bullet
-        assert "--verify-tag" in bullet
+            assert name in release
+        assert "rebrew-dist-" in release and "make verify-dist" in release
+        assert "--verify-tag" in release
         assert "uv publish" not in text and "UV_PUBLISH_TOKEN" not in text
 
     def test_makefile_setup_warns_without_nasm(self) -> None:

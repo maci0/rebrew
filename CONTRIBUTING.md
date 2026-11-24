@@ -1,32 +1,16 @@
 # Contributing to Rebrew
 
-Rebrew is a compiler-in-the-loop decompilation workbench for binary-matching
-game reversing: C sources compile in pinned per-toolchain images and are
-compared byte for byte against the target binary.
-
-## Start here
-
-- **`AGENTS.md`**: the authoritative guide to layout, conventions, build &
-  test commands, code style, and architectural rules.
-- **`docs/DEVELOPMENT.md`**: hard-won practical knowledge (test conventions,
-  Typer/CliRunner quirks, metadata/tomlkit gotchas, import patterns, and
-  toolchain-dependent test guidance).
-- **`docs/ARCHITECTURE.md`**: high-level data flow (diagram) and module map;
-  read this first to see how the pieces fit together.
-- **`docs/CLI.md`**: the full CLI surface.
+Start with the bootstrap below. Use [AGENTS.md](AGENTS.md) for repository
+rules, [Development](docs/DEVELOPMENT.md) for coding and test conventions,
+and [Architecture](docs/ARCHITECTURE.md) for the module map and data flow.
 
 ## Bootstrap (clean clone)
 
-`make doctor` checks every prerequisite below except Python (uv selects it
-from `.python-version`) at once and prints the fix for
-each. It is read-only. It reports the two items the next bootstrap steps
-install (`../resembl` and the venv extras) separately from host tools, so on a
-clean clone it exits 0 and names `make clone-resembl` / `make setup` as the
-next step; it exits non-zero only for a missing uv, bash, nasm, bun,
-cc/pkg-config/json-c, JDK/Ant, Rust, Go or patch. A version drift or a
-missing optional tool prints a CHECK line and still exits 0.
-Each check still guards its own target: a missing nasm fails `make test`
-whether or not `make doctor` ran.
+Run `make doctor` to check host tools and get a fix for each missing item.
+On a clean clone, it reports `make clone-resembl` and `make setup` as setup
+steps. It exits nonzero for missing required host tools. Version drift and
+missing optional tools produce `CHECK` lines. Each Make target still checks
+its own prerequisites. uv selects Python from `.python-version`.
 
 | Prerequisite | Pin | Needed by | Without it |
 |--------------|-----|-----------|------------|
@@ -70,13 +54,8 @@ pull the attributed components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX,
 `OLDAP-2.8` lmdb, and GPL-3.0-only `resembl`). Rebrew's own source stays under
 [`LICENSE`](LICENSE).
 
-The extras matter to the gates: a bare `uv sync` never installs them. Without
-angr, `make mypy` sees every `angr`/`claripy` reference as `Any` (unknown
-`SimProcedure` base, `import-not-found`, unused `type: ignore`); without
-`rapidfuzz`/`resembl`, it reports `import-not-found` in
-`src/rebrew/matcher/scoring.py`. The tests using them skip, so `make test`
-would report a green suite that never ran the code CI's test job runs. The
-pre-commit `mypy` hook runs the same check.
+Use the locked contributor environment for type checks and the full test
+suite. A bare `uv sync` omits the extras and similarity group the gates need.
 
 ## Adding a dependency
 
@@ -128,132 +107,59 @@ Python SDK examples belong in [PYTHON_API.md](docs/PYTHON_API.md), not the READM
 
 ## Versioning and releases
 
-Rebrew is 6.x.  From `1.0.0` the CLI command names and the config schema are
-frozen: removing or renaming a command/flag, or changing a config key's
-meaning, takes a major version bump and a `**Breaking:**` changelog entry.
-On-disk format bumps (`coverage-<target>.toml` `version`, compile-cache schema)
-and a raised minimum Python are also `**Breaking:**`; they may ship in a minor,
-because the migration is a wholesale document rewrite (`coverage export` replaces each
-file whole) or a cold cache.
-The Python import surface (module paths, functions, classes, `__all__`) and
-the `rebrew coverage serve` `/api/*` JSON are not frozen: a removal, move, or
-signature change there ships in a minor with a `**Breaking:**` entry naming
-the old and new import path or shape.  There is no deprecation window; pin the minor version if you
-import rebrew as a library.  `tools/public_surface.py` reads that surface out
-of the AST (`--diff <tag>` prints the delta) and
-`tests/test_public_surface.py::TestSurfaceGate` fails the build when the delta
-against the last tag removes or reshapes a public name and `[Unreleased]` has
-no `**Breaking:**` entry naming it.  A move that leaves the old path working
-is not a break and needs no entry: `rebrew.utils` owning a name that
-`rebrew.cli` still imports is scored as the origin's shape, so only the
-import path that actually went away is flagged.  A move that took the name
-out of the old module counts as a break either way, and the entry has to name
-the symbol or the module it moved to: a mention of the origin module alone
-says nothing about where the import goes now.
-A dropped `/api/*` route is the same break for a client reading the JSON:
-`tools/public_surface.py::dashboard_routes` reads `_KNOWN_ROUTES` out of
-`src/rebrew/dashboard.py` and
-`tests/test_public_surface.py::TestDashboardRoutes` fails the build when the
-delta against the last tag drops a path and `[Unreleased]` has no
-`**Breaking:**` entry naming it.  A route table spelled as anything but
-literals stops the gate instead of reading as a table with no routes.
+Rebrew is 6.x. The required release bump depends on which contract changes.
 
-- **One version, one place.**  `__version__` in `src/rebrew/__init__.py` is the
-  source of truth; `pyproject.toml` reads it via `[tool.setuptools.dynamic]`.
-  Never add a second literal.  Between releases `__version__` stays equal to
-  the last tag; stage notes under `## [Unreleased]` until the bump.
-- **Bump the on-disk format version with the format.**  Changing the coverage
-  document means bumping `_TOML_VERSION` in `coverage_toml.py` and documenting
-  the change in `docs/COVERAGE_DOCUMENT.md`; changing what a compile result depends on
-  means bumping `CACHE_SCHEMA_VERSION` in `compiler/cache.py`.  Both are how users
-  get a clear error (or a cold cache) instead of silently wrong results after an
-  upgrade.
-- **Record user-visible change in `CHANGELOG.md`** under `## [Unreleased]`, in
-  the `Added` / `Changed` / `Fixed` / `Removed` group that fits.  Anything that
-  breaks an existing project (renamed CLI flag, changed default, format bump,
-  raised minimum Python, removed install extra) goes under `Changed` prefixed
-  with `**Breaking:**`.
-- **A dated section is frozen.**  Release notes move from `[Unreleased]`
-  into `[<version>]` once, at the release commit; after that the published
-  section never gains a line, because a reader of that tag's notes would be
-  describing code it does not contain.  Later work goes back under
-  `[Unreleased]`, even when the gap in the earlier section is obvious.
-  `tests/test_packaging.py::TestPackagingMetadata::test_notes_added_after_the_tag_stay_unreleased`
-  fails the build when a tagged section grows.
-- **Cut the release in this order.**  Bump `__version__`, date the
-  `[<version>]` section, empty `[Unreleased]`, then `make release-check` and
-  commit.  Tag that commit (`git tag v<version>`) and push the tag; the tag is
-  the only record of which `__version__` shipped, and the packaging tests read
-  it (`test_every_git_tag_has_a_changelog_section`,
-  `test_notes_added_after_the_tag_stay_unreleased`).  Nothing publishes
-  automatically, so the upload is a manual step, and it uploads the bytes CI
-  verified rather than a fresh local build: download the release commit's
-  `rebrew-dist-<sha>` artifact from the green `package` run, unpack it into an
-  empty `dist/`, and run `make verify-dist` there (it re-derives the manifest
-  digests from the files beside it, so a truncated download fails before the
-  upload rather than after it; both `verify-dist` and `smoke-wheel` read `dist/`
-  as they find it and never rebuild it, so unpack into an empty `dist/` and run
-  them in a checkout of the release commit), then
-  attach those exact files to the GitHub release:
-  `gh release create v<version> dist/rebrew-*.tar.gz dist/rebrew-*.whl dist/rebrew.buildinfo dist/rebrew.cdx.json --verify-tag --title "Rebrew <version>" --notes-file release-notes.md`.
-  Before running the command, copy the body of the dated changelog section
-  into `release-notes.md`. The package artifact
-  is the build that ran the reproducible rebuild, sdist-to-wheel member diff,
-  and clean-venv smoke install. Releases are distributed through GitHub only;
-  no package-index upload or publishing token is part of this process.
-- **Verify the artifact, not just the tree.** Run `make smoke-wheel` against
-  the unpacked `rebrew-dist-<sha>` before attaching it: it installs that exact
-  wheel into a throwaway `.venv-pkg` and smoke-imports it, so the file that
-  ships is the one that ran. A wheel rebuilt locally says nothing about the
-  artifact from CI.
-- **Correct a wrong release with a new patch.** Keep the existing tag and
-  assets as a record of what shipped, note the issue in the GitHub release,
-  and publish the fix under a new version. Do not overwrite released bytes.
-- **Preflight before tagging with `make release-check`** (which runs
-  `tools/release_check.py`): verifies
-  `__version__` is bumped past the last tag, the tree is clean, the
-  changelog has exactly one dated `[<version>]` section, that section has at
-  least one entry, and `[Unreleased]` is empty; a release whose notes are
-  split across the two headings, or across two headings for the same version,
-  ships half of them undocumented, so neither can be tagged out of sync with
-  the version or the notes.  It also fails a patch release whose section
-  carries a `**Breaking:**` entry, the same rule
-  `tests/test_packaging.py::TestPackagingMetadata::test_patch_release_never_ships_a_breaking_entry`
-  enforces on the tree.
+| Change | Minimum version bump |
+| --- | --- |
+| Remove or rename a CLI command or flag, or change a config key's meaning | Major |
+| Break a public Python import or change its signature, or break the dashboard HTTP API | Minor |
+| Bump the coverage document or compile-cache format, or raise the Python minimum | Minor |
+
+Prefix breaking entries with `**Breaking:**` in the changelog. Name the
+affected command, symbol, route, or format and describe the migration. Use
+`tools/public_surface.py --diff <tag>` to inspect changes to the Python API.
+Library consumers can pin a minor version to avoid breaking updates.
+
+`src/rebrew/__init__.py` owns `__version__`. Keep it at the last release
+between releases. For a format change, also bump the relevant format version
+(`_TOML_VERSION` in `coverage_toml.py` or `CACHE_SCHEMA_VERSION` in
+`compiler/cache.py`) and document the migration.
+
+### Cut a release
+
+1. Bump `__version__`, move the release entries from `[Unreleased]` to a
+   single dated version section in `CHANGELOG.md`, and commit. Leave
+   `[Unreleased]` empty and keep published sections frozen.
+2. Run `make release-check` from the clean checkout. It checks the version,
+   changelog, and published Resembl pin. Tag that commit and push the tag.
+3. Download the green `package` job's `rebrew-dist-<sha>` artifact. Unpack it
+   into an empty `dist/` in a checkout of the release commit. Run
+   `make verify-dist` and `make smoke-wheel` against those files.
+4. GitHub Releases is the distribution channel. Copy the dated changelog
+   section into `release-notes.md` and attach the verified artifacts. Replace
+   `X.Y.Z` with the release version:
+
+   ```bash
+   version=X.Y.Z
+   gh release create "v${version}" dist/rebrew-*.tar.gz dist/rebrew-*.whl \
+     dist/rebrew.buildinfo dist/rebrew.cdx.json --verify-tag \
+     --title "Rebrew ${version}" --notes-file release-notes.md
+   ```
+
+Fix a published mistake with a new patch release and leave the existing tag
+and assets available for reference. See [package CI](docs/CI.md#package-ci-this-repo)
+for artifact and reproducibility checks.
 
 ## Before submitting
 
-0. Branch off `main` (`feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `build/`,
-   `ci/`, `chore/`) and open the pull request against `main`; do not commit
-   straight to `main`.  Every CI job runs on the pull request, so a green local
-   `make pr-check` plus a green `pre-commit` job is what review expects.
-1. `make pr-check` (or `make all && make check && make build && make sdist-check && make smoke-wheel && make build-repro && make verify-dist && make sbom`):
-   mirrors CI
-   lint+test+cli-contract gates, the pre-commit job, the package job's
-   `make build` (sdist/wheel + `dist/rebrew.buildinfo`), its
-   sdist-completeness check (a wheel built from the sdist must carry the same
-   files as the shipped wheel), its wheel smoke install
-   (`make smoke-wheel`: the built wheel into a throwaway `.venv-pkg`, so
-   missing package-data fails here rather than on a user's install), and its
-   byte-reproducibility check (`make build-repro`: rebuild `HEAD` from a
-   `git archive` copy under `.scratch/` at another path, file mode, timezone
-   and locale, and compare the wheel, the sdist, the SBOM and
-   `dist/rebrew.buildinfo` across the two trees (the manifest's `source-commit`
-   and `source-dirty` lines excepted, since the copy has no `.git`); commit
-   first, it builds `HEAD` and
-   refuses a tree with uncommitted changes, whose dist/ and `HEAD` copy would
-   differ by construction).
-   `make sbom` goes after `make build`:
-   `build` clears `dist/*.cdx.json`, so a BOM generated before it is deleted
-   before you can ship it. `make sdist-check` does not clear it (it depends on
-   `dist/rebrew.buildinfo`, which builds only when `dist/` is empty or a build
-   input is newer than it, input list covering the `src/` directories so an
-   added or deleted module rebuilds too).
-2. Keep changes minimal and scoped; match the surrounding style.
-3. Add tests for new behavior: `make coverage` fails below `COV_FLOOR` (85%
-   line coverage in the `Makefile`), and the floor only rises.
-4. Record user-visible change under `## [Unreleased]` in `CHANGELOG.md` when
-   the change affects installs, CLI, config, or on-disk formats (see Versioning
-   above).  If you edit `tools/gen_fixtures.py`, run `make gen-fixtures` and
-   commit the refreshed `tests/fixtures/` bytes; if you edit `src/rebrew/agent-skills/`,
-   run `make gen-skills` and commit the refreshed `.agents/skills/` files.
+1. Branch off `main` and open the pull request against it. Use a prefix
+   such as `fix/`, `feat/`, or `docs/`.
+2. Run the relevant tests during development. Commit before `make pr-check`
+   because its reproducible-build gate compares against `HEAD`. See
+   [required checks](docs/CI.md#required-status-checks).
+3. Add tests for changed behavior and keep the `COV_FLOOR` line-coverage
+   gate in the Makefile. Record user-visible changes to installs, CLI,
+   config, or on-disk formats under `[Unreleased]` in `CHANGELOG.md`.
+4. Run `make gen-fixtures` after changing the fixture generator and
+   `make gen-skills` after changing packaged skills. Include the regenerated
+   files with the change.

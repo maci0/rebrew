@@ -1,87 +1,48 @@
 # CLI Reference
 
 The CLI exposes 242 surfaces: 208 leaf commands and 34 groups, including the
-root. They are registered under the unified `rebrew` entry point in `app/main.py`
-(`CliComponent` rows in `app/builtins.py`).
-Only `rebrew` is installed. Invoke tools as subcommands:
-`rebrew status`, `rebrew test`, `rebrew binsync push`, and so on. The old
-`rebrew-<command>` executables are removed; reinstall or upgrade Rebrew to
-remove them from your environment. CMake uses
-`rebrew build driver <cl|link|lib> -- <arguments>` and objdiff uses
-`rebrew build objdiff-driver <target> <base-object>`. Compiler flags after `--` pass
-through unchanged. Regenerate CMake toolchains and objdiff configurations
-when upgrading from the separate executable hooks.
-See [ADR 027](adr/027-build-hooks-under-umbrella.md).
+root. Run `rebrew <command> --help` (or `-h`) for the installed command's
+arguments, defaults, and examples. See [CLI migration](CLI_MIGRATION.md) for
+renamed routes and [Getting started](GETTING_STARTED.md) for the first match.
 
-Most tools support `--target / -t` to select a target from `rebrew-project.toml` and
-read defaults (binary path, reversed_dir, compiler settings) from the project config.
-A final `--target` lists configured targets without running the command.
-The listing uses that command's output choice. `rebrew status --target` is
-text. `rebrew status --json --target` and `rebrew -o json test --target` print
-`{"targets","default_target"}` on stdout. `-o text` before the command wins
-over `--json`. With no selection flag, the command uses the project default
-target.
-Commands that inspect standalone artifacts can accept an input path without
-project selection; each command's help lists its accepted inputs and defaults.
-`rebrew init` and `rebrew intake` use `--target/-t` to name the target being
-created, rather than selecting an existing target.
-
-Run any tool with `--help` or `-h` for inputs, defaults, examples, and write/preview
-behavior. Help separates project selection, output, and shared logging options;
-command-specific panels remain available for larger workflows.
-
-`--version/-V`, `--verbose/-v` (repeatable) and `--quiet/-q` are shared options:
-`rebrew.cli.add_global_options` injects them into every command,
-so they parse after the subcommand name as well
-as before it (`rebrew -vv diff` and `rebrew diff -vv` agree).  A tool that
-declares one of these flags itself keeps its own meaning: `rebrew lint --quiet`
-still means "errors only", not "logs at warning".  `REBREW_LOG_LEVEL` sets the
-level when neither flag is given. `--json` is not one of these shared flags.
-Each command that prints JSON declares `--json` itself. `rebrew --json <command>`
-exits 2. `rebrew -o json <command>` and `rebrew <command> --json` select JSON.
-
-New to rebrew?  Start with [Getting started](GETTING_STARTED.md); first-run
-errors are in [ONBOARDING.md](ONBOARDING.md).
+`--version` / `-V`, `--verbose` / `-v` (repeatable), and `--quiet` / `-q` are
+available at each command depth. A command's own definition takes precedence,
+such as `rebrew lint --quiet` for errors only. `REBREW_LOG_LEVEL` sets the
+level when neither logging flag is given. Build hooks forward compiler or
+linker options after `--` as described in [ADR 027](adr/027-build-hooks-under-umbrella.md).
 
 ## Typical Workflow
 
-```
-rebrew todo              See what needs work (prioritized by affected extent)
-rebrew skeleton 0x<VA>   Generate a .c skeleton from address
-rebrew test src/<func>.c Compile, byte-compare, and auto-update STATUS
-rebrew diff src/f.c      Show byte diff for near-misses
-rebrew verify            Bulk-verify all reversed functions
-```
+Use [todo](#rebrew-todo) to choose a function, [skeleton](#rebrew-skeleton)
+if you need source, [test](#rebrew-test) and [diff](#rebrew-diff) while
+editing, and [verify](#rebrew-verify) for a target-wide check. See the
+[workflow guide](WORKFLOW.md) for worked examples.
 
 ## test vs verify vs match
 
-| Command | Scope | Verification cache | Use when |
-|---------|-------|---------|----------|
-| `rebrew test <file>` | Single function | No | Iterating on one function |
-| `rebrew test --all` | Batch (all files) | No | Verify's engine, rechecks every file |
-| `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check (`--compare` regression baseline; `rebrew match batch` finds matches, `rebrew verify --no-cache` rechecks the selected functions without saved verdicts, `--no-promote` measures without writing) |
-| `rebrew match run <file>` | Single function | No | GA engine to find byte-perfect match |
+| Command | Scope | Saved verdicts reused |
+| --- | --- | --- |
+| `rebrew test <file>` | One file, or one selected function within it | No |
+| `rebrew test --all` | Batch through the verifier | No |
+| `rebrew verify` | Batch, with optional linked-artifact checks | Yes, unless you pass `--no-cache` |
+| `rebrew match run <file>` | Source search for a single function | No |
+
+For byte verdicts and symbolic proof, see [match types](MATCH_TYPES.md).
 
 ## Selection flags
 
-These flags name different axes.
-
 | Flag | Selects |
-|------|---------|
-| `--all` | Every eligible item in the selected target. Omit the subject argument. `test --all` rejects `--cflags`, `--toolchain`, `--size`, `--va`, `--symbol`, `--target-bin`, `--force-status`, `--fix-sizes`, `--linked`, and `--watch` (exit 2). `--dir`, `--module`, and `--jobs` require `--all`. |
-| `--target NAME` | One configured target. |
-| `--all-targets` | Every configured target. Each target keeps that command's own item selection. |
-| `--source-targets` | Every target bound to one source file. Excludes `--target` and `--all-targets`. |
-| `--no-cache` | On `verify` only: recheck the functions already selected, ignoring saved verdicts; compiler objects may still be reused. `verify` already covers every function. `test --all` has no verification cache. |
+| --- | --- |
+| `--target NAME` / `-t NAME` | One configured target. Most commands use the project default when omitted. |
+| `--all-targets` | Every configured target. Each run uses the command's own item selection. |
+| `--source-targets` | Every target bound to one source file. Mutually exclusive with `--target` and `--all-targets`. |
+| `--all` | Every eligible item in the selected target. Omit the subject argument. |
+| `--no-cache` | Recheck functions selected by `verify` without saved verdicts. Compiler objects may still be reused. |
 
-`source rename --all-modules` renames every module's rows of one definition.
-
-Byte-match ladder (best → worst): `EXACT` → `RELOC` → `NEAR_MATCHING` → `STUB`.
-`PROVEN` is a side path: semantic equivalence via `rebrew prove` when bytes still
-differ. It is not a byte match: the next test/verify records the byte result
-over it.
-
-Root help summarizes this workflow; command help documents each operation in detail.
+For commands using the shared target selector, a bare final `--target` lists
+configured targets. The JSON envelope is `{"targets","default_target"}`.
+`init` and `intake` use `--target` to name a target. Standalone inspection
+commands may accept a binary path without project selection.
 
 ## Exit Codes
 
@@ -91,24 +52,24 @@ Every `rebrew <cmd>` invocation uses the same exit contract, enforced by
 | Code | Meaning |
 |------|---------|
 | 0 | Success (all functions matched / no errors) |
-| 1 | Mismatch or test failure: fix your code |
+| 1 | Mismatch, divergence, or a failed command-specific check |
 | 2 | Build error, config error, or usage error (bad flag or argument) |
 | 130 | Interrupted (Ctrl+C) |
 | 141 | stdout closed early: `rebrew … \| head`, or the reader exited |
 
-A tool's own `--help` may document a narrower set (a read-only tool never
-returns 1); the table above is the ceiling, not a promise that every tool uses
-every code.
+See each command's section or `--help` for the exit codes it uses.
 
-Status messages, progress, warnings, and errors go to **stderr**; only
-`--json` documents (and piped data like `rebrew cfg show`) go to **stdout**.
-`rebrew <cmd> --json` writes one JSON document to stdout. `--json` is
-per-command (see the shared options at the top of this page). A pipe stays text
-unless `--json` or `-o json` is set. `-o` / `--output` before the subcommand
-selects `auto`, `text`, or `json`; `auto` stays text, and a command's own `-o`
-is a destination path. In JSON mode the last stderr line of a
-failure is `{"error":{"kind","message","hint"}}`. Exit 1 is a mismatch
-outcome, not an error kind: the report stays on stdout.
+Status messages, progress, warnings, and errors go to stderr. JSON and data
+exports go to stdout unless the command writes to a file. Choose JSON with
+`rebrew -o json <command>` or, for commands that declare it,
+`rebrew <command> --json`. `--json` follows the command name. Before the command, `-o` / `--output` accepts
+`auto`, `text`, or `json`. An explicit `-o text` overrides `--json`, and
+`auto` stays text even in a pipe. A subcommand's own `-o` selects a file path.
+`rebrew schema` always writes JSON.
+
+In JSON mode, a command failure ends stderr with
+`{"error":{"kind","message","hint"}}`. An exit-1 comparison outcome still
+writes its report to stdout.
 
 Human-readable tables adapt to the available terminal width, including inside
 panels. When columns cannot fit without clipping values, rows become aligned
@@ -139,10 +100,8 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 
 ## Entry Points
 
-The 36 root entries lead to the daily workflow and focused domain scopes.
-Counts include each entry's landing page and all of its nested operations.
-Each operation below has a reference section with its current arguments,
-options, and defaults.
+The table links to each built-in command or group. Counts include the group
+itself and its nested operations.
 
 | Entry | Surfaces | Purpose |
 | --- | ---: | --- |
@@ -306,8 +265,9 @@ or flags, `test` compiles with the pin (the shipped link's flags) instead of
 the project default.  `--cflags` on such a file is a loud error rather than a
 silent metadata write that the build never honors.
 
-`rebrew test --all` rejects the single-function flags listed under
-[selection flags](#selection-flags).
+`rebrew test --all` rejects `--cflags`, `--toolchain`, `--size`, `--va`,
+`--symbol`, `--target-bin`, `--force-status`, `--fix-sizes`, `--linked`, and
+`--watch` (exit 2). `--dir`, `--module`, and `--jobs` require `--all`.
 
 `test --json` function results and `diff --json` summaries include
 `aligned_pairs`, `target_instructions`, `candidate_instructions`, `hunks`,
@@ -374,7 +334,7 @@ operand across the extended native window before writing metadata.
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--instructions` | flag | `False` | With --json, add the instruction-level comparison of a rebuild that is not EXACT: both listings, their alignment rows and operand spans (single function only) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 | `--source-targets` | flag | `False` | Repeat this command for every target bound to the given source file. Unbound targets are skipped. Excludes --target and --all-targets. |
 
@@ -437,12 +397,10 @@ graph TD
 ```
 
 
-A remote compile the recompile service could not run (at capacity, timed out,
-no runner, failed to publish, no admitted pin, or a store or idempotency-key
-fault) is reported as `COMPILE_ERROR` and counted as a failure, but it is no
-verdict on the source: the stored STATUS and the cached verify result stay as
-they were, and the JSON row carries `error`, the structured
-`RecompileError` (`kind`, `error_code`, `retryable`, `message`).
+If the remote compile service provides no compiler verdict, the result is
+`NOT_RUN`. The JSON row carries a structured error with `kind`, `error_code`,
+`retryable`, and `message`. Rebrew preserves the stored STATUS and cached
+verification result. A compiler rejection is `COMPILE_ERROR`.
 
 The progress bar and `Verification: passed/total` headline count all checked
 functions, including library-attributed source functions. When libraries are
@@ -599,7 +557,7 @@ Output prefixes for unambiguous parsing:
 | `--instructions` | flag | `False` | With --json, add to each function compiled in this run whose rebuild is not EXACT its instruction-level comparison (as rebrew test --instructions) |
 | `--json` | flag | `False` | Output results as JSON |
 | `--root` | path | none | Project root directory (default: auto-detected from rebrew-project.toml). |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 | `--source-targets` | flag | `False` | Repeat this command for every target bound to the given source file. Unbound targets are skipped. Excludes --target and --all-targets. |
 
@@ -647,7 +605,7 @@ skeleton warns with the real extent and suggests `rebrew binary asm show --size 
 | `--output` / `-o` | path | none | Output file path. Excludes --batch |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 Complete decompiler bodies have no GA population size limit. The shared C gate
 checks syntax, one definition, identity, declarations, directives, pragmas and
@@ -698,7 +656,7 @@ health is `rebrew doctor`'s job, not lint's.
 | `--summary` | flag | `False` | Print status/origin breakdown |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew decompile`
@@ -742,7 +700,7 @@ where `applied` lists `{var, struct, offsets}`.
 | `--output` / `-o` | path | `None` | Write C to this file in text mode (default: stdout); JSON mode prints the result instead |
 | `--named` | flag | `False` | Apply known struct names to the output |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew diff`
 
@@ -778,20 +736,15 @@ consumers can learn whether the blocker landed (mirrors `rebrew diagnose near`'s
 | `--watch` | flag | `False` | Watch the seed source and re-diff on every change (terminal only; no --json) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew init`
 
 `rebrew init [OPTIONS]`
 
-- `--link-tools-from PATH`: symlink `toolchain/<family>/<version>-<arch>` from a master toolchain
-  directory (e.g. a checkout holding vendored trees; the vendored trees
-  themselves assemble via `rebrew toolchain vendor` into the
-  recompile-toolchains checkout).  Optional: compiler
-  command/includes/libs that are missing under the project's `toolchain/`
-  resolve against that master automatically, so a fresh project compiles
-  out of the box without the symlink.
-- `--write-completions`: write bash/zsh/fish completion scripts into `completions/`
+Packaged profiles use compiler images. Pull or build the selected image
+before compiling. `--link-tools-from` can link a vendored host tree into
+`toolchain/` for access to its files. See [compile backends](TOOLCHAIN.md#compile-backends).
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -800,7 +753,7 @@ consumers can learn whether the blocker landed (mirrors `rebrew diagnose near`'s
 | `--guess-compiler` | flag | `False` | Auto-select the compiler profile from the target binary (diec → PDB → PE metadata → heuristics; prefers the 16-bit profile for DOS/NE binaries).  Requires the binary to be in place |
 | `--install-wibo` | flag | `False` | Download optional tools/wibo for host-only plugin toolchains |
 | `--write-completions` | flag | `False` | Write bash/zsh/fish completion scripts into completions/ |
-| `--link-tools-from` | path | none | Master toolchain directory to symlink tools/<profile> from (e.g. /opt/toolchains). Skips profiles with no host tree to link (GCC, MinGW, and Clang run inside their Docker images) |
+| `--link-tools-from` | path | none | Directory containing vendored toolchain trees, e.g. /opt/toolchains. Skips profiles with no host tree |
 | `--refresh-agents` | flag | `False` | Rewrite the generated scaffold (AGENTS.md, PRINCIPLES.md, .agents/skills/) from rebrew-project.toml and exit; `--dry-run` previews drift without writing or pruning |
 | `--check` | flag | `False` | Report generated-scaffold drift (AGENTS.md, PRINCIPLES.md, .agents/skills/) against the packaged sources instead of writing; exit 1 when any file differs |
 | `--wizard` / `--no-wizard` | flag | `True` | Run the interactive onboarding wizard (TTY only, off under --json).  Only parameters not passed on the CLI are prompted |
@@ -939,7 +892,7 @@ Unavailable byte measurements are omitted or null; they are not measured zeroes.
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew todo`
@@ -1010,7 +963,7 @@ every named symbol. An unknown data spelling is unchecked in both.
 | `--category` / `-c` | str | none | Filter by category (fix-delta, start-function, compile-error, ...) |
 | `--stats` / `-s` | flag | `False` | Show coverage stats header |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew doctor`
@@ -1042,7 +995,7 @@ untouched. For an image-less (host-only plugin) profile it also rewrites
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew schema`
 
@@ -1118,7 +1071,7 @@ exits 2. These rejections happen before symbolic execution.
 | `--watch` | flag | `False` | Watch the source file and re-prove on every change (terminal only; no --json) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew recommend`
 
@@ -1147,7 +1100,7 @@ exception on a zero status, counts as 2. The shared-twins lane runs
 | `--apply` | flag | `False` | Auto-fix safe lanes (lint, link-order, orphans, twins). Records children that exit 0. Exits with the highest child status. Twins merge passes --force |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Source
 
@@ -1204,7 +1157,7 @@ Unauthenticated jump prefixes and section-linear references cannot claim owners.
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source findings`
 
@@ -1265,7 +1218,7 @@ See [source addresses](ANNOTATIONS.md).
 | `--support` | str | none | Record a reason for a support file without a native address |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source rename`
 
@@ -1393,7 +1346,7 @@ twins remain separate; `--all-modules` retains its wider meaning.
 | `--comments` | flag | `False` | Also rewrite whole-word occurrences inside comments |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 For data renames, preview with `--dry-run --json` to obtain an `input_digest`.
 Additional data rows and scaffolds must be selected again when applying with that
@@ -1479,7 +1432,7 @@ rebrew source binding retire 0x401000 --reason proof --dry-run --json
 | `--expected-digest` | str | none | Require the input digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source binding rebind`
 
@@ -1528,7 +1481,7 @@ rebrew source binding rebind 0x401000 src/f.c --reason proof --dry-run
 | `--expected-digest` | str | none | Require the input digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source organize`
 
@@ -1613,7 +1566,7 @@ writer. Use `rebrew diagnose config` to inspect the effective flags.
 | `--va` | str | none | Disambiguate VA in a multi-function file (hex) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source fix`
 
@@ -1647,7 +1600,7 @@ shipping a fix that does not compile.
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--output` / `-o` | path | none | Write the fixed source to this path (default: raw.c.fixed.c for raw.c) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source inline-strings`
 
@@ -1699,7 +1652,7 @@ re-run `rebrew verify --data` and record the literal's `??_C@` symbol with
 | `--named` | flag | `False` | Inline each file's own char <prefix>x[] = "..." definitions instead (no binary) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source document-unmatched`
 
@@ -1718,7 +1671,7 @@ the whole intake.
 | `--backfill-blockers` | flag | `False` | Write a BLOCKER for every existing STUB function that lacks one (the lint W005 class: stubs documented before document-unmatched existed), and record available SIZE metadata so the stub stays testable |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source graph`
 
@@ -1738,7 +1691,7 @@ Generate a function dependency graph from reversed `.c` files.
 | `--from-binary` | flag | `False` | Build call edges from the target binary's xrefs instead of the reversed C sources. 16-bit NE support is included. The source graph is empty for stub-only projects |
 | `--output` / `-o` | path | none | Output file (default: stdout); excludes --cu-map |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source security`
 
@@ -1782,7 +1735,7 @@ call can be safe in context.
 | `DIRECTORY` | path | none | C source tree (default: the project's reversed sources) |
 | `--min-severity` | str | `low` | Minimum severity to report (high, medium, or low) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source split`
 
@@ -1806,7 +1759,7 @@ With `--va`, extract a **single function** into its own file (into a subdirector
 | `--output` / `-o` | path | none | Output directory |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source merge`
 
@@ -1843,7 +1796,7 @@ wants the hoisted, conflict-resolving merge instead.
 | `--output` / `-o` | path | required | Output merged source file |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source import-related`
 
@@ -1876,7 +1829,7 @@ A destination inventory entry can merge two functions (discovery joins them acro
 | `--candidates-only` | flag | `False` | Report only destination functions with a match: the per-function 'no match' rows for the whole inventory are hidden (use with --dry-run to answer 'is this code already reversed in another target, and where?') |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source import-splat`
 
@@ -1944,7 +1897,7 @@ importer cannot read fails loudly instead of half-importing.
 | `--force` | flag | `False` | Replace metadata entries that conflict with the splat config |
 | `--apply` | flag | `False` | Apply the plan (default: dry run, nothing is written) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source rehome`
 
@@ -1965,7 +1918,7 @@ Set a function row's `file` to PATH after a definition moved by hand between mul
 | `--to` | path | none | New source path; requires --from; excludes positional specs |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source symbolize`
 
@@ -1984,7 +1937,7 @@ Re-test the file afterwards (`rebrew test <file>`). A symbol can change register
 | `--declare` | str (repeatable) | `[]` | Append 'extern char NAME[];' to the first top-level extern line (repeatable) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew source document-assembly`
 
@@ -2031,7 +1984,7 @@ Functions that already have a VA may still document provenance with their own
 | `--clear` | flag | `False` | Remove this definition's evidence for the selected target; excludes --evidence |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Matching
 
@@ -2101,7 +2054,7 @@ With `--count` it prints how many compiles the search can make at most (`{"candi
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--count` | flag | `False` | Print how many compiles the search would make, and compile nothing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew match batch`
 
@@ -2141,7 +2094,7 @@ before compiling, so `failed` stays 0 on that preview.
 | `--collect-pairs` | path | none | Append source/binary training pairs to a JSONL file |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew match flags`
@@ -2169,7 +2122,7 @@ rebrew match flags src/game/f.c --tier quick --json
 | `--ignore-lint` | flag | `False` | Continue even if source binding lint errors exist |
 | `--count` | flag | `False` | Print how many compiles the search would make, and compile nothing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew match toolchains`
 
@@ -2197,7 +2150,7 @@ rebrew match toolchains src/game/f.c --toolchains msvc-6.0,msvc-7.0 --json
 | `--ignore-lint` | flag | `False` | Continue even if source binding lint errors exist |
 | `--count` | flag | `False` | Print how many compiles the search would make, and compile nothing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew match history`
 
@@ -2213,7 +2166,7 @@ rebrew match history --json
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew match solutions`
 
@@ -2235,7 +2188,7 @@ Read-only except `--backup` (writes a copy) and `--restore` (replaces the GA log
 | `--backup` | path | none | Copy the irreplaceable GA log to this directory and verify the copy |
 | `--restore` | path | none | Install a backup file made with --backup as the GA log (current log preserved) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew match partitions`
 
@@ -2261,7 +2214,7 @@ audit log. Nothing in the source tree is modified: the search only reads.
 | `--audit` | path | none | Write the JSON audit log to FILE |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew match climb`
 
@@ -2299,7 +2252,7 @@ means the run did not. `--dry-run` scores a scratch copy and writes nothing.
 | `--objective` | positional / aligned | `positional` | Scoring: 'positional' matches bytes in place (test's count); 'aligned' counts aligned instructions (near_diag), which is honest when the object's byte stream is out of step with the target's |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew match qualifiers`
 
@@ -2331,7 +2284,7 @@ file errors before any source edit; it cannot reuse the first function's identit
 | `--jobs` / `-j` | int | none | Parallel jobs (default: project.jobs, or 4) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Diagnose
 
@@ -2383,7 +2336,7 @@ static-CRT / vendored-zlib LIBRARY functions. Exits 1 when the summaries differ,
 | --- | --- | --- | --- |
 | `SEED_C` | str | required | Source file, symbol name, or VA (hex) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew diagnose drift`
 
@@ -2425,7 +2378,7 @@ rebrew diagnose drift --va 0x10002770 --size 2115 --json src/…/CrashDump.c
 | `--cflags` | str | none | Compiler flags (default: resolved metadata or project config) |
 | `--toolchain` | str | none | Override toolchain profile |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew diagnose config`
 
@@ -2455,7 +2408,7 @@ function).
 | --- | --- | --- | --- |
 | `SOURCE_ARG` | str | required | Source file, directory, symbol name, or hex VA (0x…) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew diagnose probe`
 
@@ -2484,7 +2437,7 @@ measurement inputs.
 | `--size` | int | none | Target size in bytes (default: stored SIZE) |
 | `--cflags` | str | none | Compiler flags (default: resolved metadata or project config) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew diagnose near`
 
@@ -2536,7 +2489,7 @@ aborting the batch).
 | `--catalog` | flag | `False` | Print the symptom index (delta category → suggestion → GA mutations); with `--json`, returns it as `{"catalog": <markdown>}` |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew diagnose gap`
 
@@ -2564,7 +2517,7 @@ before compiling; another function's identity is never used as a fallback.
 | `--size` | int | none | Window in bytes (default: real body) |
 | `--cflags` | str | none | Compiler flags (default: resolved metadata or project config) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Binary
 
@@ -2625,7 +2578,7 @@ non-zero, so zero-initialized layout padding cannot inflate it.
 | `--built` | path | required | Built image to compare |
 | `--reference` | path | none | Reference image (default: the target's binary) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary ne-compare`
 
@@ -2646,7 +2599,7 @@ segments are compared as stored encodings; virtual expansion is not implied.
 | `--original` | path | none | Reference (default: configured target) |
 | `--window` | int range (≥ 1) | `32` | Minimum full content window |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary forms`
 
@@ -2662,7 +2615,7 @@ Unsupported candidates are explicit errors (exit 2), not an omitted subset.
 | --- | --- | --- | --- |
 | `BINARY` | path | none | NE executable or standalone form stream |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary switches`
 
@@ -2692,7 +2645,7 @@ pass): one line per function with dispatch/case counts and the exact
 | `--window` | int | `512` | Disassembly window size |
 | `--all` | flag | `False` | Every function-list entry in the selected target. Does not select other targets. |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary functions`
 
@@ -2741,7 +2694,7 @@ of pagination.
 | `--offset` | int | `0` | Skip this many functions before listing |
 | `--limit` | int | none | Maximum functions to list (0 = none; omitted = unlimited) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary unpack-lzexe`
 
@@ -2797,7 +2750,7 @@ a rebuild.
 | --- | --- | --- | --- |
 | `BINARY` | path | none | Binary path (default: project target) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary pe`
 
@@ -2881,7 +2834,7 @@ A missing binary exits `EXIT_ERROR` (2).
 | --- | --- | --- | --- |
 | `BINARY` | path | none | Binary path (default: project target) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary crypto`
 
@@ -2915,7 +2868,7 @@ statically linked library leaves tables whether or not they are used.
 | --- | --- | --- | --- |
 | `BINARY` | path | none | Binary path (default: project target) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary strings`
 
@@ -2938,7 +2891,7 @@ cross-references.
 | `--offset` | int | `0` | Skip this many filtered strings before listing |
 | `--limit` | int | none | Maximum strings to list (0 = none; omitted = unlimited) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary xrefs`
 
@@ -2992,7 +2945,7 @@ decoded instruction. Register calls in x86-64 images are not resolved.
 | `--kind` | str (repeatable) | none | Only show this ref kind (repeatable) |
 | `--calls-from` | int | `0` | Instead of refs TO va, inventory calls FROM the function at va, for this many bytes (resolves register-cached imports) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary function`
 
@@ -3004,7 +2957,7 @@ Per-function recon dossier: callers, callees, strings, imports, globals.
 | --- | --- | --- | --- |
 | `VA` | str | required | Function address in hex (0x prefix optional) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary analyze`
 
@@ -3030,7 +2983,7 @@ intelligence step on a binary you haven't onboarded yet.
 | `--function` | str | none | Drill into one function (hex VA): callers, callees, strings, imports |
 | `--output` / `-o` | path | none | Write a Markdown report to this path (mutually exclusive with --json) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary relocs`
 
@@ -3075,7 +3028,7 @@ missing.
 | `--pairs` | str | none | START:END hex VA range: pair reference and built operands at shared sites whose reference target is inside it |
 | `--limit` | int | `50` | Max sites printed per list (0 = none; JSON lists all) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary asm`
 
@@ -3201,7 +3154,7 @@ and stdout is empty.
 | `--output` / `-o` | path | none | Output file (default: stdout) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary asm batch`
 
@@ -3239,7 +3192,7 @@ rebrew binary asm batch --json
 | `--output` / `-o` | path | none | Output directory for batch assembly |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary pdb`
 
@@ -3328,7 +3281,7 @@ This physical table position does not establish linker load order or ownership.
 | --- | --- | --- | --- |
 | `BINARY` | path | none | Binary path (default: project target) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary imports mark`
 
@@ -3347,7 +3300,7 @@ rebrew binary imports mark --dry-run --json
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--rebind-retired` | flag | `False` | Replace a retired source claim with the LIBRARY import identity |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary extract`
 
@@ -3375,7 +3328,7 @@ List un-reversed candidates.
 | `--min-size` | int | `8` | Minimum function size |
 | `--max-size` | int | `50000` | Maximum function size |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary extract show`
 
@@ -3394,7 +3347,7 @@ Extract and disassemble a single VA.
 | `--binary` | path | none | Path to DLL/EXE (default: from config) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary extract batch`
 
@@ -3411,7 +3364,7 @@ Extract and disassemble a batch of functions.
 | `--max-size` | int | `50000` | Maximum function size |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binary resource`
 
@@ -3512,7 +3465,7 @@ rebrew binary repair-extents 0x401010=3 --add-missing --reason proof --dry-run
 | `--retire` | str (repeatable) | none | Retire a reviewed erroneous inventory row (repeatable; requires preview digest) |
 | `--sync-rows` | flag | `False` | Also set the matching function row SIZE to the reviewed extent |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Metadata
 
@@ -3547,7 +3500,7 @@ Catch up recovered metadata replicas and report unavailable destinations.
 | --- | --- | --- | --- |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew metadata migrate`
 
@@ -3565,7 +3518,7 @@ either side since the preview. Previews create no files.
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--expected-digest` | str | none | Require the input digest from a reviewed preview |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew metadata backup`
 
@@ -3592,7 +3545,7 @@ records. The command raises when there is nothing to back up.
 | --- | --- | --- | --- |
 | `--dir` | path | required | Directory to copy the active metadata backend's stores (with GA log and BinSync baselines) into |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew metadata restore`
 
@@ -3610,7 +3563,7 @@ the rest of the `.rebrew/` extras are installed.
 | --- | --- | --- | --- |
 | `--file` | path | required | Backup made with 'rebrew metadata backup' |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Data
 
@@ -3692,7 +3645,7 @@ rebrew data list --json
 | `--conflicts` | flag | `False` | Show only globals with type conflicts |
 | `--summary` | flag | `False` | Show section-level summary only |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 `--all-targets` reports every target independently in configured order, using its
@@ -3732,7 +3685,7 @@ rebrew data set --type 0x401000=int --dry-run --json
 | `--expected-digest` | str | none | Require the input digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data move`
 
@@ -3759,7 +3712,7 @@ rebrew data move 0x10035400 0x10035408 --dry-run --json
 | `NEW_VA` | str | required | Address it moves to (hex) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data mark-literals`
 
@@ -3786,7 +3739,7 @@ rebrew data mark-literals --dry-run --json
 | `--link-map` | path | none | MSVC link map of a reference-aligned build (default: raw_link's .map) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data audit-literals`
 
@@ -3808,7 +3761,7 @@ raw-link placement nor storage ownership. This opt-in audit does not change STAT
 | `--symbol` | str | none | Exact defined object function symbol |
 | `--size` | int | none | Complete native function extent in bytes |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data pair`
 
@@ -3856,7 +3809,7 @@ rebrew data pair 0x402320 0x401e50 --from a.exe -t b.exe --dry-run --json
 | `--rewrite` | path | none | Shared C source: replace raw --from address casts with the names |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data dispatch`
 
@@ -3875,7 +3828,7 @@ rebrew data dispatch --json
 | `--min-table-len` | int | `3` | Minimum number of entries to qualify as a dispatch table |
 | `--max-pointer-stride` | int | `4` | Maximum byte stride between pointer slots when scanning for tables |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data bss`
 
@@ -3892,7 +3845,7 @@ rebrew data bss --json
 | --- | --- | --- | --- |
 | `--link-map` | path | none | Accepted but not read here; only `data list` loads library owners (passing it prints a warning) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data fix-bss`
 
@@ -3910,7 +3863,7 @@ rebrew data fix-bss --dry-run --json
 | `--link-map` | path | none | Accepted but not read here; only `data list` loads library owners (passing it prints a warning) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data header`
 
@@ -3929,7 +3882,7 @@ rebrew data header --output include/rebrew_globals.h --dry-run
 | `--output` / `-o` | path | none | Header output file (default: {reversed_dir}/rebrew_globals.h) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data annotate`
 
@@ -3946,7 +3899,7 @@ rebrew data annotate --dry-run --json
 | --- | --- | --- | --- |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data layout`
 
@@ -3978,7 +3931,7 @@ rebrew data layout audit --json
 | --- | --- | --- | --- |
 | `--section` | str | `.data` | Section to audit (.data or .rdata) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data layout fill`
 
@@ -3996,7 +3949,7 @@ rebrew data layout fill --dry-run --json
 | `--bss-only` | flag | `False` | Only BSS pads; skip initialized-region pads |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data layout own`
 
@@ -4014,7 +3967,7 @@ rebrew data layout own --dry-run --json
 | `--stub-file` | path | none | Stub TU whose placeholders to own (default src/link_stubs.c) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data layout fix-ownership`
 
@@ -4031,7 +3984,7 @@ rebrew data layout fix-ownership --dry-run --json
 | --- | --- | --- | --- |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew data layout converge`
 
@@ -4049,7 +4002,7 @@ rebrew data layout converge --dry-run --json
 | `--rounds` | int | `1` | Measure/adjust rounds in this invocation. The built binary is not re-linked between them, so an extra round re-measures the same build; rebuild and re-run for a new fixed point |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Types
 
@@ -4091,7 +4044,7 @@ rebrew types check --json
 | --- | --- | --- | --- |
 | `--compile` | flag | `False` | Recompile managed sizeof/offsetof assertions |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew types contracts`
 
@@ -4113,7 +4066,7 @@ audit, not a preprocessor or compiler proof. Errors or uncertainty exit 1.
 | `--name` | str | none | Audit one C name; defaults to every declaration |
 | `--image-headers` | flag | `False` | Resolve SDK headers from the admitted compiler images |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 | `--all-targets` | flag | `False` | Repeat this command for every configured target. Does not change which items each target selects. Excludes --target. |
 
 ### `rebrew types reconcile`
@@ -4218,7 +4171,7 @@ native extent from sizeof.
 | `--cflags` | str | none | Compile flags; defaults to target flags |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew types apply`
 
@@ -4238,7 +4191,7 @@ rebrew types apply 0x401000 --param 0 --type int --dry-run
 | `--type` | str | required | New parameter type spelling |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew types recover`
 
@@ -4291,7 +4244,7 @@ or a Ghidra MCP endpoint.  For guild-rebrew-style projects this is the
 | `--output` / `-o` | path | none | Append recovered definitions to this header; required with --dry-run |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Build
 
@@ -4352,7 +4305,7 @@ gate drift with `--check`. Data decoration is explicitly supplied.
 | `--output` / `-o` | path | none | Response file to write |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build delphi`
 
@@ -4376,7 +4329,7 @@ by the same invocation. JSON reports the actual compiler arguments.
 | `--work-dir` | path | none | Retain fresh compilation directories below this path |
 | `--output` / `-o` | path | none | Executable output (default: the target's bin_dir) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build postlink`
 
@@ -4432,7 +4385,7 @@ bytes the file does not have.
 | `--data-gap` | str | none | Also emit crt_region/data_restore.c: the reference's raw .data bytes [<raw-size>:raw_end] (hex, e.g. 0x3000). Copies reference scaffolding; does not check native data ownership or relocate pointers |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build cmake-toolchain`
 
@@ -4556,7 +4509,7 @@ option retains source-wide properties for existing single-target builds.
 | `--output` / `-o` | path | `build/rebrew-cflags.cmake` | CMake include to write |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build cmake-sources`
 
@@ -4576,7 +4529,7 @@ files. Pairs with `rebrew build cmake-flags` (per-file CFLAGS) and
 | `--output` / `-o` | path | `build/rebrew-sources.cmake` | CMake include to write |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build check`
 
@@ -4632,7 +4585,7 @@ drops files absent from the original.
 | `--exclude` | str (repeatable) | `[]` | File basenames absent from the original (repeatable) |
 | `--module` | str | `""` | Metadata module to order by (e.g. SERVER) for multi-target sources |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build calibrate-bss`
 
@@ -4653,7 +4606,7 @@ stub, repeat until equal.
 | `--cflags` | str | `/O2 /Gd` | Flags for the stub compile |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build link-stubs`
 
@@ -4783,7 +4736,7 @@ the culprit while the symbol rows show the victims. Terminal mode prints a
 | `--shift-step` | int | `8` | Bytes between candidate size shifts |
 | `--shifts` | int | `4` | Candidate shifts to try on each side of zero |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build check-text-placement`
 
@@ -4814,7 +4767,7 @@ its extent is unknown. The audit is diagnostic and does not change the exit code
 | `--list-correct` | flag | `False` | Include the functions already at their expected VA in the `--json` payload as `correct_list` |
 | `--rounding` | flag | `False` | Report functions whose linked extent is shorter than the reference rounding, as `rounding` in the `--json` payload |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build sweep-link-flags`
 
@@ -4834,7 +4787,7 @@ from `build/CMakeFiles/*/link.txt` when present, or passed as
 | `--cwd` | path | none | Working directory for the link command (default: the build dir) |
 | `--keep` | flag | `False` | Keep scratch DLLs in the temp dir |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build link-order`
 
@@ -4853,7 +4806,7 @@ writing; `--check` exits 1 with a unified diff on drift (CI gate).
 | `--apply` | flag | `False` | Rewrite the SOURCES block in VA order; excludes --check |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build check-exports`
 
@@ -4873,7 +4826,7 @@ entry point was accidentally renamed: before it becomes a runtime failure.
 | --- | --- | --- | --- |
 | `RECOMP_BINARY` | path | required | Path to the recompiled DLL/EXE (built from your sources) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build round-trip`
 
@@ -4973,7 +4926,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | `--output` / `-o` | path | none | Override output PE path (default: <binary>.reasm next to target) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build residue`
 
@@ -4995,7 +4948,7 @@ output.
 | `--baseline` | path | none | Baseline JSON file: also print per-function deltas vs it |
 | `--new-baseline` | path | none | Write this run's report as JSON to PATH (adopt as baseline) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build layout-map`
 
@@ -5018,7 +4971,7 @@ manifest including per-gap rows.
 | --- | --- | --- | --- |
 | `--output` / `-o` | path | none | Write text-map files (sections.txt, gaps.txt, iat.txt, exports.txt) into DIR |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew build check-tu-data`
 
@@ -5048,7 +5001,7 @@ cannot be read. `--link-map` defaults to the active target's
 | --- | --- | --- | --- |
 | `--link-map` | path | none | MSVC link map of the build (default: build/<target>.map) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Coverage
 
@@ -5136,14 +5089,15 @@ at decomp.dev/manage/new.
 | `--decomp-dev` | path | none | Write an objdiff-format report.json for decomp.dev (path to report.json) |
 | `--output` / `-o` | path | none | Output directory (default: <output_dir>/report) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew coverage export`
 
 `rebrew coverage export --output <directory> [--root <project>] [--target T] [--json]`
 
-Export portable `coverage-<target>.toml` snapshots for offline viewing. Output is
-required and never comes from project configuration. Normal local dashboards read
+Export portable `coverage-<target>.toml` snapshots for offline viewing. Rebrew
+exports every configured target unless you select one with `--target`. Pass
+`--output` to supply the destination. Normal local dashboards read
 metadata, inventory, binaries and sources directly and need no export step.
 Exports include durable status history and stored comparison measurements.
 
@@ -5151,11 +5105,15 @@ Exports include durable status history and stored comparison measurements.
 
 `rebrew coverage import-history --snapshots <directory> [--root <project>] [--target T] [--dry-run] [--json]`
 
-Preserve existing exported status history in canonical function metadata before
-retiring generated snapshots. Preview first, then repeat without `--dry-run`.
-The entire input is validated before writing; repeated imports are idempotent.
-Current STATUS, verification, identity and provenance remain unchanged. Keep
-configured inventory files even if they live beside old coverage exports.
+Import status history from every snapshot in the directory, or use
+`--target T` to select one. Rebrew validates history from the readable
+snapshots before writing. It warns about unreadable snapshots and can
+still import readable siblings. Check the warnings and imported targets
+before retiring any exports. Keep snapshots whose history was skipped and
+retain any configured inventory files beside them.
+
+Preview with `--dry-run`, then repeat without it. Repeated imports are
+idempotent and preserve current STATUS, verification, identity, and provenance.
 
 ### `rebrew coverage serve`
 
@@ -5172,80 +5130,11 @@ Failed live targets appear in `failures` beside healthy targets, and health says
 `{"url", "coverage_source"}`. JSON without `--print-url` is rejected before
 project loading. The full contract is [dashboard-api.yaml](dashboard-api.yaml).
 
-Endpoints: `/`, `/app.js`, `/favicon.svg`, `/api/bootstrap`, `/api/targets`,
-`/api/health` (liveness plus one real read of the target list, so a
-directory yielding no readable document answers 500 `database_error`; reports
-`coverage_source` (on a loopback bind only), the `trace_spans_dropped` and
-`trace_spans_failed` OTLP export counters, the running `requests`, `server_errors`, `client_errors`,
-`not_modified`, `timeouts`, `slow_requests`, and `slowest_ms`
-totals, and the `active_connections` gauge (the count the in-flight cap
-refuses on), so a probe can watch the error rate (4xx and 5xx alike) and the
-saturation behind it while the server is up; served
-`no-store` with no `ETag`),
-`/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;
-compact row arrays under `cols`), `/api/sections?target=` (compact row arrays
-under `cols`),
-`/api/globals?target=` (module/q/limit/offset; compact arrays under `cols`),
-`/api/history?target=` (limit/offset; compact arrays under `cols`).
-Missing `target` → 400; unknown target → 404; a `status` filter outside the
-STATUS vocabulary → 400 (an empty page would read as "no functions in that
-status"). `function_stats` is derived from the stored function rows, so
-there is no corrupt-row case left: `/api/summary` either has a document (200)
-or does not (404). A present empty `module=` on `/api/functions` and
-`/api/globals` matches a blank module; omitting `module` does not filter, and
-the value is compared in the spelling the rows are stored in (NFC, then upper,
-on both sides), so `?module=server` selects the `SERVER` rows.
-`q` matches a name or symbol substring on functions and a name substring
-on globals. Four or more hex digits, with an optional `0x` prefix, also
-match that virtual address (`0x401000` and `00401000` are the same address).
-`by_module_counts` uses those same stored strings (`""` when unset). A repeated
-query parameter takes its first value; an unrecognized one is ignored.
-`/api/bootstrap` always answers 200, and `summary` and `functions` are `null`
-only when the directory holds no readable document at all; a listed target
-always has one to summarize, since an unparseable document is skipped rather
-than listed. Any other method on a served path → 405 with `Allow: GET,
-HEAD`; a path the server does not serve → 404 `not_found` whatever the method.
-Every error body is `{"error": "<message>", "code": "<code>"}`, malformed
-requests included; branch on `code` (`missing_target`, `unknown_target`,
-`invalid_status`, `not_found`, `method_not_allowed`, `host_not_allowed`,
-`database_error` (the whole coverage directory yielded no readable document),
-`internal_error`,
-`server_busy` (a connection refused because the 64-connection cap was full;
-503 with `Retry-After: 1`, sent before routing),
-`bad_request`, `uri_too_long`, `header_fields_too_large`,
-`http_version_not_supported`, and `request_error` for any other status raised
-before routing) and show `error` to the reader. Every response, error
-included, carries `X-Request-Id: r<N>`, the same id the access and error log
-lines carry, so a reported failure is one grep away. The server writes one
-stream: an access line per request (id, request line, status, size, handler
-milliseconds), a WARNING for a request past 500 ms, an ERROR with an escaped
-traceback for a failure or a crashed run, and each route's own warning about
-its data, stamped with the id of the request in flight (`-` off the server,
-where the CLI reaches the same code without one). List endpoints
-also carry `paged`: `true` on `/api/functions`, `/api/globals`, and
-`/api/history` (where `limit` is the page size), `false` on `/api/sections`,
-`/api/targets`, and `/api/bootstrap` (where `limit` is the row count). Rows
-under `cols` are arrays, and every text column in them is a string: an absent
-status (a history row's `old_status`/`new_status` for a VA's first recorded
-transition) arrives as `""`, never `null`.
-A request that carries a body gets its response with `Connection: close`.
-The page keeps the selected target, view, and filters in the URL hash
-(`#target=…&view=globals&status=EXACT&q=…`), so a reload after
-a project edit or a shared link opens the same view. A `Reload` control
-re-runs the bootstrap in place (dropping the per-view loaded flags, so a view
-already visited comes back with fresh rows). Live views follow canonical project
-inputs; explicit snapshot mode follows files in its selected directory.
-
-Its stderr is one log stream: each access line reads
-`HH:MM:SS UTC INFO     <addr> r<N> "<request line>" <status> <bytes> <ms>ms trace_id=<id>`
-and each error line `HH:MM:SS UTC ERROR    r<N> <reason> for <path> trace_id=<id>`
-plus an escaped single-line traceback (times are UTC), so grepping `r<N>` pivots from a 500 to the
-request behind it. A fault that escapes the handler is logged there too, as
-`r<N> unhandled <Exc> from <peer> serving <request line>`; a client that
-closed the connection mid-response is
-`r<N> client disconnected serving <request line>` at INFO and does not count as
-a server error.  Totals (requests
-served, server errors, slowest request) print once when the server stops.
+The dashboard serves `/`, `/app.js`, and `/favicon.svg`. Its read-only
+API exposes `/api/bootstrap`, `/api/targets`, `/api/health`, `/api/summary`,
+`/api/functions`, `/api/sections`, `/api/globals`, and `/api/history`.
+See [dashboard HTTP behavior](COVERAGE_DOCUMENT.md#3-dashboard-rest-api)
+for filters, pagination, error responses, and logging.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -5283,7 +5172,7 @@ active module and modules that belong to no other target).
 | `--force` | flag | `False` | Skip the --fix-sizes confirmation prompt. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--json` | flag | `False` | Output results as JSON |
 | `--root` | path | none | Project root directory (default: auto-detected from rebrew-project.toml). |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Local field exchange and Ghidra
 
@@ -5341,7 +5230,7 @@ rebrew sync push --dry-run --json
 | `--state-dir` | path | none | BinSync state directory (default: configured binsync_state_dir) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew sync pull`
 
@@ -5371,7 +5260,7 @@ rebrew sync pull --dry-run --json
 | `--endpoint` | str | `http://localhost:8080/mcp/message` | ReVa MCP endpoint URL |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew sync summary`
 
@@ -5388,7 +5277,7 @@ rebrew sync summary --json
 | --- | --- | --- | --- |
 | `--state-dir` | path | none | BinSync state directory (default: configured binsync_state_dir) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew sync watch`
 
@@ -5408,7 +5297,7 @@ rebrew sync watch
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--state-dir` | path | none | BinSync state directory (default: configured binsync_state_dir) |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew sync create-functions`
 
@@ -5429,7 +5318,7 @@ rebrew sync create-functions --dry-run --json
 | `--endpoint` | str | `http://localhost:8080/mcp/message` | ReVa MCP endpoint URL |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew sync bookmarks`
 
@@ -5452,7 +5341,7 @@ rebrew sync bookmarks --dry-run --json
 | `--endpoint` | str | `http://localhost:8080/mcp/message` | ReVa MCP endpoint URL |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew sync pull-data`
 
@@ -5473,7 +5362,7 @@ rebrew sync pull-data --dry-run --json
 | `--endpoint` | str | `http://localhost:8080/mcp/message` | ReVa MCP endpoint URL |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## BinSync collaboration
 
@@ -5526,7 +5415,7 @@ from the target binary's MD5 errors.
 | `--user` | str | none | BinSync user rebrew writes as (branch binsync/<user>; default: targets.<name>.binsync_user, the user 'rebrew binsync init' recorded, else rebrew) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binsync diff`
 
@@ -5544,7 +5433,7 @@ preview before an import.
 | `STATE_DIR` | path | required | BinSync state directory to compare |
 | `--module` | str | none | Only this module (e.g. SERVER) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binsync overlay`
 
@@ -5579,7 +5468,7 @@ are already written. Use `--dry-run` to preview before writing.
 | `--module` | str | none | Only overlay metadata in this module (e.g. SERVER) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binsync push`
 
@@ -5597,7 +5486,7 @@ Export the project into rebrew's own BinSync branch and commit it.
 | `--user` | str | none | BinSync user rebrew writes as (default: targets.<name>.binsync_user, the user 'rebrew binsync init' recorded, else rebrew) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binsync pull`
 
@@ -5621,7 +5510,7 @@ state directory is fast-forwarded and imported from its working tree.
 | `--user` | str | none | BinSync user rebrew writes as (default: targets.<name>.binsync_user, the user 'rebrew binsync init' recorded, else rebrew) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binsync summary`
 
@@ -5634,7 +5523,7 @@ Preview what push and pull would change, without writing or touching git.
 | `STATE_DIR` | path | required | BinSync state directory to preview |
 | `--module` | str | none | Only this module (e.g. SERVER) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binsync export`
 
@@ -5665,7 +5554,7 @@ identities and a row name that is not a C identifier (exported as
 | `--user` | str | none | BinSync user to write as (default: targets.<name>.binsync_user, the user 'rebrew binsync init' recorded, else rebrew) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew binsync import`
 
@@ -5685,7 +5574,7 @@ them as STUB files.
 | `--create-missing` | flag | `False` | Create STUB files for catalog-known BinSync functions with no local source |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Export
 
@@ -5745,7 +5634,7 @@ and under `pe_collisions` in `--json`.
 | `--pe-symbols` | flag | `False` | Include symbols named from the target PE's data directories |
 | `--output` / `-o` | path | `symbol_addrs.csv` | Output path |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew export pdb`
 
@@ -5794,7 +5683,7 @@ line numbers, and MSVC RTTI class names.
 | `--unmatched` | flag | `False` | Write a PDB with zero identifiers when the target has no CodeView record |
 | `--output` / `-o` | path | none | Output path (default: the PDB file name the target's debug record names) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew export context`
 
@@ -5813,7 +5702,7 @@ it from a stub TU.
 | `--sources-only` | flag | `False` | Include only reversed sources, not library headers |
 | `--output` / `-o` | path | `ctx.c` | Output context file path |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew export objdiff`
 
@@ -5835,7 +5724,7 @@ resolution as `rebrew test`/`verify`.
 | `--target-dir` | path | `build/objdiff/target` | Where synthesized target objects are written |
 | `--output` / `-o` | path | `objdiff.json` | Output objdiff config path |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew export decompme`
 
@@ -5876,7 +5765,7 @@ Entries older than 90 days are dropped on write, and the file is capped at
 | `--reupload` | flag | `False` | Create a new scratch even if this payload was uploaded before |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Library
 
@@ -5945,7 +5834,7 @@ Review the link map and compare the complete object separately.
 | `--expected-digest` | str | none | Require the input digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library adopt`
 
@@ -5976,7 +5865,7 @@ refuses the write. A vendored-object match is refused; use
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--symbol` | str | none | Reviewed native symbol when the bytes match several byte-identical archive aliases; the stored identity is the symbol alone |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library review-native`
 
@@ -6007,7 +5896,7 @@ ownership are independent; no source provider, STATUS or verification is changed
 | `--expected-digest` | str | none | Require the input digest from a reviewed preview |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library show`
 
@@ -6078,7 +5967,7 @@ Remove a rebrew-libraries.toml (revert to project defaults).
 | `--index` | flag | `False` | Show CRT source index without matching |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library match`
 
@@ -6135,7 +6024,7 @@ graph proof or evidence of the actual linked provider. It writes no metadata.
 | `--allow` | path | none | File of VAs known library code, one hex VA per line (# comments) |
 | `--resolve-callees` | flag | `False` | With --va, check candidates against complete native direct callees; report unresolved edges |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library presence`
 
@@ -6159,7 +6048,7 @@ shared inline copies and masked wrappers can appear elsewhere.
 | `--min-ratio` | float | `0.85` | Fixed-byte ratio a body needs to count as present |
 | `--min-fixed` | int | `48` | Minimum fixed bytes a body must have to be tested |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library scan-signatures`
 
@@ -6194,7 +6083,7 @@ checkout's index lists under another architecture.
 | `--va` | str | none | Check a single function VA (hex) instead of the whole .text |
 | `--show-ambiguous` | flag | `False` | Report ambiguous matches (offsets with >3 candidate names) as well |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library init-signatures`
 
@@ -6214,7 +6103,7 @@ separate from scanning the binary.
 | --- | --- | --- | --- |
 | `--matched-only` | flag | `False` | Copy only signatures for the detected CRT linkage plus WinAPI imports |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library identify`
 
@@ -6234,7 +6123,7 @@ ordinal, such as `_bind@12` for WS2_32 ordinal 2; without one it stays
 | `--lib-dir` | path | none | Toolchain .lib directory for --build-sigs (default: toolchain/msvc/6.0-win32/source/VC98/Lib or the first tools/*/Lib found) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library signatures`
 
@@ -6310,7 +6199,7 @@ build\intel\mt_obj\initctyp.obj
 | `--refs` | str | none | List the members with an undefined reference to SYMBOL; excludes --defines |
 | `--defines` | str | none | List the members that define SYMBOL (section, absolute, COMMON, alias, import); excludes --refs |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew library vendor`
 
@@ -6422,7 +6311,7 @@ Detect which compiler/toolchain built a binary; check profile alignment.
 | --- | --- | --- | --- |
 | `BINARY` | path | required | Path to the target binary (PE/NE/ELF/Mach-O) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew toolchain pull`
 
@@ -6543,7 +6432,7 @@ selects the project's compiler profile.
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Configuration
 
@@ -6578,7 +6467,7 @@ Show the current config, or a specific key.
 | --- | --- | --- | --- |
 | `KEY` | str | none | Dot-separated key to show, e.g. 'compiler.cflags' |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew cfg effective`
 
@@ -6604,7 +6493,7 @@ report the very error it exists to diagnose.
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew cfg raw`
 
@@ -6778,7 +6667,7 @@ rebrew cfg module add GAME --dry-run
 | `MODULE` | str | required | Module name to add (e.g. 'ZLIB') |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew cfg module remove`
 
@@ -6797,7 +6686,7 @@ rebrew cfg module remove GAME --dry-run
 | `--force` | flag | `False` | Skip confirmation prompt. Without it, stdin must be a terminal; a piped answer does not approve |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew cfg module set-cflags`
 
@@ -6844,7 +6733,7 @@ rebrew cfg detect-crt show --json
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew cfg detect-crt apply`
 
@@ -6861,7 +6750,7 @@ rebrew cfg detect-crt apply --dry-run --json
 | --- | --- | --- | --- |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Blocker
 
@@ -6904,7 +6793,7 @@ Set BLOCKER (and optional BLOCKER_DELTA) for a function.
 | `--va` | str | none | Disambiguate VA in a multi-function file (hex) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew blocker clear`
 
@@ -6918,7 +6807,7 @@ Clear BLOCKER and BLOCKER_DELTA for a function.
 | `--va` | str | none | Disambiguate VA in a multi-function file (hex) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew blocker show`
 
@@ -6931,7 +6820,7 @@ Show BLOCKER metadata for a function.
 | `FUNCTION` | str | required | Source file, symbol name, or VA (hex) |
 | `--va` | str | none | Disambiguate VA in a multi-function file (hex) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Orphans
 
@@ -6965,7 +6854,7 @@ rebrew orphans list --json
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew orphans prune`
 
@@ -6983,7 +6872,7 @@ rebrew orphans prune --dry-run --json
 | `--include-matched` | flag | `False` | Also prune orphans claiming EXACT/RELOC/PROVEN or VERIFIED data |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew orphans drop`
 
@@ -7002,7 +6891,7 @@ rebrew orphans drop 0x401000 --dry-run --json
 | `--va` | str | none | Disambiguate VA in a multi-function file (hex) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Cache
 
@@ -7702,7 +7591,7 @@ required import would make these modes fail on a plain install.
 | `--cluster` | flag | `False` | Group the functions of THIS target whose normalized instruction sequence is identical (exact duplicates; cross-project or near-duplicate clustering is the resembl project's job) |
 | `--min-cluster-size` | int | `2` | Smallest group --cluster reports |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ### `rebrew similarity binary`
 
@@ -7737,7 +7626,7 @@ from a configured target.  Same-arch binaries only.
 | `--other-target` | str | none | Use a configured target instead of OTHER_BINARY and --other-list |
 | `--limit` | int | `10` | Maximum lowest-scoring functions to list (0 = no rows) |
 | `--json` | flag | `False` | Output results as JSON |
-| `--target` / `-t` | str | none | Target name from rebrew-project.toml (default: project default target); a final --target lists targets. |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
 ## Contributor tools
 
@@ -7776,210 +7665,21 @@ enforced rule).  `--min-lines` selects files with at least N lines
 
 ### Shared multi-version sources (`src/shared` + per-target defines)
 
-For the "keep the same `.c` for multiple target versions" workflow (binary versions, or a DLL+EXE pair sharing code), rebrew follows the isledecomp/LEGO Island model:
-
-- **`[project] shared_dir`** (default `src/shared`, empty string disables): a project-level source root scanned for **every** target. One shared file is named by one `MODULE.0xVA` row per target, the same function at a different VA in each version:
-  ```toml
-  ["V1.0x401000"]
-  file = "shared/common.c"
-  kind = "FUNCTION"
-
-  ["V2.0x501000"]
-  file = "shared/common.c"
-  kind = "FUNCTION"
-  ```
-  ```c
-  int common(void) { ... }
-  ```
-  Each target's scan/verify sees only its own row. `STATUS` and `SIZE` are per target in `rebrew-functions.toml` (`rebrew coverage catalog --fix-sizes` backfills `SIZE`). Optional ADDRESS anchors may stack one per target; old source blocks and schemas are rejected. The function name comes from the one C definition in the file.
-- **`[targets.<name>] defines = ["V2"]`**: per-target compile-time defines (`/DV2` for MSVC, `-DV2` for gcc/posix); the switch that makes `#ifdef V2` deltas in the shared file work:
-  ```c
-  int common(void) {
-  #ifdef V2
-      return 2;
-  #else
-      return 1;
-  #endif
-  }
-  ```
-  Set them with `rebrew cfg set targets.V2.defines '["V2"]'` or edit `rebrew-project.toml` directly. A defines edit invalidates the target's verify cache automatically.
-- Functions that differ too much to `#ifdef` stay in one target's own `reversed_dir` (or use `rebrew source import-related` to copy them).
+Use one source definition and a separate address binding and compiler options
+for each target. See the [shared-source configuration example](CONFIG.md#shared-source-across-targets)
+and [workflow](WORKFLOW.md#sharing-code-between-targets).
 
 ## Examples
 
-```bash
-# Disassembly
-rebrew binary asm show 0x100011f0 --size 64 # Hex dump 64 bytes at VA
-rebrew binary asm show 0x100011f0 --format nasm # NASM disassembly at VA
-rebrew binary asm show 0x100011f0 --format cfg # Basic-block CFG: block VAs, sizes, edges
-rebrew binary asm show 0x100011f0 --format cfg --json # ...same payload as JSON
-rebrew binary asm show 0x100011f0 --format nasm --inline-c --output f.c # Exact-bytes naked C skeleton
-rebrew binary asm show 0x100011f0 --target server.dll # Use alternate target
-rebrew binary asm show 0x100011f0 --imports # Annotate call/jmp [IAT] with import names
-rebrew binary asm show 0x100011f0 --strings # Annotate push/mov/lea of strings with their text
-rebrew binary asm show 0x100011f0 --hints # Decomp-pattern hints (post-decrement loops,
-                                                  #   SEH prologues, CRT strlen, movsx, inc-mem)
-
-# Skeleton generation
-rebrew skeleton 0x10003da0 --decomp               # Skeleton with inline decompilation
-rebrew skeleton 0x10003da0 --decomp --decompiler ghidra  # Ghidra via MCP
-rebrew skeleton 0x10003da0 --decomp --decompiler r2dec   # Radare2 r2dec
-rebrew skeleton 0x10003da0 --xrefs                # With caller context from Ghidra
-rebrew skeleton 0x10003da0 --append getenv.c      # Append to multi-function file
-
-# Testing (auto-promotes STATUS on EXACT/RELOC)
-rebrew test src/target_name/my_func.c --json      # JSON test result
-rebrew test src/target_name/my_func.c --no-promote # compile without updating STATUS
-
-# Prioritization & action queue
-rebrew todo                                        # Top 20 actions by affected bytes, then effort
-rebrew todo --category start-function                      # Only uncovered functions to start
-rebrew todo --category fix-delta --limit 50                     # Tiny byte diffs (quick wins)
-rebrew todo --category compile-error                       # Build failures blocking progress
-rebrew todo --category extract-error                       # Symbols missing from .obj (binding/implementation issue)
-rebrew todo --category documented                          # Audit-only: IAT thunks / non-reproducible code
-rebrew todo --stats --json                         # Coverage stats + full JSON report
-
-# Diff & investigation
-rebrew diff src/target_name/f.c                    # Side-by-side diff
-rebrew diff --mismatches-only src/target_name/f.c  # Only structural diffs
-rebrew diff --fix-blocker src/target_name/f.c      # Auto-write BLOCKER metadata
-rebrew diff --json src/target_name/f.c             # JSON diff
-rebrew diagnose near src/target_name/f.c               # Why doesn't this byte-match?
-rebrew diagnose near src/target_name/f.c --fix-blocker # ...and document the verdict as BLOCKER
-rebrew diagnose near --all --fix-blocker               # Classify + document ALL NEAR_MATCHING
-rebrew match batch # Batch GA on all STUBs
-rebrew match batch --improve # Batch GA on all NEAR_MATCHING
-rebrew match batch --near-miss --threshold 5 # GA on NEAR_MATCHING with <=5B delta
-rebrew match batch --dry-run # List candidates only
-
-# Verification & status
-rebrew verify                                      # Verify all reversed functions
-rebrew verify --compare                            # Compare against the saved baseline, detect regressions
-rebrew verify --json                               # Structured JSON report
-rebrew verify --output /tmp/verify_report.json           # Write report to file (explicit export path)
-rebrew lint --fix && rebrew lint                   # Fix then re-lint
-rebrew status                                      # Reversing progress overview
-rebrew coverage catalog                      # build catalog and show summary
-rebrew coverage export --output snapshots/                      # write portable snapshots/coverage-<target>.toml
-
-# Data analysis
-rebrew data list # Inventory globals
-rebrew data dispatch --json # Dispatch tables as JSON
-rebrew data bss --json # BSS layout as JSON
-rebrew data fix-bss # Auto-generate BSS padding
-
-# Dependency graph
-rebrew source graph                                       # Mermaid call graph
-rebrew source graph --format dot --output graph.dot       # DOT graph written to a file
-rebrew source graph --focus FuncName --depth 2            # Neighbourhood of a function
-
-rebrew source split src/target_name/multi.c               # split all functions into individual files
-rebrew source split src/target_name/multi.c --dry-run      # preview split
-rebrew source split --va 0x10003DA0 src/target_name/multi.c  # extract one function into multi_c/
-rebrew source split --va 0x10003DA0 --dry-run src/target_name/multi.c  # preview extraction
-rebrew source merge a.c b.c --output merged.c                    # merge into one file
-rebrew source merge multi_c/ multi.c --output multi.c --force --delete  # merge extracted function back
-
-# Semantic equivalence proving
-rebrew prove src/target_name/calculate_physics.c     # prove NEAR_MATCHING → PROVEN
-rebrew prove src/target_name/calculate_physics.c --json  # JSON output
-rebrew prove my_func --dry-run                        # find by symbol, preview only
-rebrew prove src/target_name/func.c --timeout 120     # allow 2 min for complex functions
-
-# FLIRT scanning
-rebrew library scan-signatures                                       # Scan with default sigs
-rebrew library scan-signatures sigs/ --min-size 32                   # Custom dir, skip tiny funcs
-rebrew library scan-signatures --json                                # JSON output
-
-# Compilation unit inference (via graph --cu-map)
-rebrew source graph --cu-map                              # Rich table of inferred TU clusters
-rebrew source graph --cu-map --json                       # JSON output for scripting
-rebrew source graph --cu-map --json | jq '.clusters | length'  # count clusters
-
-# CRT source matching
-rebrew library crt-match 0x10006c00                     # match a single VA against CRT source
-rebrew library crt-match --all                           # match all library-attributed functions
-rebrew library crt-match --fix-source --all              # record source provenance in metadata
-rebrew library crt-match --index                         # show CRT source index
-
-# Sync to/from Ghidra (BinSync state dir relay)
-rebrew sync summary --state-dir D # Preview what would sync
-rebrew sync push --state-dir D # Export dedicated metadata to the state dir
-rebrew sync pull --state-dir D --dry-run # Preview import
-rebrew sync pull --state-dir D # Import names/prototypes/notes/globals/structs
-rebrew sync pull-data # Fetch data labels into rebrew_globals.h (MCP)
-```
+For complete workflows, see [Getting started](GETTING_STARTED.md),
+[matching and verification](WORKFLOW.md), and [project CI](CI.md#project--workspace-ci).
+Each command section lists its options and operational details.
 
 ## Internal Modules
 
-### Matcher Engine
-
-| Module | Purpose |
-|--------|---------|
-| `matcher/scoring.py` | Multi-metric fitness scoring (byte, reloc, mnemonic, structural similarity) |
-| `matcher/compiler.py` | Compilation backend + `flag_sweep(tier=)` + `generate_flag_combinations(tier=)` |
-| `flags.py` / `flag_data.py` | Package-root flag primitives + axes (shared by compile-cache and matcher) |
-| `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 128 C mutation operators for GA |
-| `matcher/core.py` | GA types (`Score`, `BuildResult`, `GACheckpoint`) |
-| `matcher/solutions.py` | Cross-function solution transfer database (`.rebrew/ga_runs.jsonl` win records) |
-
-### Source Bindings, Metadata & Sync
-
-| Module | Purpose |
-|--------|---------|
-| `metadata/bindings.py` | Canonical source bindings (`read_source_bindings`, `source_bindings`) |
-| `lint.py` | Source binding and metadata linter; `--fix` repairs resolvable data sections and redundant flags, while E024 rejects inline state without migration; W005 points to `rebrew blocker set` for STUB BLOCKERs |
-| `blocker.py` | Programmatic BLOCKER writer: `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata.functions` (never hand-edit `rebrew-functions.toml`) |
-| `ghidra/cli.py` | BinSync field exchange plus Ghidra structural operations; metadata stays in dedicated stores |
-
-### Binary Analysis
-
-| Module | Purpose |
-|--------|---------|
-| `cu_map.py` | Compilation unit boundary inference (contiguity clustering + call-graph refinement) |
-| `data_scan.py` | Global data scanner library shared by `data.py`, `analyze.py`, `depgraph.py`, `report.py`, and binsync export: `scan_globals`, dispatch-table detection, BSS layout verification (also used by `coff_reloc` reloc validation) |
-
-### Library Identification
-
-| Module | Purpose |
-|--------|---------|
-| `flirt.py` | FLIRT signature matching (no IDA required) |
-| `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
-| `gen_flirt_pat.py` | Generate `.pat` files from COFF `.lib` archives |
-
-### Unified Compilation
-
-All tools share a single compile path via `rebrew.compiler.compile`. The module provides
-`compile_to_obj` for single-file compilation, `resolve_compiler_env(cfg)` for
-consistent compiler + cache resolution, and the high-level `compile_and_compare`
-that returns a `CompareResult` dataclass used by both `rebrew test` and
-`rebrew verify`.
-
-| Symbol | Module | Purpose |
-|--------|--------|---------|
-| `CompareResult` | `compiler/compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`, `error`) |
-| `classify_compare_result` | `compiler/compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
-| `compile_and_compare` | `compiler/compile.py` | High-level: compile → extract → compare → `CompareResult` |
-| `update_source_status` | `metadata/functions.py` | Canonical STATUS writer: promotes STATUS in `rebrew-functions.toml`; never touches `.c` files |
-| `update_field` / `remove_field` | `metadata/functions.py` | Canonical BLOCKER/CFLAGS/NOTE writers: `rebrew blocker set/clear` (BLOCKER), `rebrew diff --fix-blocker` / `rebrew diagnose near --fix-blocker` (auto BLOCKER): never hand-edit `rebrew-functions.toml` |
-
-Both `rebrew test` (auto-promote after single test) and `rebrew verify`
-(always-on batch promotion) call `update_source_status`.  The `.c` file is **never modified**
-by either tool's status logic.
-
-A compile that never reached the toolchain's verdict on the source is reported as
-`status = "COMPILE_ERROR"` with a structured error on `CompareResult.error`: a
-`rebrew.compiler.recompile_client.RecompileError` when the remote recompile
-backend (`[compiler] recompile_url` / `REBREW_RECOMPILE_URL`) could not compile,
-a `rebrew.compiler.toolchain.ToolchainError` when a local toolchain or the
-compile setup could not run. `rebrew verify` / `rebrew test --all` write no
-STATUS and cache no result for either. The compiler rejecting the source (a
-local compiler's nonzero exit, recompile's `error_code` `toolchain_failure`)
-carries no `error` and is recorded as a compile error. A library consumer
-branches on `result.error.kind` / `result.error.retryable` instead of matching
-`result.message` substrings.
+See the [architecture guide](ARCHITECTURE.md#module-map) for the module map and
+the [Python API](PYTHON_API.md) for `CompareResult`, structured failures, and
+service clients.
 
 ## Exit Code Alignment: `rebrew diff` vs `rebrew test`
 
@@ -7989,7 +7689,7 @@ the target function.
 
 `rebrew test` exits 0 for an EXACT or RELOC match, 1 for a needs-work byte
 verdict such as NEAR_MATCHING, STUB or SIZE_MISMATCH, and 2 for tooling failures
-including COMPILE_ERROR and EXTRACT_ERROR. Both the single-function and `--all`
+including NOT_RUN, COMPILE_ERROR, and EXTRACT_ERROR. Both the single-function and `--all`
 paths follow this contract. `--dry-run` only skips STATUS writes on paths that
 compile; their exit-code rules still apply. `test --all --dry-run` exits 0 because
 it lists candidates without compiling at all.

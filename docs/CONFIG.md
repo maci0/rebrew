@@ -1,15 +1,18 @@
 # Configuration Reference
 
-All tools read project settings from **`rebrew-project.toml`** via the config loader. This eliminates hardcoded paths and makes the toolchain portable to different targets.
+Project commands read target and toolchain settings from `rebrew-project.toml`.
 
 [`rebrew-project.toml.example`](../rebrew-project.toml.example) is the complete
 template: every key the loader knows, most of them commented out. Copy it to
 `rebrew-project.toml` and edit, rather than starting from the excerpts below.
-A key it does not know only warns at load; the run continues with that key ignored.
+The loader warns about unknown top-level, project, target, compiler, and linker keys.
+It rejects unknown keys in strict sections such as `[metadata]` and
+`address_comments`, and rejects the retired `marker` key.
 
-> Repeated runs follow each command's contract. `rebrew skeleton --batch N`,
-> for example, selects the next uncovered functions on each run. Use a command's
-> preview mode, where available, before repeating an operation that writes files.
+- [Target settings and defaults](#what-the-config-loader-provides)
+- [Compiler](#compiler-configuration), [linker](#linker-settings-link), and [cache](#compile-cache-backend)
+- [Metadata storage](#metadata-storage) and [lint style](#lint-style-projectlint)
+- [Environment variables](#environment-variables) and [configuration editor](#config-editor-rebrew-cfg)
 
 ## `rebrew-project.toml` (Project Root)
 
@@ -56,21 +59,11 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 
 ## Metadata storage
 
-Project configuration always stays in `rebrew-project.toml`. The optional
-project-wide storage selection covers functions, data, source evidence, types
-and library settings:
-
-```toml
-[metadata]
-backend = "toml" # default; "sqlite" is experimental
-```
-
-Use `rebrew metadata migrate sqlite --dry-run` followed by
-`rebrew metadata migrate sqlite` to import and select SQLite safely. Use the
-same commands with `toml` to export and switch back. Editing the setting alone
-does not import data, and there is no fallback to inactive stores. See
-[metadata storage](METADATA.md#storage-api-and-backend-selection) for transaction,
-backup and preview contracts.
+`[metadata].backend` selects one storage backend for the managed documents.
+TOML is the default. SQLite and PostgreSQL are also available. Use ordered
+`read_backends` and `write_backends` for replication. A setting change alone
+does not transfer existing metadata. See [backend selection](METADATA.md#storage-api-and-backend-selection)
+for the supported combinations, migrations, and backups.
 
 ## What the Config Loader Provides
 
@@ -82,10 +75,13 @@ backup and preview contracts.
 | `module` | `[targets.<name>].module` | Module name in `MODULE.0xVA` keys (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
 | `default_jobs` | `[project].jobs` | Default parallelism for batch commands (default `4`) |
-| `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
+| `output_dir` | `[project].output_dir` | Default output directory for generated artifacts (`output`) |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
-| `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
+| `reversed_dir` | `[targets.<name>].reversed_dir` | Source directory (default: `src/<target>`) |
+| `bin_dir` | `[targets.<name>].bin_dir` | Build artifact directory (default: `bin/<target>`) |
+| `binary_format` | `[targets.<name>].format` | Target format (default: `pe`) |
+| `arch` | `[targets.<name>].arch` | Target architecture (default: `x86_32`) |
 | `inventory_file` | `[targets.<name>].inventory_file` | Function-inventory path override, relative to project root (default: `reversed_dir/function_structure.json`); per-target inventories for one shared source tree |
 | `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target. Each target's identity is a `MODULE.0xVA` row naming that file. Optional ADDRESS anchors may be stacked one per target; state is metadata-only. Empty value disables shared sources. When the whole tree is the source root (`reversed_dir` is `src` itself), the TOMLs may live inside it |
 | `metadata_dir` | Derived: the outermost existing function store from `reversed_dir` through the project root. With no store, defaults to the project root for an in-project source tree; otherwise its parent (grandparent when that parent is named `src`) | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; the loaders do no walk-up, so callers must pass it explicitly |
@@ -163,11 +159,15 @@ trusting a stored comparison. The policy is part of the compiler-config digest.
 
 The former `marker` key is removed and rejected. Rename it to `module`, retaining
 its exact value so existing metadata keys and address anchors keep their identity.
-Use `rebrew cfg set module NAME` for later edits. In Python use
+Use `rebrew cfg set module NAME` for the default target or
+`rebrew cfg set targets.<name>.module NAME` for a named target. In Python use
 `rebrew.config.target_module(cfg)`; `cfg.target_modules` lists every target module.
 
 
-The `module` field is the module name in `MODULE.0xVA` metadata keys and optional `ADDRESS: MODULE 0xVA` comments.
+`module` names the target namespace in `MODULE.0xVA` keys and
+`ADDRESS: MODULE 0xVA` comments. The default uppercases the target key
+and strips characters outside `[A-Za-z0-9_]`. A blank value uses the
+default. Values containing whitespace or `.0x` are rejected.
 
 ### Address comment syntax
 
@@ -218,15 +218,12 @@ Python callers pass `syntax=cfg.address_comments` to `address_comment`,
 `rebrew.metadata.anchors`. Source registration uses the selected target's
 settings; path-based metadata readers resolve the owning source configuration.
 
-```toml
-["SERVER.0x10008880"]
-file = "shared/MyFunc.c"
-kind = "FUNCTION"
-```
+### Shared source across targets
 
-When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file is named by one row per target. Tools use `module` to select the active target's rows.
+A shared C definition can bind to one address per target. Each target uses
+its own namespace, compiler settings, and optional preprocessor defines.
 
-By default, `module` is the target key uppercased with every character outside `[A-Za-z0-9_]` stripped, so `[targets.server_dll]` gets module `SERVER_DLL` and `[targets."server.dll"]` gets `SERVERDLL`. Override it when the module prefix differs from the target key:
+Set `module` explicitly to use an existing namespace:
 
 ```toml
 [targets.server_dll]
@@ -252,17 +249,30 @@ The shared `rebrew-functions.toml` holds identity and metadata (file, kind, STAT
 under module-prefixed keys (`SERVER.0x…`, `CLIENT.0x…`) for the corresponding VA:
 one TOML per metadata root, not one per target.
 
-Running `rebrew test --target server_dll` compiles the `SERVER` row. Running `rebrew test --target client_exe` compiles the `CLIENT` row.
-
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `module` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module name in `MODULE.0xVA` keys, and optional `ADDRESS: MODULE 0xVA` comments. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first cannot identify an address module, and the second breaks `MODULE.0xVA` metadata keys |
 
-The lint tool (`rebrew lint`) validates each binding module against configured targets and libraries (E012). A shared definition can have one metadata row and optional ADDRESS anchor per target. Each target resolves its own compiler flags; no inline state blocks are supported (ADR-030).
+For a project with metadata at its root, a managed row for the server
+definition would look like this:
 
-`src/shared` files are scanned for every target; `rebrew doctor` warns on multi-target projects when the shared dir is missing or `shared_dir` is disabled. `rebrew source import-related --shared` records the destination `MODULE.0xVA` row on the shared file (verified before STATUS promotion) instead of copying per-target duplicates. A promote retargets rows whose `file` named the old path.
+```toml
+["SERVER.0x10008880"]
+file = "src/shared/MyFunc.c"
+kind = "FUNCTION"
+```
 
-Progress commands (`status`, `todo`) scope to the active target: in a shared tree every target scans every file, so unscoped counts credit one binary with another target's rows. Which rows count, including `external_libs` library headers, is precedence rule 5 in [METADATA.md](METADATA.md). Navigation maps stay unfiltered. Divergent twins that cannot share one file sit side by side as `GOLDTL.<name>.c` / `GOLD.<name>.c` (module-first, like metadata keys).
+The client row uses the same path and the client address. To test an edit
+across the targets bound to the file:
+
+```bash
+rebrew test src/shared/MyFunc.c --source-targets
+```
+
+Rebrew scans the shared directory for each target. Use
+`rebrew source import-related --shared` to bind a related target to an existing
+source after verification. Status and todo use the selected target's rows
+and its library attribution. See [metadata precedence](METADATA.md#precedence-rules-who-wins-on-conflict).
 
 ## Compiler Profiles
 
@@ -281,7 +291,7 @@ refuses a posix profile with no registered flag set; see
 [`rebrew.flag_sets`](TOOLCHAIN.md#extending-the-registry-third-party--project-local-toolchains)).
 
 Flag axes are synced from [decomp.me](https://github.com/decompme/decomp.me) via `tools/sync_decomp_flags.py`.
-Sweep tiers: `quick` (~192), `targeted` (~1.2K), `normal` (~5.4K), `thorough` (~258K, stride-sampled to ~51.6K), `full` (~6.2M, stride-sampled to ~95.3K).
+See [flag sweep tiers](FLAG_SWEEP_TIERS.md) for search sizes and defaults.
 
 ## Compiler Configuration
 
@@ -325,15 +335,12 @@ profile = "msvc-7.0"
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles: it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, with optional assembly output |
 | `recompile_emit_assembly` | `bool` | `false` | Request assembly output on remote compiles. Off by default; when on, every remote compile sends it (`rebrew match run --collect-pairs` is unrelated). Current Recompile treats training consent separately. A non-boolean value is refused by `rebrew cfg set` and warned about by the loader |
-| `recompile_retries` | `integer` | `2` | Re-attempts of a retryable remote-compile failure (ordinary compile requests: transport blips, `408/425/500/502/504`, a failed artifact download; assembly-enabled POST limits below), with the backoff in `rebrew.utils.retry_backoff_delay`. A `capacity` or `runner_unavailable` refusal, a 429 or a 503 spends no retry: it is waited out until the call's deadline, or 300 s without one ([TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)). `0` disables retries; a compile the service ran and rejected is never re-POSTed. Clamped to `20` with a warning: the count multiplies into wall-clock time (each re-attempt waits the capped backoff), so a mistyped 20000 would retry one transient error for about 44 hours |
-| `recompile_concurrency` | `integer` | `2` | Remote compiles one process runs at once (`>= 1`), whatever `jobs` is; the rest wait for a slot, and a `Retry-After` one reply names holds them all back ([TOOLCHAIN.md](TOOLCHAIN.md#compile-backends)) |
+| `recompile_retries` | `integer` | `2` | Number of ordinary retry attempts, clamped to 20. Capacity waits have a separate deadline. |
+| `recompile_concurrency` | `integer` | `2` | Maximum remote compiles in flight per process (minimum 1). |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
 
-With `recompile_emit_assembly = true`, compile POST retries are restricted to
-connection-establishment failures and HTTP `408/425/429/503`. Read timeouts and
-HTTP `500/502/504` stop automatic resends because the first request may have
-completed. After a successful compile reply identifies its artifact, retries
-only download that artifact; they do not repeat the compile POST.
+See [compile backends](TOOLCHAIN.md#compile-backends) for retry, pacing, and
+artifact behavior, including assembly-output requests.
 
 Per-target compiler settings (`rebrew cfg target set-compiler <target> <profile>`) are
 the supported way to vary the toolchain; `[compiler.profiles.*]` is not
@@ -478,6 +485,21 @@ The three budget keys are read from the environment first: a set
 is the whole value, empty included, so one run can move the ceiling without
 editing the project file. With the variable unset the `[llm]` field applies,
 and with both unset the default does.
+
+## Lint style (`[project.lint]`)
+
+Optional style rules consumed by `rebrew lint` (W024–W027).  The three style enums
+default to `none`. `max_line_length` defaults to 200 and `0` disables W027.
+The loader warns about unknown keys and enum values. Unknown enum values
+fall back to `none`.
+
+```toml
+[project.lint]
+naming_convention = "snake_case"   # snake_case | camelCase | none
+brace_style = "same_line"          # same_line | new_line | none
+indent_style = "spaces"            # spaces | tabs | none
+max_line_length = 200
+```
 
 ## Environment Variables
 
@@ -756,20 +778,6 @@ rebrew receives.
   set-but-unusable value is also reported by `cfg effective` under
   `env_errors`, like every other path knob.
 
-## Lint style (`[project.lint]`)
-
-Optional style rules consumed by `rebrew lint` (W024–W027).  The three style enums
-default to `none`; `max_line_length` defaults to 200 (`0` disables W027).  Unknown keys warn at load; unknown enum values warn
-and fall back to `none` (a typo must not silently disable the rule).
-
-```toml
-[project.lint]
-naming_convention = "snake_case"   # snake_case | camelCase | none
-brace_style = "same_line"          # same_line | new_line | none
-indent_style = "spaces"            # spaces | tabs | none
-max_line_length = 200
-```
-
 ## Validation
 
 The config loader fail-fasts on missing/invalid structure:
@@ -846,41 +854,6 @@ passed as `--cflags` overrides.
 
 For a full toolchain health check, run `rebrew doctor`.
 
-## Which Tools Use What Config
-
-All tools read from `rebrew-project.toml`. Key tools and the config values they use:
-
-| Tool | Config Values Used |
-|------|--------------------|
-| `verify.py` | `target_binary`, `reversed_dir`, `root`, `module`, `metadata_dir`, `default_jobs` (writes default reports into `.rebrew/`; `text_raw_offset` and `image_base` live on `binary_loader.BinaryInfo`, not the config) |
-| `test.py` | `target_binary`, `reversed_dir`, `metadata_dir`, `default_jobs` (compiler settings are resolved in `compiler/compile.py`) |
-| `match.py` | `root`, `metadata_dir` (the GA reads `reversed_dir` / `target_binary` / `compiler.*` via `matcher/`) |
-| `ghidra/cli.py` | `reversed_dir` |
-| `todo.py` | `reversed_dir`, `target_binary` |
-| `skeleton.py` | `reversed_dir` |
-| `extract.py` | `reversed_dir`, `target_binary` |
-| `asm.py` | `target_binary`, `capstone_arch`, `capstone_mode` |
-| `metadata/bindings.py` | Canonical source and metadata binding reader: used by verify, extract, sync, match |
-| `formats/binary_loader.py` | LIEF-based binary loading: used by extract, flirt |
-| `matcher/scoring.py` | none directly: takes `cs_arch` / `cs_mode` ints from the caller (`match`/`diff` pass `cfg.capstone_arch` / `capstone_mode`) |
-| `matcher/compiler.py` | `compiler_profile` (drives flag axes) |
-| `matcher/parsers.py` | `padding_bytes` |
-| `catalog/` | `text_va`, `reversed_dir`, `target_binary`, `metadata_dir`, `shared_dir`, `iat_thunks`, `dll_exports` (`image_base` comes from `binary_loader.BinaryInfo`) |
-| `data.py` | `reversed_dir`, `target_binary`, `module`, `root`, `metadata_dir` |
-| `depgraph.py` | `reversed_dir` |
-| `lint.py` | `reversed_dir`, `source_ext`, `target_binary`, `metadata_dir`, `cflags`, `base_cflags`, `library_modules` |
-| `init.py` | All target config (scaffolding) |
-| `rename.py` | `reversed_dir` |
-| `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, compiler paths, `arch`, `binary_format` |
-| `flirt.py` | `target_binary`, `root` |
-| `crt_match.py` | `crt_sources`, `reversed_dir`, `source_ext`, `root` |
-| `coverage_db.py` | `root`; portable export output is explicit |
-| `cache_cli.py` | `root` (cache directory location) |
-| `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
-| `split.py` | `module`, `source_ext`, `reversed_dir` |
-| `merge.py` | `module`, `reversed_dir`, `metadata_dir` |
-| `binsync/export.py` | `reversed_dir` |
-
 ## Config Editor (`rebrew cfg`)
 
 Programmatically read and write `rebrew-project.toml` using `tomlkit` for format-preserving
@@ -891,21 +864,7 @@ Dotted key paths use greedy longest-match resolution so TOML keys that contain d
 (like target names `server.dll`) are handled correctly: e.g. `targets.server.dll.arch`
 resolves through the `server.dll` key.
 
-| Subcommand | Description | Example |
-|------------|-------------|---------|
-| `target list` | List all defined targets | `rebrew cfg target list` |
-| `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
-| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key`; use `REBREW_LLM_API_KEY`; URL, boolean, format, arch, and `[llm]` budget fields are parsed by the same validator the loader uses, so a mistyped value fails here) | `rebrew cfg set compiler.cflags "/O1"` |
-| `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
-| `effective` | Print the values in force after env and default resolution (secrets redacted, env vars named only) | `rebrew cfg effective --json` |
-| `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
-| `target add NAME` | Add a target section + create dirs | `rebrew cfg target add client.exe --binary original/client.exe` |
-| `target remove NAME` | Remove a target section | `rebrew cfg target remove old_target` |
-| `module set-cflags MODULE FLAGS` | Set the module CFLAGS preset | `rebrew cfg module set-cflags ZLIB "/O3" --target server.dll` |
-| `target set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg target set-compiler client.exe msvc-7.0` |
-| `module add MODULE` | Add a module to a target's origins list | `rebrew cfg module add ZLIB --target server.dll` |
-| `module remove MODULE` | Remove a module from a target's origins list | `rebrew cfg module remove ZLIB --target server.dll` |
-| `detect-crt apply` | Import detected MSVC CRT source directories | `rebrew cfg detect-crt apply` |
+See the [CLI reference](CLI.md#rebrew-cfg) for all config operations.
 
 ```bash
 # Example workflow: add a second binary and configure it

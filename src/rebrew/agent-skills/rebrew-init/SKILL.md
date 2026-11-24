@@ -11,18 +11,8 @@ license: MIT
 
 # Rebrew Init
 
-Scaffold a new rebrew project from an empty directory and a target binary.
-
-## When NOT to use this skill
-
-- One-shot binary onboard (`rebrew intake <binary>`) → use `rebrew-intake`
-- Day-to-day reversing → use `rebrew-workflow`
-- Deep matching → use `rebrew-matching`
-
-Use when the user needs scaffold decisions (name, profile). Prefer `rebrew intake`
-for "here's a binary, set it up". `rebrew-init` names this skill; the executable
-is `rebrew`, with `init` as a subcommand. Re-run `rebrew init --refresh-agents` to
-re-render the scaffold after template changes.
+Scaffold a project and select its target and compiler profile. Use
+`rebrew-intake` for automatic discovery and initial triage.
 
 ## Scaffold
 
@@ -41,8 +31,8 @@ nothing until `--apply` (`--force` replaces conflicting metadata entries).
 
 ## Profile selection
 
-`--guess-compiler` detects from the binary (diec → PDB → heuristics) and is
-right for standard builds. Override with `--toolchain <profile>` when:
+`--guess-compiler` detects from the binary using DIE, PDB, PE metadata, and other
+heuristics. Override with `--toolchain <profile>` when:
 
 - The binary is a rebuild or repack whose headers lie (guess follows the
   headers, not the codegen).
@@ -64,14 +54,10 @@ rebrew init --target <name> --binary <filename> --toolchain <profile> --no-wizar
 rebrew doctor
 ```
 
-Run it right after `rebrew init`. Doctor must report healthy
-(warnings for unconfigured optionals such as FLIRT, Ghidra, BinSync are fine;
-failures are not) before handing off. The commonest failure is the toolchain
-image missing: doctor's `fix` names `rebrew toolchain build <profile>`;
-`rebrew toolchain pull <profile>` fetches a prebuilt image instead. `build` compiles the image from the sibling
-recompile-toolchains checkout, which is a long job and fails without that
-checkout. Use a pull for setup; build when the task calls for building the image
-or the user has already authorized it. Otherwise clarify before a long build.
+Run it after scaffolding and address required failures relevant to the task.
+Optional FLIRT, Ghidra, and BinSync warnings can be left for later. For a
+missing compiler image, pull the profile or build it from the
+recompile-toolchains checkout.
 
 ## Scaffold drift check
 
@@ -91,8 +77,8 @@ or generating headers; use `rebrew-data-analysis` for consolidation.
 
 ## Handoff
 
-Scaffold done → `rebrew-intake` owns the binary from here (FLIRT scan,
-catalog, triage). The handoff is one line: the target name and profile.
+Report the target name and profile. For discovery and initial triage, use
+`rebrew-intake`.
 
 ## Refresh after consolidation
 

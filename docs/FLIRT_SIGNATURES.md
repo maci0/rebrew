@@ -1,7 +1,7 @@
 # FLIRT Signatures Guide
 
 How to obtain, create, and use [IDA FLIRT](https://hex-rays.com/products/ida/tech/flirt/)
-signatures with rebrew: **no IDA Pro required**.
+signatures with Rebrew.
 
 ## Background
 
@@ -24,6 +24,21 @@ the import name is still `flirt`.
 Both formats are loaded transparently by `rebrew library scan-signatures`.
 
 ## Obtaining Pre-made Signatures
+
+### Shared ReconDB signatures
+
+ReconDB is a private signature collection. If you have access, use release
+3.0.0 or later. A Rebrew source checkout finds a sibling `../recondb` next to
+Rebrew. With a wheel install or a checkout elsewhere, set
+`REBREW_FLIRT_SIGS_DIR` to an absolute directory path. An invalid directory
+causes the scan to fail. See [configuration](CONFIG.md#paths--overlays).
+
+Run `rebrew library scan-signatures` to scan the shared collection together
+with the project's `flirt_sigs/`. To copy the signatures for the detected CRT
+and WinAPI imports into the project, run
+`rebrew library init-signatures --matched-only`. Without access to ReconDB,
+use project signatures, an explicit signature directory, or generate signatures
+from stock archives.
 
 ### Community Repositories
 
@@ -81,7 +96,7 @@ file directly. Rebrew includes `gen_flirt_pat.py` for this purpose.
 
 ```bash
 # Generate a .pat from the MSVC6 CRT library (vendored into the project)
-uv run --frozen rebrew library signatures toolchain/msvc/6.0-win32/source/VC98/Lib/LIBCMT.LIB \
+rebrew library signatures toolchain/msvc/6.0-win32/source/VC98/Lib/LIBCMT.LIB \
     --output flirt_sigs/libcmt_vc6.pat
 ```
 
@@ -248,7 +263,7 @@ The file must end with a line containing only `---`.
 ### Scanning a Target Binary
 
 ```bash
-# Scan using the default flirt_sigs/ directory
+# Scan project signatures and any configured ReconDB collection
 rebrew library scan-signatures
 
 # Scan with a custom signature directory
@@ -274,9 +289,11 @@ Each line shows:
 - The estimated **function size**
 - The **symbol name** from the signature database
 
-Record identified functions as `kind = "LIBRARY"` in dedicated function
-metadata, using the CLI or locked metadata APIs. Headers contain declarations,
-not inventory state.
+Treat signature hits as candidates. `scan-signatures` reports findings without
+writing metadata. Use `rebrew library identify --dry-run` to preview the
+library identification backends, then apply after reviewing the evidence.
+For a stricter check against a known archive, use
+`rebrew library match --lib <archive> --va <VA>`.
 
 ### Directory Layout
 
@@ -298,6 +315,7 @@ your-project/
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
+| `No signatures loaded` | None of the scan directories supplied a usable signature | Add signatures to `flirt_sigs/`, configure ReconDB, or pass a signature directory |
 | No matches found | Wrong compiler version or optimization flags | Generate sigs from the exact library version linked into the binary |
 | Too many ambiguous matches | Overly broad signature database | Use `--min-size 32` to skip tiny functions, or use more targeted `.pat` files |
 | `flirt` module not found | Dependency missing from the environment | Reinstall Rebrew, or run `make setup` in a checkout; the maintained binding comes from its pinned release archive, not PyPI |

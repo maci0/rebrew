@@ -1,73 +1,56 @@
-# Rebrew Documentation
+# Rebrew documentation
 
-## Guides
+[Getting started](GETTING_STARTED.md) walks through a first byte match.
+[Project setup](ONBOARDING.md) covers manual setup and first-run errors.
+[Workflow](WORKFLOW.md) covers day-to-day matching, multiple targets, and CI.
 
-| Document | Description |
-|----------|-------------|
-| [GETTING_STARTED.md](GETTING_STARTED.md) | Start here (humans): the mental model, a first-binary walkthrough, the core loop |
-| [ONBOARDING.md](ONBOARDING.md) | First-run companion: init wizard, what intake automates, doctor fixes, first-run errors, 16-bit targets, manual discovery |
-| [WORKFLOW.md](WORKFLOW.md) | Full iteration loop: test, diff, match, prove, verify; multi-binary; JSON / CI |
-| [CORDIS_TUTORIAL.md](CORDIS_TUTORIAL.md) | Runnable component walkthrough: dependency gating, provider replacement, and owned teardown |
-| [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns table, SEH helpers, C89 rules, matching idioms |
-| [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures for library identification |
+## Commands and project configuration
 
-## Reference
+- [CLI reference](CLI.md) · commands, flags, examples, and exit codes
+- [CLI migration](CLI_MIGRATION.md) · routes renamed in the October 2026 reorganization
+- [Configuration](CONFIG.md) · `rebrew-project.toml` and environment variables
+- [Toolchains](TOOLCHAIN.md) · compiler profiles, image builds, and execution backends
+- [SDK media](SDK_MEDIA.md) · provenance and checksums for DirectX and Platform SDK media
+- [Xtensa](XTENSA.md) · ELF, XCC linking, and disassembly
 
-| Document | Description |
-|----------|-------------|
-| [CLI.md](CLI.md) | All CLI commands (umbrella `rebrew` + multi-command groups): flags, examples, internal modules |
-| [CLI_MIGRATION.md](CLI_MIGRATION.md) | Old-to-new route mapping for the October 2026 CLI reorganization (ADR 028) |
-| [PYTHON_API.md](PYTHON_API.md) | Library imports, toolchain registry views, structured errors, and injectable service clients |
-| [CORDIS.md](CORDIS.md) | Composition concepts, runtime API, lifecycle and failure contracts, recipes, and paper mapping |
-| [XTENSA.md](XTENSA.md) | Xtensa ELF, core-aware XCC linking and native disassembly |
-| [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Dedicated function (format 3) and data (format 2) identities (`MODULE.0xVA`), optional ADDRESS anchors, library provenance, and lint diagnostics |
-| [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`): volatile fields, status lifecycle |
-| [METADATA.md](METADATA.md) | The full store map: canonical vs derived vs cache tiers, who owns which fact, precedence rules |
-| [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING / STUB / PROVEN / SKIP: byte-level examples and relocation masking |
-| [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) | reccmp-adapted modules: pinned diff, asm equivalences, vtordisp, float consts |
-| [GA_MUTATIONS.md](GA_MUTATIONS.md) | All 128 GA mutation operators: categories, rationale, discovery origins |
-| [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) | MSVC6 flag-sweep tiers (quick/targeted/normal/thorough/full): axes and combination counts |
-| [COVERAGE_DOCUMENT.md](COVERAGE_DOCUMENT.md) | Portable `coverage-<target>.toml` document format and the dashboard REST API |
-| [dashboard-api.yaml](dashboard-api.yaml) | OpenAPI 3.1 contract for the `rebrew coverage serve` HTTP API, checked against the code by `tests/test_dashboard.py` |
-| [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Tool-name provenance, Ghidra C-name sanitization, and rizin discovery labels |
-| [TOOLCHAIN.md](TOOLCHAIN.md) | Compiler profiles (`rebrew toolchain list`), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
-| [SDK_MEDIA.md](SDK_MEDIA.md) | DirectX and Platform SDK media provenance: verified archive.org checksums, gaps, official and license-clean sources |
-| [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
-| [POSTLINK.md](POSTLINK.md) | `rebrew build postlink`: post-link layout normalization of a built binary onto a reference, text-only layout package from `rebrew build layout` |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Module map, data flow, metadata routing rules, architectural conventions |
-| [CI.md](CI.md) | CI pipeline: jobs, merge gates, reproducibility |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Developer workflow |
-| [PERFORMANCE.md](PERFORMANCE.md) | Performance notes and hot paths ([PERFORMANCE_TEN_HOTPATHS.md](PERFORMANCE_TEN_HOTPATHS.md), [PERFORMANCE_6_6_0.md](PERFORMANCE_6_6_0.md), [PERFORMANCE_6_7_0.md](PERFORMANCE_6_7_0.md)) |
-| [STYLE.md](STYLE.md) | Documentation style: one-home-per-fact, slop checklist |
-| [ADDING_A_COMMAND.md](ADDING_A_COMMAND.md) | Checklist for adding a `rebrew` command |
-| [DEFENSIVE_PATTERNS.md](DEFENSIVE_PATTERNS.md) | Bug classes that bit this repo, as prevention rules |
-| [THREAT_MODEL.md](THREAT_MODEL.md) | Trust boundaries, attacker-controlled inputs, and their mitigations |
+## Matching, libraries, and binary layout
 
-## Integration
+- [Match types](MATCH_TYPES.md) · byte verdicts, relocation masking, and proof results
+- [Compiler code generation](codegen/README.md) · per-compiler instruction patterns and C idioms
+- [MSVC 6 matching patterns](CODEGEN_PATTERNS.md) · C89, SEH, and byte-matching examples
+- [GA mutations](GA_MUTATIONS.md) and [flag sweep tiers](FLAG_SWEEP_TIERS.md) · search operators and compiler option sets
+- [FLIRT signatures](FLIRT_SIGNATURES.md) · obtain and generate signatures to identify library code
+- [reccmp adaptations](RECCMP_ADAPTATIONS.md) · assembly comparison, vtables, and float constants
+- [OMF object notes](OMF_NOTES.md) · 16-bit Microsoft and 32-bit Watcom object formats
+- [Post-link layout](POSTLINK.md) · layout packages and normalization against a reference binary
 
-| Document | Description |
-|----------|-------------|
-| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync init/export/import/diff/overlay`: declib-backed state bridge (names, prototypes, globals, structs, enums, typedefs, locals, comments) + `rebrew sync push` feature matrix |
-| [DECOMPME_COMPILERS.md](DECOMPME_COMPILERS.md) | decomp.me compiler fleet research + snippet-scrape guide |
-| [JEV.md](JEV.md) | TypeSafe Jev (System One) research: typed decisions over rebrew JSON, not codegen |
-| [ROADMAP.md](ROADMAP.md) | RFC: multi-arch proposals and consoles dossier; proposed commands are not shipped contracts |
-| [IDEAS-GUILD.md](IDEAS-GUILD.md) | Open feature ideas from the guild-rebrew byte-identical campaign, with evidence pointers |
+## Metadata, coverage, and integrations
 
-## Ecosystem
+- [Metadata ownership](METADATA.md) · stores, precedence, provenance, and writers
+- [Metadata formats](METADATA_FORMAT.md) · function and data TOML schemas
+- [Source annotations](ANNOTATIONS.md) · address anchors, bindings, and lint diagnostics
+- [Coverage documents](COVERAGE_DOCUMENT.md) and [dashboard API](dashboard-api.yaml) · portable snapshots and HTTP contract
+- [Ghidra and BinSync](BINSYNC_INTEGRATION.md) · field exchange, state repositories, and structural operations
+- [Name normalization](NAME_NORMALIZATION.md) · symbol names from Ghidra and rizin
+- [Python API](PYTHON_API.md) · library imports, registries, errors, and service clients
+- [Ecosystem](ECOSYSTEM.md) and [architecture diagrams](architecture.drawio) · Rebrew, Resembl, and third-party interfaces
+- [Jobs service](../services/jobs/README.md) · experimental loopback service for queued operations
+- [decomp.me compilers](DECOMPME_COMPILERS.md) · compiler inventory and snippet research
 
-| Document | Description |
-|----------|-------------|
-| [ECOSYSTEM.md](ECOSYSTEM.md) | Public Rebrew and Resembl integration boundaries and third-party interoperability |
-| [PROJECT_TOOLING.md](PROJECT_TOOLING.md) | Audit and migration ledger moving reusable Guild, Holidaydecomp and test-project tooling into Rebrew |
-| [architecture.drawio](architecture.drawio) | Public integration map and Rebrew compile, toolchain, matching, configuration and metadata flows |
+## Contributing
 
-## Project
+- [Contributor setup](../CONTRIBUTING.md) · prerequisites, tests, and releasing
+- [Architecture](ARCHITECTURE.md) and [principles](PRINCIPLES.md) · module map, data flow, and invariants
+- [Repository rules](../AGENTS.md), [development](DEVELOPMENT.md), [adding a command](ADDING_A_COMMAND.md), and [documentation style](STYLE.md)
+- [CI](CI.md) · required checks and project verification
+- [Cordis](CORDIS.md) and [tutorial](CORDIS_TUTORIAL.md) · component composition, provider replacement, and teardown
+- [Security policy](../SECURITY.md), [threat model](THREAT_MODEL.md), and [defensive patterns](DEFENSIVE_PATTERNS.md)
+- [Performance](PERFORMANCE.md) · measurement log and retained optimizations, with detailed reports for [ten hot paths](PERFORMANCE_TEN_HOTPATHS.md), [6.6.0](PERFORMANCE_6_6_0.md), and [6.7.0](PERFORMANCE_6_7_0.md)
 
-| Document | Description |
-|----------|-------------|
-| [PRINCIPLES.md](PRINCIPLES.md) | Core architectural rules: verdict fidelity, field ownership, evidence, and per-file atomicity |
-| [adr/](adr/README.md) | Architecture decision records (settled decisions, Nygard format) |
-| [prd/](prd/README.md) | Subsystem requirements and scoped implementation status, including historical examples |
-| [codegen/](codegen/README.md) | Per-compiler-version codegen reference (prologues, registers, FPU, loops) |
-| [archive/](archive/README.md) | Dated reviews and completed plans kept for provenance, not current behavior |
+## Decisions, proposals, and research
+
+- [Architecture decisions](adr/README.md) and [product requirements](prd/README.md) · decisions, design scope, and implementation status
+- [Roadmap](ROADMAP.md) and [Guild findings](IDEAS-GUILD.md) · proposals and campaign evidence
+- [Project tooling](PROJECT_TOOLING.md) · migration ledger for Guild, Holidaydecomp, and test projects
+- [Jev research](JEV.md) · typed decisions over Rebrew JSON
+- [Changelog](../CHANGELOG.md) and [archive](archive/README.md) · releases, dated reviews, and completed plans

@@ -1,40 +1,22 @@
 # Decompilation Workflow Guide
 
-Step-by-step guide for the full reversing iteration loop. Aimed at contributors and
-AI agents who have already completed initial setup.
-
-**First time here?** Start with [ONBOARDING.md](ONBOARDING.md) to get from binary to
-first matched function in 5 minutes. Come back here for the deeper loop.
-
-**Byte-level mismatches?** See [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) for MSVC6
-codegen patterns, SEH helpers, and matching idioms.
-
----
+Use this guide after [setting up your first project](GETTING_STARTED.md).
+For MSVC 6 instruction patterns and SEH helpers, see
+[MSVC 6 matching patterns](CODEGEN_PATTERNS.md).
 
 ## Iteration Loop
 
 ```mermaid
-graph TD
-    Pick[Pick a function<br/>rebrew todo] --> Gen[Generate skeleton<br/>rebrew skeleton]
-    Gen --> Decomp[Get decompilation<br/>Ghidra/IDA]
-    Decomp --> Write[Write C89 source]
-    Write --> Test{Test the match<br/>rebrew test}
-    Test -->|EXACT / RELOC| Done[STATUS auto-updated<br/>by rebrew test]
-    Test -->|MISMATCH| Diff[Investigate diffs<br/>rebrew diff]
-    Test -->|COMPILE ERROR| Write
-    Done --> Lint[Lint & verify<br/>rebrew lint]
-    Diff --> Flags{Unsure about flags?}
-    Sweep[rebrew match flags &lt;file&gt;<br/>or rebrew match run (GA)] --> Write
-    Flags -->|Yes| Sweep
-    Flags -->|No| Diag[Near-diag blocker<br/>rebrew diagnose near --fix-blocker]
-    Diag --> LibMatch{Library code?}
-    LibMatch -->|Yes| Lib[rebrew library match<br/>rebrew source import-related]
-    Lib --> Write
-    LibMatch -->|No| Prove{Still NEAR_MATCHING?}
-    Prove -->|Yes| Symbolic[Prove equivalence<br/>rebrew prove]
-    Symbolic -->|PROVEN| Lint
-    Symbolic -->|Not proven| Write
-    Prove -->|No| Write
+flowchart LR
+    Pick["Pick a function (todo)"] --> Library{"Library code?"}
+    Library -->|Candidate| Review["Review attribution"]
+    Library -->|Game code| Source["Open source or generate a skeleton"]
+    Source --> Edit["Edit C using disassembly"]
+    Edit --> Test{"Compare bytes (test)"}
+    Test -->|EXACT / RELOC| Verify["Lint and verify"]
+    Test -->|Mismatch| Diff["Inspect diff or search for a match"]
+    Diff --> Edit
+    Test -->|Build error| Edit
 ```
 
 ### 1. Pick a function
@@ -50,17 +32,19 @@ extent, then estimated effort. It includes compile errors, symbol-extraction
 errors (EXTRACT_ERROR), near-misses of ≤20 bytes (`fix-delta`), and new starts.
 See [queue ordering](CLI.md#rebrew-todo). Each item carries a ready-to-run `command`.
 
-### 2. Generate skeleton
+### 2. Open the source or generate a skeleton
+
+If the function already has a source file, open it. For a function without
+source, generate a skeleton:
 
 ```bash
 rebrew skeleton 0x<VA>
-rebrew skeleton 0x<VA> --decomp                         # with inline decompilation
-rebrew skeleton 0x<VA> --decomp --decompiler ghidra # Ghidra via MCP
-rebrew skeleton 0x<VA> --decomp --decompiler r2dec  # radare2 r2dec
-rebrew skeleton 0x<VA> --xrefs                          # with caller context from Ghidra
+rebrew skeleton 0x<VA> --decomp --decompiler ghidra
+rebrew skeleton 0x<VA> --xrefs
 ```
 
-Creates `src/target_name/<name>.c` as pure C, records the `MODULE.0xVA` row, and prints the exact test command.
+The command writes C and a metadata binding, then prints the source path
+and a test command. See [skeleton options](CLI.md#rebrew-skeleton) for backend details.
 
 To add a function to an existing multi-function file:
 
@@ -86,11 +70,10 @@ rebrew library scan-signatures [path_to_sig_directory]
 rebrew library crt-match 0x<VA>
 ```
 
-### 4. Write C89 source
+### 4. Implement the function
 
-Replace the TODO placeholder in the skeleton with actual C code. See
-[CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) for the full list of MSVC6-specific rules
-and patterns that affect byte output.
+Implement the function in the dialect your compiler supports. For MSVC 6, use
+C89 and refer to the [compiler-specific patterns](CODEGEN_PATTERNS.md).
 
 ### 5. Test the match
 
@@ -98,23 +81,17 @@ and patterns that affect byte output.
 rebrew test src/target_name/my_func.c
 ```
 
-| Result | Meaning | Action |
-|--------|---------|--------|
-| `EXACT MATCH` | Byte-for-byte identical | STATUS auto-promoted to EXACT |
-| `RELOC-NORMALIZED MATCH` | Identical except relocations | STATUS auto-promoted to RELOC |
-| `MISMATCH` with same size | Equal byte length; differing bytes do not establish semantic equivalence | Auto-promoted to NEAR_MATCHING if ≥60%; investigate diffs |
-| `MISMATCH` below 60% byte match | Significantly different codegen | Auto-demoted to STUB; investigate with diff mode |
-| `COMPILE ERROR` | C code doesn't compile | Fix syntax errors |
-| `Symbol not found` | Wrong symbol name | Check the decorated name |
-
-For a detailed explanation of each match type, see [MATCH_TYPES.md](MATCH_TYPES.md).
+`test` records the comparison in function metadata. On `EXACT` or `RELOC`,
+move to the next function. For a mismatch, inspect the diff. If compilation
+or symbol extraction fails, check the compiler output or the source binding.
+See [match types](MATCH_TYPES.md) for verdict rules.
 
 `--dry-run` (single-function) compiles and prints the would-be STATUS change
 without writing: useful to preview a promotion or a `--force-status` demotion
 before applying it. `test --all --dry-run` lists batch candidates without
 compiling.
 
-### 6. If MISMATCH: use diff mode
+### 6. Inspect byte mismatches
 
 ```bash
 rebrew diff src/target_name/my_func.c
@@ -135,9 +112,6 @@ rebrew diff 0x10009310
 ### 7. If bytes still differ: sweep flags or run the GA
 
 ```bash
-# Side-by-side diff to understand what differs
-rebrew diff src/target_name/my_func.c
-
 # Sweep compiler flag combinations for one function
 rebrew match flags src/target_name/my_func.c
 
@@ -151,20 +125,19 @@ rebrew match batch --fix-cflags --algorithm flags
 rebrew match batch --near-miss --threshold 5
 ```
 
+| Remaining difference | Try |
+| --- | --- |
+| Identifier qualifiers affect allocation | `rebrew match qualifiers <file>` |
+| Independent statements compile in a different order | `rebrew match climb <file>` |
+| Diff grows after an unexpected function boundary | `rebrew diagnose gap <file>` |
+| Function bytes match but data addresses differ | `rebrew build check-data-placement` |
+
 ### 8. Update metadata
 
-`rebrew test` auto-promotes STATUS on EXACT or RELOC matches, writing atomically to
-`rebrew-functions.toml`:
-
-```bash
-rebrew test src/target_name/my_func.c           # compile + update STATUS
-rebrew test src/target_name/my_func.c --no-promote  # compile without updating STATUS
-```
-
-Identity and all state live in canonical metadata (functions format 3; data format 2). Optional ADDRESS comments bind
-exactly the next C definition or variable; stack one per target. Register current
-anchors with `rebrew source register --dry-run`, then apply. Old source blocks
-and schemas are rejected. See [metadata format](METADATA_FORMAT.md).
+Use `rebrew test --no-promote <file>` to compare without writing a verdict.
+When you add or move address anchors, preview their registration with
+`rebrew source register --dry-run`, then apply. See
+[source bindings and metadata](#source-addresses-and-metadata).
 
 For NEAR_MATCHING functions, auto-classify and write the BLOCKER:
 
@@ -173,29 +146,17 @@ rebrew diff --fix-blocker src/target_name/my_func.c   # auto-classified
 rebrew diagnose near --fix-blocker src/target_name/my_func.c
 ```
 
-For blocked STUBs that diff cannot classify (needs structs, SEH helper,
-reference library, etc.), set the BLOCKER programmatically:
+Use a blocker to record what an unfinished function needs, such as a
+structure layout or a reference library:
 
 ```bash
 rebrew blocker set src/target_name/my_func.c "needs RE structs; see rebrew types recover"
-rebrew blocker set 0x401000 "SEH helper, not matchable from C"
+rebrew blocker set 0x401000 "needs table layout for local dispatch"
 rebrew blocker clear src/target_name/my_func.c          # remove it again
 ```
 
-This writes to `rebrew-functions.toml`:
-```toml
-["SERVER.0x<VA>"]
-blocker = "register allocation, jump condition swap"
-blocker_delta = 3
-```
-
-> [!CAUTION]
-> **Never manually edit `rebrew-functions.toml`.** Volatile metadata (STATUS, CFLAGS,
-> SIZE, BLOCKER, NOTE, GHIDRA) is managed exclusively by Rebrew CLI tools.
-> In particular, `BLOCKER`/`BLOCKER_DELTA` must be written via
-> `rebrew blocker set/clear` or the auto-writers
-> (`rebrew diff --fix-blocker`, `rebrew diagnose near --fix-blocker`,
-> `rebrew source document-unmatched`): never by hand.
+The CLI writes blockers in the function store. Use the CLI or metadata API for
+changes. See [metadata ownership](METADATA.md).
 
 ### 9. If still NEAR_MATCHING: prove semantic equivalence
 
@@ -217,10 +178,9 @@ to `PROVEN`; a timeout or incomplete exploration does not establish equivalence.
 See [proof scope](MATCH_TYPES.md#proven).
 
 > [!NOTE]
-> `angr` is an optional dependency (~500 MB). Install with `make setup`:
-> the documented dev install (`uv sync --locked --all-extras --group similarity`)
-> includes the prove extra.
-> Functions with heavy floating-point math or complex loops may time out.
+> Install the [`prove` extra](../README.md#optional-features) in the
+> environment running Rebrew. Contributor environments set up with
+> `make setup` already include it.
 
 > [!CAUTION]
 > **PROVEN is not a byte match and is not sticky.** The next `rebrew test` /
@@ -243,7 +203,7 @@ tooling failures (`should_promote_status` in `src/rebrew/metadata/functions.py`)
 ### 11. Lint source bindings and metadata
 
 ```bash
-rebrew lint              # check for invalid headers, statuses, and origins
+rebrew lint              # check for source bindings, metadata, and project conventions
 rebrew coverage catalog --summary # view overall RE progress and stats
 ```
 
@@ -257,7 +217,8 @@ the row on the symbol's home (for example `globals.c`) and leave plain
 
 ## JSON Output for Scripting and CI
 
-All core CLI tools support `--json` for machine-readable output:
+Use `--json` on commands that declare it. See [output and exit codes](CLI.md#exit-codes)
+for stdout and stderr behavior.
 
 ```bash
 # Test a function and parse results with jq
@@ -276,37 +237,8 @@ rebrew todo --category fix-delta --json | jq '.items[] | select(.byte_delta != n
 rebrew diff --json src/target_name/my_func.c | jq '.summary'
 
 # Disassembly as JSON
-rebrew binary asm show 0x10003da0 --size 160 --json| jq '.instructions[] | .mnemonic'
+rebrew binary asm show 0x10003da0 --size 160 --json | jq '.instructions[] | .mnemonic'
 ```
-
-**Tools with `--json` support:**
-
-| Tool | Modes |
-|------|-------|
-| `rebrew test` | Single and multi-function test results |
-| `rebrew todo` | Prioritized action items |
-| `rebrew diff` | Side-by-side diff output |
-| `rebrew binary asm show` | Disassembly output |
-| `rebrew verify` | Verification report |
-| `rebrew lint` | Lint results |
-| `rebrew library scan-signatures` | FLIRT scan results |
-| `rebrew library crt-match` | CRT source matching results |
-| `rebrew data list` | Data scan results |
-| `rebrew match batch` | Batch GA results |
-| `rebrew source split` | Split results (files created, VAs, symbols) |
-| `rebrew source merge` | Merge results (inputs, output, VA list) |
-| `rebrew prove` | Prove results (proven/not, state counts, status update) |
-| `rebrew binary extract` | Batch extraction results |
-| `rebrew coverage catalog` | Catalog JSON generation (`--json`) |
-| `rebrew doctor` | Project health check results |
-| `rebrew sync` | Ghidra sync operations (`pull`, `push`, and structural operations) |
-| `rebrew skeleton` | Generated skeleton output |
-| `rebrew source rename` | Change list (`files[].edits[]`, `rows[]`, `move`, `notes`) and `files_updated` |
-| `rebrew source graph` | Dependency graph (nodes, edges, by-status) |
-| `rebrew coverage export --output snapshots/` | Portable coverage export results (paths, targets) |
-| `rebrew init` | Project initialization results |
-
----
 
 ## Working with Multiple Binaries
 
@@ -331,76 +263,24 @@ rebrew todo --target Europa1400Gold_TL.exe
 
 ### Sharing code between targets
 
-Two binaries compiled from the same source tree will have identical function bodies
-at different VAs. Keep that body in one `.c` under the shared directory. Each target
-gets its own `MODULE.0xVA` row, and both rows name that file. Writers record the
-rows. Do not hand-edit `rebrew-functions.toml`.
-
-**Directory layout:**
-
-```
-src/
-  shared/
-    my_shared_func.c               # one body, pure C
-  server.dll/
-    server_only_func.c
-  Europa1400Gold_TL.exe/
-    client_only_func.c
-```
-
-**`src/shared/my_shared_func.c`:**
-
-```c
-int __cdecl my_shared_func(int param)
-{
-    int result;
-    result = param + 1;
-    return result;
-}
-```
-
-**`rebrew-functions.toml`** (one row per target, same `file`):
-
-```toml
-["SERVER.0x10001000"]
-file = "shared/my_shared_func.c"
-kind = "FUNCTION"
-name = "my_shared_func"
-
-["CLIENT.0x00401000"]
-file = "shared/my_shared_func.c"
-kind = "FUNCTION"
-name = "my_shared_func"
-```
-
-Optional ADDRESS anchors can name each target above the shared definition.
-All compiler flags and other state remain independent metadata fields.
-
-When you fix a mismatch, both targets benefit automatically. If a function exists in
-both binaries with **different compiler flags**, each target's row can specify
-different CFLAGS while naming the same source file.
-
----
+Keep one C definition under the shared source directory and bind each target
+to it at its own VA. Targets can use different preprocessor defines and
+compiler flags. See the [shared-source example](CONFIG.md#shared-source-across-targets).
 
 ## File Naming Conventions
 
-Filenames are derived from the function's symbol name. No origin-based prefixes are
-added; users control the directory structure freely.
-
-| Pattern | Example |
-|---------|---------|
-| Symbol-based | `alloc_object.c`, `sbh_heap_init.c`, `adler32.c` |
-| Unknown/Unnamed | `func_10003da0.c` |
+After `intake`, generated stubs use `fcn_<VA>.c`. For `skeleton`, use the
+reported path. You can keep several functions in one file or organize files
+by subsystem.
 
 ## Source Addresses and Metadata
 
-Function and data identities are qualified `MODULE.0xVA` rows in dedicated
-canonical stores (functions format 3; data format 2). C may carry an optional `ADDRESS: MODULE 0xVA` comment immediately
-above a definition or variable declaration; stack one per target for shared C.
-All state, including STATUS, SIZE, CFLAGS, reconstruction source and BLOCKER,
-is metadata-only. Record support purposes with
-`rebrew source register FILE --support "reason"`. Old blocks and schemas are
-rejected; there is no migration reader. See [ANNOTATIONS.md](ANNOTATIONS.md).
+Function and data metadata use `MODULE.0xVA` keys. Source can carry an
+`ADDRESS: MODULE 0xVA` comment immediately above the relevant definition or
+variable declaration, with one anchor per target for shared code. Keep
+verdicts, sizes, flags, and blockers in the metadata store. Run
+`rebrew source register FILE --support "reason"` for addressless helpers.
+See [annotation syntax and lint diagnostics](ANNOTATIONS.md).
 
 A multi-function file has several stored rows naming that file. `rebrew source
 split` slices the selected C definition, preserves file-scope storage, and
@@ -410,17 +290,9 @@ rows. Preview either operation with `--dry-run` and verify affected functions.
 
 ---
 
-## See Also
+## See also
 
-| Document | Content |
-|----------|---------|
-| [ONBOARDING.md](ONBOARDING.md) | 5-minute path from binary to first matched function |
-| [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns, SEH helpers, matching idioms |
-| [ONBOARDING.md](ONBOARDING.md) | Adding a new binary (incl. manual discovery without `intake`) |
-| [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Dedicated metadata, ADDRESS anchors, and lint diagnostics |
-| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | BinSync bridge + `rebrew sync push` feature matrix and known issues |
-| [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
-| [CLI.md](CLI.md) | All CLI commands, flags, and examples |
-| [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
-| [TOOLCHAIN.md](TOOLCHAIN.md) | External tools, MSVC6 toolchain, Python dependencies |
+- [Configuration](CONFIG.md) and [toolchains](TOOLCHAIN.md)
+- [Library identification with FLIRT](FLIRT_SIGNATURES.md)
+- [Ghidra and BinSync integration](BINSYNC_INTEGRATION.md)
+- [CLI reference](CLI.md)

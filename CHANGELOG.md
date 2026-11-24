@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- The packaged `rebrew-init`, `rebrew-intake` and `rebrew-ghidra-sync` skills and the `AGENTS.md` that `rebrew init` writes are shorter and describe the current commands. `rebrew-ghidra-sync` says function creation and status bookmarks follow `ghidra_backend` and only data-label pulls (`sync pull-data`) need ReVa MCP. An existing project picks the new text up with `rebrew init --refresh-agents`, which keeps any file edited since its last render.
+
 ## [6.74.0] - 2026-11-24
 
 ### Fixed

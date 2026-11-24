@@ -18,7 +18,7 @@ first-class proof target, with PPC/ARM as the follow-on set.
 > and the `gcc-*-mipsel`/`-psx` profiles in place of the single `gcc-mips`
 > name.
 
-## Current state (grounded audit)
+## State at the original audit
 
 ### Already arch-agnostic (no work needed)
 
@@ -26,9 +26,9 @@ first-class proof target, with PPC/ARM as the follow-on set.
   bytes, not instructions; architecture-independent.
 - GA core: `matcher/scoring.py` takes `cs_arch`/`cs_mode`/`pointer_size` params;
   `mutator.py` is tree-sitter C, arch-neutral.
-- Coverage/reporting: `catalog`, `report`, `status`, `build_db`, `dashboard`,
-  decomp.dev report, objdiff bridge, `symbol_addrs`, `context`; all VAs/sizes/
-  bytes only.
+- Coverage/reporting: catalog, reports, status, dashboards, and
+  [coverage export](CLI.md#rebrew-coverage-export) (called `build-db` at the audit).
+  Also decomp.dev reports, objdiff, `symbol_addrs`, and context exports.
 - `cfg_ged.py` (CFG structural). `prove.py` is not: angr supports MIPS/PPC/ARM,
   but rebrew's prover sets up an x86 blob project, ESP/EBP and ECX/EDX
   argument state, so it belongs in the architecture-specific work.

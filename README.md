@@ -4,178 +4,82 @@
 
 # Rebrew
 
-**Compiler-in-the-loop decompilation workbench for binary-matching game reversing.**
+Rebrew is a decompilation workbench for binary-matching game reversing. Write
+C, compile it with the target's compiler, and compare the output against the
+original binary one function at a time.
 
-Rebrew recompiles your C with the compiler that built the target and compares the bytes against the target, function by function; a function is done when they are identical (EXACT, or RELOC after masking relocations). One Python CLI carries the compile-compare loop, a genetic-algorithm matcher, the function metadata store, and the verifier.
-
-## What it covers
-
-- Function authoring, byte diffs, compiler flag search, GA matching, and bounded symbolic proofs.
-- Library identification, globals/types, data layout, and whole-binary verification.
-- Prioritized work and separate file, executable-byte, and stored data-verdict accounting.
-- BinSync field reconciliation and provenance, plus live Ghidra structural operations.
-- Symbol exports: splat `symbol_addrs`, and a synthetic PDB stamped with the target's own debug-record GUID/age (`rebrew export pdb`, needs `llvm-pdbutil`).
-- Config-driven toolchains, compile caching, and six packaged agent workflows.
-
-See the [documentation index](https://github.com/maci0/rebrew/blob/main/docs/README.md)
-for guides, reference contracts, and integrations. The
-[CLI reference](https://github.com/maci0/rebrew/blob/main/docs/CLI.md) owns command flags;
-[toolchain documentation](https://github.com/maci0/rebrew/blob/main/docs/TOOLCHAIN.md)
-owns compiler/platform support.
+The `rebrew` CLI handles function discovery, byte diffs, flag sweeps and genetic
+search, library identification, and progress tracking. It also supports data
+layout checks, Ghidra and BinSync, and symbol exports. See the
+[documentation index](https://github.com/maci0/rebrew/blob/main/docs/README.md).
 
 ## Quick Start
 
-Use Python 3.15+ and Linux x86_64 with Docker (default) or Podman for shipped
-compiler profiles.
-Wine, DOSBox, and native compiler runtimes live inside their images; missing
-images require `rebrew toolchain pull <profile>` or an authorized build from
-[recompile-toolchains](https://github.com/maci0/recompile-toolchains).
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and use
+Python 3.15+. For the standard local setup, use Linux x86_64 with Docker or
+Podman. Installation builds the `python-flirt` dependency and requires Rust
+(`cargo` and `rustc`). See [toolchain support](https://github.com/maci0/rebrew/blob/main/docs/TOOLCHAIN.md).
+
+Download a wheel from [GitHub Releases](https://github.com/maci0/rebrew/releases)
+and install it from the download directory:
 
 ```bash
-# Preferred: rebrew-*.whl from https://github.com/maci0/rebrew/releases.
-# Installing it builds python-flirt from source, so it needs a Rust toolchain
-# unless you override it with the exact published native wheel (see Development).
 uv tool install ./rebrew-*.whl
-# Fallback: from source (same Rust requirement).
+```
+
+To install from the source repository instead:
+
+```bash
 uv tool install git+https://github.com/maci0/rebrew.git
-mkdir my-decomp && cd my-decomp
-rebrew intake /path/to/server.dll        # scaffold, detect compiler, discover, document stubs
-rebrew doctor                           # resolve relevant prerequisite failures
-rebrew toolchain list                    # inspect the detected profile
-rebrew status --json                     # inspect accounting
-rebrew todo --json                       # choose a scoped action
 ```
 
-Use `rebrew <command>` for every tool, including CMake and objdiff build hooks;
-see the [CLI reference](https://github.com/maci0/rebrew/blob/main/docs/CLI.md).
-`rebrew schema` prints the clispec 0.3 document, needs no project, and stays
-JSON under `rebrew -o text`. For every other command, `rebrew -o json <command>`
-selects JSON and `rebrew -o text` stays text. Each
-command's own `--json` selects the same JSON output; it is declared per
-command, so it must follow the command name. A pipe stays text until one of
-those is set.
-
-Symbolic proving needs the optional extra in the environment running Rebrew:
-`uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'`.
-BinSync needs the `binsync` extra; combine extras as `rebrew[prove,binsync]`
-when using both. Contributor checkouts use `make setup`.
-
-`intake` does not run library detection or build coverage documents. Continue
-with [Getting started](https://github.com/maci0/rebrew/blob/main/docs/GETTING_STARTED.md#3-check-the-projects-health).
-Project commands find `rebrew-project.toml` by walking up from the working directory;
-standalone binary inspection commands can accept a binary path.
-
-For a manually configured project, use `rebrew init --target server --binary server.dll`,
-place the binary in `original/`, then follow `rebrew doctor`. Target names normally
-use the binary stem (`server`); binary filenames keep the extension (`server.dll`).
-
-## Working on a function
+From an empty project directory, onboard your binary and check the setup:
 
 ```bash
-rebrew todo --json                       # select an existing stub or uncovered function
-rebrew test src/server/fcn_10003da0.c --json
-rebrew diff src/server/fcn_10003da0.c --json
-rebrew verify --compare --json
-rebrew lint --json
-rebrew coverage export --output snapshots/                          # optional portable snapshots for offline viewing
+rebrew intake /path/to/game.exe
+rebrew doctor
+rebrew todo
 ```
 
-`intake` names its stubs `fcn_<VA>.c`; for a catalog VA with no source,
-`rebrew skeleton 0xVA` prints the file it creates.
+Follow the [first-binary walkthrough](https://github.com/maci0/rebrew/blob/main/docs/GETTING_STARTED.md)
+to prepare the compiler image, identify library code, and start matching a
+function. See [onboarding](https://github.com/maci0/rebrew/blob/main/docs/ONBOARDING.md)
+for manual setup and first-run errors.
 
-Check library attribution before implementing a function. `test` and `verify`
-earn byte verdicts, including regressions. EXACT and RELOC count as matched;
-a RELOC function whose bytes in the raw link equal the reference becomes EXACT
-through `rebrew verify --text --raw-link` (linked EXACT);
-PROVEN records semantic evidence under the proof's assumptions and earns no
-byte-match credit. See [match types](https://github.com/maci0/rebrew/blob/main/docs/MATCH_TYPES.md).
+### Optional features
 
-Function/data metadata are CLI/API-managed. Never hand-edit their TOMLs or write
-STATUS in C. Function identity and state live in format-3 `MODULE.0xVA` metadata rows;
-addressless evidence and support purposes live under `[source]` in the same store.
-Source can include optional `/* ADDRESS: MODULE 0xVA */` anchors immediately
-above definitions. Retired source tags and old metadata formats are rejected. See
-[metadata ownership](https://github.com/maci0/rebrew/blob/main/docs/METADATA.md).
-
-For integration sync, preview a concrete state directory first:
+Symbolic proving uses the `prove` extra. If you already installed Rebrew, add
+it from the same source. For a downloaded wheel, replace the path below
+with the full path to that wheel:
 
 ```bash
-rebrew sync pull --state-dir ./binsync-state --dry-run --json
-rebrew binsync diff ./binsync-state --json
+uv tool install --reinstall "rebrew[prove] @ /path/to/rebrew-X.Y.Z-py3-none-any.whl"
 ```
 
-Apply incoming changes within the requested scope. Publishing state with
-`--git-push`, uploading source to decomp.me, and starting persistent watch/server
-processes require an explicit request. See
-[BinSync integration](https://github.com/maci0/rebrew/blob/main/docs/BINSYNC_INTEGRATION.md).
+For a Git installation:
 
-## Agent and library use
+```bash
+uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'
+```
 
-`rebrew init` copies AGENTS.md, PRINCIPLES.md, and packaged skills into a project.
-`rebrew skills list --json` lists the effective packaged/user-overlaid skills;
-load the skill matching the task and only the references needed for it.
-`rebrew init --check` detects scaffold drift; `--refresh-agents` regenerates it and keeps
-anything after the `<!-- rebrew: project rules below, kept by --refresh-agents -->` line.
-
-The [Python API guide](https://github.com/maci0/rebrew/blob/main/docs/PYTHON_API.md)
-covers library imports, registry views, structured errors, and injectable clients.
-The CLI/config compatibility policy and Python/API versioning policy are in
-[CONTRIBUTING.md](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md#versioning-and-releases).
-
-For component authors, the [Cordis guide](https://github.com/maci0/rebrew/blob/main/docs/CORDIS.md) owns the composition
-contracts; its [runnable tutorial](https://github.com/maci0/rebrew/blob/main/docs/CORDIS_TUTORIAL.md) demonstrates provider
-replacement and teardown.
+Use `rebrew[binsync]` for BinSync, or `rebrew[prove,binsync]` for both. On Python
+3.15, BinSync's JPype dependency builds from source and needs a JDK, Apache Ant,
+and C build tools. See [BinSync setup](https://github.com/maci0/rebrew/blob/main/docs/BINSYNC_INTEGRATION.md).
 
 ## Development
 
-The maintained FLIRT binding builds from an immutable, hash-verified source
-archive and requires a Rust toolchain (qualified with Rust 1.99.1 and maturin
-1.15.0). Normal CPython 3.15 wheels for qualified Linux glibc, macOS ARM64,
-and Windows AMD64 hosts are available in the
-[maintained binding release](https://github.com/maci0/lancelot/releases/tag/python-flirt-v0.10.2-relumea.1).
-The Rebrew wheel and source archive are distributed through GitHub releases;
-the direct source dependency is not compatible with Warehouse/PyPI publishing.
-Managed fixed-platform deployments can override this requirement with the exact
-published native wheel using `tool.uv.override-dependencies`; its hash must be
-checked before installation. Free-threaded Python and musl are not qualified. The optional `binsync` extra
-needs a JDK and Apache Ant on PATH to build JPype 1.7.1 on Python 3.15
-(qualified with OpenJDK 27 and Ant 1.10.18).
+Follow the [contributor bootstrap](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md#bootstrap-clean-clone)
+for the pinned sibling `resembl` checkout (`v5.3.0`) and host tools. Run `make help` for
+contributor targets.
 
-A contributor checkout also needs a sibling
-[`resembl`](https://github.com/maci0/resembl) checkout at `../resembl`
-(tag `v5.3.0`) and the host tools listed in
-[CONTRIBUTING.md](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md#bootstrap-clean-clone),
-which also says which gate needs each one. From the directory that will hold
-both checkouts:
-
-```bash
-git clone https://github.com/maci0/rebrew.git
-cd rebrew/
-make doctor                # report every missing prerequisite and its fix (read-only)
-make clone-resembl         # clone the pinned resembl into ../resembl
-make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
-make test-one T=tests/test_annotation_roundtrip.py   # single-file edit-test loop
-make test                  # full suite
-make pr-check              # the local CI gates, before a pull request
-```
-
-`make help` lists the contributor targets.
-
-Flag-axis refresh from decomp.me (maintainer, needs network):
-`make gen-flags` (`FLAGS_REF=<commit-or-tag>` to sync a pinned ref instead of the
-default branch, `make gen-flags-check` to report upstream drift). The generated
-header's `Synced:` date follows `SOURCE_DATE_EPOCH`, so re-syncing one upstream
-commit writes the same file.
-
-## Ecosystem
-
-[ECOSYSTEM.md](https://github.com/maci0/rebrew/blob/main/docs/ECOSYSTEM.md)
-maps public compiler, similarity, coverage and third-party interoperability
-boundaries. Integration details belong in the topical guides linked
-from the [documentation index](https://github.com/maci0/rebrew/blob/main/docs/README.md).
+Rebrew distributes wheels and source archives through GitHub Releases. The
+maintained `python-flirt` binding also publishes native wheels for qualified
+CPython 3.15 hosts (Linux glibc, macOS ARM64, Windows AMD64). A fixed-platform
+project managed by uv can pin a release wheel in `tool.uv.override-dependencies`
+after verifying its hash. See the [binding release](https://github.com/maci0/lancelot/releases/tag/python-flirt-v0.10.2-relumea.1).
 
 ## License
 
-MIT. See [LICENSE](https://github.com/maci0/rebrew/blob/main/LICENSE).
-Optional dependency grants and required notices are recorded in
+MIT. Dependency grants and required notices are recorded alongside the
+[license](https://github.com/maci0/rebrew/blob/main/LICENSE) in
 [NOTICE](https://github.com/maci0/rebrew/blob/main/NOTICE).

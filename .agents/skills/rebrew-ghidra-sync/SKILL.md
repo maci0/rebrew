@@ -16,8 +16,8 @@ license: MIT
 Synchronize names, types, and dedicated Rebrew metadata with Ghidra.
 **Field-level sync is BinSync-primary**: rebrew exports and imports the shared
 BinSync state dir; the BinSync Ghidra plugin (or a collaborator's tool) relays
-the state to and from Ghidra. ReVa MCP remains only for the structural ops the
-state dir cannot express: function creation, bookmarks, and live data pulls.
+the state to and from Ghidra. Function creation and bookmarks follow
+`ghidra_backend`. Data-label pulls use ReVa MCP.
 
 ## When NOT to use this skill
 
@@ -104,7 +104,7 @@ Notes:
 `rebrew binsync overlay` borrows names and prototypes from a related target's
 state dir. Both take `--dry-run` previews: `references/state-repo.md`.
 
-### MCP structural ops (Ghidra must be up + ReVa reachable)
+### Structural operations
 
 ```bash
 rebrew sync create-functions # create functions for list-only entries in Ghidra
@@ -158,7 +158,7 @@ with pending changes and stale provenance by `rebrew binsync diff D --json`.
 Failed writes and previews never advance the baseline. Push preserves incoming
 edits and conflicts; missing remote fields require explicit deletion resolution.
 
-**MCP structural:** function creation (`sync create-functions`, standalone or
+**Structural operations:** function creation (`sync create-functions`, standalone or
 chained after `sync pull`), status bookmarks (`sync bookmarks`), data labels
 (`sync pull-data`).
 

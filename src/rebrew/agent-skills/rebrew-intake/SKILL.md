@@ -14,36 +14,24 @@ license: MIT
 
 Onboard a binary and run the first recon pass (library ID → catalog → triage).
 
-## When NOT to use this skill
+Use `rebrew-init` for scaffolding alone and `rebrew-workflow` for an
+already-onboarded target.
 
-- Teaching bare-dir `rebrew init` / profile / target naming only → use `rebrew-init`
-- Day-to-day reversing on an already-onboarded target → use `rebrew-workflow`
-- `rebrew binary analyze`, `rebrew binary function`, or `rebrew binary xrefs` on an already-onboarded target → use `rebrew-workflow`
-- A later catalog / live coverage refresh, or the coverage dashboard → use `rebrew-workflow`
-- Deep matching for a single function → use `rebrew-matching`
+## Set up the target
 
-Use once per new target (or when re-running initial recon). Re-run individual
-steps later if needed.
-
-## Prerequisites
-
-Need a `rebrew-project.toml` and the binary at the configured path (default
-`original/<filename>`). Two ways to get there:
+For a new project, run from the intended project root and pass the existing
+binary directly. Pin the toolchain if you know it.
 
 ```bash
-# A) One-shot (preferred when the user hands you a binary):
-rebrew intake <path-to-binary>            # detect profile → init (if needed) → enumerate → STUB+BLOCKER every function
-rebrew intake <path-to-binary> --toolchain <profile>   # pin profile; --dry-run to preview
-
-# B) Explicit scaffold (when teaching init / overriding guess):
-rebrew init --target <name> --binary <filename> --guess-compiler
-rebrew toolchain pull <profile>           # docker image for the profile (required; no host wine/wibo)
+rebrew intake <path-to-binary>
+rebrew intake <path-to-binary> --toolchain <profile> --dry-run
 ```
 
-`rebrew intake` does **not** run FLIRT or catalog; continue with
-§1–§10 below after it (or after a manual `rebrew init`). Shipped toolchains
-require their images. Docker is the default runtime; see `docs/TOOLCHAIN.md`
-for Podman and experimental unshare selection and prerequisites.
+Intake copies the binary into `original/`, discovers functions, and scaffolds
+unmatched functions it can document. For a new target in an existing project,
+add it first with `rebrew cfg target add`. Continue below for library detection
+and triage. Shipped local toolchains need their images.
+See `references/toolchain-id.md` if detection is uncertain.
 
 ### Multi-target file layout
 
@@ -86,37 +74,34 @@ rebrew toolchain pull <profile>         # fetch a prebuilt image when the toolch
 rebrew cfg target list # confirm target is configured
 ```
 
-Exit 2 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image → the
-check's fix is `rebrew toolchain build <profile>`; `rebrew toolchain pull <profile>`
-fetches a prebuilt one instead, and `build` compiles it from the sibling
-recompile-toolchains checkout. Prefer a pull for setup; build when image-building
-is part of the authorized task. Otherwise clarify before a long build. Config fail → `rebrew init` or `rebrew intake`.
-Missing binary → place at configured path. Missing FLIRT →:
+`doctor` exits 2 if a required check fails. Read `checks[].fix` in the JSON
+report. Pull a missing image or build it from the sibling recompile-toolchains
+checkout when needed. Fix a missing binary by placing it at the configured
+path. If you have no FLIRT signatures, generate them from the matching stock
+archive:
 
 ```bash
 rebrew library signatures <path-to-msvcrt.lib> --output flirt_sigs/msvcrt_vc6.pat
 # .lib from a vendored toolchain/ tree, or extract Lib/ from the profile docker image
-rebrew cfg target add <name> --binary original/<filename> # --force skips the existence check (--binary is still required)
 ```
 
 ### 2. FLIRT Library Scan
 
-Identify known library functions (MSVCRT, zlib, DirectX, etc.) to separate
-library code from game code:
+Scan for library candidates. If you need CRT source cross-matches, check and
+configure the CRT source paths:
 
 ```bash
-rebrew cfg detect-crt apply # auto-detect and register CRT source dirs (required before crt-match)
-rebrew library scan-signatures --json                     # scan binary against FLIRT signatures
-rebrew library crt-match --json                 # verify CRT source directories are configured
-rebrew library crt-match --all --fix-source --json # auto-annotate SOURCE references for library functions
+rebrew library scan-signatures --json
+rebrew cfg detect-crt show --json
+rebrew cfg detect-crt apply
+rebrew library crt-match --all --json
 ```
 
-To pin a copied signature set in the project, run
-`rebrew library init-signatures --matched-only`. Existing project files are
-retained; `scan-signatures` remains a read-only scan.
-
-Preview the CRT dirs with `rebrew cfg detect-crt show --json` before applying
-them. `crt-match` exits with an error when no `crt_sources` are configured.
+With access to a compatible shared ReconDB checkout, use
+`rebrew library init-signatures --matched-only` to copy the relevant set into
+the project. Review signature hits before using a metadata writer. After
+reviewing CRT source matches, `rebrew library crt-match --all --fix-source --json`
+records accepted source references.
 FLIRT JSON: `matches[].names`; ambiguous hits in `ambiguous_matches`. A hit
 names an origin, not the linked provider. `rebrew library adopt 0xVA --reason
 "<evidence>" --dry-run --json` re-matches that VA against the archives the
@@ -126,7 +111,7 @@ the preview needs `--expected-digest` and `--reason`. `rebrew library presence
 reference, so an `/INCLUDE` does not pull a member the target never carried.
 A match is the bytes, not proof the linker selected that member.
 
-### 3. Build Function Catalog + Coverage Document
+### 3. Inspect coverage
 
 ```bash
 rebrew coverage export --output snapshots/                         # optional portable snapshots for offline use
@@ -134,9 +119,9 @@ rebrew coverage catalog --export-ghidra-labels --json   # write ghidra_data_labe
 rebrew coverage catalog --fix-sizes --force              # backfill SIZE in rebrew-functions.toml from catalog
 ```
 
-Live coverage scans the tree itself; `function_structure.json` is used when a
-Ghidra export is present. `rebrew coverage catalog --fix-sizes` needs `--force` when stdin is not a
-terminal, and remains required with `--json`. A piped answer does not approve.
+Live coverage uses the configured inventory and current project state. Use
+`rebrew coverage export` for a portable snapshot. The catalog's size write
+requires `--force` with non-terminal stdin or JSON output.
 
 ### 4. Initial Triage
 
@@ -183,7 +168,8 @@ rebrew binary extract batch 20                 # extract first 20 smallest
 
 ### 8. Generate First Skeletons
 
-Start with the easiest functions identified by triage:
+Open the file named by the queue if it already exists. Generate skeletons
+for uncovered functions:
 
 ```bash
 rebrew todo --json                      # get recommended functions to start
@@ -212,8 +198,8 @@ rebrew sync push --state-dir <dir> # export names, types, and metadata fields to
 ```
 
 `sync push` exports to the state dir; `sync pull --state-dir <dir>` imports it back
-(conflicts via `--accept-binsync` / `--accept-local`). MCP structural ops
-(`sync create-functions`, `sync bookmarks`, `sync pull-data`) still need ReVa.
+(conflicts via `--accept-binsync` / `--accept-local`). Function creation and bookmarks follow the target's `ghidra_backend`.
+Data-label pulls use ReVa MCP.
 Conflicts, the git-backed `rebrew binsync` group, and pull semantics are in
 `rebrew-ghidra-sync`.
 

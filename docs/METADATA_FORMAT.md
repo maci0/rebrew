@@ -1,8 +1,10 @@
 # Rebrew Metadata Format
 
-All canonical source state lives in dedicated TOML stores (functions format 3; data format 2) at
-`cfg.metadata_dir`. The only Rebrew syntax in C is an optional ADDRESS comment
-immediately above the next declaration; see [source addresses](ANNOTATIONS.md).
+Canonical function and data state uses logical metadata documents (function
+format 3 and data format 2). With the default TOML backend, they live under
+`cfg.metadata_dir`. See [backend selection](METADATA.md#storage-api-and-backend-selection)
+for SQLite and PostgreSQL. Optional source anchors use ADDRESS comments by
+default. See [source addresses](ANNOTATIONS.md) for syntax and configuration.
 Ordinary readers reject old inline blocks and older metadata formats. The explicit
 `source consolidate` operation upgrades reviewed format-2 function/source stores;
 preview with `--dry-run --json`, then apply with its `--expected-digest`.
@@ -32,9 +34,9 @@ blocker = "needs structure layout"
 Keys are qualified `MODULE.0xVA` identities, unique after Unicode/module and
 hex-address normalization. Missing modules, duplicate spellings, unknown fields
 and the retired `marker_type` field are rejected. Tools emit zero-padded addresses;
-an existing qualified spelling is updated in place. `file` is relative to the
-metadata root, and must not escape it. A row can have no file until a source or
-library provider is established.
+an existing qualified spelling is updated in place. For ordinary source bindings, `file` is relative to the metadata root.
+Compiled library providers use the project root. A row can have no file
+until a provider is established. See the [source contract](METADATA.md#current-source-contract).
 
 Identity fields are `file`, `symbol`, `name`, `kind`. Classification is independent
 of comparison state: library origin is `kind = "LIBRARY"`, while the linked

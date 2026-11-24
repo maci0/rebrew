@@ -1,6 +1,6 @@
 # Source addresses and metadata
 
-All Rebrew state lives in dedicated metadata files. C source may carry optional
+Function and data records live in dedicated metadata stores. C source may carry optional
 address anchors immediately above a function definition, variable declaration,
 or data constant:
 
@@ -17,8 +17,9 @@ Each anchor identifies exactly the next C declaration. Stack one line per target
 when targets share the declaration. Blank lines and comments may intervene;
 preprocessor directives and other code may not. Multiple declarators on one line
 are ambiguous and rejected. An extern is a declaration, never a storage owner.
-Generated C uses C89-safe block comments. Strings and function-body comments do
-not establish identities.
+By default, generated C uses C89-safe block comments. See
+[address comment settings](CONFIG.md#address-comment-syntax) for other styles.
+Strings and function-body comments do not establish identities.
 
 `rebrew source register [SOURCE] --dry-run` previews identities recovered from
 these addresses; run without `--dry-run` to record them. It validates the complete
@@ -68,8 +69,7 @@ Configured source directories must remain inside the metadata root; see the
 [configuration rule](CONFIG.md#what-the-config-loader-provides).
 
 Never hand-edit these stores. Writers use their owning metadata APIs, locks,
-and backend persistence. TOML files and SQLite databases use mode 0444 at rest;
-PostgreSQL uses database permissions. STATUS is earned only by comparison through
+and backend persistence. See [metadata storage](METADATA.md#storage-api-and-backend-selection) for backend and permission rules. STATUS is earned only by comparison through
 `rebrew test` / `rebrew verify`; an address or registration is no match evidence.
 `PROVEN` is not a byte match. Library origin and actual linked provider remain
 separate; a signature candidate is not a verified provider.

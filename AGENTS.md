@@ -6,29 +6,23 @@ This file is hand-maintained for this repo. `src/rebrew/AGENTS.md.template` is t
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions.
 
-Contributor install: `make setup` (`uv sync --locked --all-extras --group similarity`); needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check), JDK + Ant + cc/make (JPype sdist build for the binsync extra), and the Rust toolchain (cargo + rustc, for the python-flirt sdist build). `make test` also needs nasm, bun, cc/pkg-config/json-c and GNU patch (bare pytest skips the nasm, bun and native-runner tests without them; the vendor tests fail without patch); vnu only ever skips, and CI installs it through `tools/ci_install_vnu.sh`. The full prerequisite table is in [CONTRIBUTING.md](CONTRIBUTING.md#bootstrap-clean-clone). `make help` lists targets.
+Use [contributor bootstrap](CONTRIBUTING.md#bootstrap-clean-clone) for the
+pinned sibling Resembl checkout, `make setup`, and host prerequisites. Run
+`make doctor` before setup and `make help` for contributor targets.
 
 ## Never
 
-Two prohibitions come first because breaking either loses data a later run cannot recover:
-
 - **Never hand-edit `rebrew-functions.toml` or `rebrew-data.toml`.** They hold durable identity/provenance and volatile fields; writers go through `rebrew.metadata.functions` / `rebrew.metadata.data`.
-- **Never write `STATUS` in a `.c` file.** `rebrew test` / `rebrew verify` promote and demote it from the byte comparison, so a hand-set value is overwritten by the next run.
+- **Never write `STATUS` in C.** `rebrew test` and `rebrew verify` record byte verdicts in the metadata store.
 
 ## Compiler Profiles
 
 New names are `"<image-family>-<version>"` (lowercase, version dots kept; a few packaged imports such as `agbcc` and `saturn-cygnus-2.7-96Q3` predate the rule), e.g. `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`. Append a target suffix only when one family+version spans more than one target (`watcom-2.0-win32` / `watcom-2.0-win16` / `msvc-6.0-win9x`). Service-pack and variant markers keep their words (`msvc-6.0-sp1`, `msvc-7.0-rtm`, `msvc-6.0-sp5-pp`). See ADR 017; old names are gone, not aliased. Default profile: `msvc-6.0`.
 
-**Image-backed for every packaged profile** (`rebrew toolchain list`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`. Inventory and image tags: `rebrew toolchain list` (pins/smoke: `docs/TOOLCHAIN.md`).
-
-
-Local compiler execution is selected with `[compiler] execution_backend =
-"docker" | "podman" | "unshare"` (per-target compiler overrides apply).
-The default uses `REBREW_CONTAINER_RUNTIME`, normally Docker. `unshare` is an
-experimental opt-in for trusted 32-bit MSVC/Wine images on unprivileged Linux
-x86_64; it still uses the immutable toolchain image filesystem, with no host Wine
-fallback. `rebrew verify --experimental-unshare` selects it for one run.
-See `docs/TOOLCHAIN.md` for prerequisites, cleanup and isolation limits.
+Packaged profiles use compiler images. Run `rebrew toolchain list` for the
+inventory and prepare the image with `rebrew toolchain pull <name>` or
+`rebrew toolchain build <name>`. See [compile backends](docs/TOOLCHAIN.md#compile-backends)
+for Docker, Podman, experimental unshare, and remote execution.
 
 Docker build source lives in the sibling **recompile-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.compiler.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.compiler.toolchain.require_toolchains_repo()`.
 
@@ -38,17 +32,15 @@ Docker build source lives in the sibling **recompile-toolchains** checkout (`REB
 
 ## Build & Test Commands
 
-```bash
-make doctor                               # report every missing prerequisite (CONTRIBUTING.md table) and its fix
-make test-one T=tests/test_source_bindings.py  # edit-test loop; T takes a node id (::TestClass), FLAGS= takes any pytest flag
-make test                                 # full suite (needs nasm + bun + cc/pkg-config/json-c + patch + the setup extras; vnu skips if absent)
-make lint / make format / make mypy
-make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
-make pr-check                             # before a PR: CI gates, pre-commit, build, sdist/wheel equality, wheel smoke, reproducible rebuild, dist provenance, SBOM
-make coverage                             # slipcover fail-under floor (COV_FLOOR); ratchet up, never down
-```
+- `make test-one T=<file-or-node-id> FLAGS=<pytest-options>` for focused tests.
+- `make test` for the full suite. Run `make pr-check` from a clean commit
+  before submitting.
+- `make gen-fixtures` after changing the fixture generator.
+- `make coverage` checks the `COV_FLOOR` line-coverage floor. Raise it only.
 
-Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py` via `addopts`, which also starts pytest-xdist workers with work stealing for a full-suite run and freezes the collected graph out of cyclic GC after collection, and `tests/typer_command_cache.py`, which builds each typer app's click command once per process until the app registers a new command, group or callback; `pythonpath` is `src`, `.`, `tests`; `.` exposes `tools/`). `--collect-only`, `--pdb`, `--trace`, and a file or node id stay one process. `make coverage` runs `tools/coverage_shards.py`: four serial slipcover processes (CI's split on every host, so files that share a process in CI share one locally) over size-balanced shares of the test files, merged, because slipcover's xdist mode undercounts.
+Bare `uv run --frozen pytest` uses the same pytest config. Use the Make
+target to check host prerequisites. See [contributor commands](CONTRIBUTING.md#quick-commands)
+and [test conventions](docs/DEVELOPMENT.md#test-conventions).
 
 ## Code Style
 

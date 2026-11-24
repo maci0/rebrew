@@ -12,7 +12,8 @@ matching).
 
 ## Index
 
-One folder per compiler class; one file per version inside.
+These pages cover the measured compiler corpus. Use `rebrew toolchain list`
+for the complete profile inventory.
 
 | File | Compiler | rebrew profiles |
 |---|---|---|
@@ -24,7 +25,7 @@ One folder per compiler class; one file per version inside.
 | [msvc/msvc-7.md](msvc/msvc-7.md) | MSVC 7.0 (.NET 2002) | `msvc-7.0`, `msvc-7.0-rtm`, `msvc-7.0-sp1` |
 | [msvc/msvc-7-1.md](msvc/msvc-7-1.md) | MSVC 7.1 (.NET 2003) | `msvc-7.1`, `msvc-7.1-sp1` |
 | [msvc/msvc-8.md](msvc/msvc-8.md) | MSVC 8.0 (VS 2005) | `msvc-8.0`, `msvc-8.0-sp1` |
-| [msvc/msvc-9.md](msvc/msvc-9.md) | MSVC 9.0 (VS 2008) | `msvc-9.0`, `msvc-9.0-sp1` |
+| [msvc/msvc-9.md](msvc/msvc-9.md) | MSVC 9.0 (VS 2008) | `msvc-9.0` (offered), `msvc-9.0-sp1` (withdrawn) |
 | [msvc/msvc-10.md](msvc/msvc-10.md) | MSVC 10.0 (VS 2010) | `msvc-10.0`, `msvc-10.0-sp1` |
 | [msvc/msvc-11.md](msvc/msvc-11.md) | MSVC 11.0 (VS 2012) | `msvc-11.0` |
 | [mingw/gcc.md](mingw/gcc.md) | MinGW GCC (PE/x86_32, by era) | `mingw-16.2.0` |
@@ -306,8 +307,9 @@ The generator (`gen_codegen_corpus.py`), schema validator
 (`validate_corpus.py`), mechanical sweep (`sweep_corpus.py`) and the
 **query CLI** (`corpus_query.py`; `info` / `matrix <func>` /
 `unique <ver>` / `diff <v1> <v2>` / `look <hex>`) live in the
-gitignored `.cache/fp_probe/` harness.  `matrix`/`diff`/`unique` read
-the precomputed **`corpus-matrix.json`** index (576 functions × their
+local `.cache/fp_probe/` harness. The harness itself is outside the tracked tree.
+The [behavior corpus](corpus-behavior.json) records the probe outcomes.  `matrix`/`diff`/`unique` read
+the precomputed [`corpus-matrix.json`](corpus-matrix.json) index (576 functions × their
 per-version byte groups) for O(1) lookups.  `matrix lcg_next` prints the
 per-version byte groups for a function; `look ff 24 85` finds every
 record containing a byte pattern.  The corpus also carries Delphi 1.0

@@ -1,20 +1,11 @@
 # Rebrew Product Requirements Documents
 
-These product requirements describe Rebrew workflows for contributors and
-record their implementation status.
-PRDs may preserve historical examples or unshipped requirements; their status
-lines define that scope. Use [CLI.md](../CLI.md) and the current topical guides
-for executable commands and runtime contracts. Each PRD captures:
-
-- The product problem the feature solves
-- Target users
-- Goals / non-goals
-- Functional requirements
-- Concrete user workflows
-- The shipped CLI surface (check current syntax with `--help`)
-- Success metrics and known limitations
-
-PRDs are organised by feature area:
+These records describe subsystem requirements and their implementation
+status. Use each PRD's status line to interpret examples and open items.
+The PRDs cover the core reversing loop. PRD 09 is partial because divergent
+Git merge remains open. For current commands and options, see the
+[CLI reference](../CLI.md) or
+`rebrew --help`.
 
 | #  | PRD                                              | Scope |
 | -- | ------------------------------------------------ | ----- |
@@ -28,17 +19,5 @@ PRDs are organised by feature area:
 | 08 | [Agent Skills](08-agent-skills.md)               | The six `agent-skills/*/SKILL.md` workflows |
 | 09 | [Full BinSync Integration](09-binsync-full.md) | Bidirectional sync with declib, git-backed state, locals/enums/typedefs |
 
-Each PRD carries its own `- **Status**:` line; PRD 09 is the only one not
-`Shipped` (the umbrella and declib I/O ship, divergent git merge remains).
-
-For source-side gaps discovered while validating these PRDs see
-[`00-source-gap-report.md`](00-source-gap-report.md): last audited
-2026-08-22, re-audited 2026-09: 33 recorded gaps, all closed (30 fixed in
-place, 3 resolved by the BinSync-primary rework).
-
-## Coverage
-
-The nine feature PRDs cover the core reversing loop, not the entire CLI.
-A command absent from this directory is uncovered, not unplanned.
-[CLI.md](../CLI.md) is the exhaustive command reference; `rebrew --help`
-shows the installed surface, including plugins.
+The [source-gap report](00-source-gap-report.md) records the August and
+September 2026 audits that closed the 33 gaps observed at the time.

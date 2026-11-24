@@ -32,8 +32,10 @@ presentation data.
 Comparison writers append status transitions atomically in
 `rebrew-functions.toml`. History survives dashboard restarts, source retirement
 and export removal. Importing existing snapshot history never changes a current
-STATUS, binding, edit stamp or verification record. Existing directories may also
-hold configured inventory JSON: retain those files when retiring exports.
+STATUS, binding, edit stamp or verification record. An import can succeed with
+unreadable snapshots skipped. Check stderr warnings and the imported targets
+before retiring exports. Keep skipped snapshots for repair, and retain any
+configured inventory JSON in the same directory.
 
 ## 1. Portable `coverage-<target>.toml`
 
@@ -517,17 +519,13 @@ Clients read the applied values back from the envelope.
 > (`no-store`, no `ETag`) and on `/app.js` or `/favicon.svg` at its `?v=` URL
 > (`private, max-age=31536000, immutable`). JSON and the shell negotiate
 > `zstd` then `gzip` by `Accept-Encoding` quality.
-> Its stderr log is one stream: every access line is
-> `HH:MM:SS INFO    <addr> r<N> "<request line>" <status> <bytes> <ms>`
-> and every error line `HH:MM:SS ERROR   rebrew.dashboard r<N> <reason> <path>`
-> (plus an escaped single-line traceback), so `r<N>` pivots from a failure to
-> its request; a 500 the route raised itself is logged the same way with no
-> traceback. A fault that escapes the handler reaches the same stream as
-> `r<N> unhandled <Exc> from <peer> serving <request line>` (ERROR, counted in
-> `server errors`); a client that closed the connection mid-response is
-> `r<N> client disconnected serving <request line>` (INFO, not counted).
-> Totals (`requests`, `server errors`, `slowest ms`) print once on
-> shutdown. See [`dashboard.py`](../src/rebrew/dashboard.py).
+> Access and error logs share stderr. They use UTC timestamps, the request
+> ID, and a trace ID when available. Access entries include the status,
+> response size, and elapsed time. Use the request ID from the response to
+> find related errors. A disconnected client is logged at INFO. An unhandled
+> server failure is logged at ERROR and counts toward server errors. The
+> server prints totals on shutdown. See [dashboard.py](../src/rebrew/dashboard.py).
+
 
 Global ownership fields are optional additions to version 1. Readers of older
 documents leave owners empty and retain `files` as declaration sites; they never

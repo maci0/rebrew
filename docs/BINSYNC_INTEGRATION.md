@@ -1,18 +1,25 @@
 # BinSync Integration
 
-`rebrew binsync export`, `rebrew binsync import`, and `rebrew binsync diff`
-provide a bidirectional bridge between rebrew and any BinSync-aware decompiler
-plugin (IDA Pro, Binary Ninja, Ghidra via BinSync). Shared native fields include
-names, C signatures, notes, comments, locals, globals, structs, enums, and
-typedefs. `rebrew binsync diff` reports divergence and provenance freshness read-only.
+Rebrew exchanges names, C signatures, notes, comments, locals, globals, and
+types with BinSync-compatible decompilers. For Ghidra, field exchange uses a
+BinSync state directory. Function creation and bookmarks can use ReVa MCP
+or the Ghidra CLI backend. Data-label pulls use ReVa MCP.
 
-> BinSync state I/O goes through [declib](https://github.com/binsync/declib), BinSync's
-> artifact layer (the `declib>=4.5` dependency of the `binsync` extra). Install it with
-> `uv sync --extra binsync`. Stack vars, per-instruction comments, enums, and typedefs
-> all round-trip; the `rebrew binsync` push/pull umbrella ships alongside the flat
-> commands ([prd/09-binsync-full.md](prd/09-binsync-full.md)).
+Install the `binsync` extra in the environment that runs Rebrew. For a
+Rebrew tool installation:
 
----
+```bash
+uv tool install --reinstall 'rebrew[binsync] @ git+https://github.com/maci0/rebrew.git'
+```
+
+Contributor environments from `make setup` include the extra. The
+[installation notes](../README.md#optional-features) list its build prerequisites.
+
+| Task | Route |
+| --- | --- |
+| Preview and exchange fields with a local Ghidra state directory | [`rebrew sync`](CLI.md#rebrew-sync) |
+| Exchange a Git-backed state directory with collaborators | [`rebrew binsync push` and `pull`](#umbrella-rebrew-binsync-pushpullsummaryinitdiffoverlay) |
+| Read, write, or compare raw state files | [`rebrew binsync`](CLI.md#rebrew-binsync) export, import, and diff |
 
 ## Init: `rebrew binsync init <state-dir>`
 

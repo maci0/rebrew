@@ -10,7 +10,8 @@ from rebrew.config import load_config
 from rebrew.compiler.compile import compile_and_compare
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
-from rebrew.compiler.toolchain import ToolchainError, get_toolchain
+from rebrew.compiler.toolchain import TOOLCHAINS, get_toolchain
+from rebrew.compiler.toolchain import ToolchainError
 
 cfg = load_config()  # walks up for rebrew-project.toml
 for path in iter_sources(cfg):  # a bare path works too: iter_sources("src/game")
@@ -25,8 +26,6 @@ except ToolchainError as exc:
 # The legal profile names are the registry, not a hardcoded list. TOOLCHAINS
 # maps name -> ToolchainSpec, so a consumer can enumerate and inspect them
 # with attributes rather than parsing `rebrew toolchain list` output:
-from rebrew.compiler.toolchain import TOOLCHAINS, get_toolchain
-
 for name, spec in sorted(TOOLCHAINS.items()):
     print(name, spec.family, spec.bits, spec.obj_ext, spec.image)
 
@@ -70,15 +69,13 @@ except RebrewError as exc:
         ...  # transient docker/daemon blip or transport hiccup
     raise
 
-# A remote recompile failure does not raise: it is a COMPILE_ERROR result
-# with the structured error attached, so the retry decision survives the
-# compile boundary.
-if result.status == "COMPILE_ERROR" and result.error is not None:
+# The compile service gave no compiler verdict.
+if result.status == "NOT_RUN" and result.error is not None:
     if result.error.retryable:
-        ...  # service unreachable / 503 / at capacity (error_code) - retry later
+        ...  # retry according to the caller's schedule
     else:
-        ...  # the service rejected the request; rebrewing the C will not help
-# result.error is None on a COMPILE_ERROR: the compiler rejected the source.
+        ...  # report result.error.kind or ask for another profile
+# COMPILE_ERROR without a structured error means the compiler rejected the source.
 ```
 
 Persisting that result keeps the decision: `CompareResult.to_dict()` writes

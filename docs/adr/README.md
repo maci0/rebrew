@@ -34,13 +34,13 @@ maps old routes to new ones, and [CLI.md](../CLI.md) has current flags.
 | 003 | [NE import parsing degrades to module list, never fabricates](003-ne-imports-degrade-to-modules.md) |
 | 004 | [Intake re-discovery prunes only exact auto-stubs](004-intake-prunes-stale-stubs.md) *(amended by 030)* |
 | 005 | [Toolchain detection: backend order + NE marker family + linker fallback](005-toolchain-detection.md) |
-| 006 | [Standardized toolchain invocation (docker-first, host fallback)](006-toolchain-standardization.md) *(amended by 007, 008, 011, 016; see status lines)* |
+| 006 | [Standardized toolchain invocation (docker-first, host fallback)](006-toolchain-standardization.md) *(amended by 007, 008, 011, 016; packaged profiles now use images)* |
 | 007 | [Complete containerization + unified byte-reproducibility gate](007-complete-containerization-reproducibility.md) *(amended by 011, 016; see status lines)* |
 | 008 | [Docker-only toolchain execution (no host wine/dosbox)](008-docker-only-execution.md) *(amended by 016, 032; see status lines)* |
-| 009 | [Cross-target function import (`rebrew source import-related`)](009-cross-target-import.md) *(amended by 022, 024, 028)* |
+| 009 | [Cross-target function import](009-cross-target-import.md) *(amended by 022, 024, 028; current route is `rebrew source import-related`)* |
 | 010 | [Shared multi-version sources (`src/shared` + per-target defines)](010-shared-multi-version-sources.md) *(amended by 030: address anchors replaced the `// FUNCTION:` marker)* |
 | 011 | [Toolchain build source moves to the sibling recompile-toolchains checkout](011-external-toolchains-checkout.md) |
-| 012 | [Metadata store tiers: canonical vs derived vs cache](012-metadata-store-tiers.md) (see [METADATA.md](../METADATA.md)) *(amended by 023, 030, 031, 033, 034, 035)* |
+| 012 | [Metadata store tiers: canonical vs derived vs cache](012-metadata-store-tiers.md) (see [METADATA.md](../METADATA.md)) *(amended by 023, 030, 031, 033, 034, 035; 030 superseded 023)* |
 | 013 | [Byte-level library detection against linked archives (`rebrew library match`)](013-lib-match.md) |
 | 014 | [The CLI is a component graph (`rebrew.app.plugin` + `rebrew.app.builtins`)](014-component-composition.md) |
 | 015 | [Compile backends: local docker images plus the recompile service](015-compile-backends.md) *(amended by 016)* |

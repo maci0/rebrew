@@ -151,12 +151,9 @@ expressed in C.
 3. **Exception registration manipulation**: These functions directly modify the Windows
    exception registration chain (`fs:[0]`), which cannot be done portably in C.
 
-**How to handle them:**
-
-- Mark as `STUB` with BLOCKER: `"SEH helper - not matchable from C"`
-- Don't waste time trying to match them: they're CRT internal functions
-- The actual game code doesn't call these directly; they're only used by the
-  exception handling runtime
+Confirm whether the CRT supplies these helpers before adding game C. Check
+the linked archive when available. See [library matching](CLI.md#rebrew-library-match)
+and [parked functions](MATCH_TYPES.md#skip).
 
 **Verification pattern**: If a function:
 - Loads `ebp` from `[reg]` or `[reg+offset]` instead of `mov ebp, esp`
@@ -164,7 +161,7 @@ expressed in C.
 - References `fs:[0]` or exception-related structures
 - Has `__local_unwind` or `except` in the call graph
 
-…then it's likely an SEH helper. Mark as STUB and move on.
+These are clues to check against the runtime code and calling convention.
 
 > `rebrew todo` auto-detects functions starting with `mov eax, fs:[0]`
 > (`64 A1 00 00 00 00`) and drops them from `rebrew todo` (`detect_unmatchable` in `naming.py`).

@@ -1,8 +1,14 @@
 # Toolchain & Environment
 
-External tools that rebrew integrates with or builds on top of.
+Use `rebrew toolchain list` for the known profiles, including plugins.
+From a contributor checkout, run `uv run --frozen rebrew toolchain list`.
+The [vendored manifest](../src/rebrew/compiler/toolchains.json) records the
+packaged profiles and image pins.
 
----
+- [Execution backends](#compile-backends) and [image builds](#toolchain-standardization-docker-first)
+- [Compiler detection](#toolchain-detection-doctor-alignment-check) and [registry extensions](#extending-the-registry-third-party--project-local-toolchains)
+- [MSVC matrix](#the-msvc-10110-matrix) and [16-bit Windows builds](#16-bit-windows-ne-binaries-native-parsing--disassembly--byte-matching)
+- [Disassemblers and decompilers](#disassemblers--decompilers) and [function discovery](#function-discovery)
 
 ## Compile backends
 
@@ -345,7 +351,9 @@ author's *exact* GCC version.  Modern GCC (e.g. 16.x) differs from older GCC
 match only *structurally* (use `rebrew diff` structural ratio): document the
 semantic decomp and blocker the byte delta rather than forcing a pass.
 
-**ELF/x86_64 targets:** `gcc-16.2.0`/`gcc-14.2.0`/`gcc-12.3.0` and
+### ELF/x86_64 profiles
+
+ `gcc-16.2.0`/`gcc-14.2.0`/`gcc-12.3.0` and
 `clang-23.1.4`/`clang-18.1.8`/`clang-16.0.4` are first-class ELF profiles
 (posix flags, `.o` objects) backed by their own images
 (`rebrew/gcc:16.2.0-linux-x64`, `rebrew/gcc:14.2.0-linux-x64`,
@@ -455,10 +463,10 @@ runtime and flag style). Notes on the families documented here:
 
 - `msvc-6.0`: image `rebrew/msvc:6.0-win32`, MSVC 6.0 under wine from the
   sha256-pinned archaic-msvc `msvc600` tarball, CL.EXE 12.00.8168.
-- The **complete MSVC 1.0-11.0 line** ([matrix below](#the-msvc-10110-matrix-complete-docker-packaged)):
+- The **MSVC 1.0–11.0 examples** ([matrix below](#the-msvc-10110-matrix)):
   the table lists 31 classic-line profiles from `msvc-1.0` to `msvc-11.0`;
-  the registry adds `msvc-6.0-sp5-crt`, `msvc-6.0-sp5-pp` and
-  `msvc-8.0-portable`, which the table omits. Every version and preserved
+  the registry also includes variants such as `msvc-6.0-sp5-pp` and
+  newer profiles such as `msvc-12.0-u4`. Every version and preserved
   service pack is a sha256-pinned image `rebrew/msvc:<version>-<arch>` plus a
   host tree vendored into the recompile-toolchains checkout as the
   byte-identical build source; the 4.0/4.2/5.0 trees are archaic-msvc /
@@ -472,7 +480,7 @@ runtime and flag style). Notes on the families documented here:
 - `mingw-16.2.0`/`mingw-14.2.0`: MinGW-w64 i686; images
   `rebrew/mingw:16.2.0-win32` / `rebrew/mingw:14.2.0-win32`. The driver is a
   Windows PE binary, so the image's wrapper runs it under wine.
-- `gcc-*` and `clang-*` ELF images: see [ELF/x86_64 targets](#mingw-gcc-mingw-1620-profile-for-pex86_32-targets).
+- `gcc-*` and `clang-*` ELF images: see [ELF/x86_64 profiles](#elfx86_64-profiles).
 - `watcom-2.0-win32`: Open Watcom 2.0 x86 32-bit; image
   `rebrew/watcom:2.0-win32`; the docker compile produces the same object and
   relocations as the host path. `watcom-2.0-win16`: Open Watcom 2.0 `wcc`,
@@ -494,7 +502,7 @@ runtime and flag style). Notes on the families documented here:
   diec reports this 1988/89 compiler as "Borland C/C++ 1991". C89-strict: it
   rejects `//` comments, so skeletons use `/* */` markers.
 - `ido-5.3`/`ido-7.1`: SGI IDO reimplementations; MIPS-II big-endian (N64);
-  native-Linux images `rebrew/ido:5.3-linux`/`rebrew/ido:7.1-linux` from the
+  native-Linux images `rebrew/ido:5.3-n64` / `rebrew/ido:7.1-n64` from the
   sha256-pinned decompals/ido-static-recomp v1.2 release assets; the recomp
   `cc` runs natively, no wine; in the smoke gate, objects byte-identical
   across runs.
@@ -561,10 +569,7 @@ top-level directory is the **unversioned compiler family** (`msvc/`,
 `delphi/`, `watcom/`) and the version + target architecture live in the
 subdirectory and image tag, so `msvc/6.0-win32/`,
 `msvc/1.52-win16/`, or a future `msvc/6.0-windows-x86/` coexist
-without ambiguity.  (The old
-`msvc-6.0/6.0-linux-x64` / `msvc152/1.52-linux-x64` / `delphi-1.0/1.0-linux-x64`
-names were ambiguous (`msvc152` read as "MSVC 152" and `delphi-1.0` as
-"Delphi 16") and are retired.)
+without ambiguity.
 
 **Shared base image**: every toolchain Dockerfile inherits
 `FROM rebrew/base:1.0` (`base/` in the recompile-toolchains checkout), which
@@ -936,11 +941,9 @@ VC 5.0 + SPs, VC 7.0/7.1, VC 8.0/9.0/10.0). `rebrew toolchain vendor <name>`
 fetches and verifies the pinned tree for a profile (repo names in the matrix
 below).
 
-### The MSVC 1.0–11.0 matrix (complete, docker-packaged)
+### The MSVC 1.0–11.0 matrix
 
-Rebrew now vendors and containerizes the **entire classic MSVC line**, every
-version and every service pack whose compiler binary is preserved publicly.
-Each row is a first-class toolchain: a `ToolchainSpec` + pinned sha256 source
+This table covers selected MSVC profiles through 11.0. Each row names a `ToolchainSpec` + pinned sha256 source
 (`rebrew toolchain vendor <name>` assembles the host tree; `rebrew toolchain
 build <name>` builds `rebrew/msvc:<version>-<arch>` from the same tarball), a
 config/init/detect profile, and a smoke-gate golden.
@@ -1027,8 +1030,8 @@ Notes:
   the x86 compiler the archive's README claims, so the profile is withdrawn
   (recompile-toolchains 1.18.0 withdraws its row too) until the archive carries
   the x86 SP1 compiler.
-- **VC 11.0**: `msvc-11.0` (VS 2012, cl.exe 17.00.50522) is the newest
-  compiler the `archaic-msvc` org carries.
+- **VC 11.0**: `msvc-11.0` is VS 2012 (cl.exe 17.00.50522).
+  The registry also includes `msvc-12.0-u4` for Visual Studio 2013 Update 4.
 - **Retired names**: the old `msvc6.3` / `msvc6.6` aliases are gone; the
   registry names are `msvc-6.0-sp3` / `msvc-6.0-sp6`, and a config naming the
   old aliases is an unknown profile and fails to load.
@@ -1258,46 +1261,26 @@ toolchain, link against a full toolchain's Lib, intake the result, and
 
 ## Disassemblers & Decompilers
 
-### Ghidra (Primary)
+### Ghidra
 
-Connected via ReVa MCP (Model Context Protocol). These are the only MCP tools
-rebrew calls (`ghidra/client.py` is the single call site):
-
-| Capability | MCP Tool | Caller |
-|------------|----------|--------|
-| Decompilation | `get-decompilation` | `decompiler.py`, `skeleton.py --decomp` |
-| Cross-references | `find-cross-references` | `skeleton.py --xrefs` |
-| Function creation | `create-function` | `rebrew sync create-functions` |
-| Labels and comments | `create-label`, `set-comment`, `set-bookmark` | `rebrew sync push` (BinSync state push/pull) |
-| Structure editing | `parse-c-structure` | `struct_parser.py` |
-
-See [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) for the sync feature matrix and known issues.
+With ReVa MCP configured, Rebrew can request decompilation and caller
+references, and read live data labels. Function creation and bookmarks also
+support the Ghidra CLI backend. Field exchange, including names, comments,
+and types, goes through a BinSync state directory. See
+[Ghidra and BinSync integration](BINSYNC_INTEGRATION.md).
 
 ### radare2 / rizin
 
-Used for decompilation backends (r2ghidra, r2dec), as an alternative analysis
-perspective, and as packaged `rebrew.discoverers` providers (rizin `aaa` /
-`aa; aap`).  The decompiler backends auto-detect whichever is installed (`rz`
-preferred over `r2`); the packaged discoverers invoke `rizin` directly.
-Third-party discoverers plug in via the `rebrew.discoverers`
-entry-point group without host edits.
-
-**Data files consumed by rebrew:**
-- `function_structure.json`: discovery inventory `[{va, size, name}]`
-  (consumed by `rebrew skeleton`, `rebrew todo`, `rebrew coverage catalog`)
-
-**Known issues:**
-- r2/rz occasionally report bogus sizes for some functions
-- r2 names use `fcn.XXXXXXXX` and `sub.DLL_funcname` conventions
+Rebrew invokes `rizin` for function discovery. The `r2ghidra` and `r2dec`
+backends use Rizin's `rz-ghidra` and `rz-dec` plugins or their radare2
+counterparts. See [skeleton options](CLI.md#rebrew-skeleton) for the backend list.
+Inspect and correct questionable extents before using them as byte-match
+inputs. See [function discovery](#function-discovery).
 
 ### IDA / Binary Ninja
 
-Not integrated into the pipeline. Potential uses:
-- Cross-validation of function boundaries (third opinion vs Ghidra/r2)
-- MSVC CRT signature matching (Binary Ninja has built-in MSVC sigs)
-- FLIRT-based CRT identification (IDA)
-
----
+Exchange supported fields with their BinSync plugins using a state directory.
+Use [FLIRT signatures](FLIRT_SIGNATURES.md) to check library attribution.
 
 ## Binary Analysis Tools
 
@@ -1342,83 +1325,23 @@ yara /tmp/test.yar target.dll
 
 ## Python Libraries
 
-### Core Dependencies
-
-| Library | Use in Project |
-|---------|----------------|
-| **capstone** | x86 disassembly in matcher scoring |
-| **click** | Shell completion for the installed CLI (`init.py`) |
-| **diskcache** | Persistent shared compile cache (`.rebrew/compile_cache/` via `compiler/cache.py`; GA same-run memo is in-memory) |
-| **httpx** | HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`, `skeleton.py`, `decompiler.py`) |
-| **lief** | PE/ELF/Mach-O parsing: core dependency for `formats/binary_loader.py`, `matcher/parsers.py` |
-| **numpy** | Numeric computation |
-| **python-flirt** | FLIRT signature matching for library identification (`flirt.py`) |
-| **rich** | Terminal formatting |
-| **tomlkit** | Comment-preserving TOML editing (`cfg.py`) |
-| **tree-sitter** | C source AST parsing for signature and struct extraction |
-| **tree-sitter-c** | Tree-sitter C language grammar (used with `tree-sitter`) |
-| **typer** | CLI framework with rich help |
-
-### Optional Dependencies
-
-| Library | Purpose | Install |
-|---------|---------|--------|
-| **angr** (with bundled **Claripy** and **gitpython**) | Symbolic execution + Z3 for `rebrew prove`: the `prove` extra | `uv sync --extra prove` |
-| **declib** | BinSync state I/O for `rebrew binsync*`: the `binsync` extra | `uv sync --extra binsync` |
-
-### Not Installed (could be added)
-
-| Library | Purpose |
-|---------|---------|
-| **matplotlib** | Plotting / visualization |
-| **r2pipe** | Programmatic radare2 access from Python |
-| **keystone** | Assembler engine (x86 → bytes) |
-| **unicorn** | CPU emulation |
-
----
+See the [package manifest](../pyproject.toml) for runtime dependencies and
+optional extras. For installation and build prerequisites, see
+[Quick Start](../README.md#quick-start) and [contributor setup](../CONTRIBUTING.md#bootstrap-clean-clone).
 
 ## Function Discovery
 
-Multiple tools detect functions independently. Ghidra typically finds the most (most
-accurate sizes, includes thunks), while r2 occasionally reports bogus sizes. The catalog
-pipeline tracks which tools detected each function via the `detected_by` field.
-
-### Common Discrepancies
-
-| Issue | Details |
-|-------|---------|
-| Tool count mismatch | Ghidra typically finds more functions than r2 (missed functions or different splitting) |
-| 1-byte "functions" | Likely `ret` stubs or alignment: seen by both tools |
-| IAT thunks | 6-byte `jmp [IAT]` stubs, not reversible C code |
-| Size disagreements | Tools may report different function sizes; `canonical_size` picks the best |
-
-See [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) for how tool-specific names
-are normalized.
-
----
+`rebrew binary functions` combines format-specific discovery backends into
+an inventory of `{va, size, name}` records. Use `--output` to save that
+inventory. See [discovery and extent rules](CLI.md#rebrew-binary-functions)
+and [name normalization](NAME_NORMALIZATION.md) for results from other tools.
 
 ## Usage Recommendations
 
-### For Function Identification
-1. Start with **Ghidra** decompilation (best quality, connected via MCP)
-2. Cross-reference with **r2** names for alternative analysis perspective
-3. Use **DUMPBIN /IMPORTS** to identify library boundaries
-4. Use **yara** rules for bulk pattern identification of CRT/zlib functions
-
-### For Byte Comparison
-1. `rebrew diff` for side-by-side disassembly (add `--mismatches-only` for structural diffs only)
-2. **objconv** to verify comp.id on compiled .obj files
-3. **DUMPBIN /DISASM** for quick .obj inspection
-
-### For Compiler Flag Analysis
-1. `rebrew match flags --tier normal` (~5.4K combos)
-2. Use `--tier quick` for fast iteration (192), `--tier targeted` (default), `--tier thorough` for deep search (~258K), or `--tier full`
-3. **objconv** comp.id verification to confirm same compiler
-4. Re-sync flags from decomp.me: `uv run --frozen python tools/sync_decomp_flags.py`
-
-### For Structure Recovery
-1. **Ghidra** structure editor via MCP (`parse-c-structure`)
-2. **DUMPBIN /RAWDATA** for raw data inspection at specific offsets
+Use [compiler detection](#toolchain-detection-doctor-alignment-check) to select
+a profile and [flag sweep tiers](FLAG_SWEEP_TIERS.md) to choose the search
+breadth. See the [workflow guide](WORKFLOW.md) for comparing, diagnosing, and
+matching functions.
 
 ## Native build timestamps
 

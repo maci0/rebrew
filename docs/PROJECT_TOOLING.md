@@ -1,7 +1,8 @@
 # Project tooling consolidation
 
-This audit covers Guild, Holidaydecomp, and the 44 projects in
-`rebrew-test-projects`. The canonical local checkouts are the sibling
+This ledger records the Guild, Holidaydecomp, and `rebrew-test-projects`
+audit and its migration decisions. Counts describe those checkouts at the time
+of the audit. See [Guild findings](IDEAS-GUILD.md) for follow-up work. The canonical local checkouts are the sibling
 `rebrew`, `recoverage`, and `recompile-toolchains` repositories under
 `relumea/repos`. Project-specific reconstruction facts and independent
 acceptance checks stay with their projects. Reusable operations belong here.

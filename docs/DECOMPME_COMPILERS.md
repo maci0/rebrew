@@ -6,9 +6,7 @@ Companion to [codegen/RULES.md](codegen/RULES.md) (rules J2 and A2 cite this
 fleet) and to the per-version files. Captured 2026-08-24 from the decompme
 GitHub org, then probed (rules catalog rounds 26 and 27).
 
-The checkout used for the capture is
-`~/Desktop/ai-decomp/third-party/decompme-api/` (sibling of the `decompedia/`
-practice-doc checkout).
+The inventory and probes below describe the August 2026 capture.
 
 ## 1. Where the definitions live
 

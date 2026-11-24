@@ -1,28 +1,13 @@
 # Function Status Reference
 
-All function statuses are stored in the `rebrew-functions.toml` metadata, keyed by
-`MODULE.0xVA`; a key without a module is rejected by the writer. The row's `file`
-and `kind` are the identity. All function state lives in format-3 dedicated metadata.
-Optional ADDRESS comments bind the next C declaration. No inline state or old
-metadata formats are read. Registration is not comparison evidence.
-
-Function presence, accounted executable bytes, and matched-function counts are
-different measures. The table below describes byte-match credit; see
-[status accounting](CLI.md#rebrew-status) for denominators and library/padding
-contributions. Managed TOML examples illustrate output; never hand-edit them.
+Rebrew stores accepted function verdicts under `MODULE.0xVA` keys in managed
+metadata. See [metadata formats](METADATA_FORMAT.md) for identity and writers,
+and [status accounting](CLI.md#rebrew-status) for byte and function counts.
 
 ## Status Overview
 
-`UNDOCUMENTED` is not a STATUS value: it is the state of a catalog function that has
-no `.c` file yet, so no metadata entry exists to carry one. The coverage document stores that
-row's `functions.status` as the schema default `UNKNOWN`.
-
-```
-UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
-   (UNKNOWN)                 ↓
-                          PROVEN (via rebrew prove; eligibility below)
-                          SKIP   (parallel track, intentionally unmatchable)
-```
+The coverage document uses `UNKNOWN` when it has no stored verdict for a
+catalog function. The matched columns below refer to byte-match credit.
 
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
@@ -32,11 +17,13 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 | `RELOC` | 100% (masked) | `rebrew test` / `rebrew verify` | Yes |
 | `EXACT` | 100% (raw object, or raw linked image) | `rebrew test` / `rebrew verify`; linked EXACT via `rebrew verify --text --raw-link` | Yes |
 | `PROVEN` | Semantic (bytes differ) | `rebrew prove` | No (shown separately) |
-| `SKIP` | N/A | Metadata API (parked) | No byte-match credit |
+| `SKIP` | N/A | Parked in managed metadata | No byte-match credit |
 
-`rebrew test` / `rebrew verify` also persist machine verdicts (`SIZE_MISMATCH`,
-`COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`, `MISSING_FILE`, `INVALID_VA`)
-for outcomes that are not match statuses; they never count as matched.
+Reports can also contain `SIZE_MISMATCH`, `COMPILE_ERROR`, `EXTRACT_ERROR`,
+`MISSING_SIZE`, `MISSING_FILE`, or `INVALID_VA`. The metadata writer applies
+[verdict protection](METADATA.md#who-owns-which-fact) before persisting a
+result. If a remote compile gives no verdict or the compiler is unavailable
+for selection, Rebrew reports `NOT_RUN` and keeps the stored verdict.
 
 ---
 
@@ -45,7 +32,7 @@ for outcomes that are not match statuses; they never count as matched.
 Function exists in the catalog but no `.c` file has been created yet. This is the
 implicit starting state, tracked from the function list rather than the metadata:
 there is no entry, so there is no STATUS to hold. Writing `UNDOCUMENTED` as a
-STATUS is rejected by `metadata.update_source_status` and by `rebrew lint` (E004);
+STATUS is rejected by `metadata.update_source_status` and by `rebrew lint` (E004).
 The coverage document carries the row as `UNKNOWN`. Tools like `rebrew todo` and
 `rebrew source document-unmatched` surface these as action items.
 
@@ -75,8 +62,8 @@ size = 163
 blocker = "needs complete rewrite from scratch, 199B target vs 163B compiled"
 ```
 
-Common causes: LLM-generated skeleton that doesn't match, missing CRT internals,
-wrong calling convention, completely wrong algorithm structure.
+A persistent STUB can indicate an unfinished body, a missing CRT helper,
+a wrong calling convention, or a different algorithm.
 
 ---
 
@@ -213,48 +200,28 @@ unmatchable or irrelevant to the decompilation effort:
 | Padding / alignment | Dead bytes between functions, never executed |
 | Linker-generated | `__security_cookie_check`, `__SEH_prolog` |
 
-```toml
-["SERVER.0x10001234"]
-status = "SKIP"
-skip = "IAT thunk: jmp [__imp_CreateFileA]"
-```
-
-SKIP parks the work item and earns no match credit: in executable-byte
-accounting a non-library SKIP span still counts as unmatched (see
-[status accounting](CLI.md#rebrew-status)).
+To park a reviewed function, import `update_source_status` from
+`rebrew.metadata.functions` and call
+`update_source_status(cfg, "SKIP", module, va, clear_blockers=False)`.
+It returns `True` when it writes the row and `False` when it leaves it alone.
+Test and verify preserve the parked status by default. A non-library SKIP span
+counts as unmatched in [executable-byte accounting](CLI.md#rebrew-status).
 
 ```bash
-rebrew todo --json    # surface likely SKIP candidates
+rebrew todo --json    # find parking candidates
 ```
 
 ---
 
 ## How rebrew test Classifies Results
 
-```mermaid
-flowchart TD
-    A[Compile C to .obj] --> B[Extract obj bytes]
-    B --> C[Extract target bytes from DLL]
-    C --> D{bytes equal after validating<br/>and masking object relocations?}
-    D -- Yes, no relocation slots --> E[EXACT]
-    D -- Yes, relocation slots accepted --> H[RELOC]
-    D -- No records, zero-spans align --> H
-    D -- No --> I[Compute similarity score]
-    I --> J{score >= 60%?}
-    J -- Yes --> K[NEAR_MATCHING]
-    J -- No --> L[STUB demotion]
-```
-
-```text
-1. Compile .c file to .obj with MSVC6 (toolchain docker image)
-2. Extract symbol bytes from .obj (COFF parser)
-3. Extract target bytes from DLL at the given VA
-4. Compare with the object's relocation records (smart_reloc_compare):
-   a. equal, no accepted relocation slots        → EXACT
-   b. equal once accepted slots are masked       → RELOC
-   c. similarity >= 60%                          → NEAR_MATCHING
-   d. similarity < 60%                          → STUB (demotion)
-```
+After compiling and extracting the candidate symbol, Rebrew compares it
+against the original function. An accepted match is `EXACT` if no relocation
+mask is needed and `RELOC` if relocation bytes are masked. Different lengths
+usually produce `SIZE_MISMATCH`, with the stub exception described above.
+For remaining mismatches, positional byte agreement of 60% or more produces
+`NEAR_MATCHING`. A lower percentage produces `STUB`. Instruction similarity is
+a separate diagnostic score.
 
 ## Relocation Masking Details
 

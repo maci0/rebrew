@@ -1,11 +1,15 @@
 # Rebrew ideas: features the guild-rebrew effort needed but lacked
 
-Sourced from the 100% byte-identical `server.dll` campaign (MSVC6, x86-32).
-Each entry: observed pain, proposed feature, evidence pointer in guild-rebrew.
-This is a proposal/evidence ledger, not a command manual: example commands and
-flags may be unshipped. Status `open` unless noted; observations describe the
-campaign at the time recorded. Use [CLI.md](CLI.md) for shipped behavior and
-promote scoped proposals to [ROADMAP.md](ROADMAP.md).
+This ledger records proposals, shipped fixes, and evidence from the
+Guild `server.dll` byte-matching campaign. Use each entry's date and status
+to interpret it and the [CLI reference](CLI.md) for executable commands.
+
+- [October 24 follow-up audit](#october-24-follow-up-audit) summarizes the
+  confirmed fixes and open library-provider work as of that pass.
+- [October 2026 consolidation audit](#october-2026-consolidation-audit)
+  records earlier dispositions and migrations.
+- [Tooling follow-up](#source-consolidation-tooling-follow-up-2026-11-05)
+  tracks source-consolidation findings and subsequent work.
 
 ## October 24 follow-up audit
 

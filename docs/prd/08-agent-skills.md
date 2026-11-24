@@ -9,6 +9,9 @@
 LLM agent drive Rebrew end-to-end without re-deriving "how to use the
 tool" each turn.
 
+Skill descriptions include example phrases. Select a skill by the current
+task and load only the references it needs. See [documentation style](../STYLE.md#maintain-the-generated-surfaces).
+
 ## Problem It Solves
 
 Rebrew exposes hundreds of commands ([CLI.md](../CLI.md) gives the measured

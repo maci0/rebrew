@@ -1,150 +1,77 @@
-# Onboarding: your first rebrew project
+# Project setup and troubleshooting
 
-The first-run companion to [Getting started](GETTING_STARTED.md): what
-`init` and `intake` automate (including the init wizard), the health check,
-the errors a new user can hit and what each one means, 16-bit targets, and
-manual function discovery.  For the full command reference see [CLI.md](CLI.md); for toolchains
-see [TOOLCHAIN.md](TOOLCHAIN.md).
+Use [Getting started](GETTING_STARTED.md) to onboard a binary and match your
+first function. This guide covers setup choices and recovery from common errors.
 
-## Prerequisites
+## Choose a setup command
 
-Install rebrew and the host tools in
-[Getting started: prerequisites](GETTING_STARTED.md#prerequisites).
+| Use | When |
+| --- | --- |
+| `rebrew intake /path/to/game.exe` | Create a project from an existing binary, detect the compiler, discover functions, and scaffold unmatched functions. |
+| `rebrew init` | Configure a new project interactively. |
+| `rebrew init --no-wizard --target game --binary game.exe --toolchain msvc-6.0` | Scaffold a project with a known target and compiler. Place the binary at `original/game.exe`. |
+| `rebrew cfg target add <name> --binary <path>` | Add a target to an existing project. See the [CLI reference](CLI.md#rebrew-cfg-target-add). |
 
-## The 5-minute path
+`intake` uses the binary stem as the target name unless you pass `--target`.
+For a custom target name, the copied binary uses that name with the original
+extension. `intake` needs the target to be configured if the project already
+exists. Run it from the project root to repeat discovery for an existing target.
+It preserves recorded progress and can remove untouched generated stubs for
+functions that disappeared from the inventory. Use the copy under `original/`
+to repeat discovery on the same binary.
 
-### 1. Initialize the project
+### Interactive wizard
 
-```bash
-rebrew init --target server --binary server.dll
-```
+With terminal input, `rebrew init` prompts for the binary, compiler profile,
+target name, and shell completions that you left unspecified. It looks in
+`original/` and the current directory for binaries and uses compiler detection
+to suggest a profile. Review the settings at the confirmation prompt. After
+creating the scaffold, the wizard can offer to build a missing compiler image.
 
-Creates `rebrew-project.toml`, `original/`, `src/server/`, metadata files,
-and prints the next steps.  If you have the binary handy, skip straight to
-`rebrew intake`: it runs `init` for you. The examples use the binary stem
-`server` as the target name, matching intake's default.
+Use `--no-wizard` or `--json` to skip prompts. Non-interactive input also skips
+the wizard. See [init options](CLI.md#rebrew-init).
 
-#### Interactive wizard
+## Check the project
 
-Bare `rebrew init` on a TTY runs an **onboarding wizard** (`--wizard` is the
-default; `--no-wizard` or `--json` opts out).  It only asks about parameters
-you did NOT pass on the command line: a fully flagged run
-(`--target/--binary/--toolchain/--write-completions` all given) prompts
-nothing.
+Run `rebrew doctor` after setup. Use `--json` to collect the report in scripts.
+Continue to the [first match walkthrough](GETTING_STARTED.md#4-review-project-status)
+when the relevant checks pass.
 
-1. **Binary**: scans `original/` first, then the current directory, for
-   `*.exe`/`*.dll`/`*.sys`/`*.bin`/`*.com` and offers a numbered pick list
-   (`m` lets you type a path/name manually).
-2. **Detection → compiler profile**: the chosen binary is fingerprinted
-   (format/arch + toolchain family) and the suggested profile becomes the
-   default answer, visibly flagged (`detection suggests …`).  An unknown
-   answer gets one reprompt, then falls back to the current value.
-3. **Target name**: defaults to the binary stem (`mini_pe.exe` → `mini_pe`).
-4. **Shell completions**: optional `completions/` scripts.
-5. **Summary + confirm**: nothing is written before you answer "yes".
-6. **Toolchain image**: after the project is written, the docker image
-   state for the chosen profile is reported; a missing image prints the
-   exact `rebrew toolchain build <profile>` command and offers to run it.
+| Symptom | What to check |
+| --- | --- |
+| `binary not found` from `intake` | Pass the path to a binary you have. |
+| `no functions discovered` | Install `rizin` or configure a compatible `rebrew.discoverers` plugin. The scaffold remains available for another attempt. |
+| Missing compiler image | Pull the profile image or build it from the toolchain source checkout. See [compile backends](TOOLCHAIN.md#compile-backends). |
+| `Toolchain alignment` fails | Check the binary's compiler and the configured profile. For a project-wide change, use `rebrew cfg set compiler.profile <profile>`. See [per-target compiler overrides](CONFIG.md#per-target-compiler-overrides). |
+| Host include or library path is absent | For an image-backed profile, check paths inside the image. A host compiler plugin uses host paths. |
+| Binary fails to load | Check the binary path, file integrity, and configured [target format](CONFIG.md#rebrew-projecttoml-project-root). |
+| `Cannot extract DLL bytes` during verification | Check the reported address or range against the current binary and its inventory. Repeat discovery or repair the source binding if the binary changed. |
+| Project already exists | Use `intake` for discovery on a configured target, or `cfg target add` to add one. |
 
-Piped/CI invocations (non-TTY stdin, `--json`) never prompt.
+### 16-bit targets
 
-### 2. One-shot onboarding
+`intake` sets `arch = "x86_16"` for DOS MZ and Windows NE binaries. Select a
+16-bit profile. `verify` compares per-function objects, so Delphi 1.0's
+whole-program NE output uses `rebrew build delphi` and
+`rebrew binary ne-compare`. See [Delphi whole-program builds](TOOLCHAIN.md#delphi-10-16-bit-ne-whole-program-builds).
 
-```bash
-rebrew intake original/server.dll          # auto-detects the compiler profile
-rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
-```
+## Manual discovery
 
-`intake` does the whole first pass automatically:
-
-1. **detects the compiler profile** (diec → PDB → PE metadata → heuristics)
-2. runs `rebrew init` (skipped if the project already exists; re-running
-   intake is a safe re-discovery)
-3. copies the binary to `original/`
-4. **enumerates functions** via discoverer plugins → `src/server/function_structure.json`
-5. **documents every function** as a STUB skeleton with a BLOCKER,
-   so `rebrew status`/`rebrew todo` show the full reversing landscape
-
-The summary names the detected profile, the function count and the next
-command; [Getting started](GETTING_STARTED.md#2-onboard-it) shows a sample.
-
-### 3. Health check
+After a manual `init`, you can generate the function inventory with Rebrew's
+discovery backends:
 
 ```bash
-rebrew doctor            # green/red checklist with fixes for every failing item
-rebrew doctor --json     # machine-readable
+rebrew binary functions --target game --output src/game/function_structure.json
+rebrew doctor --target game
 ```
 
-`doctor` validates the config, binary, toolchain (docker image or native
-compiler), include/lib paths, function list, sources, metadata, and more.
-Every `fail` line names its fix.  The common ones after a fresh intake:
+For third-party discovery, write the inventory as a JSON array of objects with
+integer `va` and `size` fields and a string `name`. Use the configured target's
+`reversed_dir` for the output path. See [binary functions](CLI.md#rebrew-binary-functions).
 
-- **`Compiler`/`Toolchain`/`Runner` fail**: the docker image isn't built:
-  `rebrew toolchain build <profile>` or `rebrew toolchain pull <profile>`.
-- **`Toolchain alignment` fail**: the detected compiler family doesn't match
-  the configured profile: switch the profile (e.g. `rebrew cfg set
-  compiler.profile msvc-6.0`) or document it as a blocker.
-- **`Include path`/`Lib path`**: for docker-backed profiles these are
-  provided *by the image* (it is built from the pinned source in the sibling
-  `recompile-toolchains` checkout), so a dangling host path is informational,
-  not a failure.  Every shipped profile is docker-backed; only a plugin
-  toolchain registered without an image uses real host paths.
+## Project instructions and skills
 
-### 4. Status, library code, first match
-
-Continue at [Getting started step 4](GETTING_STARTED.md#4-review-project-status):
-`rebrew status` / `rebrew todo`, ruling out library code, then the
-`test` / `diff` / `diagnose near` / `match` loop on the stubs intake wrote
-(for example `src/server/fcn_00401000.c`). For statically linked MSVCRT,
-`rebrew library crt-match --all --fix-source` also records the accepted CRT
-source references in `rebrew-functions.toml`.
-
-The agent skills in `.agents/skills/` (`rebrew-init`, `rebrew-intake`,
-`rebrew-workflow`, `rebrew-matching`, `rebrew-data-analysis`,
-`rebrew-ghidra-sync`) walk the same loop with step-by-step instructions for
-AI agents.
-
-## First-run errors and what they mean
-
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `binary not found: …` | typo'd path | pass the real path: `rebrew intake` copies it to `original/` |
-| `no functions discovered` | no discoverer found functions (rizin missing, timed out, or couldn't analyze the binary) | `apt install rizin` or register another `rebrew.discoverers` plugin; re-run `rebrew intake` (the scaffold is kept) |
-| `docker image rebrew/… not built` | image missing | `rebrew toolchain build <profile>` (or `rebrew toolchain pull <profile>`) |
-| `Toolchain alignment` fail | detected family ≠ configured profile | `rebrew cfg set compiler.profile <detected>` |
-| `Cannot extract DLL bytes` (verify) | binary changed since the annotation | re-run `rebrew intake` for re-discovery, or fix the stored/bound VA (the error names the VA when it is missing from the current function list) |
-| `Failed to load: …` (doctor) | `format` doesn't match the binary | set `format = "pe"/"elf"/"macho"/"ne"` in `rebrew-project.toml` |
-| `A rebrew-project.toml already exists` | `init` in an existing project | use `rebrew intake` instead: it re-runs init only when needed |
-
-## 16-bit targets
-
-For MZ (DOS) and NE (16-bit Windows) binaries `intake` sets `arch = "x86_16"`
-automatically, and the profile must be one registered with `bits = 16` (for
-example `msvc-1.52`, `msc-6.0`, `borland-3.1`, `watcom-2.0-win16`,
-`delphi-1.0`, or a plugin that declares the same).  `rebrew verify` byte-compares only the
-ones that emit a per-function object; `delphi-1.0` emits a linked NE and is
-skipped.  `rebrew doctor` explains exactly which profile to configure.
-
-## Manual discovery (without `intake`)
-
-When onboarding by hand (or feeding a third-party tool's output), write
-`src/<target>/function_structure.json` directly: `[{va, size, name}]` with
-integer VAs:
-
-```bash
-# Ghidra: Auto-Analyze, export the function list, save as above.
-# rizin headless (the packaged discoverer's executable):
-rizin -q -c 'aaa; aflj' original/mygame.exe \
-  | jq '[.[] | {va: .offset, size: .size, name: .name}]' \
-  > src/mygame/function_structure.json
-```
-
-Then continue at step 3 (`rebrew doctor`).
-
-## Next
-
-- [CLI.md](CLI.md): every command
-- [TOOLCHAIN.md](TOOLCHAIN.md): compilers, images, per-library overrides
-- [ANNOTATIONS.md](ANNOTATIONS.md): function/data metadata, optional ADDRESS anchors, and lint diagnostics
-- [CONFIG.md](CONFIG.md): `rebrew-project.toml` reference
-- [ARCHITECTURE.md](ARCHITECTURE.md): how the pieces fit together
+`rebrew init` generates project rules and skills. Use `rebrew init --check`
+to report drift and `rebrew init --refresh-agents` to refresh the scaffold.
+Keep project-specific rules below the marker in the generated AGENTS.md.
+See [init options](CLI.md#rebrew-init).
