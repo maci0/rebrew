@@ -295,7 +295,7 @@ IN_PROCESS_TIMEOUT_SECONDS = 600
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "f2e71bd3b9060ef02e636ad29f26e78a685894c1e867fc39c7ce127925d58e17"
+DISPATCH_SCHEMA_SHA256 = "c959b0b1413b51c1880239e93b198b49e8f186c9b09423e21a50c92115f57db7"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -453,6 +453,10 @@ DECOMPILER_NOT_OFFERED = "decompiler-not-offered"
 #: The configured Ghidra endpoint the ``ghidra`` decompiler uses did not answer (503,
 #: ``Retry-After``): an outage, retried later.
 DECOMPILER_UNREACHABLE = "decompiler-unreachable"
+#: An offered decompiler ran and produced no code for the requested address (or, for
+#: ``rebrew.structs``, for any selected function): a fixed sentence naming the backend
+#: and the address; the same request is answered the same.
+NO_DECOMPILATION = "no-decompilation"
 #: The toolchain ran and rejected the source (422): no verdict, and the detail
 #: carries the compiler's diagnostics.  A toolchain that could not run stays
 #: 500 ``engine-error``.
@@ -688,6 +692,7 @@ PROBLEMS: dict[str, tuple[int, ...]] = {
     COMPILER_NOT_OFFERED: (400,),
     DECOMPILER_NOT_OFFERED: (400,),
     DECOMPILER_UNREACHABLE: (503,),
+    NO_DECOMPILATION: (422,),
     TOOLCHAIN_REJECTED: (422,),
     CANDIDATE_NOT_ONE_FUNCTION: (400,),
     CANDIDATE_ADDRESS_COMMENT: (400,),
@@ -728,7 +733,7 @@ _CANDIDATE_PROBLEMS = _COMPILE_PROBLEMS | {
     CANDIDATE_NOT_ONE_FUNCTION,
     COMPILE_NOT_RUN,
 }
-_DECOMPILE_PROBLEMS = frozenset({DECOMPILER_NOT_OFFERED, DECOMPILER_UNREACHABLE})
+_DECOMPILE_PROBLEMS = frozenset({DECOMPILER_NOT_OFFERED, DECOMPILER_UNREACHABLE, NO_DECOMPILATION})
 _COVERAGE_PROBLEMS = _RETAINED_PROBLEMS | {COVERAGE_INPUT_UNVERIFIED}
 
 #: The codes an op answers besides :data:`DISPATCH_PROBLEMS`, by op; an op not
@@ -2337,6 +2342,13 @@ def describe(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
     return {key: dossier[key] for key in JSON_KEYS}
 
 
+def _no_decompilation(backend: str, va: int) -> OpsError:
+    """The decompiler *backend* (or every one ``auto`` tried) gave no code for *va*."""
+    return OpsError(
+        f"decompiler '{backend}' produced no code for 0x{va:x}", code=NO_DECOMPILATION, status=422
+    )
+
+
 def decompile(config: WorkerConfig, req: DecompileRequest) -> dict[str, Any]:
     """Decompiled source of ``va``; ``named`` applies the project's known struct names."""
     from rebrew.analysis import is_inside
@@ -2356,10 +2368,7 @@ def decompile(config: WorkerConfig, req: DecompileRequest) -> dict[str, Any]:
     except McpError as exc:
         raise _ghidra_outage(exc) from None
     if not code:
-        raise _refused(
-            f"no decompilation via '{req.backend}' for 0x{va:x}"
-            " (backend unavailable or unsupported address)"
-        )
+        raise _no_decompilation(req.backend, va)
     if req.named:
         from rebrew.name_decomp import apply_known_names
         from rebrew.sources import iter_library_headers, iter_sources
@@ -2429,8 +2438,12 @@ def structs(config: WorkerConfig, req: StructsRequest) -> dict[str, Any]:
             limit=req.limit or None,
             json_output=True,
         )
-    except NoDecompilationError as exc:
-        raise _refused(_bounded(str(exc))) from None
+    except NoDecompilationError:
+        raise OpsError(
+            f"decompiler '{req.decompiler}' produced no code for any selected function",
+            code=NO_DECOMPILATION,
+            status=422,
+        ) from None
     except McpError as exc:
         raise _ghidra_outage(exc) from None
 
@@ -4986,7 +4999,7 @@ def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> d
         except McpError as exc:
             raise _ghidra_outage(exc) from None
         if not code:
-            raise _refused(f"no decompilation via '{req.backend}' for 0x{va:x}")
+            raise _no_decompilation(req.backend, va)
         verify_files()
         pointer_width = int(getattr(cfg, "pointer_size", 4) or 4)
         code = apply_known_names(code, definitions, pointer_width=pointer_width).code

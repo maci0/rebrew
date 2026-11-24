@@ -7023,6 +7023,10 @@ refused `no decompiler 'auto' probes is offered here` when none is; choose a bac
 `rebrew.vocabulary` lists `available`), `decompiler-unreachable` (503 with
 `Retry-After: 30`: the configured Ghidra endpoint did not answer, before or during
 the decompile; the transport error goes to the worker log, bounded),
+`no-decompilation` (422, the same three ops: the decompiler ran, or every backend
+`auto` tried, and produced no code for the address, `decompiler 'auto' produced no
+code for 0x401000`, or for any function `rebrew.structs` selected; the same request
+is answered the same),
 `candidate-not-one-function` (400),
 `candidate-address-comment` (400) and `candidate-name-taken` (409, see `apply_candidate`
 below), `deadline-exceeded` (504, see the deadlines below), or, from `serve` only, `worker-busy` (503) and `caller-gone` (499,

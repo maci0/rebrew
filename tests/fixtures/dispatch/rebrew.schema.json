@@ -166,6 +166,11 @@
         405
       ]
     },
+    "no-decompilation": {
+      "status": [
+        422
+      ]
+    },
     "project-import-refused": {
       "status": [
         422
@@ -5492,6 +5497,11 @@
             405
           ]
         },
+        "no-decompilation": {
+          "status": [
+            422
+          ]
+        },
         "toolchain-rejected": {
           "status": [
             422
@@ -5621,6 +5631,11 @@
         "method-not-allowed": {
           "status": [
             405
+          ]
+        },
+        "no-decompilation": {
+          "status": [
+            422
           ]
         },
         "toolchain-rejected": {
@@ -12836,6 +12851,11 @@
         "method-not-allowed": {
           "status": [
             405
+          ]
+        },
+        "no-decompilation": {
+          "status": [
+            422
           ]
         },
         "toolchain-rejected": {

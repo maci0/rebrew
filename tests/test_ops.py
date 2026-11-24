@@ -1048,8 +1048,12 @@ class TestFunctionOps:
         TestDecompilersOffered._engine(monkeypatch, kuna=True)
         config, project = world
         request = {"binary_id": 1, "project_dir": str(project), "decompiler": "kuna", "limit": 0}
-        detail = _refusal(config, "rebrew.structs", json.dumps(request).encode())["detail"]
-        assert detail.startswith("no decompilation obtained via 'kuna' (2 function(s) skipped)")
+        refusal = _refusal(config, "rebrew.structs", json.dumps(request).encode())
+        assert (refusal["error"], refusal["status"], refusal["detail"]) == (
+            "no-decompilation",
+            422,
+            "decompiler 'kuna' produced no code for any selected function",
+        )
 
     def test_operand_locations(self, world: tuple[WorkerConfig, Path]) -> None:
         config, _project = world
@@ -4857,6 +4861,27 @@ class TestDecompilersOffered:
             "decompiler-not-offered",
             400,
             detail,
+        )
+
+    def test_an_offered_decompiler_that_yields_nothing_is_the_callers_refusal(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``auto`` offered (kuna is installed) and every backend it tries gives no code:
+        a declared 422 ``no-decompilation`` naming the address, not an engine fault."""
+        self._engine(monkeypatch, kuna=True)
+
+        def nothing(*_args: Any, **_kwargs: Any) -> tuple[str, str]:
+            return "", "auto"
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", nothing)
+        config, project = world
+        request = {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA}
+        body = {**request, "backend": "auto", "named": False}
+        refusal = _refusal(config, "rebrew.decompile", json.dumps(body).encode())
+        assert (refusal["error"], refusal["status"], refusal["detail"]) == (
+            "no-decompilation",
+            422,
+            f"decompiler 'auto' produced no code for 0x{ENTRY_VA:x}",
         )
 
     def test_a_configured_ghidra_that_does_not_answer_is_an_outage(
