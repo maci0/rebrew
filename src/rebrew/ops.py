@@ -74,6 +74,7 @@ lazy import types
 lazy import typing
 lazy import unicodedata
 lazy from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+lazy from email.utils import formatdate
 lazy from typing import Any
 lazy from urllib.parse import urlsplit
 
@@ -324,6 +325,11 @@ DISPATCH_SCHEMA_SHA256 = "0a0ae03ccbef17e0fca0babab877d6ee7dd466ba96c112f6b9a489
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
+
+#: Accepted HTTP connections allowed to hold a handler thread at once. The call
+#: semaphore bounds engine work, but without a separate admission cap idle or
+#: partial requests could still create one thread and descriptor per connection.
+MAX_CONNECTIONS = 64
 
 #: ``Retry-After`` seconds of the 503 ``serve`` answers when every slot is busy.
 BUSY_RETRY_AFTER_SECONDS = 5
@@ -5636,6 +5642,8 @@ class OpsServer(ThreadingHTTPServer):
     """
 
     daemon_threads = True
+    #: Instance-level so tests and embedded engines can lower the admission cap.
+    _max_connections = MAX_CONNECTIONS
 
     def __init__(
         self,
@@ -5656,6 +5664,8 @@ class OpsServer(ThreadingHTTPServer):
             self.token = token
             self.slots = threading.BoundedSemaphore(concurrency)
             self._active = 0
+            self._connections = 0
+            self._connections_lock = threading.Lock()
             self._draining = False
             self._idle = threading.Condition()
             self.allowed_hosts = (
@@ -5688,6 +5698,78 @@ class OpsServer(ThreadingHTTPServer):
             # that never received a server object to close.
             self.server_close()
             raise
+
+    @override
+    def process_request(self, request: Any, client_address: Any) -> None:
+        """Bound accepted sockets before ``ThreadingHTTPServer`` spawns a thread."""
+        with self._connections_lock:
+            active = self._connections
+            if active < self._max_connections:
+                self._connections += 1
+                refused = None
+            else:
+                refused = active
+        if refused is not None:
+            self._refuse_connection(request, client_address, refused)
+            self.shutdown_request(request)
+            return
+        # The handler releases the slot. If its thread never starts, this accept
+        # path must return the slot instead of permanently reducing the cap.
+        handed_off = False
+        try:
+            super().process_request(request, client_address)
+            handed_off = True
+        finally:
+            if not handed_off:
+                with self._connections_lock:
+                    self._connections -= 1
+
+    @override
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            with self._connections_lock:
+                self._connections -= 1
+
+    def _refuse_connection(self, request: Any, client_address: Any, active: int) -> None:
+        """Answer one over-cap connection without creating a handler thread."""
+        request_id = f"r{next(_REQUEST_IDS)}"
+        detail = f"too many connections in flight ({active} of {self._max_connections}); retry shortly"
+        body = error_body(WORKER_BUSY, detail, 503)
+        with self._metrics_lock:
+            self._busy_refusals += 1
+        self.record_request(503, 0.0, "/unknown")
+        logger.warning(
+            "%s refusing connection from %s trace_id=%s: %d already in flight (cap %d)",
+            request_id,
+            _escape_log_text(str(client_address)),
+            _trace_id(),
+            active,
+            self._max_connections,
+        )
+        if not isinstance(request, socket.socket):
+            return
+        lines = [
+            "HTTP/1.1 503 Service Unavailable",
+            f"Date: {formatdate(usegmt=True)}",
+            f"Retry-After: {BUSY_RETRY_AFTER_SECONDS}",
+            "Content-Type: application/json; charset=utf-8",
+            f"Content-Length: {len(body)}",
+            "Connection: close",
+            f"X-Request-Id: {request_id}",
+            *[f"{name}: {value}" for name, value in _SECURITY_HEADERS],
+            f"Content-Security-Policy: {_CSP}",
+        ]
+        try:
+            request.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + body)
+        except OSError as exc:
+            logger.info(
+                "%s client vanished before the refusal reached it trace_id=%s: %s",
+                request_id,
+                _trace_id(),
+                exc,
+            )
 
     def request_stop(self) -> None:
         """Refuse every new call 503 and end :meth:`serve_forever`; later calls change nothing.

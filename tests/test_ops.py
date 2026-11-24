@@ -4193,6 +4193,78 @@ class TestHttpTransport:
                 thread.join(timeout=5)
             assert not thread.is_alive()
 
+    def test_idle_connections_are_capped_and_released(self) -> None:
+        import socket
+
+        from rebrew.ops import MAX_CONNECTIONS, OpsServer, WorkerConfig
+
+        with OpsServer(("127.0.0.1", 0), WorkerConfig(), TOKEN, 1) as server:
+            assert server._max_connections == MAX_CONNECTIONS
+            server._max_connections = 1
+            serving = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+            )
+            serving.start()
+            port = server.server_address[1]
+            idle = None
+            try:
+                # An accepted socket that sends no request still owns a handler
+                # thread and descriptor; it must consume the admission cap.
+                idle = socket.create_connection(("127.0.0.1", port), timeout=WAIT_SECONDS)
+                deadline = time.monotonic() + WAIT_SECONDS
+                while True:
+                    with server._connections_lock:
+                        active = server._connections
+                    if active == 1 or time.monotonic() >= deadline:
+                        break
+                    time.sleep(0.01)
+                assert active == 1
+
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+                try:
+                    connection.request(
+                        "GET",
+                        "/health",
+                        headers={"Authorization": f"Bearer {TOKEN}"},
+                    )
+                    response = connection.getresponse()
+                    body = response.read()
+                    assert response.status == 503
+                    assert response.getheader("Retry-After") == "5"
+                    assert json.loads(body)["error"] == "worker-busy"
+                finally:
+                    connection.close()
+
+                idle.close()
+                idle = None
+                deadline = time.monotonic() + WAIT_SECONDS
+                while True:
+                    with server._connections_lock:
+                        active = server._connections
+                    if active == 0 or time.monotonic() >= deadline:
+                        break
+                    time.sleep(0.01)
+                assert active == 0
+
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=WAIT_SECONDS)
+                try:
+                    connection.request(
+                        "GET",
+                        "/health",
+                        headers={"Authorization": f"Bearer {TOKEN}"},
+                    )
+                    response = connection.getresponse()
+                    response.read()
+                    assert response.status == 200
+                finally:
+                    connection.close()
+            finally:
+                if idle is not None:
+                    idle.close()
+                server.shutdown()
+                serving.join(timeout=WAIT_SECONDS)
+            assert not serving.is_alive()
+
     def test_sigterm_drains_active_request(self, tmp_path: Path) -> None:
         filestore, workspace = _worker_dirs(tmp_path)
         port = _free_port()
