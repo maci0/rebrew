@@ -309,32 +309,34 @@ def metadata_store(
         if selected is not None and selected[0] == config_identity:
             return selected[1]
         reads, writes = _configured_routes(config, config_identity)
+        store: MetadataStore
         if len(reads) > 1 or len(writes) > 1 or reads != writes:
-            return RoutedStore(
-                path,
-                project,
-                reads,
-                writes,
-                {name: _backend_factory(name) for name in dict.fromkeys((*reads, *writes))},
-            )
-        backend = reads[0]
-        factory = _backend_factory(backend)
-        if factory in (TomlStore, SqliteStore):
+            factories = {name: _backend_factory(name) for name in dict.fromkeys((*reads, *writes))}
+            store = RoutedStore(path, project, reads, writes, factories)
+            # Built-in backends only, as below: a plugin factory may be replaced.
+            if not set(factories.values()) <= {TomlStore, SqliteStore}:
+                return store
+        else:
+            backend = reads[0]
+            factory = _backend_factory(backend)
+            if factory not in (TomlStore, SqliteStore):
+                selected_store = factory(path, project)
+                if not isinstance(selected_store, MetadataStore):
+                    raise ValueError(
+                        f"metadata backend {backend!r} does not implement MetadataStore"
+                    )
+                return selected_store
             store = _builtin_store(path, backend, project)
-            with _SELECTED_STORES_LOCK:
-                # A full clear drops every store a peer thread resolved in
-                # this same window, including ones still inside a transaction.
-                # Drop the oldest entries instead, and refresh a path that
-                # was already cached so it is not the next one evicted.
-                _SELECTED_STORES[path] = (config_identity, store)
-                _SELECTED_STORES.move_to_end(path)
-                while len(_SELECTED_STORES) > _SELECTED_STORES_MAX:
-                    _SELECTED_STORES.popitem(last=False)
-            return store
-        selected_store = factory(path, project)
-        if not isinstance(selected_store, MetadataStore):
-            raise ValueError(f"metadata backend {backend!r} does not implement MetadataStore")
-        return selected_store
+        with _SELECTED_STORES_LOCK:
+            # A full clear drops every store a peer thread resolved in
+            # this same window, including ones still inside a transaction.
+            # Drop the oldest entries instead, and refresh a path that
+            # was already cached so it is not the next one evicted.
+            _SELECTED_STORES[path] = (config_identity, store)
+            _SELECTED_STORES.move_to_end(path)
+            while len(_SELECTED_STORES) > _SELECTED_STORES_MAX:
+                _SELECTED_STORES.popitem(last=False)
+        return store
     if backend is None:
         backend = "toml"
     factory = _backend_factory(backend)
