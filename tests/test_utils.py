@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from rebrew.compiler import temp_dirs
 from rebrew.utils import (
@@ -2286,6 +2288,20 @@ class TestPathIsRelativeTo:
         monkeypatch.setattr(Path, "is_relative_to", refuse)
         for child, parent, answer in expected:
             assert path_is_relative_to(child, parent) is answer
+
+    @given(
+        st.lists(st.sampled_from(["a", "b", "A", "..", ".", "a b", "a\\b", ""]), max_size=5),
+        st.lists(st.sampled_from(["a", "b", "A", "..", ".", "a b", "a\\b", ""]), max_size=5),
+        st.sampled_from(["", "/", "//"]),
+        st.sampled_from(["", "/", "//"]),
+    )
+    @settings(max_examples=300)
+    def test_answers_the_parents_walk_for_generated_paths(
+        self, child: list[str], parent: list[str], child_root: str, parent_root: str
+    ) -> None:
+        """The parts comparison against its scalar twin, ``Path.is_relative_to``."""
+        a, b = Path(child_root + "/".join(child)), Path(parent_root + "/".join(parent))
+        assert path_is_relative_to(a, b) is a.is_relative_to(b)
 
 
 class TestPortablePathParts:

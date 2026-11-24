@@ -93,7 +93,7 @@ lazy from rebrew.compiler.compile import (
 lazy from rebrew.compiler.recompile_client import Attribution
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat, load_binary
 lazy from rebrew.metadata.bindings import BindingConflictError
-lazy from rebrew.utils import fold_host, split_source_lines
+lazy from rebrew.utils import fold_host, path_is_relative_to, split_source_lines
 
 logger = logging.getLogger(__name__)
 
@@ -1855,7 +1855,7 @@ def stored_file(config: WorkerConfig, key: str, sha256: str) -> Path:
         path = root.joinpath(*parts).resolve(strict=True)
     except FileNotFoundError:
         raise _refused("no stored file for the key") from None
-    if not path.is_relative_to(root) or not path.is_file():
+    if not path_is_relative_to(path, root) or not path.is_file():
         raise _refused("the key does not name a stored file")
     if _file_sha256(path) != wanted:
         raise _refused("the stored file does not match its sha256")
@@ -2085,7 +2085,7 @@ def _inside(base: Path, relative: str, what: str, scope: str = "the worker works
     if not relative or Path(relative).is_absolute():
         raise _invalid(f"{what} must be a relative path")
     path = (base / relative).resolve()
-    if path == base or not path.is_relative_to(base):
+    if path == base or not path_is_relative_to(path, base):
         raise _invalid(f"{what} must stay inside {scope}")
     return path
 

@@ -52,6 +52,7 @@ lazy from rebrew.utils import (
     console,
     load_tomllib,
     parse_int_literal,
+    path_is_relative_to,
     preset_module_key,
     resolved_path,
     try_parse_int,
@@ -705,12 +706,12 @@ def address_comments_for_file(
     module_key = preset_module_key(module) if module else None
     # The memo read_source_text fills for the same file.
     resolved = resolved_path(filepath)
-    in_shared = layout.shared_root is not None and resolved.is_relative_to(layout.shared_root)
+    in_shared = layout.shared_root is not None and path_is_relative_to(resolved, layout.shared_root)
     selected = [
         target.comments
         for target in layout.targets
         if (module_key is None or target.module_key == module_key)
-        and (module or in_shared or resolved.is_relative_to(target.source_root))
+        and (module or in_shared or path_is_relative_to(resolved, target.source_root))
     ]
     if len(set(selected)) > 1:
         raise ConfigError(f"{filepath}: shared source has incompatible address_comments settings")
