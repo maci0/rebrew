@@ -22,6 +22,12 @@ Before and after every test it empties ``rebrew.decompiler``'s backend probe
 cache, which keeps a decompiler's state for 30 s: a test that fakes a probe
 (``shutil.which``, a kuna that answers) otherwise leaves the decompiler offered
 to whichever test runs next in the process.
+
+It also makes every LIEF parse and format check given ``bytes`` (or a
+``bytearray`` or ``memoryview``) raise ``TypeError``: LIEF's binding reads a
+``bytes`` argument that spells an existing path as that file and opens it
+(``b"."`` opened the working directory), so rebrew hands LIEF a path string,
+an ``io.BytesIO`` or a list of ints, never bytes.
 """
 
 from __future__ import annotations
@@ -71,8 +77,41 @@ def pytest_runtest_teardown(item: Any, nextitem: Any) -> None:
     _forget_decompiler_states()
 
 
+#: LIEF's entry points that take a path or a buffer, by module attribute path.
+_LIEF_ENTRY_POINTS = (
+    ("", "parse"),
+    ("PE", "parse"),
+    ("ELF", "parse"),
+    ("COFF", "parse"),
+    ("MachO", "parse"),
+    ("", "is_pe"),
+    ("", "is_elf"),
+    ("", "is_macho"),
+)
+
+
+def _refuse_lief_bytes() -> None:
+    """Wrap each LIEF entry point to raise on a ``bytes`` argument; see the module docstring."""
+    import lief
+
+    for module_name, name in _LIEF_ENTRY_POINTS:
+        module = getattr(lief, module_name) if module_name else lief
+        real = getattr(module, name)
+
+        def guarded(source: Any, *args: Any, _real: Any = real, **kwargs: Any) -> Any:
+            if isinstance(source, (bytes, bytearray, memoryview)):
+                raise TypeError(
+                    "LIEF was given bytes, which it opens as a path when they spell one;"
+                    " pass io.BytesIO(data)"
+                )
+            return _real(source, *args, **kwargs)
+
+        setattr(module, name, guarded)
+
+
 def pytest_configure() -> None:
     """Re-assert guards if an earlier plugin cleared them."""
+    _refuse_lief_bytes()
     os.environ["NO_COLOR"] = "1"
     os.environ["TERM"] = "dumb"
     os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"

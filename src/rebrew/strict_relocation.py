@@ -7,6 +7,7 @@ source by the current compiler generation before publishing this evidence.
 from __future__ import annotations
 
 import hashlib
+import io
 from typing import Any
 lazy from pathlib import Path
 
@@ -67,7 +68,7 @@ def strict_pe_relocation(
     if hashlib.sha256(raw_object).hexdigest() != object_sha256:
         raise StrictRelocationError("compiler object digest mismatch")
     try:
-        image = lief.PE.parse(binary)
+        image = lief.PE.parse(io.BytesIO(binary))
         if (
             image is None
             or image.header.machine != lief.PE.Header.MACHINE_TYPES.I386
