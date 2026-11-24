@@ -319,9 +319,15 @@ status-transition log). The TOML and
 SQLite backup commands (`rebrew metadata backup`) carry the whole
 `.rebrew/` extras set plus coverage snapshots; the manual copy
 procedure below must too.
-Everything else is
-regenerable: compile caches, `output/`,
-`bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
+
+Regenerable files include compile caches, `.rebrew/include-closures.json`,
+`output/`, `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
+The include-closure sidecar lets `rebrew status` reuse header search results
+across processes for absolute search paths. It checks the source and search
+configuration, re-reads reached headers, and rechecks missing includes and
+earlier search directories before using an entry. A missing, incompatible, or
+damaged sidecar costs a rescan.
+
 The target binary named by each `[targets.*].binary` is the
 non-regenerable reference the whole project verifies against. TOML and SQLite
 backups include existing binaries whose configured paths are project-relative

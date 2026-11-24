@@ -46,13 +46,14 @@ resolved statically
 (a non-literal ``#include MACRO``, a ``/FI`` force-include), the key falls
 back to per-directory fingerprints of the source dir and every include dir (the conservative
 ccache-style mode, via :func:`include_fingerprint`).  Resolution is
-memoized per process keyed by search-directory mtimes: a header *created*
+memoized with search-directory mtimes: a header *created*
 while a long GA run is in flight bumps the parent directory's mtime and is
 picked up on the next key computation (content edits to already resolved
 headers are still picked up, because each reached file is re-read
 at key time).  A header created *earlier in the search order* than a
 memoized winner bumps only a subdirectory the key does not stat, so the memo
 also stores the earlier dirs each include skipped and re-probes them.
+The status command also retains closures on disk and runs the same checks.
 """
 
 from __future__ import annotations
@@ -62,10 +63,13 @@ import logging
 import re
 import threading
 from collections import OrderedDict
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from typing import Any, Protocol
 lazy import atexit
 lazy import contextlib
+lazy import json
 lazy import os
 lazy import stat
 lazy import time
@@ -77,6 +81,7 @@ import diskcache
 
 from rebrew.utils import (
     BYTES_PER_MIB,
+    atomic_write_bytes,
     path_identity,
     path_is_relative_to,
     resolved_path,
@@ -997,6 +1002,13 @@ def _include_spelling_parent(spelling: str) -> str:
 # directories or the selected target, spelling and alias parent followed by
 # its ordered search roots.
 _ShadowProbe = tuple[str, str, tuple[str, ...]]
+type _Closure = tuple[
+    tuple[str, ...],
+    bool,
+    tuple[tuple[int, int, int, int, str], ...],
+    tuple[tuple[str, tuple[str, ...]], ...],
+    tuple[_ShadowProbe, ...],
+]
 
 # Include-closure memo for :func:`_resolve_include_paths`:
 # ``(source, source_dir, include_dirs, dir_mtimes) →
@@ -1022,6 +1034,102 @@ _INCLUDE_CLOSURE_MEMO: dict[
 _INCLUDE_CLOSURE_MEMO_MAX_BYTES = 32 * BYTES_PER_MIB
 _include_closure_memo_chars = 0
 _INCLUDE_CLOSURE_LOCK = threading.Lock()
+
+# Bump when include resolution or proof semantics change.
+_INCLUDE_CLOSURE_DISK_VERSION = 1
+_INCLUDE_CLOSURE_DISK: ContextVar[tuple[dict[str, Any], dict[str, _Closure]] | None] = ContextVar(
+    "_INCLUDE_CLOSURE_DISK", default=None
+)
+
+
+@contextmanager
+def include_closure_cache(path: Path) -> Iterator[None]:
+    """Reuse validated include closures across runs through a bounded JSON sidecar."""
+    from rebrew import __version__
+
+    version = f"{__version__}:{_INCLUDE_CLOSURE_DISK_VERSION}:{os.name}".encode()
+    entries: dict[str, Any] = {}
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(_INCLUDE_CLOSURE_MEMO_MAX_BYTES + 1)
+        if len(raw) <= _INCLUDE_CLOSURE_MEMO_MAX_BYTES:
+            stamp, checksum, body = raw.split(b"\n", 2)
+            if stamp == version and checksum == hashlib.sha256(body).hexdigest().encode():
+                decoded = json.loads(body)
+                if isinstance(decoded, dict):
+                    entries = decoded
+    except OSError, ValueError, RecursionError:
+        pass
+
+    used: dict[str, _Closure] = {}
+    token = _INCLUDE_CLOSURE_DISK.set((entries, used))
+    try:
+        yield
+    finally:
+        _INCLUDE_CLOSURE_DISK.reset(token)
+    if not any(
+        # A disk hit records the very same tuple it decoded.
+        entries.get(key) is not entry
+        for key, entry in used.items()
+    ):
+        return
+    entries.update(used)
+    body = json.dumps(entries, separators=(",", ":")).encode()
+    if len(body) > _INCLUDE_CLOSURE_MEMO_MAX_BYTES:
+        body = json.dumps(used, separators=(",", ":")).encode()
+    raw = b"\n".join((version, hashlib.sha256(body).hexdigest().encode(), body))
+    if len(raw) <= _INCLUDE_CLOSURE_MEMO_MAX_BYTES:
+        with contextlib.suppress(OSError):
+            atomic_write_bytes(path, raw, mode=0o600, durable=False)
+
+
+def _decode_include_closure(value: Any) -> _Closure | None:
+    """Restore tuples from JSON, treating malformed proof rows as misses."""
+    if not isinstance(value, list) or len(value) != 5:
+        return None
+    paths, fallback, stats, misses, shadows = value
+    if (
+        not all(isinstance(seq, list) for seq in (paths, stats, misses, shadows))
+        or type(fallback) is not bool
+        or any(not isinstance(path, str) for path in paths)
+        or len(paths) != len(stats)
+    ):
+        return None
+    for row in stats:
+        if (
+            not isinstance(row, list)
+            or len(row) != 5
+            or any(type(part) is not int for part in row[:4])
+            or not isinstance(row[4], str)
+        ):
+            return None
+    for row in misses:
+        if (
+            not isinstance(row, list)
+            or len(row) != 2
+            or not isinstance(row[0], str)
+            or not isinstance(row[1], list)
+            or any(not isinstance(root, str) for root in row[1])
+        ):
+            return None
+    for row in shadows:
+        if (
+            not isinstance(row, list)
+            or len(row) != 3
+            or row[0] not in ("find", "escape", "winner", "escape-winner")
+            or not isinstance(row[1], str)
+            or not isinstance(row[2], list)
+            or any(not isinstance(part, str) for part in row[2])
+            or (row[0] in ("winner", "escape-winner") and len(row[2]) < 3)
+        ):
+            return None
+    return (
+        tuple(paths),
+        fallback,
+        tuple(tuple(row) for row in stats),
+        tuple((name, tuple(roots)) for name, roots in misses),
+        tuple((mode, name, tuple(parts)) for mode, name, parts in shadows),
+    )
 
 
 def _resolve_escaping_include(
@@ -1134,6 +1242,15 @@ def shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
     return True
 
 
+def _include_closure_valid(closure: _Closure) -> bool:
+    paths, _, observed, misses, shadows = closure
+    return (
+        _header_stats(paths) == observed
+        and unresolved_still_missing(misses)
+        and shadow_unchanged(shadows)
+    )
+
+
 def _resolve_include_paths(
     source_content: str, source_dir: str | None, include_dirs: tuple[str, ...]
 ) -> tuple[tuple[str, ...], bool]:
@@ -1163,13 +1280,25 @@ def _resolve_include_paths(
     key = (source_content, source_dir, include_dirs, _search_dir_mtimes(source_dir, include_dirs))
     with _INCLUDE_CLOSURE_LOCK:
         cached = _INCLUDE_CLOSURE_MEMO.get(key)
-    if (
-        cached is not None
-        and _header_stats(cached[0]) == cached[2]
-        and unresolved_still_missing(cached[3])
-        and shadow_unchanged(cached[4])
-    ):
+    if cached is not None and _include_closure_valid(cached[:5]):
         return cached[0], cached[1]
+    disk = _INCLUDE_CLOSURE_DISK.get()
+    disk_key = ""
+    if disk is not None and all(
+        _include_path(d).is_absolute() for d in (source_dir, *include_dirs) if d is not None
+    ):
+        entries, used = disk
+        source_hash = hashlib.sha256(source_content.encode("utf-8", "surrogatepass")).hexdigest()
+        disk_key = hashlib.sha256(json.dumps((source_hash, *key[1:])).encode()).hexdigest()
+        entry = _decode_include_closure(entries.get(disk_key))
+        # A stale proof can visit a path the fresh search no longer reaches.
+        with contextlib.suppress(OSError, ValueError):
+            if entry is not None and _include_closure_valid(entry):
+                used[disk_key] = entries[disk_key] = entry
+                with _INCLUDE_CLOSURE_LOCK:
+                    if key not in _INCLUDE_CLOSURE_MEMO:
+                        _store_include_closure_locked(key, *entry)
+                return entry[0], entry[1]
     misses: list[tuple[str, tuple[str, ...]]] = []
     shadows: list[_ShadowProbe] = []
     paths, fallback, observed, consistent = scan_include_closure(
@@ -1198,29 +1327,18 @@ def _resolve_include_paths(
     observed = tuple(observations[path] for path in paths)
     fallback = fallback or msvc_fallback
     consistent = consistent and msvc_consistent
-    if (
-        not consistent
-        or _header_stats(paths) != observed
-        or not unresolved_still_missing(misses)
-        or not shadow_unchanged(shadows)
-    ):
+    closure = (paths, fallback, observed, tuple(misses), tuple(shadows))
+    if not consistent or not _include_closure_valid(closure):
         return paths, True
     with _INCLUDE_CLOSURE_LOCK:
         existing = _INCLUDE_CLOSURE_MEMO.get(key)
-        if (
-            existing is not None
-            and _header_stats(existing[0]) == existing[2]
-            and unresolved_still_missing(existing[3])
-            and shadow_unchanged(existing[4])
-        ):
+        if existing is not None and _include_closure_valid(existing[:5]):
             return existing[0], existing[1]
-        if (
-            _header_stats(paths) != observed
-            or not unresolved_still_missing(misses)
-            or not shadow_unchanged(shadows)
-        ):
+        if not _include_closure_valid(closure):
             return paths, True
-        _store_include_closure_locked(key, paths, fallback, observed, tuple(misses), tuple(shadows))
+        _store_include_closure_locked(key, *closure)
+    if disk is not None and disk_key:
+        disk[1][disk_key] = closure
     return paths, fallback
 
 

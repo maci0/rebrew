@@ -1972,7 +1972,10 @@ def main(
     ):
         return
     cfg = require_config(target=target, json_mode=json_output)
-    report = collect_status(cfg)
+    from rebrew.compiler.cache import include_closure_cache
+
+    with include_closure_cache(cfg.root / ".rebrew" / "include-closures.json"):
+        report = collect_status(cfg)
 
     if json_output:
         json_print(report.to_dict())

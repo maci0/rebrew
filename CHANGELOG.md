@@ -3,6 +3,7 @@
 ### Changed
 
 - Replication state reuses the journal's decoded content when a replica has the same encoded content line, while verifying the replica's own hash. On guild-rebrew, `rebrew status` used 24.78 G instead of 25.79 G user-space instructions warm and 28.84 G instead of 29.84 G with the parsed-document cache bypassed.
+- `rebrew status` reuses include closures across processes after rechecking the headers and search paths. On guild-rebrew, user-space instructions fell from 25.72 G to 21.38 G warm and from 29.79 G to 25.62 G with the parsed-document cache bypassed.
 - Include scans record earlier search misses on the first walk. On guild-rebrew, `rebrew status` used 27.26 G user-space instructions warm and 33.33 G cold, down from 28.50 G and 34.63 G.
 - The rendered metadata parser reuses decoded scalars and repeated header keys within each document. On guild-rebrew, `rebrew status` used 34.76 G → 32.75 G user-space instructions with the parsed-document cache bypassed and 28.65 G → 28.60 G on a cache hit.
 - Library override fingerprinting reuses the SQLite route already selected for the source directory. On guild-rebrew, `rebrew status` went from 28.73 G to 28.03 G user-space instructions warm and from 34.70 G to 34.14 G with the parsed-document cache bypassed.
