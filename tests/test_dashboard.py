@@ -960,6 +960,9 @@ class TestHandle:
         assert 'data-view="history"' in body
         assert "setLoadError" in body
         assert "data-status" in body
+        assert 'id="status-reference"' in body
+        assert "renderStatusReference" in body
+        assert "__STATUS_REFERENCE__" not in body
         assert "Use Show more below" in body
         assert "display stops at" in body
         assert "Old status" in body and "New status" in body
@@ -2561,7 +2564,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 11337), ("gzip", None)],
+        [("zstd", 12033), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None

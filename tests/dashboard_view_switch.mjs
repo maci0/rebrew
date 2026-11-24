@@ -28,11 +28,23 @@ const searchedGlobalsPage = {
 	total: 1,
 	globals: [["0x00403000", "g_searched", "int g_searched", 4, "game"]],
 };
+const historyPage = {
+	count: 1,
+	total: 1,
+	history: [["0x00401000", "WinMain", "STUB", "EXACT", "2026-01-02T03:04:05Z"]],
+};
 
 const requested = [];
+let holdGlobals = false;
+let releaseGlobals = null;
 globalThis.fetch = async (path) => {
 	const url = new URL(path, "http://127.0.0.1:8000");
 	requested.push(url.pathname);
+	if (url.pathname === "/api/globals" && holdGlobals) {
+		return new Promise((resolve) => {
+			releaseGlobals = resolve;
+		});
+	}
 	const body =
 		url.pathname === "/api/bootstrap"
 			? { targets: ["a.exe"], summary, functions: functionPage("WinMain") }
@@ -44,7 +56,9 @@ globalThis.fetch = async (path) => {
 						? url.searchParams.has("q")
 							? searchedGlobalsPage
 							: globalsPage
-						: {};
+						: url.pathname === "/api/history"
+							? historyPage
+							: {};
 	return { ok: true, json: async () => body };
 };
 
@@ -115,3 +129,26 @@ assert.equal(
 );
 assert.match(el("globals-rows").innerHTML, /g_searched/);
 assert.equal(el("gq").value, "g_");
+
+// A failed request for Globals must not blank or report an error over cached
+// History after the reader has already switched away from Globals.
+setView("history");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.match(el("history-rows").innerHTML, /WinMain/);
+holdGlobals = true;
+setView("globals");
+el("gq").value = "g_flag";
+el("gq").onkeydown({ key: "Enter" });
+assert.equal(typeof releaseGlobals, "function", "the Globals request is in flight");
+setView("history");
+releaseGlobals({
+	ok: false,
+	status: 500,
+	json: async () => ({ error: "database error" }),
+});
+await new Promise((resolve) => setImmediate(resolve));
+holdGlobals = false;
+assert.equal(el("dashboard-error").hidden, true, "the abandoned failure is not shown");
+assert.equal(el("retry-view").hidden, true, "History offers no unrelated retry");
+assert.equal(el("history-results").hidden, false, "History keeps its loaded rows");
+assert.match(el("history-rows").innerHTML, /WinMain/);

@@ -88,6 +88,7 @@ for (const staleFailure of [false, true]) {
 	assert.doesNotMatch(element("status").innerHTML, /EXACT|STUB/);
 	assert.match(element("cards").innerHTML, /Loading coverage summary/);
 	assert.doesNotMatch(element("cards").innerHTML, /data-status/);
+	assert.equal(element("status-reference").hidden, true, "a stale legend hides while loading");
 	assert.match(oldResponse.path, /target=old_target$/);
 	assert.match(newResponse.path, /target=new_target$/);
 	assert.equal(newResponse.aborted, false);
@@ -98,6 +99,11 @@ for (const staleFailure of [false, true]) {
 	assert.match(element("cards").innerHTML, /EXACT/);
 	assert.match(element("cards").innerHTML, /<span class=label>Matched bytes<\/span>/);
 	assert.match(element("cards").innerHTML, /<span class=label>Identified bytes<\/span>/);
+	assert.equal(element("status-reference").hidden, false);
+	assert.match(
+		element("status-reference-list").innerHTML,
+		/<dt class='st status-EXACT'>EXACT<\/dt><dd>Compiled bytes match the target exactly\.<\/dd>/,
+	);
 	// Button cards: hint in a visually-hidden description span, never repeated
 	// in the accessible name.
 	assert.match(
@@ -434,3 +440,42 @@ element("status").value = "UNKNOWN";
 renderSummary(withUnknown);
 assert.match(element("cards").innerHTML, /class='card active'[^>]*data-status='UNKNOWN'/);
 assert.match(element("cards").innerHTML, /data-status='UNKNOWN'[^>]*aria-pressed='true'/);
+
+// A card is visibly unpressed outside Functions. Clicking the status that the
+// hidden Functions view already had selected must apply it, not toggle it off.
+element("status").value = "EXACT";
+setView("globals");
+renderSummary(withUnknown);
+assert.doesNotMatch(element("cards").innerHTML, /aria-pressed='true'/);
+const exactCard = {
+	getAttribute(name) {
+		assert.equal(name, "data-status");
+		return "EXACT";
+	},
+};
+element("cards").onclick({ target: { closest: () => exactCard } });
+const applied = pending.shift();
+assert.match(applied.path, /status=EXACT/);
+assert.equal(element("status").value, "EXACT");
+applied.resolve({
+	ok: true,
+	json: async () => ({ count: 0, total: 0, functions: [] }),
+});
+await new Promise((resolve) => setImmediate(resolve));
+
+// On Functions itself the same card remains a toggle for the visible filter.
+element("cards").onclick({ target: { closest: () => exactCard } });
+const cleared = pending.shift();
+assert.doesNotMatch(cleared.path, /status=/);
+assert.equal(element("status").value, "");
+cleared.resolve({
+	ok: true,
+	json: async () => ({ count: 0, total: 0, functions: [] }),
+});
+await new Promise((resolve) => setImmediate(resolve));
+
+// A token with no shared one-line meaning stays in the table without opening
+// an empty or misleading reference.
+renderSummary({ function_stats: { total: 1, by_status: { NOPE: 1 } } });
+assert.equal(element("status-reference").hidden, true);
+assert.equal(element("status-reference-list").innerHTML, "");

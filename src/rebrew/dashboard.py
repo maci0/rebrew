@@ -44,7 +44,7 @@ Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
 served client drops its full-line comments (they stay in the source). The
-entry checkpoint measured 11337 B zstd / 11915 B gzip against a 13600 B budget;
+entry checkpoint measured 12033 B zstd / 12649 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -101,7 +101,7 @@ lazy from rebrew.coverage_toml import (
 )
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS
 lazy from rebrew.metadata.functions import canonical_status
-lazy from rebrew.status_style import status_text_css
+lazy from rebrew.status_style import STATUS_LEGEND_ORDER, STATUS_SUMMARIES, status_text_css
 lazy from rebrew.utils import (
     floor_pct,
     fold_host,
@@ -340,8 +340,21 @@ _COVERAGE_GLOB = "coverage-*.toml"
 # escapes are JS escapes, not Python ones, then spliced into the client.
 _ZONELESS_INSTANT_RE = r"/^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/"
 
+#: The report's one-line status meanings, in the same canonical order. The
+#: dashboard renders only the tokens present in the selected target's summary.
+_STATUS_REFERENCE_JS = json.dumps(
+    [
+        [status, STATUS_SUMMARIES[status]]
+        for status in STATUS_LEGEND_ORDER
+        if status in STATUS_SUMMARIES
+    ],
+    ensure_ascii=True,
+    separators=(",", ":"),
+)
+
 _APP_JS = """
 const $ = (id) => document.getElementById(id);
+const STATUS_REFERENCE = __STATUS_REFERENCE__;
 let targets = [];
 let searchTimer = null;
 let globalsSearchTimer = null;
@@ -592,6 +605,13 @@ function syncCardActive() {
     btn.setAttribute("aria-pressed", on ? "true" : "false");
   });
 }
+function renderStatusReference(byStatus) {
+  const rows = STATUS_REFERENCE.filter(([status]) =>
+    Object.prototype.hasOwnProperty.call(byStatus, status));
+  $("status-reference-list").innerHTML = rows.map(([status, meaning]) =>
+    "<dt class='" + statusMark(status) + "'>" + esc(status) + "</dt><dd>" + esc(meaning) + "</dd>").join("");
+  $("status-reference").hidden = rows.length === 0;
+}
 function setStatusOptions(byStatus) {
   const select = $("status");
   const previous = select.value || pendingStatus;
@@ -766,6 +786,7 @@ async function loadFunctions(options) {
 }
 function renderSummary(s) {
   const byStatus = s.function_stats.by_status || {};
+  renderStatusReference(byStatus);
   setStatusOptions(byStatus);
   setModuleOptions(s.function_stats.by_module_counts || {});
   pendingStatus = "";
@@ -813,6 +834,7 @@ async function loadSummary() {
   const { signal } = summaryController;
   setStatusOptions({});
   setModuleOptions({});
+  $("status-reference").hidden = true;
   $("status").disabled = true;
   $("module").disabled = true;
   $("cards").innerHTML = "<p>Loading coverage summary…</p>";
@@ -1088,6 +1110,13 @@ function loadCurrentView(force) {
 }
 function setView(name) {
   if (!VIEWS.includes(name)) return;
+  // A request for the view being left must not repaint or fail the view the
+  // reader just opened. Cached destinations start no request of their own, so
+  // cancel the old one here rather than relying on the next loader to abort it.
+  if (name !== currentView) {
+    viewSeq++;
+    if (viewController) viewController.abort();
+  }
   currentView = name;
   if (currentView !== "functions") clearTimeout(searchTimer);
   if (currentView !== "globals") clearTimeout(globalsSearchTimer);
@@ -1250,9 +1279,12 @@ function bindControls() {
   $("cards").onclick = (ev) => {
     const btn = ev.target.closest("button[data-status]");
     if (!btn) return;
-    if (currentView !== "functions") setView("functions");
+    const wasFunctions = currentView === "functions";
+    if (!wasFunctions) setView("functions");
     const status = btn.getAttribute("data-status");
-    $("status").value = ($("status").value === status) ? "" : status;
+    // Cards read as unpressed outside Functions, so clicking one there applies
+    // that status even when the hidden Functions view already had it selected.
+    $("status").value = wasFunctions && $("status").value === status ? "" : status;
     onStatusChange();
   };
   $("views").onclick = (ev) => {
@@ -1491,6 +1523,14 @@ _INDEX_HTML = """<!doctype html>
   button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: var(--rb-size-value); font-weight: 700; display: block; }
   .label { color: var(--rb-muted); font-size: var(--rb-size-caption); letter-spacing: var(--rb-track-label); }
+  .legend { background: var(--rb-surface); border: 1px solid var(--rb-line);
+    border-radius: var(--rb-radius); padding: .6rem 1.1rem; margin: 0 0 1rem; }
+  .legend > summary { cursor: pointer; font-weight: 600; min-height: 2.75rem;
+    padding: .35rem 0; display: flex; align-items: center; }
+  .legend dl { display: grid; grid-template-columns: max-content 1fr;
+    gap: .35rem 1.25rem; margin: .75rem 0 .25rem; }
+  .legend dt { font-family: var(--rb-mono); font-weight: 600; }
+  .legend dd { margin: 0; }
 __STATUS_CSS__
   .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; }
   .table-scroll[aria-busy="true"]::after {
@@ -1602,6 +1642,7 @@ __STATUS_FORCED__
 <section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
 <h2 id="summary-heading">Function coverage</h2>
 <div class="cards" id="cards" role="group" aria-label="Function coverage metrics"></div>
+<details id="status-reference" class="legend" hidden><summary>Status reference</summary><dl id="status-reference-list"></dl></details>
 </section>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
@@ -1680,7 +1721,9 @@ __STATUS_FORCED__
 </html>
 """
 
-_APP_JS = _APP_JS.replace("__ZONELESS_INSTANT_RE__", _ZONELESS_INSTANT_RE)
+_APP_JS = _APP_JS.replace("__STATUS_REFERENCE__", _STATUS_REFERENCE_JS).replace(
+    "__ZONELESS_INSTANT_RE__", _ZONELESS_INSTANT_RE
+)
 
 
 def _script_for_wire(source: str) -> str:
