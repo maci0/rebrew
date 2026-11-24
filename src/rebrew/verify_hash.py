@@ -631,23 +631,6 @@ def _header_entries(src_dir: Path) -> list[_HeaderEntry]:
     return entries
 
 
-def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int, int, int], ...]:
-    """Return sorted (rel_path, mtime_ns, size, ino, ctime_ns) tuples for all .h files.
-
-    Not memoized: headers can change within a process lifetime (``verify
-    --watch`` re-runs in-process; tests mutate headers between calls), and a
-    stale fingerprint would serve a stale ``headers_hash``.  The inode is what
-    catches a header replaced by a same-size rename-over inside one mtime tick
-    (an editor's atomic save, a ``cp -p`` restore, a coarse-timestamp
-    filesystem), which mtime and size alone cannot see; change time catches an
-    in-place rewrite that restores the old mtime.
-    """
-    return tuple(
-        (fingerprint_name, *stat)
-        for _path, _rel, fingerprint_name, stat in _header_entries(src_dir)
-    )
-
-
 #: Retained source bodies, keyed by (resolved path, mtime_ns, size, inode,
 #: ctime_ns), in LRU order.  The value is ``(bytes, sha256)``: one read serves
 #: the digest and the header-dependency fingerprint, and the digest is memoized

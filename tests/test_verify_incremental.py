@@ -1893,12 +1893,13 @@ class TestHeadersHash:
 
         cfg = _make_cfg(tmp_path)
         (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
-        before = vh._headers_stat_fingerprint(cfg.reversed_dir)
-        assert len(before) == 1
+        assert len(vh._header_entries(cfg.reversed_dir)) == 1
 
         monkeypatch.setattr(Path, "stat", lambda self: (_ for _ in ()).throw(OSError("boom")))
-        during = vh._headers_stat_fingerprint(cfg.reversed_dir)
-        assert during == ((str(cfg.reversed_dir / "types.h"), -1, -1, -1, -1),)
+        during = vh._header_entries(cfg.reversed_dir)
+        assert tuple((name, *stat) for _path, _rel, name, stat in during) == (
+            (str(cfg.reversed_dir / "types.h"), -1, -1, -1, -1),
+        )
 
 
 class TestHeadersHashCacheInvalidation:

@@ -3610,66 +3610,6 @@ def _masked_obj_sha256(obj: Path, mask: tuple[int, int] | list[tuple[int, int]] 
     return hashlib.sha256(raw).hexdigest()
 
 
-def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
-    """Masked smoke-object sha256 for an image-backed toolchain (docker run).
-
-    Image-backed goldens are workdir-independent (the container always sees
-    the source at /work), so any host workdir gives the same hash — this is
-    the helper 'rebrew toolchain update' uses to regenerate _SMOKE_GOLDEN
-    after re-pinning and rebuilding an image.  Returns None when the
-    compile produced no object."""
-    import os
-
-    from rebrew.compiler.toolchain import get_toolchain
-
-    spec = get_toolchain(tool)
-    if spec.image is None:
-        return None
-    recipe = _SMOKE_GOLDEN.get(tool)
-    if recipe is None:
-        logging.getLogger(__name__).warning("no smoke fixture for %s", tool)
-        return None
-    flags, out_name, _golden, src_name, mask = recipe
-    obj = workdir / out_name
-    obj.unlink(missing_ok=True)
-    src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
-    src_path = workdir / src_name
-    src_path.write_text(src, encoding="utf-8")
-    os.utime(src_path, (_SDE, _SDE))
-    try:
-        result = _run_smoke_container(
-            spec.image,
-            f"rebrew-smoke-hash-{tool}",
-            workdir,
-            flags,
-            kvm=spec.runtime == "dosemu2",
-        )
-    except subprocess.TimeoutExpired as exc:
-        # The caller reports "smoke compile failed"; say which failure it was,
-        # since a hung docker and a broken image need different fixes.
-        logging.getLogger(__name__).warning(
-            "smoke compile for %s timed out after %ss: %s", tool, exc.timeout, exc.cmd
-        )
-        return None
-    except OSError as exc:
-        # A hung daemon or missing docker degrades to "no object" — the
-        # caller reports the golden mismatch instead of crashing mid-update.
-        logging.getLogger(__name__).warning(
-            "smoke compile for %s could not run %s: %s", tool, spec.image, exc
-        )
-        return None
-    if result.returncode:
-        logging.getLogger(__name__).warning(
-            "smoke compile for %s exited %s", tool, result.returncode
-        )
-        return None
-    if not obj.exists():
-        return None
-    digest = _masked_obj_sha256(obj, mask)
-    obj.unlink(missing_ok=True)
-    return digest
-
-
 #: A GitHub codeload tarball: owner, repository, and the branch (``refs/heads/<b>``)
 #: or the commit (40 hex, recompile-toolchains 1.18.0's form) it names.
 _CODELOAD_RE = (

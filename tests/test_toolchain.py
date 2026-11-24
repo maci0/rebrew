@@ -1766,17 +1766,15 @@ class TestSmokePrintGoldens:
             assert "error" in payload or "FAIL" in payload["goldens"][name]
         assert before == _SMOKE_GOLDEN
 
-    @pytest.mark.parametrize("hash_only", [False, True])
     @pytest.mark.parametrize("missing_runner", [False, True])
     def test_failed_compile_cannot_pass_with_a_matching_object(
-        self, tmp_path: Path, monkeypatch, hash_only, missing_runner
+        self, monkeypatch, missing_runner
     ) -> None:
         from types import SimpleNamespace
 
         from typer.testing import CliRunner
 
         from rebrew.app.main import app as umbrella
-        from rebrew.toolchain_cli import _image_smoke_hash
 
         def compile_image(image, prefix, workdir, flags, *, kvm=False):
             assert not kvm
@@ -1790,15 +1788,12 @@ class TestSmokePrintGoldens:
 
         monkeypatch.setattr("rebrew.toolchain_cli._run_smoke_container", compile_image)
         monkeypatch.setattr("rebrew.toolchain_cli._masked_obj_sha256", unexpected_hash)
-        if hash_only:
-            assert _image_smoke_hash("msvc-6.0", tmp_path) is None
-        else:
-            result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
-            assert result.exit_code == 2, result.output
-            payload = cli_payload(result)
-            assert payload["passed"] is False
-            message = "could not run" if missing_runner else "compile exited 1"
-            assert message in payload["results"]["msvc-6.0"]
+        result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
+        assert result.exit_code == 2, result.output
+        payload = cli_payload(result)
+        assert payload["passed"] is False
+        message = "could not run" if missing_runner else "compile exited 1"
+        assert message in payload["results"]["msvc-6.0"]
 
     def test_turbo_c_timestamp_mask_preserves_omf_header(self, tmp_path: Path) -> None:
         from rebrew.toolchain_cli import _SMOKE_GOLDEN, _masked_obj_sha256
