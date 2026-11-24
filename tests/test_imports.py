@@ -732,6 +732,35 @@ class TestParseFailureIsNotMemoized:
         assert import_table.parse_imports(target) == []
         assert calls["n"] == 2, "a failed parse was memoized as an empty import table"
 
+    def test_partial_pe_enumeration_is_retried_not_cached(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import lief
+
+        from rebrew.formats import import_table
+
+        target = tmp_path / "partial.exe"
+        target.write_bytes(b"MZ" + b"\x00" * 64)
+        calls = {"n": 0}
+
+        def _entries():
+            yield SimpleNamespace(
+                name="Sleep", iat_address=0x1000, ordinal=0, is_ordinal=False, data=0x2000
+            )
+            raise RuntimeError("truncated import table")
+
+        def _parse(_path: str):
+            calls["n"] += 1
+            return SimpleNamespace(
+                optional_header=SimpleNamespace(imagebase=IMAGE_BASE),
+                imports=[SimpleNamespace(name="KERNEL32.dll", entries=_entries())],
+            )
+
+        monkeypatch.setattr(lief.PE, "parse", _parse)
+        assert import_table.parse_imports(target) == []
+        assert import_table.parse_imports(target) == []
+        assert calls["n"] == 2, "a partial PE import table was memoized as a successful parse"
+
     def test_successful_parse_is_memoized(self, tmp_path, monkeypatch) -> None:
         from rebrew.formats import import_table
 

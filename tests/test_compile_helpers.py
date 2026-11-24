@@ -685,7 +685,7 @@ class TestInvalidateToolchainDigest:
         from rebrew.compiler.toolchain import image_present
 
         toolchain_mod._image_presence.clear()
-        monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
+        monkeypatch.setattr(toolchain_mod, "docker_available", lambda runtime=None: True)
         results = [1, 0]  # miss then hit
         calls = {"n": 0}
 
@@ -707,7 +707,7 @@ class TestInvalidateToolchainDigest:
         from rebrew.compiler.toolchain import ToolchainError, image_present
 
         toolchain_mod._image_presence.clear()
-        monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
+        monkeypatch.setattr(toolchain_mod, "docker_available", lambda runtime=None: True)
 
         def _timeout(*_a: object, **_k: object) -> object:
             raise subprocess.TimeoutExpired(cmd=["docker"], timeout=30)
@@ -748,7 +748,7 @@ class TestInvalidateToolchainDigest:
 
         toolchain_mod._toolchain_digest_cache.clear()
         toolchain_mod._image_presence.clear()
-        monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
+        monkeypatch.setattr(toolchain_mod, "docker_available", lambda runtime=None: True)
 
         image_id = "sha256:" + "ab" * 32
 

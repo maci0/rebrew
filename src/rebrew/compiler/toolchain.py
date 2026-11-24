@@ -63,10 +63,14 @@ _RUN_TIMEOUT = 300
 # ``RuntimeError: dictionary changed size during iteration`` or drop an entry.
 _DOCKER_MEMO_LOCK = threading.Lock()
 
-_docker_available_cache: bool | None = None
-_runtime_availability: set[str] = set()
-#: Positive-only memo for the ``PATH`` lookup of the container runtime.
-_runtime_on_path_cache: bool = False
+#: Positive-only runtime capability memos, keyed by the validated executable
+#: name or path.  The configured runtime can change in a long-lived process;
+#: one boolean for "docker" must not answer a later "podman" (or custom path)
+#: probe.  Values are insertion-ordered so the bound evicts the oldest runtime.
+_RUNTIME_CACHE_MAX = 64
+_runtime_availability: dict[str, None] = {}
+#: Positive-only memo for the ``PATH`` lookup of each container runtime.
+_runtime_on_path_cache: dict[tuple[str, str], None] = {}
 
 #: How a :class:`ToolchainError` arose — callers branch on this instead of
 #: matching message substrings.
@@ -712,22 +716,29 @@ def toolchain_link_candidates(profile: str) -> list[str]:
     return ["/".join(cl.split("/")[1:3]) for cl, _, _ in _MSVC_LAYOUTS.get(profile, ())]
 
 
+def _remember_runtime(cache: dict[Any, None], key: Any) -> None:
+    """Retain one positive runtime probe, evicting the oldest past the cap."""
+    cache.pop(key, None)
+    cache[key] = None
+    while len(cache) > _RUNTIME_CACHE_MAX:
+        cache.pop(next(iter(cache)))
+
+
 def docker_available(runtime: str | None = None) -> bool:
     """True when docker is installed and its daemon responds.
 
-    Only a positive result is memoized.  A miss / daemon blip is rechecked
-    on the next call so a briefly-down dockerd is not frozen as unavailable
-    for the process lifetime (same discipline as :func:`image_present`).
+    Only a positive result is memoized, per validated runtime.  A miss /
+    daemon blip is rechecked on the next call so a briefly-down dockerd is
+    not frozen as unavailable for the process lifetime (same discipline as
+    :func:`image_present`).
     """
-    global _docker_available_cache
+    selected_runtime = container_runtime(runtime)
     with _DOCKER_MEMO_LOCK:
-        if (
-            runtime is None and _docker_available_cache is True
-        ) or runtime in _runtime_availability:
+        if selected_runtime in _runtime_availability:
             return True
     try:
         r = run_process_group(
-            [(container_runtime() if runtime is None else container_runtime(runtime)), "info"],
+            [selected_runtime, "info"],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -739,10 +750,7 @@ def docker_available(runtime: str | None = None) -> bool:
         ok = False
     if ok:
         with _DOCKER_MEMO_LOCK:
-            if runtime is None:
-                _docker_available_cache = True
-            else:
-                _runtime_availability.add(runtime)
+            _remember_runtime(_runtime_availability, selected_runtime)
     return ok
 
 
@@ -790,19 +798,19 @@ def invalidate_toolchain_digest(image: str | None = None) -> None:
 def runtime_on_path() -> bool:
     """True when the configured container runtime resolves on ``PATH``.
 
-    ``shutil.which`` walks every ``PATH`` entry, and the answer is invariant
-    for the process; only a positive result is memoized so a runtime
-    installed mid-process is still picked up.
+    ``shutil.which`` walks every ``PATH`` entry.  Cache only positive answers,
+    keyed by the validated runtime and PATH, so installing one mid-process is
+    picked up and a runtime or PATH change cannot reuse another lookup.
     """
-    global _runtime_on_path_cache
     name = container_runtime()
+    key = (name, os.environ.get("PATH", ""))
     with _DOCKER_MEMO_LOCK:
-        if _runtime_on_path_cache is True:
+        if key in _runtime_on_path_cache:
             return True
     ok = shutil.which(name) is not None
     if ok:
         with _DOCKER_MEMO_LOCK:
-            _runtime_on_path_cache = True
+            _remember_runtime(_runtime_on_path_cache, key)
     return ok
 
 
@@ -987,7 +995,7 @@ def image_present(tag: str, use_cache: bool = True, *, runtime: str | None = Non
         with _DOCKER_MEMO_LOCK:
             if _image_presence.get(key):
                 return True
-    if not (docker_available() if runtime is None else docker_available(runtime)):
+    if not docker_available(selected_runtime):
         return False
     try:
         r = run_process_group(

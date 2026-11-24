@@ -2067,6 +2067,7 @@ class TestCompilerListing:
     @staticmethod
     def _client(monkeypatch: pytest.MonkeyPatch, rows: Any) -> tuple[httpx.Client, list[str]]:
         monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_cache", {})
+        monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_inflight", {})
         seen: list[str] = []
 
         def handle(request: httpx.Request) -> httpx.Response:
@@ -2092,6 +2093,63 @@ class TestCompilerListing:
         now[0] += 2.0
         rc.installed_compilers("http://svc", client=http)
         assert seen == ["/api/v1/compilers"] * 2
+
+    def test_concurrent_refresh_sends_one_listing_request(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import threading
+
+        from thread_util import join_all
+
+        from rebrew.compiler import recompile_client as rc
+
+        rows = [{"id": "msvc-6.0", "execution_status": "admitted"}]
+        http, seen = self._client(monkeypatch, rows)
+        started = threading.Event()
+        release = threading.Event()
+        waiter_lookups = threading.Semaphore(0)
+
+        class ObservedInflight(dict):
+            def get(self, key, default=None):  # type: ignore[no-untyped-def]
+                event = super().get(key, default)
+                if event is not None:
+                    waiter_lookups.release()
+                return event
+
+        monkeypatch.setattr(rc, "_compilers_inflight", ObservedInflight())
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            seen.append(request.url.path)
+            started.set()
+            assert release.wait(timeout=3)
+            return httpx.Response(200, json=rows)
+
+        http.close()
+        http = httpx.Client(transport=httpx.MockTransport(handle))
+        results: list[frozenset[str] | None] = []
+        errors: list[BaseException] = []
+
+        def _call() -> None:
+            try:
+                results.append(rc.installed_compilers("http://svc", client=http))
+            except BaseException as exc:  # collect; fail outside threads
+                errors.append(exc)
+
+        workers = 8
+        threads = [threading.Thread(target=_call, daemon=True) for _ in range(workers)]
+        try:
+            for thread in threads:
+                thread.start()
+            assert started.wait(timeout=3)
+            for _ in range(workers - 1):
+                assert waiter_lookups.acquire(timeout=3)
+        finally:
+            release.set()
+            join_all(threads)
+            http.close()
+        assert errors == []
+        assert results == [frozenset({"msvc-6.0"})] * workers
+        assert seen == ["/api/v1/compilers"]
 
     @pytest.mark.parametrize("rows", [{"id": "msvc-6.0"}, [{"name": "msvc-6.0"}], ["msvc-6.0"]])
     def test_a_reply_that_is_not_a_compiler_list_is_a_protocol_error(

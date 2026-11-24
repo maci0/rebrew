@@ -188,10 +188,12 @@ def _parse_imports(binary_path: Path) -> list[dict[str, Any]] | None:
                         "hint_name_rva": None if fn.is_ordinal else int(fn.data),
                     }
                 )
-    except Exception as exc:
+    except Exception as exc:  # LIEF raises on a malformed image
         # Mid-table: the records collected so far are real, but the IAT is
-        # truncated.  Callers read this as a complete table, so name the
-        # shortfall instead of returning a silently partial answer.
+        # truncated.  Returning them as a complete table makes the toolchain
+        # detector trust a partial import set, and parse_imports would then
+        # memoize that partial answer as a successful parse.  Fail the whole
+        # read so callers degrade to "unknown" and a later call retries.
         log.warning(
             "PE import enumeration of %s failed after %d record(s): %s: %s",
             binary_path,
@@ -199,7 +201,7 @@ def _parse_imports(binary_path: Path) -> list[dict[str, Any]] | None:
             type(exc).__name__,
             exc,
         )
-        return out
+        return None
     return out
 
 

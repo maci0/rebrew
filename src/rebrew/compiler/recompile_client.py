@@ -114,6 +114,11 @@ _COMPILERS_CACHE_MAX = 8
 #: Base URL -> (monotonic time read, admitted ids or ``None``).
 _compilers_cache: dict[str, tuple[float, frozenset[str] | None]] = {}
 _compilers_cache_lock = threading.Lock()
+#: One listing refresh per base URL.  Parallel verify workers otherwise all
+#: miss the same 30-second window and stampede the service's catalog route.
+_compilers_inflight: dict[str, threading.Event] = {}
+#: Bounds one wait, not the whole refresh: a live leader keeps owning the read.
+_COMPILERS_WAIT_TIMEOUT_S = 30.0
 
 #: How a :class:`RecompileError` arose — callers branch on this instead of
 #: matching message substrings.  ``service`` is a compile the service answered
@@ -914,17 +919,32 @@ def installed_compilers(base_url: str, *, client: HttpClient) -> frozenset[str] 
     route costs one request per window, not one per compile.
     """
     url = base_url.rstrip("/")
-    with _compilers_cache_lock:
-        cached = _compilers_cache.get(url)
-        if cached is not None and time.monotonic() - cached[0] < _COMPILERS_WINDOW_SECONDS:
-            return cached[1]
+    while True:
+        with _compilers_cache_lock:
+            cached = _compilers_cache.get(url)
+            if cached is not None and time.monotonic() - cached[0] < _COMPILERS_WINDOW_SECONDS:
+                return cached[1]
+            event = _compilers_inflight.get(url)
+            if event is None:
+                event = threading.Event()
+                _compilers_inflight[url] = event
+                break
+        # A peer owns this refresh.  Re-check after every bounded wait rather
+        # than sending a duplicate when the leader is merely slow.
+        event.wait(timeout=_COMPILERS_WAIT_TIMEOUT_S)
     try:
-        answer = _read_installed_compilers(url, client)
-    except RecompileError:
-        _remember_compilers(url, None)
-        raise
-    _remember_compilers(url, answer)
-    return answer
+        try:
+            answer = _read_installed_compilers(url, client)
+        except RecompileError:
+            _remember_compilers(url, None)
+            raise
+        _remember_compilers(url, answer)
+        return answer
+    finally:
+        with _compilers_cache_lock:
+            if _compilers_inflight.get(url) is event:
+                del _compilers_inflight[url]
+        event.set()
 
 
 def _remember_compilers(url: str, answer: frozenset[str] | None) -> None:

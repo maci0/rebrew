@@ -2475,7 +2475,7 @@ class TestDockerAvailableCache:
         """A transient docker-info failure must not pin unavailable forever."""
         import rebrew.compiler.toolchain as tc
 
-        monkeypatch.setattr(tc, "_docker_available_cache", None)
+        monkeypatch.setattr(tc, "_runtime_availability", {})
         calls = {"n": 0}
 
         def _run(cmd, **kwargs):  # type: ignore[no-untyped-def]
@@ -2490,6 +2490,51 @@ class TestDockerAvailableCache:
         # Positive hit is memoized — no third inspect.
         assert tc.docker_available() is True
         assert calls["n"] == 2
+
+    def test_positive_answer_is_keyed_by_runtime(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A successful docker probe must not answer a later podman probe."""
+        import rebrew.compiler.toolchain as tc
+
+        monkeypatch.setattr(tc, "_runtime_availability", {})
+        calls: list[str] = []
+
+        def _run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append(cmd[0])
+            return _FakeProc(0 if cmd[0] == "docker" else 1)
+
+        monkeypatch.setattr(tc, "run_process_group", _run)
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "docker")
+        assert tc.docker_available() is True
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
+        assert tc.docker_available() is False
+        assert calls == ["docker", "podman"]
+
+    def test_path_memo_is_keyed_by_runtime(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Finding docker on one runtime/PATH says nothing about the next."""
+        import os
+
+        import rebrew.compiler.toolchain as tc
+
+        monkeypatch.setattr(tc, "_runtime_on_path_cache", {})
+        looked_up: list[tuple[str, str]] = []
+
+        def _which(name: str) -> str | None:
+            path = os.environ.get("PATH", "")
+            looked_up.append((name, path))
+            return "/bin/docker" if name == "docker" and path == "/first" else None
+
+        monkeypatch.setattr(tc.shutil, "which", _which)
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "docker")
+        monkeypatch.setenv("PATH", "/first")
+        assert tc.runtime_on_path() is True
+        monkeypatch.setenv("PATH", "/second")
+        assert tc.runtime_on_path() is False
+        monkeypatch.setenv("PATH", "/first")
+        assert tc.runtime_on_path() is True
+        assert looked_up == [("docker", "/first"), ("docker", "/second")]
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
+        assert tc.runtime_on_path() is False
+        assert looked_up[-1] == ("podman", "/first")
 
 
 class TestKillContainerReporting:
