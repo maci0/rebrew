@@ -28,6 +28,8 @@ def _same(got: Any, expected: Any, where: str = "$") -> None:
         assert len(got) == len(expected), where
         for index, (item, want) in enumerate(zip(got, expected, strict=True)):
             _same(item, want, f"{where}[{index}]")
+    elif isinstance(expected, float):
+        assert got.hex() == expected.hex(), where
     else:
         assert got == expected, where
 
@@ -138,9 +140,12 @@ def test_invalid_text_raises_as_tomllib_does(text: str) -> None:
         rendered_toml.loads(text)
 
 
-_KEYS = st.text(st.characters(codec="utf-8", exclude_categories=("Cs",)), max_size=6)
+type _Scalar = str | int | float | bool
+type _Value = _Scalar | list[str]
+
+_KEYS = st.text(st.characters(codec="utf-8", exclude_categories=["Cs"]), max_size=6)
 _SCALARS = st.one_of(
-    st.text(st.characters(codec="utf-8", exclude_categories=("Cs",)), max_size=12),
+    st.text(st.characters(codec="utf-8", exclude_categories=["Cs"]), max_size=12),
     st.integers(min_value=-(2**63), max_value=2**63 - 1),
     st.floats(allow_nan=False, allow_infinity=False),
     st.booleans(),
@@ -155,15 +160,29 @@ _TABLES = st.recursive(
 )
 
 
+# Hypothesis types strategy-decorated tests as Callable[..., None].
 @settings(max_examples=300, deadline=None)
 @given(_TABLES)
-def test_a_document_rendered_by_tomlkit_reads_the_same(doc: dict[str, Any]) -> None:
+def test_a_document_rendered_by_tomlkit_reads_the_same(doc: dict[str, Any]) -> None:  # type: ignore[misc]
     _agrees(tomlkit.dumps(doc))
 
 
 @settings(max_examples=300, deadline=None)
+@given(_VALUES, _SCALARS)
+def test_repeated_values_in_adjacent_tables_read_the_same(value: _Value, other: _Scalar) -> None:  # type: ignore[misc]
+    fields = {"value": value, "other": other}
+    text = tomlkit.dumps({"GAME.0x1000": {**fields, "verification": fields}, "GAME.0x2000": fields})
+    parsed = _parse(text)
+    _same(parsed, tomllib.loads(text))
+    if isinstance(value, list):
+        parsed["GAME.0x1000"]["value"].clear()
+        _same(parsed["GAME.0x1000"]["verification"]["value"], value)
+        _same(parsed["GAME.0x2000"]["value"], value)
+
+
+@settings(max_examples=300, deadline=None)
 @given(st.data())
-def test_an_edited_rendering_reads_the_same_or_fails_the_same(data: st.DataObject) -> None:
+def test_an_edited_rendering_reads_the_same_or_fails_the_same(data: st.DataObject) -> None:  # type: ignore[misc]
     text = tomlkit.dumps(data.draw(_TABLES))
     if text:
         at = data.draw(st.integers(0, len(text) - 1))

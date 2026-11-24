@@ -3,6 +3,7 @@
 ### Changed
 
 - Include scans record earlier search misses on the first walk. On guild-rebrew, `rebrew status` used 27.26 G user-space instructions warm and 33.33 G cold, down from 28.50 G and 34.63 G.
+- The rendered metadata parser reuses decoded scalars and repeated header keys within each document. On guild-rebrew, `rebrew status` used 34.76 G → 32.75 G user-space instructions with the parsed-document cache bypassed and 28.65 G → 28.60 G on a cache hit.
 - Source bindings use a shallow copy for provenance tables of immutable scalars and a deep copy for nested tables. On guild-rebrew, `rebrew status` went from 44.22 G to 43.99 G user-space instructions with the parsed-document sidecar bypassed and from 38.10 G to 37.88 G on a sidecar hit.
 - The rendered metadata parser validates repeated field names once per document while they fit in its bounded cache. On guild-rebrew, `rebrew status` with the parsed-document sidecar bypassed went from 45.27 G to 44.22 G user-space instructions. A sidecar hit still costs about 38 G.
 - Cold metadata loads from SQLite and replicated stores reuse the rows their readers just parsed. On guild-rebrew, `rebrew status` with the parsed-document sidecar bypassed went from 46.48 G to 45.27 G user-space instructions. A sidecar hit still costs about 38 G.

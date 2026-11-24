@@ -24,7 +24,9 @@ import json
 import re
 import tomllib
 from typing import Any
+lazy from collections.abc import Callable
 lazy from functools import lru_cache
+lazy from typing import cast
 
 _BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
 _INTEGER = re.compile(r"-?(?:0|[1-9][0-9]*)")
@@ -58,7 +60,7 @@ def _key(literal: str) -> str:
     raise _Fallback
 
 
-def _path(text: str) -> list[str]:
+def _path(text: str, key: Callable[[str], str]) -> list[str]:
     """A dotted header path: bare or unescaped quoted keys, no whitespace."""
     keys: list[str] = []
     position = 0
@@ -71,7 +73,7 @@ def _path(text: str) -> list[str]:
         else:
             dot = text.find(".", position)
             end = len(text) if dot < 0 else dot
-        keys.append(_key(text[position:end]))
+        keys.append(key(text[position:end]))
         if end == len(text):
             return keys
         if text[end] != ".":
@@ -79,7 +81,7 @@ def _path(text: str) -> list[str]:
         position = end + 1
 
 
-def _value(literal: str) -> Any:
+def _scalar(literal: str) -> str | int | float | bool | None:
     if (
         len(literal) >= 2
         and literal[0] == '"'
@@ -91,7 +93,7 @@ def _value(literal: str) -> Any:
             if "\\" not in inner and '"' not in inner:
                 return inner
             if _ONLY_QUOTE_ESCAPES.fullmatch(inner):
-                return json.loads(literal)
+                return cast("str", json.loads(literal))
     elif _INTEGER.fullmatch(literal):
         return int(literal)
     elif _FLOAT.fullmatch(literal):
@@ -100,6 +102,10 @@ def _value(literal: str) -> Any:
         return True
     elif literal == "false":
         return False
+    return None
+
+
+def _other_value(literal: str) -> Any:
     # One value with the rest of TOML's grammar (an escape, a date, an array, a
     # trailing comment). A value that does not parse alone needs the
     # document's context. An inline table does too: a later header must not
@@ -119,9 +125,10 @@ def _parse(text: str) -> dict[str, Any]:
         raise _Fallback
     root: dict[str, Any] = {}
     current = root
-    # Field names repeat across rows. The cache belongs to this parse and
-    # excludes header paths, which mostly contain distinct record identities.
-    field_key = lru_cache(maxsize=128)(_key)
+    # Field names and parts of nearby headers repeat.
+    key_at = lru_cache(maxsize=128)(_key)
+    # Only immutable values can be shared between rows.
+    scalar = lru_cache(maxsize=4096)(_scalar)
     #: Tables a ``[header]`` declared, and arrays ``[[header]]`` made, by id.
     declared: set[int] = set()
     arrays: set[int] = set()
@@ -147,7 +154,7 @@ def _parse(text: str) -> dict[str, Any]:
             if line.startswith("[["):
                 if not line.endswith("]]"):
                     raise _Fallback
-                *parents, last = _path(line[2:-2])
+                *parents, last = _path(line[2:-2], key_at)
                 parent = descend(parents)
                 existing = parent.get(last)
                 if existing is None:
@@ -161,7 +168,7 @@ def _parse(text: str) -> dict[str, Any]:
                 continue
             if not line.endswith("]"):
                 raise _Fallback
-            *parents, last = _path(line[1:-1])
+            *parents, last = _path(line[1:-1], key_at)
             parent = descend(parents)
             existing = parent.get(last)
             if existing is None:
@@ -176,13 +183,14 @@ def _parse(text: str) -> dict[str, Any]:
             close = line.find('"', 1)
             if close < 0 or not line.startswith(" = ", close + 1):
                 raise _Fallback
-            key, literal = field_key(line[: close + 1]), line[close + 4 :]
+            key, literal = key_at(line[: close + 1]), line[close + 4 :]
         else:
-            separator = line.find(" = ")
-            if separator < 0:
+            raw_key, separator, literal = line.partition(" = ")
+            if not separator:
                 raise _Fallback
-            key, literal = field_key(line[:separator]), line[separator + 3 :]
+            key = key_at(raw_key)
         if key in current:
             raise _Fallback
-        current[key] = _value(literal)
+        value = scalar(literal)
+        current[key] = _other_value(literal) if value is None else value
     return root
