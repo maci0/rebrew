@@ -427,6 +427,7 @@ files = [
     "tests/test_guarded_merge.py",
     "tests/test_hotpath_work.py",
     "tests/test_import_cycles.py",
+    "tests/test_include_shadow_probes.py",
     "tests/test_inline_strings.py",
     "tests/test_link_order.py",
     "tests/test_link_tools.py",

@@ -853,7 +853,11 @@ def _include_path(spelling: str) -> Path:
 
 
 def _find_in_dirs(
-    name: Path, dirs: list[Path], *, lexical: list[tuple[str, str]] | None = None
+    name: Path,
+    dirs: list[Path],
+    *,
+    lexical: list[tuple[str, str]] | None = None,
+    earlier: list[Path] | None = None,
 ) -> Path | None:
     """Locate *name* in the first of *dirs* that contains it.
 
@@ -868,6 +872,8 @@ def _find_in_dirs(
         found = _walk_include_path(directory, parts, lexical=lexical)
         if found is not None:
             return found
+        if earlier is not None:
+            earlier.append(directory)
     return None
 
 
@@ -1019,7 +1025,11 @@ _INCLUDE_CLOSURE_LOCK = threading.Lock()
 
 
 def _resolve_escaping_include(
-    name: Path, dirs: Sequence[Path], *, lexical: list[tuple[str, str]] | None = None
+    name: Path,
+    dirs: Sequence[Path],
+    *,
+    lexical: list[tuple[str, str]] | None = None,
+    earlier: list[Path] | None = None,
 ) -> Path | None:
     """Resolve an include that carries ``..`` or is absolute.
 
@@ -1036,36 +1046,9 @@ def _resolve_escaping_include(
             found = _walk_include_path(d, name.parts, lexical=lexical)
         if found is not None:
             return found
+        if earlier is not None:
+            earlier.append(d)
     return None
-
-
-def _find_shadow_prefix(name: str, dirs: Sequence[Path], found: Path) -> tuple[str, ...]:
-    """Search dirs before the one that supplied *found*.
-
-    These are the directories ``_find_in_dirs`` searched and missed.  A header
-    appearing in any of them now shadows *found* (at any path depth), so the
-    closure must be resolved again.  The winner is the first dir whose own
-    case-insensitive lookup still returns *found*; a dir that merely contains
-    it (an ancestor) is not the winner and its own candidate is still missing.
-    """
-    prefix: list[str] = []
-    path = _include_path(name)
-    for directory in dirs:
-        if _find_in_dirs(path, [directory]) == found:
-            return tuple(prefix)
-        prefix.append(str(directory))
-    return tuple(prefix)
-
-
-def _escape_shadow_prefix(name: str, dirs: Sequence[Path], found: Path) -> tuple[str, ...]:
-    """Search dirs before the one that supplied an escaping *found*."""
-    prefix: list[str] = []
-    path = _include_path(name)
-    for directory in dirs:
-        if _resolve_escaping_include(path, [directory]) == found:
-            return tuple(prefix)
-        prefix.append(str(directory))
-    return tuple(prefix)
 
 
 def _search_dir_mtimes(source_dir: str | None, include_dirs: tuple[str, ...]) -> tuple[int, ...]:
@@ -1418,12 +1401,13 @@ def scan_include_closure(
             for index, dirs in enumerate(searches):
                 escaped = False
                 spelling: list[tuple[str, str]] = []
-                found = _find_in_dirs(path, dirs, lexical=spelling)
+                earlier: list[Path] | None = [] if shadow is not None and kind != "next" else None
+                found = _find_in_dirs(path, dirs, lexical=spelling, earlier=earlier)
                 if found is None and (path.is_absolute() or ".." in path.parts):
                     # `#include "../../game_types.h"`: _find_in_dirs refuses the
                     # traversal, so resolve it here or the header joins nothing
                     # and its edit never invalidates the entry.
-                    found = _resolve_escaping_include(path, dirs, lexical=spelling)
+                    found = _resolve_escaping_include(path, dirs, lexical=spelling, earlier=earlier)
                     escaped = found is not None
                     if found is None:
                         # Unresolvable on the host (lives in the toolchain image,
@@ -1466,14 +1450,10 @@ def scan_include_closure(
                         )
                 if kind == "next" and index > current_root:
                     next_found = True
-                if shadow is not None and kind != "next":
-                    prefix = (
-                        _escape_shadow_prefix(name, dirs, found)
-                        if escaped
-                        else _find_shadow_prefix(name, dirs, found)
+                if shadow is not None and earlier:
+                    shadow.append(
+                        ("escape" if escaped else "find", name, tuple(str(d) for d in earlier))
                     )
-                    if prefix:
-                        shadow.append(("escape" if escaped else "find", name, prefix))
                 found_str = str(found)
                 alias_parent = None
                 if shadow is not None:
