@@ -1,10 +1,20 @@
 """Shared shift-resistant instruction measurements."""
 
+from difflib import SequenceMatcher
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from rebrew.alignment import measure_alignment, record_alignment
+from rebrew.alignment import (
+    AlignedMatcher,
+    WindowHashes,
+    earliest_window,
+    earliest_window_scalar,
+    measure_alignment,
+    record_alignment,
+)
 from rebrew.compiler.compile import CompareResult
 from rebrew.test import build_result_dict_from_compare
 
@@ -46,3 +56,30 @@ class TestAlignment:
     def test_empty_and_undecodable_are_not_perfect(self) -> None:
         assert measure_alignment(SimpleNamespace(), b"", b"", 0)["similarity"] == 0
         assert measure_alignment(SimpleNamespace(), b"\x0f", b"\x0f", 0)["similarity"] == 0
+
+
+# Few distinct tokens, so windows repeat and the earliest-match tie-breaks decide.
+_TOKENS = st.lists(st.integers(min_value=1, max_value=4), max_size=64)
+
+
+class TestArrayWindowSearch:
+    @settings(max_examples=400, deadline=None)
+    @given(_TOKENS, _TOKENS, st.data())
+    def test_the_array_search_answers_what_the_scalar_scan_answers(
+        self, left: list[int], right: list[int], data: st.DataObject
+    ) -> None:
+        alo = data.draw(st.integers(0, len(left)))
+        ahi = data.draw(st.integers(alo, len(left)))
+        blo = data.draw(st.integers(0, len(right)))
+        bhi = data.draw(st.integers(blo, len(right)))
+        width = data.draw(st.integers(0, max(ahi - alo, bhi - blo) + 1))
+        assert earliest_window(
+            left, right, WindowHashes(left), WindowHashes(right), (alo, ahi, blo, bhi), width
+        ) == earliest_window_scalar(left, right, alo, ahi, blo, bhi, width)
+
+    @settings(max_examples=300, deadline=None)
+    @given(_TOKENS, _TOKENS)
+    def test_the_blocks_are_difflibs(self, left: list[int], right: list[int]) -> None:
+        a, b = [str(t) for t in left], [str(t) for t in right]
+        aligned = AlignedMatcher(a=a, b=b, autojunk=False).get_matching_blocks()
+        assert aligned == SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()

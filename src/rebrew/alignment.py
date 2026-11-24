@@ -8,6 +8,7 @@ from typing import Any, override
 lazy from collections.abc import Callable, Sequence
 
 lazy import capstone
+lazy import numpy as np
 
 lazy from rebrew.analysis import Insn
 lazy from rebrew.compiler.compile import CompareResult
@@ -112,8 +113,71 @@ def _align_window_hashes(
     return hashes, end - start
 
 
+class WindowHashes:
+    """Prefix hashes of one token sequence, so every window hash of a range is one array step.
+
+    ``windows(start, end, width)`` equals :func:`_align_window_hashes`'s rolling
+    hashes: ``prefix[i + width] - prefix[i] * base**width`` modulo 2**64, which
+    ``uint64`` arithmetic wraps to.
+    """
+
+    def __init__(self, ids: Sequence[int]) -> None:
+        prefix = [0]
+        digest = 0
+        for token in ids:
+            digest = (digest * _ALIGN_HASH_BASE + token) & _ALIGN_HASH_MASK
+            prefix.append(digest)
+        self.prefix = np.array(prefix, dtype=np.uint64)
+
+    def windows(self, start: int, end: int, width: int) -> np.ndarray[Any, Any]:
+        """Hash of every ``ids[i:i+width]`` for ``i`` in ``start .. end-width``."""
+        power = np.uint64(pow(_ALIGN_HASH_BASE, width, _ALIGN_HASH_MASK + 1))
+        return self.prefix[start + width : end + 1] - self.prefix[start : end - width + 1] * power
+
+
+def earliest_window(
+    left: Sequence[int],
+    right: Sequence[int],
+    left_hashes: WindowHashes,
+    right_hashes: WindowHashes,
+    span: tuple[int, int, int, int],
+    width: int,
+) -> tuple[tuple[int, int, int] | None, int]:
+    """:func:`earliest_window_scalar`'s answer and count, from array hashes.
+
+    The right windows are ranked by hash (a stable sort keeps equal hashes in
+    address order), each left window finds its run of equal hashes by binary
+    search, and the candidates are verified in the scalar scan's order.
+    """
+    alo, ahi, blo, bhi = span
+    if width <= 0 or bhi - blo < width:
+        return None, 0
+    visits = bhi - blo
+    if ahi - alo < width:
+        return None, visits
+    visits += ahi - alo
+    right_h = right_hashes.windows(blo, bhi, width)
+    left_h = left_hashes.windows(alo, ahi, width)
+    order = np.argsort(right_h, kind="stable")
+    ranked = right_h[order]
+    first = np.searchsorted(ranked, left_h, "left")
+    last = np.searchsorted(ranked, left_h, "right")
+    for offset in np.flatnonzero(last > first).tolist():
+        origin = alo + offset
+        for index in order[first[offset] : last[offset]].tolist():
+            start = blo + index
+            visits += width
+            if left[origin : origin + width] == right[start : start + width]:
+                return (origin, start, width), visits
+    return None, visits
+
+
 def _align_longest_match(
-    left: Sequence[int], right: Sequence[int], alo: int, ahi: int, blo: int, bhi: int
+    left: Sequence[int],
+    right: Sequence[int],
+    left_hashes: WindowHashes,
+    right_hashes: WindowHashes,
+    span: tuple[int, int, int, int],
 ) -> tuple[int, int, int, int]:
     """Earliest maximal contiguous match inside the two ranges, plus tokens read.
 
@@ -121,6 +185,7 @@ def _align_longest_match(
     junk: longest block, then the one that starts earliest in *left*, then
     earliest in *right*.  A hash hit is accepted only when the tokens match.
     """
+    alo, ahi, blo, bhi = span
     limit = min(ahi - alo, bhi - blo)
     best_i, best_j, best_k = alo, blo, 0
     visits = 0
@@ -128,7 +193,7 @@ def _align_longest_match(
     high = limit
     while low <= high:
         width = (low + high) // 2
-        found, spent = _align_earliest_window(left, right, alo, ahi, blo, bhi, width)
+        found, spent = earliest_window(left, right, left_hashes, right_hashes, span, width)
         visits += spent
         if found is None:
             high = width - 1
@@ -138,7 +203,7 @@ def _align_longest_match(
     return best_i, best_j, best_k, visits
 
 
-def _align_earliest_window(
+def earliest_window_scalar(
     left: Sequence[int],
     right: Sequence[int],
     alo: int,
@@ -147,7 +212,11 @@ def _align_earliest_window(
     bhi: int,
     width: int,
 ) -> tuple[tuple[int, int, int] | None, int]:
-    """Earliest ``width`` match, or None, and the token positions read."""
+    """Earliest ``width`` match, or None, and the token positions read.
+
+    The scalar twin of :func:`earliest_window`, which the alignment runs; the
+    differential tests hold the two to the same answer.
+    """
     right_hashes, visits = _align_window_hashes(right, blo, bhi, width)
     if not right_hashes:
         return None, visits
@@ -247,6 +316,7 @@ class AlignedMatcher(SequenceMatcher[str]):
         if self.isjunk is not None or self.autojunk:
             return super().get_matching_blocks()
         left, right = _align_token_ids(self.a, self.b)
+        left_hashes, right_hashes = WindowHashes(left), WindowHashes(right)
         right_index: dict[int, list[int]] = {}
         for index, token in enumerate(right):
             right_index.setdefault(token, []).append(index)
@@ -262,7 +332,9 @@ class AlignedMatcher(SequenceMatcher[str]):
                 blocks.extend(singles)
                 visits += spent
                 continue
-            start_i, start_j, size, spent = _align_longest_match(left, right, alo, ahi, blo, bhi)
+            start_i, start_j, size, spent = _align_longest_match(
+                left, right, left_hashes, right_hashes, (alo, ahi, blo, bhi)
+            )
             visits += spent
             if size:
                 blocks.append(Match(start_i, start_j, size))
