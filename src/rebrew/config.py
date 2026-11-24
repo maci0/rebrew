@@ -1064,6 +1064,8 @@ class ProjectConfig:
             self.bin_dir = Path(self.bin_dir)
         if self.output_dir is not None and not isinstance(self.output_dir, Path):
             self.output_dir = Path(self.output_dir)
+        if self.raw_link is not None and not isinstance(self.raw_link, Path):
+            self.raw_link = Path(self.raw_link)
         if self.compiler_includes is not None and not isinstance(self.compiler_includes, Path):
             self.compiler_includes = Path(self.compiler_includes)
         if self.compiler_libs is not None and not isinstance(self.compiler_libs, Path):
@@ -1087,6 +1089,7 @@ class ProjectConfig:
             "project_name": self.project_name,
             "default_jobs": self.default_jobs,
             "output_dir": str(self.output_dir),
+            "raw_link": str(self.raw_link) if self.raw_link else None,
             "compiler_profile": self.compiler_profile,
             "compiler_command": self.compiler_command,
             "compiler_runner": self.compiler_runner,
