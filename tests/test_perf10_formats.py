@@ -22,6 +22,20 @@ def _ledata(offset: int, chunk: bytes) -> bytes:
     return _record(0xA0, b"\x01" + struct.pack("<H", offset) + chunk)
 
 
+def _count_parses(monkeypatch: pytest.MonkeyPatch) -> list[bytes]:
+    from rebrew.formats import omf16 as omf16_module
+
+    calls: list[bytes] = []
+    real = omf16_module.parse_omf16
+
+    def counting(raw: bytes) -> Omf16Module:
+        calls.append(raw)
+        return real(raw)
+
+    monkeypatch.setattr(omf16_module, "parse_omf16", counting)
+    return calls
+
+
 class TestBenchInputs:
     def test_archive_fixture_round_trips(self, tmp_path: Path) -> None:
         data, expected = bench._build_archive(random.Random(bench._SEED))
@@ -138,31 +152,19 @@ class TestOmf16ObjectMemo:
     def test_repeated_lookups_decode_the_object_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.formats import omf16 as omf16_mod
-
         rng = random.Random(bench._SEED)
         funcs = [bench._function(rng) for _ in range(40)]
         data, expected = bench._build_optimized(funcs)
         obj = tmp_path / "o.obj"
         obj.write_bytes(data)
-        calls = 0
-        real = omf16_mod.parse_omf16
-
-        def counting(raw: bytes) -> Omf16Module:
-            nonlocal calls
-            calls += 1
-            return real(raw)
-
-        monkeypatch.setattr(omf16_mod, "parse_omf16", counting)
+        calls = _count_parses(monkeypatch)
         for name, want in expected.items():
             assert parse_obj_omf16(obj, name) == want
-        assert calls == 1
+        assert len(calls) == 1
 
     def test_rewritten_object_never_serves_stale_code(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.formats import omf16 as omf16_mod
-
         rng = random.Random(bench._SEED)
         first, first_expected = bench._build_optimized([bench._function(rng)])
         second, second_expected = bench._build_optimized([bench._function(rng)])
@@ -172,17 +174,9 @@ class TestOmf16ObjectMemo:
         assert parse_obj_omf16(obj, name) == first_expected[name]
         obj.write_bytes(second)
         # Same memo key, different bytes: the module must be decoded again.
-        calls = 0
-        real = omf16_mod.parse_omf16
-
-        def counting(raw: bytes) -> Omf16Module:
-            nonlocal calls
-            calls += 1
-            return real(raw)
-
-        monkeypatch.setattr(omf16_mod, "parse_omf16", counting)
+        calls = _count_parses(monkeypatch)
         assert parse_obj_omf16(obj, name) == second_expected[name]
-        assert calls == 1
+        assert len(calls) == 1
 
     def test_caller_bytes_skip_the_read(self, tmp_path: Path) -> None:
         rng = random.Random(bench._SEED)

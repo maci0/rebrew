@@ -451,9 +451,7 @@ class TestToolchainRegistry:
             build_toolchain_registry()
         assert ei.value.kind == "validation"
 
-    def test_entry_point_provider_adds_toolchain(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_entry_point_provider_adds_toolchain(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.compiler.toolchain import ToolchainSpec, build_toolchain_registry
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
@@ -469,9 +467,7 @@ class TestToolchainRegistry:
         registry = build_toolchain_registry()
         assert registry["plugtc"].binary == "pcc"
 
-    def test_entry_point_provider_conflict_raises(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_entry_point_provider_conflict_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.compiler.toolchain import ToolchainSpec, build_toolchain_registry
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)

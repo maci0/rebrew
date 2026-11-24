@@ -1,6 +1,5 @@
 """Tests for diagnose probe, match qualifiers, diagnose gap, and build residue."""
 
-from typing import ClassVar
 lazy from pathlib import Path
 
 import pytest
@@ -192,58 +191,45 @@ class TestGapTraceHelpers:
         assert all(isinstance(key, bytes) for key in keys)
         assert len(set(keys)) >= 1
 
-    def test_obj_text_prefers_the_function_section(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("sections", "symbols", "expected"),
+        [
+            (
+                [(".text", b"\x90" * 8), (".text", b"\x55\x8b\xec")],
+                [(1, False), (2, True)],
+                b"\x55\x8b\xec",
+            ),
+            ([(".text", b"\x90" * 4), (".rdata", b"\x01")], [], b"\x90" * 4),
+        ],
+        ids=["function-section", "first-text-fallback"],
+    )
+    def test_obj_text_selects_text_section(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        sections: list[tuple[str, bytes]],
+        symbols: list[tuple[int, bool]],
+        expected: bytes,
     ) -> None:
+        from types import SimpleNamespace
+
         import lief
 
         from rebrew import gap_trace
 
-        class FakeSection:
-            def __init__(self, name: str, content: bytes) -> None:
-                self.name = name
-                self.content = content
-                self.relocations: list[object] = []
-
-        class FakeSymbol:
-            def __init__(self, section_idx: int, is_function: bool) -> None:
-                self.section_idx = section_idx
-                self.is_function = is_function
-
-        class FakeBinary:
-            sections: ClassVar[list[object]] = [
-                FakeSection(".text", b"\x90" * 8),
-                FakeSection(".text", b"\x55\x8b\xec"),
-            ]
-            symbols: ClassVar[list[object]] = [FakeSymbol(1, False), FakeSymbol(2, True)]
-
-        monkeypatch.setattr(lief, "parse", lambda _path: FakeBinary())
+        binary = SimpleNamespace(
+            sections=[
+                SimpleNamespace(name=name, content=content, relocations=[])
+                for name, content in sections
+            ],
+            symbols=[
+                SimpleNamespace(section_idx=section_idx, is_function=is_function)
+                for section_idx, is_function in symbols
+            ],
+        )
+        monkeypatch.setattr(lief, "parse", lambda _path: binary)
         body, _rels = gap_trace._obj_text(str(tmp_path / "fake.obj"))
-        assert body == b"\x55\x8b\xec"
-
-    def test_obj_text_falls_back_to_first_text(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import lief
-
-        from rebrew import gap_trace
-
-        class FakeSection:
-            def __init__(self, name: str, content: bytes) -> None:
-                self.name = name
-                self.content = content
-                self.relocations: list[object] = []
-
-        class FakeBinary:
-            sections: ClassVar[list[object]] = [
-                FakeSection(".text", b"\x90" * 4),
-                FakeSection(".rdata", b"\x01"),
-            ]
-            symbols: ClassVar[list[object]] = []
-
-        monkeypatch.setattr(lief, "parse", lambda _path: FakeBinary())
-        body, _rels = gap_trace._obj_text(str(tmp_path / "fake.obj"))
-        assert body == b"\x90" * 4
+        assert body == expected
 
     def test_first_fault_skips_equal_prefix(self) -> None:
         from rebrew.gap_trace import first_fault
