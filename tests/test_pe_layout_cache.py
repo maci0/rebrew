@@ -30,6 +30,13 @@ elif override == "rebrew":
     rebrew.__version__ = "999.0"
 elif override == "format":
     fmt = "pe"
+elif override == "extractor":
+    # A development install keeps its release number when the extractor changes.
+    from rebrew.formats import binary_loader
+
+    edited = Path(path).with_name("binary_loader.py")
+    edited.write_bytes(Path(binary_loader.__file__).read_bytes() + b"\\n# edited\\n")
+    binary_loader.__file__ = str(edited)
 with cache_pe_layouts():
     info = asdict(load_binary(Path(path), fmt))
 info = {name: value for name, value in info.items() if not name.startswith("_")}
@@ -99,7 +106,7 @@ class TestPeLayoutCache:
         assert imported
         assert info["text_va"] == 0x403000
 
-    @pytest.mark.parametrize("override", ["lief", "rebrew", "format"])
+    @pytest.mark.parametrize("override", ["lief", "rebrew", "extractor", "format"])
     def test_changed_parser_identity_reparses(self, tmp_path: Path, override: str) -> None:
         binary = _write_binary(tmp_path / "fixture.exe")
         imported, before = _load(tmp_path, binary)

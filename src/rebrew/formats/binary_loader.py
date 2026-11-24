@@ -694,6 +694,7 @@ _PE_LAYOUT_CACHE_LIMIT = 1 << 20
 def _load_regular(path: Path, fmt: str, resolved: str, size: int) -> BinaryInfo:
     """Reuse LIEF's PE layout when the complete input and parser identity match."""
     from rebrew import __version__
+    from rebrew.formats import binary_model
 
     if fmt not in ("auto", "pe"):
         return _parse_regular(path, fmt)
@@ -708,7 +709,18 @@ def _load_regular(path: Path, fmt: str, resolved: str, size: int) -> BinaryInfo:
             lief_version = importlib.metadata.version("lief")
             cache = xdg_cache_home() / "rebrew" / "pe-layout"
             entry = cache / (hashlib.sha256(os.fsencode(resolved)).hexdigest() + ".cache")
-            key = [hashlib.sha256(data).hexdigest(), lief_version, __version__, fmt]
+            # A development install keeps one release number across commits,
+            # so the extractor's source retires layouts written by other code.
+            extractor = hashlib.sha256()
+            for module_file in (__file__, binary_model.__file__):
+                extractor.update(Path(module_file).read_bytes())
+            key = [
+                hashlib.sha256(data).hexdigest(),
+                lief_version,
+                __version__,
+                extractor.hexdigest(),
+                fmt,
+            ]
             cache_input = entry, key
     except OSError, importlib.metadata.PackageNotFoundError:
         pass

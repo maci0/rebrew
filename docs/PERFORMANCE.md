@@ -632,7 +632,9 @@ the user cache directory (`$XDG_CACHE_HOME/rebrew/pe-layout/`, usually
 the repository's other derived caches. An entry holds LIEF's section and
 data-directory layouts, architecture, image base, and code bounds. The
 loader checks the entry checksum, the binary's full SHA-256, the LIEF
-distribution version, the Rebrew release version, and the format hint.
+distribution version, the Rebrew release version, the source of the PE
+extractor (`formats/binary_loader.py` and `formats/binary_model.py`), and the
+format hint.
 If any check fails, LIEF parses the bytes used to calculate the hash.
 A hit lets `rebrew status` reuse those facts across processes without
 loading LIEF. The cache contains only layout facts, so binary data reads
