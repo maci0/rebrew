@@ -3655,7 +3655,7 @@ def metadata_carry(config: WorkerConfig, req: MetadataCarryRequest) -> dict[str,
     reviewed migration into the capture's backend; its logical documents must equal
     those inputs. Without published metadata the target reads the capture's own.
     """
-    from rebrew.metadata_sets import carry_metadata, describe_metadata
+    from rebrew.metadata_sets import carry_metadata, describe_metadata, published_backend
 
     with (
         _staged_file_set(config, req.capture) as capture,
@@ -3664,7 +3664,9 @@ def metadata_carry(config: WorkerConfig, req: MetadataCarryRequest) -> dict[str,
         scratch = config.require_workspace() / SCRATCH_DIR
         with tempfile.TemporaryDirectory(prefix="metadata-carry-", dir=scratch) as temp:
             carried = Path(temp).resolve()
-            published = _metadata_answer(lambda: describe_metadata(target))
+            published = _metadata_answer(
+                lambda: describe_metadata(target, backend=published_backend(target))
+            )
             _metadata_answer(lambda: carry_metadata(capture, target, carried))
             reads = carried if published["files"] else capture
             metadata = _metadata_answer(lambda: describe_metadata(reads))

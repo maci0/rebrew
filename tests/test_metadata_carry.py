@@ -623,3 +623,25 @@ def test_carry_refuses_inconsistent_inputs(
         registry = ""
     status, reply = _carry(config, tree, capture, registry)
     assert (status, reply["detail"]) == (400, detail)
+
+
+@pytest.mark.parametrize("registry", ["", REGISTRY])
+def test_carry_of_a_sqlite_config_without_its_store_reads_what_the_target_published(
+    v1_reanalysed: tuple[WorkerConfig, dict[str, bytes], dict[str, Any]], registry: str
+) -> None:
+    """An imported target whose config selects SQLite but whose tree holds no store: none at
+    all, or the TOML registry an earlier engine published."""
+    config, shared_tree, capture = v1_reanalysed
+    tree = dict(shared_tree)
+    tree[CONFIG] += b'\n[metadata]\nbackend = "sqlite"\n'
+    status, reply = _carry(config, tree, capture, registry)
+    assert status == 200, reply
+    carried = _applied_files(reply)
+    assert b'backend = "sqlite"' in carried[CONFIG]
+    if not registry:
+        assert set(carried) == {CONFIG} and reply["remove"] == []
+        assert reply["metadata"] == capture["metadata"]
+        return
+    assert set(carried) == {CONFIG, DATABASE_FILENAME} and reply["remove"] == [REGISTRY]
+    documents = _documents(carried[DATABASE_FILENAME], config.require_workspace() / "carried")
+    assert documents[REGISTRY] == tree[REGISTRY]
