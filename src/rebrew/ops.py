@@ -296,7 +296,7 @@ IN_PROCESS_TIMEOUT_SECONDS = 600
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "3706d24f515c83351939422db9beda78b816462de320a63da509ef3e35c33e60"
+DISPATCH_SCHEMA_SHA256 = "55cd900d6a819553ed909f8e9e2fcabc50d9548060f1f3871a3c45fdfb3199e0"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -742,7 +742,8 @@ _COVERAGE_PROBLEMS = _RETAINED_PROBLEMS | {COVERAGE_INPUT_UNVERIFIED}
 #: ``errors``; a test holds every refusal an op's code reaches to its entry.
 OP_PROBLEMS: dict[str, frozenset[str]] = {
     "rebrew.analyse": frozenset({ANALYSIS_CAPTURE_FAILED, COMPILER_NOT_OFFERED, READSET_TOO_LARGE}),
-    "rebrew.apply_candidate": _CANDIDATE_PROBLEMS,
+    "rebrew.apply_candidate": _CANDIDATE_PROBLEMS | {INVALID_PROJECT_CONFIG},
+    "rebrew.rename_identifier": frozenset({INVALID_PROJECT_CONFIG}),
     "rebrew.verify_function": _CANDIDATE_PROBLEMS,
     "rebrew.build": _COMPILE_PROBLEMS | {INVALID_PROJECT_CONFIG},
     "rebrew.verify_target": _COMPILE_PROBLEMS | {INVALID_PROJECT_CONFIG},
@@ -3687,6 +3688,12 @@ MAX_IDENTIFIER_RENAMES = 256
 
 
 def rename_identifier(_config: WorkerConfig, req: RenameIdentifierRequest) -> dict[str, Any]:
+    """Answer :func:`_renamed_identifiers`; a record its source contradicts refuses the op."""
+    with _refusing_disagreeing_records("rebrew.rename_identifier"):
+        return _renamed_identifiers(req)
+
+
+def _renamed_identifiers(req: RenameIdentifierRequest) -> dict[str, Any]:
     """Apply ordered identifier renames to one C text, each against the previous result.
 
     Every rename answers ``applied`` with the UTF-8 byte ``offsets`` of the
@@ -4148,7 +4155,8 @@ def apply_candidate(config: WorkerConfig, req: ApplyCandidateRequest) -> dict[st
     refused: nothing is published from a candidate that no longer matches. A SQLite project returns a
     closed, verified copy of its store in place of ``rebrew-functions.toml``.
     """
-    return _run_candidate(config, req, apply=True)
+    with _refusing_disagreeing_records("rebrew.apply_candidate"):
+        return _run_candidate(config, req, apply=True)
 
 
 def _candidate_with_anchor(candidate: str, module: str, va: int) -> str:
@@ -4975,7 +4983,8 @@ def retained_source_operation(config: WorkerConfig, req: SnapshotMutationRequest
     """Run an operation against an isolated retained target."""
     from rebrew.snapshot_mutations import snapshot_mutation
 
-    return snapshot_mutation(config, req)
+    with _refusing_disagreeing_records("rebrew.retained_source_operation"):
+        return snapshot_mutation(config, req)
 
 
 def decompile_snapshot(config: WorkerConfig, req: DecompileSnapshotRequest) -> dict[str, Any]:
@@ -5259,15 +5268,6 @@ def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str
 _EXITS = (KeyboardInterrupt, SystemExit, GeneratorExit)
 
 
-#: Ops that write a function record the caller selects and declare 400 :data:`INVALID_PROJECT_CONFIG`:
-#: a record whose source's anchor names another function refuses them, where every
-#: other op skips that record and answers for the rest of the project.
-_RECORD_WRITE_OPS = frozenset(
-    {
-        "rebrew.retained_source_operation",
-    }
-)
-
 #: The detail of a write refused for a function record and source that disagree; the
 #: record's key goes to the worker log.
 BINDING_CONFLICT_DETAIL = (
@@ -5281,18 +5281,19 @@ def _binding_conflict() -> OpsError:
     return OpsError(BINDING_CONFLICT_DETAIL, code=INVALID_PROJECT_CONFIG, status=400)
 
 
-def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mapping[str, Any]:
-    """*op*'s reply to *request*, as its declared reply when :mod:`rebrew.ops_replies` declares one."""
-    from rebrew.metadata.bindings import binding_conflicts, strict_bindings
-    from rebrew.ops_replies import DECLARED
+@contextlib.contextmanager
+def _refusing_disagreeing_records(what: str) -> Iterator[None]:
+    """Refuse the record-writing op *what* over a record whose source's anchor names another function.
+
+    Every other op skips such a record and answers for the rest of the project; a write
+    the caller aimed at the project answers 400 :data:`INVALID_PROJECT_CONFIG` on purpose.
+    """
+    from rebrew.cli import BINDING_CONFLICT_KIND, CommandExit
+    from rebrew.metadata.bindings import strict_bindings
 
     try:
-        with binding_conflicts(), contextlib.ExitStack() as stack:
-            if name in _RECORD_WRITE_OPS:
-                stack.enter_context(strict_bindings())
-            reply = op.run(config, request)
-    except OpsError:
-        raise
+        with strict_bindings():
+            yield
     except BindingConflictError as exc:
         # The key, never the names: an in-process refusal carries it, a child's message is it.
         record = f"{exc.module}.0x{exc.va:08x}" if exc.module else _escape_log_text(str(exc))
@@ -5300,16 +5301,31 @@ def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mappin
             "%s %s refused a function record whose source's anchor names another function: "
             "%s trace_id=%s",
             _request_id(),
-            name,
+            what,
             record,
             _trace_id(),
         )
         raise _binding_conflict() from None
-    except typer.Exit as exc:
-        from rebrew.cli import BINDING_CONFLICT_KIND, TOOLCHAIN_REJECTED_KIND, CommandExit
+    except CommandExit as exc:
+        if exc.kind != BINDING_CONFLICT_KIND:
+            raise
+        logger.warning("%s %s refused a function record: %s", _request_id(), what, exc.message)
+        raise _binding_conflict() from None
 
-        if isinstance(exc, CommandExit) and exc.kind == BINDING_CONFLICT_KIND:
-            raise _binding_conflict() from None
+
+def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mapping[str, Any]:
+    """*op*'s reply to *request*, as its declared reply when :mod:`rebrew.ops_replies` declares one."""
+    from rebrew.metadata.bindings import binding_conflicts
+    from rebrew.ops_replies import DECLARED
+
+    try:
+        with binding_conflicts():
+            reply = op.run(config, request)
+    except OpsError:
+        raise
+    except typer.Exit as exc:
+        from rebrew.cli import TOOLCHAIN_REJECTED_KIND, CommandExit
+
         if isinstance(exc, CommandExit) and exc.kind == TOOLCHAIN_REJECTED_KIND:
             roots = [path for path in (config.workspace, config.filestore) if path is not None]
             raise _toolchain_rejected(exc.message, roots) from None

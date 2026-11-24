@@ -731,7 +731,9 @@ def error_exit(
         _write_error(
             BINDING_CONFLICT_KIND, _binding_conflict_message(module, va), _BINDING_CONFLICT_HINT
         )
-        raise CommandExit(code=code, kind=BINDING_CONFLICT_KIND, message=msg)
+        raise CommandExit(
+            code=code, kind=BINDING_CONFLICT_KIND, message=_binding_conflict_message(module, va)
+        )
     if use_json:
         _write_error(kind, msg, hint)
     else:
