@@ -2585,6 +2585,13 @@ class TestW029RedundantCflags:
         from rebrew.lint import app
         from rebrew.metadata.data import get_data_entry
 
+        granular_reads: list[None] = []
+
+        def unexpected_granular_read(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            granular_reads.append(None)
+            return {}
+
+        monkeypatch.setattr("rebrew.metadata.data.get_data_entry", unexpected_granular_read)
         src = tmp_path / "reversed"
         src.mkdir()
         f = src / "g.c"
@@ -2610,6 +2617,7 @@ class TestW029RedundantCflags:
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
         assert "backfilled 1 missing SECTION" in result.output
+        assert not granular_reads
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("section") == ".data"
 
     def test_w016_dry_run_leaves_section(

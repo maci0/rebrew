@@ -68,6 +68,32 @@ class TestDisassembleToNasm:
         assert stats["total_bytes"] == 6
 
 
+class TestFindBadInstructionsIndividually:
+    def test_formats_padding_once_and_preserves_probe_sources(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.asm as asm_mod
+
+        rows = [
+            {"data": False, "nasm": "nop", "raw": b"\x01", "offset": 0, "size": 1},
+            {"data": True, "nasm": "db 0x02", "raw": b"\x02", "offset": 1, "size": 1},
+            {"data": False, "nasm": "ret", "raw": b"\x03", "offset": 2, "size": 1},
+        ]
+        sources: list[str] = []
+
+        def fail(_src: str, *, tmpdir: Path | None = None) -> None:
+            del tmpdir
+            sources.append(_src)
+
+        monkeypatch.setattr(asm_mod, "_run_nasm", fail)
+        bad = asm_mod._find_bad_instructions_individually(rows, 0x1000, b"\x01\x02\x03\x04")
+        assert bad == {0, 2}
+        assert sources == [
+            "bits 32\norg 0x00001000\nnop\ndb 0x02\ndb 0x03\ndb 0x04",
+            "bits 32\norg 0x00001000\ndb 0x01\ndb 0x02\nret\ndb 0x04",
+        ]
+
+
 class TestVerifyRoundtrip:
     def test_verified_roundtrip(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.asm as asm_mod

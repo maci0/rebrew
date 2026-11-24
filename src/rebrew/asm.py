@@ -1435,21 +1435,21 @@ def _find_bad_instructions_individually(
     bad: set[int] = set()
     total_insn_size = sum(e["size"] for e in insn_data)
     trailing = code[total_insn_size:]
+    # Every probe differs only at one instruction. Format the db padding once
+    # instead of re-walking and re-hexing the whole function for each NASM call.
+    padded_lines = ["bits 32", f"org 0x{base_va:08X}"]
+    padded_lines.extend(
+        "db " + ", ".join(f"0x{b:02X}" for b in entry["raw"]) for entry in insn_data
+    )
+    if trailing:
+        padded_lines.append("db " + ", ".join(f"0x{b:02X}" for b in trailing))
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         for idx, entry in enumerate(insn_data):
             if entry["data"]:
                 continue
-            src_lines = ["bits 32", f"org 0x{base_va:08X}"]
-            for j, e in enumerate(insn_data):
-                if j == idx:
-                    src_lines.append(e["nasm"])
-                else:
-                    db_hex = ", ".join(f"0x{b:02X}" for b in e["raw"])
-                    src_lines.append(f"db {db_hex}")
-            if trailing:
-                db_hex = ", ".join(f"0x{b:02X}" for b in trailing)
-                src_lines.append(f"db {db_hex}")
+            src_lines = padded_lines.copy()
+            src_lines[idx + 2] = entry["nasm"]
             result = _run_nasm("\n".join(src_lines), tmpdir=tmp)
             if result is None or len(result) != len(code):
                 bad.add(idx)

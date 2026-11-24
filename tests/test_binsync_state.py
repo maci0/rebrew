@@ -58,6 +58,157 @@ class TestRemoteSyncRecords:
         }
 
 
+class TestSyncHealthMetadataSnapshots:
+    def test_health_scan_loads_each_store_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync import state
+        from rebrew.metadata import data, functions
+
+        cfg: Any = SimpleNamespace(
+            metadata_dir=tmp_path,
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            module="SERVER",
+            target_name="server",
+            arch="x86_32",
+        )
+        state_dir = tmp_path / "state"
+        state_dir.mkdir()
+        function_rows: dict[tuple[str, int], dict[str, Any]] = {
+            ("SERVER", 0x1000): {"origins": {"name": {"value_hash": "stale"}}},
+            ("SERVER", 0x1010): {"origins": {}},
+        }
+        data_rows: dict[tuple[str, int], dict[str, Any]] = {
+            ("SERVER", 0x2000): {"origins": {"note": {"value_hash": "stale"}}}
+        }
+        loads: list[str] = []
+
+        def load_functions(*_args: Any, **_kwargs: Any) -> dict[tuple[str, int], dict[str, Any]]:
+            loads.append("function")
+            return function_rows
+
+        def load_data(*_args: Any, **_kwargs: Any) -> dict[tuple[str, int], dict[str, Any]]:
+            loads.append("global")
+            return data_rows
+
+        def unexpected_granular_read(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("health scan must use its batch metadata snapshot")
+
+        monkeypatch.setattr(state, "load_manifest", lambda _path: {})
+        monkeypatch.setattr(state, "binary_identity", lambda _cfg: "")
+        monkeypatch.setattr(state, "artifact_hash", lambda _path: "")
+        monkeypatch.setattr(state, "load_sync_baseline", lambda *_args: {})
+        monkeypatch.setattr(functions, "load_metadata", load_functions)
+        monkeypatch.setattr(data, "load_data_metadata", load_data)
+        monkeypatch.setattr(functions, "get_entry", unexpected_granular_read)
+        monkeypatch.setattr(data, "get_data_entry", unexpected_granular_read)
+        local = {
+            "function.SERVER.0x1000": {"name": "one"},
+            "function.SERVER.0x1010": {"name": "two"},
+            "global.SERVER.0x2000": {"note": "global"},
+        }
+
+        health = state.sync_health(cfg, state_dir, local, {})
+
+        assert sorted(loads) == ["function", "global"]
+        assert {row["identity"] for row in health["stale_origins"]} == {
+            "function.SERVER.0x1000",
+            "global.SERVER.0x2000",
+        }
+
+
+class TestRecordSyncOrigins:
+    def test_loads_each_store_once_for_all_changed_identities(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync import state
+        from rebrew.metadata import data, functions
+
+        function_rows: dict[tuple[str, int], dict[str, Any]] = {
+            ("SERVER", 0x1000): {"origins": {"size": {"tool": "verify"}}},
+            ("SERVER", 0x1010): {"origins": {}},
+        }
+        data_rows: dict[tuple[str, int], dict[str, Any]] = {
+            ("SERVER", 0x2000): {"origins": {"size": {"tool": "verify"}}}
+        }
+        loads: list[str] = []
+        updates: dict[str, list[dict[str, Any]]] = {"function": [], "global": []}
+
+        def load_functions(*_args: Any, **_kwargs: Any) -> dict[tuple[str, int], dict[str, Any]]:
+            loads.append("function")
+            return function_rows
+
+        def load_data(*_args: Any, **_kwargs: Any) -> dict[tuple[str, int], dict[str, Any]]:
+            loads.append("global")
+            return data_rows
+
+        def unexpected_granular_read(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("reconciliation must use its batch metadata snapshot")
+
+        def save_functions(_directory: Any, rows: list[dict[str, Any]]) -> None:
+            updates["function"].extend(rows)
+
+        def save_data(_directory: Any, rows: list[dict[str, Any]]) -> None:
+            updates["global"].extend(rows)
+
+        monkeypatch.setattr(functions, "load_metadata", load_functions)
+        monkeypatch.setattr(data, "load_data_metadata", load_data)
+        monkeypatch.setattr(functions, "get_entry", unexpected_granular_read)
+        monkeypatch.setattr(data, "get_data_entry", unexpected_granular_read)
+        monkeypatch.setattr(functions, "set_fields_batch", save_functions)
+        monkeypatch.setattr(data, "set_data_fields_batch", save_data)
+        monkeypatch.setattr(state, "sync_origin", lambda _path: {"tool": "binsync"})
+        before = {
+            "function.SERVER.0x1000": {"name": "old"},
+            "function.SERVER.0x1010": {"name": "unchanged"},
+            "global.SERVER.0x2000": {"note": "old"},
+        }
+        after = {
+            "function.SERVER.0x1000": {"name": "new"},
+            "function.SERVER.0x1010": {"name": "unchanged"},
+            "global.SERVER.0x2000": {"note": "new"},
+        }
+        remote = {key: dict(value) for key, value in after.items()}
+
+        cfg: Any = SimpleNamespace(metadata_dir=tmp_path)
+        state.record_sync_origins(cfg, tmp_path, before, after, remote)
+
+        assert sorted(loads) == ["function", "global"]
+        assert updates["function"] == [
+            {
+                "module": "SERVER",
+                "va": 0x1000,
+                "fields": {
+                    "origins": {
+                        "size": {"tool": "verify"},
+                        "name": {
+                            "tool": "binsync",
+                            "value_hash": state.sync_value_hash("name", "new", kind="function"),
+                        },
+                    }
+                },
+                "updated_by": "binsync-import",
+            }
+        ]
+        assert updates["global"] == [
+            {
+                "module": "SERVER",
+                "va": 0x2000,
+                "fields": {
+                    "origins": {
+                        "size": {"tool": "verify"},
+                        "note": {
+                            "tool": "binsync",
+                            "value_hash": state.sync_value_hash("note", "new", kind="global"),
+                        },
+                    }
+                },
+                "updated_by": "binsync-import",
+            }
+        ]
+
+
 class TestDefinitionValidation:
     def test_directive_behind_a_comment_is_refused(self) -> None:
         """The preprocessor reads text with comments removed, so test it that way."""

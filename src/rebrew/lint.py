@@ -15,6 +15,7 @@ from pathlib import Path
 lazy import bisect
 lazy import contextlib
 lazy import shlex
+lazy import unicodedata
 lazy from collections.abc import Callable, Iterable
 lazy from typing import Any
 
@@ -2871,7 +2872,7 @@ def main(
             "no config loaded, no metadata updated"
         )
     if fix and cfg:
-        from rebrew.metadata.data import get_data_entry, set_data_fields_batch
+        from rebrew.metadata.data import set_data_fields_batch
         from rebrew.metadata.functions import remove_fields_batch
 
         w029_fn_count = 0
@@ -2921,8 +2922,11 @@ def main(
                     hit_key = (section_hit.module, section_hit.va)
                     if hit_key in section_updates:
                         continue
-                    existing = get_data_entry(
-                        metadata_directory, section_hit.va, section_hit.module
+                    # The batch already loaded this table. Reusing its row
+                    # avoids a path resolve, store fingerprint and deepcopy per
+                    # SECTION backfill.
+                    existing = (_preloaded_data_metadata or {}).get(
+                        (unicodedata.normalize("NFC", section_hit.module), section_hit.va), {}
                     )
                     if "section" in {k.lower() for k in existing}:
                         continue

@@ -981,11 +981,13 @@ def sync_health(
     }
     stale_verification: list[str] = []
     stale_origins: list[dict[str, str]] = []
-    from rebrew.metadata.data import data_definition_hash, get_data_entry
-    from rebrew.metadata.functions import get_entry
+    from rebrew.metadata.data import data_definition_hash, load_data_metadata
+    from rebrew.metadata.functions import load_metadata
     from rebrew.sources import contained_path, source_roots
     from rebrew.verify_hash import compiler_config_hash, entry_fingerprint, source_hash
 
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None
     indexed: dict[int, object] | None = None
     for key, values in local.items():
         kind, identity = key.split(".", 1)
@@ -993,7 +995,15 @@ def sync_health(
             continue
         module, address = identity.rsplit(".", 1)
         va = int(address, 16)
-        entry = (get_entry if kind == "function" else get_data_entry)(cfg.metadata_dir, va, module)
+        metadata_key = (unicodedata.normalize("NFC", module), va)
+        if kind == "function":
+            if function_entries is None:
+                function_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+            entry = function_entries.get(metadata_key, {})
+        else:
+            if data_entries is None:
+                data_entries = load_data_metadata(cfg.metadata_dir, deepcopy=False)
+            entry = data_entries.get(metadata_key, {})
         for field, origin in (entry.get("origins") or {}).items():
             if (
                 isinstance(origin, dict)
@@ -1156,12 +1166,14 @@ def record_sync_origins(
     remote: dict[str, dict[str, Any]],
 ) -> None:
     """Stamp only externally changed fields that actually landed in canonical metadata."""
-    from rebrew.metadata.data import get_data_entry, set_data_fields_batch
-    from rebrew.metadata.functions import get_entry, set_fields_batch
+    from rebrew.metadata.data import load_data_metadata, set_data_fields_batch
+    from rebrew.metadata.functions import load_metadata, set_fields_batch
 
     origin = sync_origin(state_dir)
     function_updates: list[dict[str, Any]] = []
     data_updates: list[dict[str, Any]] = []
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None
+    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None
     for key in after.keys() & remote.keys():
         kind, identity = key.split(".", 1)
         if kind not in {"function", "global"}:
@@ -1179,7 +1191,18 @@ def record_sync_origins(
                 accepted[field] = {**origin, "value_hash": sync_value_hash(field, value, kind=kind)}
         if not accepted:
             continue
-        entry = (get_entry if kind == "function" else get_data_entry)(cfg.metadata_dir, va, module)
+        # One read-only snapshot per store for the whole reconciliation. A
+        # granular getter here resolved and fingerprinted the same document and
+        # copied the selected row for every changed identity.
+        metadata_key = (unicodedata.normalize("NFC", module), va)
+        if kind == "function":
+            if function_entries is None:
+                function_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+            entry = function_entries.get(metadata_key, {})
+        else:
+            if data_entries is None:
+                data_entries = load_data_metadata(cfg.metadata_dir, deepcopy=False)
+            entry = data_entries.get(metadata_key, {})
         origins = dict(entry.get("origins") or {})
         if all(origins.get(field) == value for field, value in accepted.items()):
             continue
