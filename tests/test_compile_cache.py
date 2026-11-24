@@ -779,14 +779,15 @@ class TestIncludePathResolution:
         early.mkdir()
         late.mkdir()
         (late / "api.h").write_text("int later;\n")
-        original = Path.stat
+        original = os.stat
 
-        def denied(path: Path, *args: Any, **kwargs: Any) -> Any:
-            if path == early:
+        def denied(path: Any, *args: Any, **kwargs: Any) -> Any:
+            if os.fspath(path) == str(early):
                 raise PermissionError("stat denied")
             return original(path, *args, **kwargs)
 
-        monkeypatch.setattr(Path, "stat", denied)
+        # The include walk stats with os.stat on plain strings.
+        monkeypatch.setattr(os, "stat", denied)
         with pytest.raises(ValueError, match="cannot inspect an include search path") as exc:
             cache_module.scan_include_closure("#include <api.h>\n", None, (str(early), str(late)))
         assert isinstance(exc.value.__cause__, PermissionError)

@@ -884,17 +884,17 @@ def _fold_name(name: str) -> str:
 
 
 def _folded_children(
-    directory: Path, st: os.stat_result | None = None
+    directory: str, st: os.stat_result | None = None
 ) -> dict[str, tuple[str, ...]]:
     """Child paths of *directory*, grouped by :func:`_fold_name` of their names.
 
-    *st* is the caller's ``directory.stat()`` when it already took one.
+    *st* is the caller's ``os.stat(directory)`` when it already took one.
     """
     global _dir_index_names
     if st is None:
-        st = directory.stat()
+        st = os.stat(directory)  # noqa: PTH116 -- include-walk hot path, no Path per stat
     identity = (st.st_dev, st.st_ino, st.st_mtime_ns)
-    key = str(directory)
+    key = directory
     with _DIR_INDEX_LOCK:
         cached = _DIR_INDEX.get(key)
         if cached is not None and cached[0] == identity:
@@ -923,17 +923,22 @@ def _walk_include_path_checked(
 ) -> Path | None:
     if not parts or parts[-1] == "..":
         return None
+    # Plain strings and os calls: the walk runs per include per search dir
+    # (141,697 times in one `rebrew status` on guild-rebrew), and Path objects
+    # for every step cost more than the stats. Path.resolve(strict=True) is
+    # os.path.realpath(strict=True).
+    candidate = os.fspath(directory)
     try:
-        directory_st = directory.stat()
+        directory_st = os.stat(candidate)  # noqa: PTH116 -- include-walk hot path
     except FileNotFoundError, NotADirectoryError:
         return None
     if not stat.S_ISDIR(directory_st.st_mode):
         return None
     st: os.stat_result | None = directory_st
-    candidate = directory
+    last = len(parts) - 1
     for index, part in enumerate(parts):
         if part == "..":
-            candidate = candidate / part
+            candidate = os.path.join(candidate, part)  # noqa: PTH118 -- include-walk hot path
             st = None
             continue
         matches = _folded_children(candidate, st).get(_fold_name(part), ())
@@ -941,15 +946,15 @@ def _walk_include_path_checked(
             raise ValueError("ambiguous case-insensitive include component")
         if not matches:
             return None
-        child = Path(matches[0])
-        st = child.stat()
+        child = matches[0]
+        st = os.stat(child)  # noqa: PTH116 -- include-walk hot path
         mode = st.st_mode
-        if not (stat.S_ISREG(mode) if index == len(parts) - 1 else stat.S_ISDIR(mode)):
+        if not (stat.S_ISREG(mode) if index == last else stat.S_ISDIR(mode)):
             return None
         candidate = child
-    found = candidate.resolve(strict=True)
+    found = Path(os.path.realpath(candidate, strict=True))
     if lexical is not None:
-        lexical.append((candidate.absolute(), found))
+        lexical.append((Path(candidate).absolute(), found))
     return found
 
 
