@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -133,25 +134,40 @@ func main() {
 		addr = "127.0.0.1:8089"
 	}
 	log.Printf("server_starting addr=%q managed=%v", addr, os.Getenv("REBREW_MANAGED_RECOMPILE_URL") != "")
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	// Bounded timeouts (mirroring the compile mediator's socket server) keep
-	// a slow or idle loopback client from holding a connection forever; the
-	// streaming /events handler sets its own write deadline per frame.
-	server := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 180 * time.Second}
 	// Graceful shutdown on SIGTERM/SIGINT so Close() drains queued work
 	// instead of killing the process mid-receipt. Unix registers both;
 	// Windows only os.Interrupt (see shutdown_unix.go / shutdown_windows.go).
 	sig := make(chan os.Signal, 1)
 	notifyShutdown(sig)
+	if err := serveJobs(h, addr, sig); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func serveJobs(handler http.Handler, addr string, shutdown chan os.Signal) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	// Bounded timeouts (mirroring the compile mediator's socket server) keep
+	// a slow or idle loopback client from holding a connection forever; the
+	// streaming /events handler sets its own write deadline per frame.
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 180 * time.Second}
+	stopped := make(chan struct{})
+	defer close(stopped)
 	go func() {
-		<-sig
-		signal.Stop(sig)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = server.Shutdown(ctx)
+		select {
+		case <-shutdown:
+			signal.Stop(shutdown)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_ = server.Shutdown(ctx)
+		case <-stopped:
+		}
 	}()
-	log.Fatal(server.Serve(ln))
+	err = server.Serve(ln)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
 }

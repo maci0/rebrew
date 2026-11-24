@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -168,6 +169,47 @@ func TestCompileMediatorSocketRejectsUnscopedCaller(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatal("unscoped socket caller accepted")
+	}
+}
+
+func TestFailedManagedAdmissionRemovesUnreceiptedCustody(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("TMPDIR fault injection is POSIX-only")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "seed.c"), []byte("int f(void){return 0;}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := WorkspaceDigest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := testJobDir(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := DockerProvider{Binary: executable, Image: "sha256:" + strings.Repeat("a", 64)}
+	owner, err := OpenDocker(root, dir, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	if err = owner.ConfigureManagedCompile("https://recompile.invalid", 1, []string{"gcc"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	if _, created, err := owner.AdmitManaged("failed-start", "seed.c", digest, "rck_secret"); err == nil || created {
+		t.Fatalf("managed admission unexpectedly succeeded: created=%v err=%v", created, err)
+	}
+	for _, pattern := range []string{"*.original", "*.compile"} {
+		matches, globErr := filepath.Glob(filepath.Join(dir, pattern))
+		if globErr != nil {
+			t.Fatal(globErr)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("failed admission retained %s: %v", pattern, matches)
+		}
 	}
 }
 

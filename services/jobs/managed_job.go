@@ -129,6 +129,13 @@ func (o *Owner) startManagedCompile(id, credential string) (string, error) {
 	if err := os.Mkdir(base, 0700); err != nil {
 		return "", err
 	}
+	keepBase := false
+	defer func() {
+		if !keepBase {
+			makeTreeRemovable(base)
+			_ = os.RemoveAll(base)
+		}
+	}()
 	ledger := filepath.Join(base, "ledger")
 	if err := os.Mkdir(ledger, 0700); err != nil {
 		return "", err
@@ -181,6 +188,7 @@ func (o *Owner) startManagedCompile(id, credential string) (string, error) {
 	o.compileMediator, o.compileServer, o.compileListener = m, server, listener
 	o.compileSocket = socket
 	keep = true
+	keepBase = true
 	return socket, nil
 }
 

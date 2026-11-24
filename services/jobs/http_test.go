@@ -3,6 +3,7 @@ package jobs
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -90,6 +91,65 @@ func TestHTTPAdmissionAndToken(t *testing.T) {
 	}
 	if w = request(`{"key":"k","seed":"seed.c","workspace_sha256":"`+digest+`","generations":2,"population":2}`, true); w.Code != 409 {
 		t.Fatal("changed match bounds accepted on replay")
+	}
+}
+
+func TestEventStreamLimitIsOwnerWide(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := Open(t.TempDir(), testJobDir(t), executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	ids := []string{strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)}
+	for _, id := range ids {
+		if err = owner.save(Receipt{ID: id, State: "finished"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	token := strings.Repeat("x", 32)
+	handler, err := owner.Handler(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(id string) *httptest.ResponseRecorder {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/jobs/"+id+"/events", nil)
+		r.Host = "localhost"
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+
+	if w := request(ids[0]); w.Code != http.StatusOK {
+		t.Fatalf("initial stream: %d", w.Code)
+	}
+	owner.mu.Lock()
+	if owner.listenerCount != 0 || len(owner.listeners) != 0 {
+		owner.mu.Unlock()
+		t.Fatal("finished stream retained a listener")
+	}
+	for _, id := range ids[:2] {
+		owner.listeners[id] = make(map[chan struct{}]bool)
+		for range maxEventListeners / 2 {
+			owner.listeners[id][make(chan struct{}, 1)] = true
+		}
+	}
+	owner.listenerCount = maxEventListeners
+	owner.mu.Unlock()
+
+	if w := request(ids[2]); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("streams spread across jobs bypassed the owner limit: %d", w.Code)
+	}
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	if owner.listenerCount != maxEventListeners || len(owner.listeners[ids[2]]) != 0 {
+		t.Fatal("refused stream changed listener accounting")
 	}
 }
 

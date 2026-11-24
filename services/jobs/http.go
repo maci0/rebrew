@@ -693,7 +693,7 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			apiError(w, "job unavailable", 404)
 			return
 		}
-		if len(o.listeners[id]) >= maxEventListeners {
+		if o.listenerCount >= maxEventListeners {
 			o.mu.Unlock()
 			w.Header().Set("Retry-After", "5")
 			apiError(w, "too many event streams", http.StatusTooManyRequests)
@@ -704,10 +704,12 @@ func (o *Owner) Handler(token string) (http.Handler, error) {
 			o.listeners[id] = map[chan struct{}]bool{}
 		}
 		o.listeners[id][ch] = true
+		o.listenerCount++
 		o.mu.Unlock()
 		defer func() {
 			o.mu.Lock()
 			delete(o.listeners[id], ch)
+			o.listenerCount--
 			if len(o.listeners[id]) == 0 {
 				delete(o.listeners, id)
 			}

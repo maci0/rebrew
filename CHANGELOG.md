@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- The jobs service caps event streams across the owner, removes unreceipted custody after failed managed admission, and runs owner cleanup after graceful HTTP shutdown.
+
 ## [6.77.0] - 2026-11-24
 
 ### Changed

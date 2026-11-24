@@ -58,6 +58,7 @@ type Owner struct {
 	reconciling           bool
 	occupied              bool
 	listeners             map[string]map[chan struct{}]bool
+	listenerCount         int
 	queued                map[string]bool
 	docker                *DockerProvider
 	compileConfig         *managedCompileConfig
@@ -351,6 +352,13 @@ func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, c
 	if err = os.Rename(stage, originalPath); err != nil {
 		return Receipt{}, false, err
 	}
+	originalRetained := false
+	defer func() {
+		if !originalRetained {
+			makeTreeRemovable(originalPath)
+			_ = os.RemoveAll(originalPath)
+		}
+	}()
 	if err = sealSnapshot(originalPath); err != nil {
 		return Receipt{}, false, err
 	}
@@ -372,9 +380,13 @@ func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, c
 	if err = o.save(r); err != nil {
 		if r.ManagedCompile {
 			o.stopManagedCompile()
+			base := filepath.Join(o.dir, r.ID+".compile")
+			makeTreeRemovable(base)
+			_ = os.RemoveAll(base)
 		}
 		return Receipt{}, false, err
 	}
+	originalRetained = true
 	o.occupied = true
 	o.queued[r.ID] = true
 	o.notify(r.ID)
