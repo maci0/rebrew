@@ -15,10 +15,15 @@ from tools import bench_perf10_metadata as bench
 
 
 def _project(root: Path, backend: str) -> None:
+    route = (
+        'read_backends = ["sqlite", "toml"]\nwrite_backends = ["sqlite", "toml"]\n'
+        if backend == "routed"
+        else f'backend = "{backend}"\n'
+    )
     (root / "rebrew-project.toml").write_text(
         '[project]\ndefault_target = "game"\nshared_dir = ""\n'
         '[targets.game]\nbinary = "game.exe"\nreversed_dir = "src"\nmodule = "GAME"\n'
-        f'[metadata]\nbackend = "{backend}"\n',
+        f"[metadata]\n{route}",
         encoding="utf-8",
     )
 
@@ -44,7 +49,7 @@ def _cold(root: Path) -> dict[tuple[str, int], dict[str, Any]]:
 class TestColdLoadIsolation:
     """A cold read hands rows to the cache uncopied; no store may keep a reference to them."""
 
-    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    @pytest.mark.parametrize("backend", ["toml", "sqlite", "routed"])
     def test_mutating_loaded_rows_never_reaches_the_next_cold_read(
         self, tmp_path: Path, backend: str
     ) -> None:
@@ -55,6 +60,7 @@ class TestColdLoadIsolation:
         first[key]["origins"]["size"] = "tampered"
         first[key]["globals"].append("tampered")
         first[key]["size"] = 99
+        (tmp_path / ".rebrew" / "metadata-doc" / "rebrew-functions.toml.json").unlink()
         second = _cold(tmp_path)
         assert second[key]["origins"] == {"size": "binsync"}
         assert second[key]["globals"] == ["g"]
@@ -129,8 +135,11 @@ class TestColdLoadIsolation:
         assert json.dumps(retained[-1], sort_keys=True, default=str) == before
         assert "tampered" not in before
 
-    def test_deepcopy_load_stays_isolated_from_the_cache(self, tmp_path: Path) -> None:
-        _project(tmp_path, "toml")
+    @pytest.mark.parametrize("backend", ["toml", "sqlite", "routed"])
+    def test_deepcopy_load_stays_isolated_from_the_cache(
+        self, tmp_path: Path, backend: str
+    ) -> None:
+        _project(tmp_path, backend)
         save_metadata(tmp_path, _rows())
         clear_metadata_cache()
         owned = load_metadata(tmp_path)

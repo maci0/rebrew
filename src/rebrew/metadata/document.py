@@ -26,7 +26,9 @@ lazy from datetime import UTC, datetime
 lazy import tomlkit
 lazy from tomlkit import TOMLDocument
 
+lazy from rebrew.metadata.replication import RoutedStore
 lazy from rebrew.metadata.source_schema import validate_source_metadata
+lazy from rebrew.metadata.sqlite import SqliteStore
 lazy from rebrew.metadata.storage import metadata_store
 lazy from rebrew.utils import atomic_write_text, clone_plain
 
@@ -274,8 +276,7 @@ def load_metadata_doc(
         parsed: list[dict[tuple[str, int], dict[str, Any]]] = []
 
         def validate(doc: Any) -> None:
-            # Only the last call's rows are kept, and they are copied once after
-            # the read, so a backend that retains its documents stays isolated.
+            # Only the last call's rows are kept (TOML also validates each fragment).
             rows = parse_metadata_doc(
                 doc,
                 known_fields=known_fields,
@@ -286,7 +287,11 @@ def load_metadata_doc(
             parsed[:] = [rows]
 
         store.read(description, validate=validate)
-        result = clone_plain(parsed[0]) if parsed else {}
+        result = parsed[0] if parsed else {}
+        # Both readers parse fresh rows from text. Other backends may retain
+        # the document that they pass to the validator.
+        if type(store) not in (RoutedStore, SqliteStore):
+            result = clone_plain(result)
         _write_doc_cache(path, current_fp, known_fields, result)
     with _METADATA_DOC_CACHE_LOCK:
         # Re-check: a writer may have invalidated (or another reader filled)
