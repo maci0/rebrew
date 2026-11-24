@@ -410,6 +410,11 @@ class TargetReportReply(TypedDict, total=False):
     reason_counts: dict[str, int]
     header_parity: list[HeaderParity]
     byte_coverage: ByteCoverage
+
+
+class BuildReply(TargetReportReply, total=False):
+    """``rebrew.build``'s report: :class:`TargetReportReply` plus ``skipped_records``."""
+
     skipped_records: SkippedRecords
 
 
@@ -1543,7 +1548,7 @@ WORKSPACE_PATHS: dict[str, tuple[str, ...]] = {
 DECLARED: dict[str, Any] = {
     "rebrew.verify_function": VerifyFunctionReply,
     "rebrew.verify_target": TargetReportReply,
-    "rebrew.build": TargetReportReply,
+    "rebrew.build": BuildReply,
     "rebrew.identify_library": IdentifyLibraryReply,
     "rebrew.coverage_report": CoverageReportReply,
     "rebrew.analyze": AnalyzeReply,

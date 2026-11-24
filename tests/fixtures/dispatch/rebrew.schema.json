@@ -7813,6 +7813,29 @@
             "format": "workspace-path",
             "type": "string"
           },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
+          },
           "targets": {
             "items": {
               "additionalProperties": false,
@@ -8163,6 +8186,29 @@
           "project": {
             "format": "workspace-path",
             "type": "string"
+          },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
           },
           "targets": {
             "items": {
@@ -16069,29 +16115,6 @@
           },
           "skipped_proven": {
             "type": "integer"
-          },
-          "skipped_records": {
-            "additionalProperties": false,
-            "properties": {
-              "count": {
-                "type": "integer"
-              },
-              "keys": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "truncated": {
-                "type": "boolean"
-              }
-            },
-            "required": [
-              "count",
-              "keys",
-              "truncated"
-            ],
-            "type": "object"
           },
           "spliced": {
             "type": "integer"

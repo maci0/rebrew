@@ -304,8 +304,9 @@ SKIPPED_RECORD_OPS = frozenset(
         "rebrew.report",
         "rebrew.describe",
         "rebrew.structs",
+        "rebrew.import-project",
+        "rebrew.import_archive",
         "rebrew.verify_function",
-        "rebrew.verify_target",
         "rebrew.build",
         "rebrew.apply_candidate",
         "rebrew.flag_search",
@@ -319,7 +320,7 @@ MAX_SKIPPED_RECORD_KEYS = 256
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "fd06275610c15ce95703875720689f632e16b4d0334f9746e08222097730b92e"
+DISPATCH_SCHEMA_SHA256 = "0a0ae03ccbef17e0fca0babab877d6ee7dd466ba96c112f6b9a4891a320cd264"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -5408,36 +5409,56 @@ def _refusing_disagreeing_records(what: str) -> Iterator[None]:
         raise _binding_conflict() from None
 
 
+def _undeclared_skipped_records(name: str, skipped: set[tuple[str, int]]) -> None:
+    """Fail under strict replies, or warn, when an op outside :data:`SKIPPED_RECORD_OPS` skipped."""
+    from rebrew.config import STRICT_REPLIES_ENV, parse_env_bool
+
+    keys = _skipped_records(skipped)["keys"]
+    strict = os.environ.get(STRICT_REPLIES_ENV, "")
+    if parse_env_bool(STRICT_REPLIES_ENV, strict, default=False):
+        raise ValueError(f"{name}: skipped records outside SKIPPED_RECORD_OPS: {', '.join(keys)}")
+    logger.warning(
+        "%s %s skipped records outside SKIPPED_RECORD_OPS (%s) trace_id=%s",
+        _request_id(),
+        name,
+        ", ".join(keys),
+        _trace_id(),
+    )
+
+
 def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mapping[str, Any]:
     """*op*'s reply to *request*, as its declared reply when :mod:`rebrew.ops_replies` declares one."""
     from rebrew.metadata.bindings import binding_conflicts
     from rebrew.metadata.sqlite import reading
     from rebrew.ops_replies import DECLARED
 
-    try:
-        with binding_conflicts() as skipped, reading():
+    with binding_conflicts() as skipped, reading():
+        try:
             reply = op.run(config, request)
-    except OpsError:
-        raise
-    except typer.Exit as exc:
-        from rebrew.cli import TOOLCHAIN_REJECTED_KIND, CommandExit
+        except OpsError:
+            raise
+        except typer.Exit as exc:
+            from rebrew.cli import TOOLCHAIN_REJECTED_KIND, CommandExit
 
-        if isinstance(exc, CommandExit) and exc.kind == TOOLCHAIN_REJECTED_KIND:
-            roots = [path for path in (config.workspace, config.filestore) if path is not None]
-            raise _toolchain_rejected(exc.message, roots) from None
-        raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
-    except UnsupportedBinaryFormat as exc:
-        raise OpsError(str(exc), code=UNSUPPORTED_BINARY_FORMAT, status=422) from None
-    except Exception as exc:  # the engine is a trust boundary: log it, answer it sanitized
-        logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
-        raise _refused(_failure_detail(config, name, exc)) from None
-    except _EXITS:
-        raise
-    except BaseException:  # a native panic (pyo3) escapes ``except Exception``
-        logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
-        raise _refused(f"{name} failed: the engine raised an unexpected error") from None
-    if skipped and name in SKIPPED_RECORD_OPS:
-        reply = {**reply, "skipped_records": _skipped_records(skipped)}
+            if isinstance(exc, CommandExit) and exc.kind == TOOLCHAIN_REJECTED_KIND:
+                roots = [path for path in (config.workspace, config.filestore) if path is not None]
+                raise _toolchain_rejected(exc.message, roots) from None
+            raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
+        except UnsupportedBinaryFormat as exc:
+            raise OpsError(str(exc), code=UNSUPPORTED_BINARY_FORMAT, status=422) from None
+        except Exception as exc:  # the engine is a trust boundary: log it, answer it sanitized
+            logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
+            raise _refused(_failure_detail(config, name, exc)) from None
+        except _EXITS:
+            raise
+        except BaseException:  # a native panic (pyo3) escapes ``except Exception``
+            logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
+            raise _refused(f"{name} failed: the engine raised an unexpected error") from None
+        if skipped:
+            if name in SKIPPED_RECORD_OPS:
+                reply = {**reply, "skipped_records": _skipped_records(skipped)}
+            else:
+                _undeclared_skipped_records(name, skipped)
     return _declared_reply(name, reply) if name in DECLARED else reply
 
 

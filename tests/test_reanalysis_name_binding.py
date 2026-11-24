@@ -7,9 +7,17 @@ store that already disagrees is repaired, and the project's reads keep answering
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import http.server
+import io
 import json
 import logging
+import shutil
+import threading
+import zipfile
 from typing import Any
+lazy from collections.abc import Iterator
 lazy from pathlib import Path
 
 import pytest
@@ -26,7 +34,7 @@ from rebrew.metadata.functions import (
 )
 from rebrew.metadata.storage import metadata_store
 from rebrew.metadata_transfer import migrate_metadata, migration_input_digest
-from rebrew.ops import BINDING_CONFLICT_DETAIL, WorkerConfig, dispatch
+from rebrew.ops import BINDING_CONFLICT_DETAIL, OPS, SKIPPED_RECORD_OPS, WorkerConfig, dispatch
 
 MODULE = "MINI"
 VA = 0x401010
@@ -142,7 +150,9 @@ def test_reanalysis_repairs_a_record_its_stub_disagrees_with(tmp_path: Path) -> 
     assert skipped == set()
     repaired = _assert_consistent(project)
     # A second run finds nothing to repair and changes nothing.
-    _analyse(config)
+    with binding_conflicts() as second_skipped:
+        _analyse(config)
+    assert second_skipped == set()
     assert _record(project) == repaired
 
 
@@ -254,3 +264,427 @@ def test_note_skipped_records_fills_every_open_collector_from_a_generator(tmp_pa
     assert status == 200
     assert caller == {(MODULE, VA)}
     assert json.loads(raw)["skipped_records"] == {"count": 1, "keys": [KEY], "truncated": False}
+
+
+def test_undeclared_skipped_records_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An op outside ``SKIPPED_RECORD_OPS`` that skips a record fails under strict replies."""
+    from rebrew import ops
+
+    config, project = _disagreeing_stub(tmp_path)
+    monkeypatch.setattr(ops, "SKIPPED_RECORD_OPS", ops.SKIPPED_RECORD_OPS - {"rebrew.data_list"})
+    body = json.dumps({"project_dir": str(project)}).encode()
+
+    monkeypatch.setenv("REBREW_OPS_STRICT_REPLIES", "1")
+    status, raw = dispatch(config, "rebrew.data_list", body)
+    assert status == 500
+    assert json.loads(raw)["error"] == "engine-error"
+
+    monkeypatch.setenv("REBREW_OPS_STRICT_REPLIES", "0")
+    with caplog.at_level(logging.WARNING):
+        status, raw = dispatch(config, "rebrew.data_list", body)
+    assert status == 200
+    assert "skipped_records" not in json.loads(raw)
+    assert any(
+        "skipped records outside SKIPPED_RECORD_OPS" in r.getMessage() for r in caplog.records
+    )
+
+
+@pytest.fixture(scope="module")
+def _contradicted_template(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+    from session_cache import build_once
+
+    def build(root: Path) -> str:
+        _cfg, project = _disagreeing_stub(root)
+        return project.resolve().relative_to(root.resolve()).as_posix()
+
+    root, rel = build_once(tmp_path_factory, "contradicted-project-walk", build)
+    return root, Path(rel)
+
+
+@pytest.fixture(scope="module")
+def _exact_recompile_url() -> Iterator[str]:
+    """Local recompile stub advertising ``msvc-8.0`` and serving an exact ``0x401000`` object."""
+    from bin_util import make_coff_obj
+    from test_ops import BINARY
+
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
+    target_bytes = extract_raw_bytes(BINARY, 0x401000, 11)
+    assert target_bytes is not None
+    obj = make_coff_obj(
+        target_bytes,
+        func_symbol="_x",
+        extra_funcs=[("_fcn_00401000", 0), ("_end", len(target_bytes))],
+    )
+
+    class _Service(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args: Any) -> None:
+            return
+
+        def _reply(self, status: int, body: bytes, content_type: str) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            if self.path == "/api/v1/features":
+                self._reply(200, b'{"features": []}', "application/json")
+            elif self.path == "/api/v1/compilers":
+                self._reply(
+                    200,
+                    json.dumps([{"id": "msvc-8.0", "execution_status": "admitted"}]).encode(),
+                    "application/json",
+                )
+            elif self.path.startswith("/api/v1/artifacts/"):
+                self._reply(200, obj, "application/octet-stream")
+            else:
+                self._reply(404, b'{"detail": "not found"}', "application/json")
+
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            body = {
+                "id": "0" * 12,
+                "compiler": "msvc-8.0",
+                "log": "",
+                "status": "ok",
+                "artifact_url": "/api/v1/artifacts/000000000000.obj",
+            }
+            self._reply(200, json.dumps(body).encode(), "application/json")
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Service)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        thread.join(30)
+        server.server_close()
+
+
+def _make_toml_archive(config: WorkerConfig, project: Path) -> tuple[str, str]:
+    """Zip a TOML copy of *project* (whose 0x401010 record disagrees with its stub) into filestore."""
+    from test_ops import _store
+
+    assert config.filestore is not None
+    toml_proj = project.parent / "_toml_archive_src"
+    shutil.copytree(
+        project,
+        toml_proj,
+        ignore=shutil.ignore_patterns(".rebrew", "rebrew-metadata.sqlite3"),
+    )
+    project_toml = toml_proj / "rebrew-project.toml"
+    project_toml.write_text(
+        project_toml.read_text().replace('backend = "sqlite"', 'backend = "toml"')
+    )
+    cfg = load_config(toml_proj, target="mini")
+    _store_name(cfg.metadata_dir, FREE_TEXT)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for path in sorted(toml_proj.rglob("*")):
+            if path.is_file():
+                zf.writestr(path.relative_to(toml_proj).as_posix(), path.read_bytes())
+    return _store(config.filestore, buf.getvalue())
+
+
+def _make_snapshot_fields(config: WorkerConfig, project: Path, root: Path) -> dict[str, Any]:
+    """Build verified capture + source manifest fields for snapshot ops."""
+    from test_ops import BINARY, SHA256, _store
+    from test_ops import KEY as BINARY_KEY
+
+    assert config.filestore is not None
+    sub = root / "_snap_src"
+    filestore = sub / "files"
+    (filestore / "binaries").mkdir(parents=True)
+    (filestore / BINARY_KEY).write_bytes(BINARY.read_bytes())
+    workspace = sub / "workspace"
+    workspace.mkdir()
+    status, raw = dispatch(
+        WorkerConfig(filestore.resolve(), workspace.resolve()),
+        "rebrew.analyse",
+        json.dumps(_analyse_request()).encode(),
+    )
+    assert status == 200, raw
+    result = json.loads(raw)
+    capture = result["analysis_capture"]
+    analysis_entries = []
+    analysis_files = []
+    source_files = []
+    for item in capture["entries"]:
+        row = {k: item[k] for k in ("path", "kind")}
+        if item.get("role"):
+            row["role"] = item["role"]
+        row.update(size=item["size"], digest=item["digest"])
+        if item["kind"] == "file":
+            data = base64.b64decode(item["data"])
+            digest, key = _store(config.filestore, data)
+            row["object_key"] = key
+            ref = {"path": item["path"], "digest": digest, "size": len(data), "key": key}
+            analysis_files.append(ref)
+            if item.get("role") == "source" or item["path"] == "rebrew-project.toml":
+                source_files.append(ref)
+        analysis_entries.append(row)
+    source_files.sort(key=lambda r: r["path"])
+    source_doc = {
+        "complete": True,
+        "exclusions": [],
+        "files": [{k: f[k] for k in ("digest", "path", "size")} for f in source_files],
+        "origin": "files",
+        "version": 1,
+    }
+    source_manifest = json.dumps(source_doc, separators=(",", ":")).encode()
+    analysis_manifest = json.dumps(
+        {
+            "version": 3,
+            "binary_sha256": SHA256,
+            "target": capture["target"],
+            **{k: capture[k] for k in ("inventory_path", "report_path") if k in capture},
+            "metadata": capture["metadata"],
+            "entries": analysis_entries,
+        },
+        separators=(",", ":"),
+    ).encode()
+    return {
+        "project_dir": str(project),
+        "sha256": SHA256,
+        "rebrew_target": capture["target"],
+        "source_revision": "rev-1",
+        "source_snapshot_sha256": hashlib.sha256(source_manifest).hexdigest(),
+        "source_manifest": source_manifest.decode(),
+        "files": source_files,
+        "generation": "a" * 32,
+        "analysis_manifest": analysis_manifest.decode(),
+        "analysis_manifest_sha256": hashlib.sha256(analysis_manifest).hexdigest(),
+        "analysis_files": analysis_files,
+        "binary_key": BINARY_KEY,
+    }
+
+
+def _walk_requests(config: WorkerConfig, project: Path, root: Path) -> dict[str, Any]:
+    """Smallest request builder per op in ``OPS`` that reaches its project/input read."""
+    from test_ops import KEY as BINARY_KEY
+    from test_ops import SHA256, SPLAT_YAML, _binary_file, _store
+
+    assert config.filestore is not None
+    cached_files: list[dict[str, Any]] | None = None
+
+    def files() -> list[dict[str, Any]]:
+        nonlocal cached_files
+        if cached_files is None:
+            cached_files = _retained_files(config, project)
+        return cached_files
+
+    def pat_file() -> dict[str, Any]:
+        digest, key = _store(config.filestore, b"558BEC83EC08 00 0000 0000 :0000 _demo\n---\n")
+        return {"sha256": digest, "file": key}
+
+    def lib_file() -> dict[str, Any]:
+        digest, key = _store(config.filestore, b"!<arch>\n")
+        return {"sha256": digest, "file": key}
+
+    def archive_fields() -> dict[str, Any]:
+        digest, key = _make_toml_archive(config, project)
+        return {"binary_id": 1, "sha256": SHA256, "archive_sha256": digest, "archive_key": key}
+
+    def src_401000_sha() -> str:
+        return hashlib.sha256((project / "src/mini/fcn_00401000.c").read_bytes()).hexdigest()
+
+    return {
+        "rebrew.disassemble": lambda: {
+            "project_dir": str(project),
+            "sha256": SHA256,
+            "va": VA,
+            "size": 10,
+            "format": "asm",
+        },
+        "rebrew.disassemble_bytes": lambda: {
+            "code": base64.b64encode(b"\xc3").decode(),
+            "va": VA,
+            "arch": "x86_32",
+        },
+        "rebrew.instruction_listing": lambda: {
+            "project_dir": str(project),
+            "sha256": SHA256,
+            "va": VA,
+            "size": 10,
+        },
+        "rebrew.control_flow_graph": lambda: {
+            "project_dir": str(project),
+            "sha256": SHA256,
+            "va": VA,
+        },
+        "rebrew.xrefs": lambda: {"project_dir": str(project), "sha256": SHA256, "va": VA},
+        "rebrew.call_references": lambda: {"project_dir": str(project)},
+        "rebrew.describe": lambda: {"project_dir": str(project), "sha256": SHA256, "va": VA},
+        "rebrew.decompile": lambda: {
+            "project_dir": str(project),
+            "sha256": SHA256,
+            "va": VA,
+            "backend": "auto",
+            "named": True,
+        },
+        "rebrew.decompile_snapshot": lambda: {
+            **_make_snapshot_fields(config, project, root),
+            "va": 0x401000,
+            "backend": "kuna",
+        },
+        "rebrew.identify_library": lambda: {"project_dir": str(project)},
+        "rebrew.structs": lambda: {
+            "binary_id": 1,
+            "project_dir": str(project),
+            "decompiler": "auto",
+            "limit": 0,
+        },
+        "rebrew.binary_operand_locations": lambda: {
+            "sha256": SHA256,
+            "file": BINARY_KEY,
+            "functions": [{"va": VA, "size": 10, "locations": [[0, 0]]}],
+        },
+        "rebrew.binary_function_digests": lambda: {
+            "sha256": SHA256,
+            "file": BINARY_KEY,
+            "functions": [{"va": VA, "size": 10}],
+        },
+        "rebrew.imports": _binary_file,
+        "rebrew.strings": _binary_file,
+        "rebrew.fingerprint": _binary_file,
+        "rebrew.analyze": _binary_file,
+        "rebrew.crypto_scan": _binary_file,
+        "rebrew.pe_info": _binary_file,
+        "rebrew.identify_compiler": _binary_file,
+        "rebrew.library_functions": lib_file,
+        "rebrew.splat_parse": lambda: {"config": SPLAT_YAML},
+        "rebrew.report": lambda: {
+            "binary_id": 1,
+            "project_dir": str(project),
+            "output_dir": "reports/walk",
+        },
+        "rebrew.security_scan": lambda: {
+            "binary_id": 1,
+            "project_dir": str(project),
+            "min_severity": "low",
+        },
+        "rebrew.security_scan_snapshot": lambda: {
+            **_make_snapshot_fields(config, project, root),
+            "min_severity": "low",
+        },
+        "rebrew.analyse": _analyse_request,
+        "rebrew.import-project": lambda: {"project_dir": str(project)},
+        "rebrew.import_archive": archive_fields,
+        "rebrew.project_targets": lambda: {"files": files()},
+        "rebrew.metadata_carry": lambda: {"capture": files(), "target": files()},
+        "rebrew.metadata_describe": lambda: {"files": files()},
+        "rebrew.metadata_diff": lambda: {"before": files(), "after": files()},
+        "rebrew.reference_flirt": lambda: {
+            "project_dir": str(project),
+            "format": "pat",
+            "signatures": pat_file(),
+            "min_size": 4,
+        },
+        "rebrew.verify_function": lambda: {
+            "project_dir": str(project),
+            "source": "src/mini/fcn_00401000.c",
+            "no_promote": True,
+        },
+        "rebrew.apply_candidate": lambda: {
+            "project_dir": str(project),
+            "source": "src/mini/fcn_00401000.c",
+            "source_sha256": src_401000_sha(),
+            "candidate": "/* ADDRESS: MINI 0x00401000 */\nvoid fcn_00401000(void) {}\n",
+            "va": 0x401000,
+            "size": 11,
+            "files": files(),
+            "rebrew_target": "mini",
+            "sha256": SHA256,
+            "binary_key": BINARY_KEY,
+        },
+        "rebrew.verify_target": lambda: {"project_dir": str(project), "no_promote": True},
+        "rebrew.build": lambda: {"project_dir": str(project)},
+        "rebrew.skeleton": lambda: {"project_dir": str(project), "va": VA},
+        "rebrew.coverage_report": lambda: {"project_dir": str(project)},
+        "rebrew.flag_search": lambda: {
+            "source": "src/mini/fcn_00401000.c",
+            "source_sha256": src_401000_sha(),
+            "va": 0x401000,
+            "files": files(),
+            "rebrew_target": "mini",
+            "sha256": SHA256,
+            "binary_key": BINARY_KEY,
+            "compare_toolchains": True,
+            "toolchains": "msvc-8.0",
+        },
+        "rebrew.data_list": lambda: {"project_dir": str(project)},
+        "rebrew.data_set": lambda: {
+            "project_dir": str(project),
+            "va": 0x402000,
+            "note": "x",
+            "dry_run": True,
+        },
+        "rebrew.vocabulary": dict,
+        "rebrew.release": dict,
+        "rebrew.check_cflags": lambda: {"cflags": "/O2"},
+        "rebrew.rename_identifier": lambda: {
+            "source": "int a(void) { return 0; }\n",
+            "renames": [{"old": "a", "new": "b"}],
+        },
+        "rebrew.retained_source_operation": lambda: {
+            "files": files(),
+            "rebrew_target": "mini",
+            "sha256": SHA256,
+            "binary_key": BINARY_KEY,
+            "operation": "merge",
+            "sources": ["src/mini/fcn_00401000.c", f"src/mini/{PLACEHOLDER}.c"],
+            "output": "src/mini/merged.c",
+            "dry_run": True,
+        },
+    }
+
+
+@pytest.mark.parametrize("op", sorted(OPS))
+def test_every_ops_read_of_a_contradicted_project_names_what_it_skipped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _contradicted_template: tuple[Path, Path],
+    _exact_recompile_url: str,
+    op: str,
+) -> None:
+    """Every op in ``OPS`` either names the skipped record in ``skipped_records`` or skips nothing."""
+    from decompiler_engine import offer_decompilers
+    from test_ops import _op_schema, _validate
+
+    from rebrew.metadata.bindings import binding_conflicts
+
+    tmpl_root, tmpl_rel = _contradicted_template
+    work = tmp_path / "work"
+    shutil.copytree(tmpl_root, work, ignore=shutil.ignore_patterns(".rebrew"))
+    clear_metadata_cache()
+    config = WorkerConfig((work / "files").resolve(), (work / "workspace").resolve())
+    project = (work / tmpl_rel).resolve()
+
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", _exact_recompile_url)
+    offer_decompilers(monkeypatch, "kuna")
+    monkeypatch.setattr(
+        "rebrew.decompiler.fetch_decompilation",
+        lambda *_a, **_k: ("void fcn_00401010(void) {}\n", "kuna"),
+    )
+
+    requests = _walk_requests(config, project, tmp_path)
+    assert set(requests) == set(OPS)
+
+    with binding_conflicts() as skipped:
+        status, raw = dispatch(config, op, json.dumps(requests[op]()).encode())
+    reply = json.loads(raw)
+    assert status == 200, reply
+    _validate(_op_schema(op, "response"), reply)
+    if op in SKIPPED_RECORD_OPS:
+        assert skipped == {(MODULE, VA)}
+        assert reply["skipped_records"] == {"count": 1, "keys": [KEY], "truncated": False}
+    else:
+        assert skipped == set()
+        assert "skipped_records" not in reply
