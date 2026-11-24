@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.77.0] - 2026-11-24
+
 ### Changed
 
 - `rebrew status` on guild-rebrew (2,631 compiled sources, a replicated SQLite store holding a 25 MB functions document) costs 17.6 G user-space instructions instead of 48 G with unchanged metadata, and 21.7 G instead of 71.5 G after a metadata edit, with byte-identical output. The entries below are the individual changes, each measured against the head it was made on; `docs/PERFORMANCE.md` has the breakdown.
