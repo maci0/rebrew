@@ -7346,7 +7346,10 @@ Op details the contract leaves open:
   `analyze`, `crypto_scan`, `imports`, `pe_info`, `strings` and `reference_flirt`,
   `build`'s `out`, `reference_flirt`'s `sig_dirs`, `flag_search`'s `source`,
   `structs`' `applied`, and a `verify_target` library's `map`. `verify_function` answers the request's `source`,
-  and `security_scan` its `root` and each finding's `file` relative to the project.
+  and `security_scan` its `root` and each finding's `file` relative to the project;
+  `retained_source_operation` answers `split`'s `source` and `output_dir`, `merge`'s
+  `output` and the keys of `rename`'s `input_hashes` as project paths, and projects
+  each operation's result onto its shape (`rebrew.ops_replies.RETAINED_RESULTS`).
 - `rebrew.identify_library` answers `unreadable_signatures`: the paths in the
   project's `flirt_sigs/` of the signature files it skipped because they could not
   be read or parsed (python-flirt's panics included).

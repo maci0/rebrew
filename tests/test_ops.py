@@ -538,6 +538,23 @@ class TestContract:
             "schema_sha256": hashlib.sha256(SCHEMA.read_bytes()).hexdigest(),
         }
 
+    def test_a_compile_records_execution_is_recompiles_provenance(self) -> None:
+        """``execution`` is declared as recompile states it: every field of its
+        ``ExecutionProvenance``, with recompile's types and closed sets."""
+        from rebrew.ops_replies import ExecutionProvenance, json_schema
+
+        pinned = json.loads((FIXTURES / "recompile" / "execution-provenance.json").read_text())
+        schema = json_schema(ExecutionProvenance)
+        assert schema["required"] == list(pinned["fields"])
+        for name, field in pinned["fields"].items():
+            expected: dict[str, Any] = {"type": field["type"]}
+            if "enum" in field:
+                expected["enum"] = field["enum"]
+            if field.get("nullable"):
+                expected = {"oneOf": [expected, {"type": "null"}]}
+            assert schema["properties"][name] == expected, name
+        _validate(schema, pinned["example"])
+
     def test_the_schema_is_what_the_generator_writes(self) -> None:
         """Each enum is written from the set the code enforces (tools/gen_dispatch_schema.py)."""
         from tools.gen_dispatch_schema import SCHEMA, render
@@ -3654,6 +3671,21 @@ class TestOpDeadlines:
         assert not list((config.workspace / ".scratch").glob("project-import-*"))
 
 
+#: What ``rebrew match run --json`` prints for a search that kept no candidate.
+_GA_REPORT: dict[str, Any] = {
+    "source": "",
+    "symbol": "_candidate",
+    "mode": "ga",
+    "generations": 1,
+    "pop_size": 1,
+    "best_score": None,
+    "exact": False,
+    "elapsed_sec": 0.0,
+    "stagnant_gens": 0,
+    "restarts": 0,
+    "seed": 0,
+}
+
 #: One compile and byte-compare in a GA run, measured on smygb's real MSVC6
 #: toolchain (docs/PERFORMANCE.md, "GA bottleneck: compilation, not scoring").
 _MEASURED_COMPILE_SECONDS = 0.585
@@ -3694,14 +3726,14 @@ class TestVariantSearchBounds:
 
     @staticmethod
     def _searches(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-        """Record the search commands the op runs, answering each with an empty result."""
+        """Record the search commands the op runs, answering each with a search that found nothing."""
         import rebrew.ops as ops
 
         searches: list[list[str]] = []
 
         def search(arguments: list[str], *_args: Any, **_kwargs: Any) -> dict[str, Any]:
             searches.append(arguments)
-            return {}
+            return {**_GA_REPORT, "source": arguments[-1]}
 
         monkeypatch.setattr(ops, "run_rebrew", search)
         return searches
@@ -3740,7 +3772,7 @@ class TestVariantSearchBounds:
         config, request = self._request(fresh_analysis, tmp_path)
         searches = self._searches(monkeypatch)
         assert _call(config, "rebrew.retained_source_operation", request) == {
-            "result": {},
+            "result": {**_GA_REPORT, "source": request["source"]},
             "remote_compile": NO_REMOTE_COMPILES,
         }
         [search] = searches

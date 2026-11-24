@@ -73,7 +73,7 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
             best.parent.mkdir(parents=True)
             best.write_text("int best;\n")
             return {"best_source_path": str(best), "source": str(root / "src/add.c")}
-        return {"ok": True}
+        return {}
 
     real_run = ops.run_rebrew
     real_refusal = ops.remote_header_refusal
@@ -114,7 +114,7 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
     )
     assert status == 200, body
     assert json.loads(body) == {
-        "result": {"ok": True},
+        "result": {},
         "remote_compile": {"count": 0, "billed_undelivered": 0, "unsettled": 0, "wait_ms": 0},
     }
     request.update(operation="variants", generations=1, population=1)
@@ -153,7 +153,7 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
 
     def mutate_other(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
         (root / "src/function_structure.json").write_text("tampered")
-        return {"ok": True}
+        return {}
 
     monkeypatch.setattr(ops, "run_rebrew", mutate_other)
     status, _ = ops.dispatch(
@@ -320,7 +320,7 @@ def test_a_variant_search_of_a_renamed_candidate_scans_and_keeps_the_renamed_reg
 
     def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
         seen.append(build_name_to_va(load_config(root, target="mini")))
-        return {"ok": True}
+        return {}
 
     monkeypatch.setattr(ops, "run_rebrew", run)
     status, body = ops.dispatch(
@@ -333,7 +333,7 @@ def test_a_variant_search_of_a_renamed_candidate_scans_and_keeps_the_renamed_reg
         from rebrew.metadata.functions import update_source_status
 
         update_source_status(root, "EXACT", "MINI", 0x401000, force=True)
-        return {"ok": True}
+        return {}
 
     monkeypatch.setattr(ops, "run_rebrew", promote)
     status, body = ops.dispatch(

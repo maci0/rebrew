@@ -1,0 +1,27 @@
+{
+  "source": "recompile/models.py ExecutionProvenance, the same at v12.0.0 (350eae8838c391d7184d3e907ceef12be222ffb8) through v15.0.0 (2ba2dcd7a8246f1a3d4e74b8e45fd8c9de514f93); every field has a value, so the JSON answer carries each one",
+  "fields": {
+    "status": {"type": "string", "enum": ["admitted", "unavailable"]},
+    "kind": {"type": "string", "enum": ["image", "native", "registry", "none"]},
+    "runner": {"type": "string"},
+    "digest": {"type": "string", "nullable": true},
+    "display_tag": {"type": "string", "nullable": true},
+    "entrypoint": {"type": "string", "nullable": true},
+    "profile_id": {"type": "string", "nullable": true},
+    "catalog_digest": {"type": "string", "nullable": true},
+    "release_digest": {"type": "string", "nullable": true},
+    "release_status": {"type": "string", "enum": ["admitted", "unavailable"]}
+  },
+  "example": {
+    "status": "admitted",
+    "kind": "image",
+    "runner": "docker",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "display_tag": "rebrew/msvc:6.0-win32",
+    "entrypoint": null,
+    "profile_id": "msvc-6.0",
+    "catalog_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "release_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "release_status": "admitted"
+  }
+}

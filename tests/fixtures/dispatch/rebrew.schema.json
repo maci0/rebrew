@@ -1509,6 +1509,107 @@
                       "execution": {
                         "oneOf": [
                           {
+                            "additionalProperties": false,
+                            "properties": {
+                              "catalog_digest": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "digest": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "display_tag": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "entrypoint": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "kind": {
+                                "enum": [
+                                  "image",
+                                  "native",
+                                  "registry",
+                                  "none"
+                                ],
+                                "type": "string"
+                              },
+                              "profile_id": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "release_digest": {
+                                "oneOf": [
+                                  {
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "release_status": {
+                                "enum": [
+                                  "admitted",
+                                  "unavailable"
+                                ],
+                                "type": "string"
+                              },
+                              "runner": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "enum": [
+                                  "admitted",
+                                  "unavailable"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "status",
+                              "kind",
+                              "runner",
+                              "digest",
+                              "display_tag",
+                              "entrypoint",
+                              "profile_id",
+                              "catalog_digest",
+                              "release_digest",
+                              "release_status"
+                            ],
                             "type": "object"
                           },
                           {
@@ -2745,6 +2846,107 @@
                         "execution": {
                           "oneOf": [
                             {
+                              "additionalProperties": false,
+                              "properties": {
+                                "catalog_digest": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "digest": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "display_tag": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "entrypoint": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "image",
+                                    "native",
+                                    "registry",
+                                    "none"
+                                  ],
+                                  "type": "string"
+                                },
+                                "profile_id": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "release_digest": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "release_status": {
+                                  "enum": [
+                                    "admitted",
+                                    "unavailable"
+                                  ],
+                                  "type": "string"
+                                },
+                                "runner": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "admitted",
+                                    "unavailable"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "status",
+                                "kind",
+                                "runner",
+                                "digest",
+                                "display_tag",
+                                "entrypoint",
+                                "profile_id",
+                                "catalog_digest",
+                                "release_digest",
+                                "release_status"
+                              ],
                               "type": "object"
                             },
                             {
@@ -11643,7 +11845,601 @@
             "type": "object"
           },
           "result": {
-            "type": "object"
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "changed": {
+                    "type": "integer"
+                  },
+                  "dry_run": {
+                    "type": "boolean"
+                  },
+                  "input_digest": {
+                    "type": "string"
+                  },
+                  "set": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "backing": {
+                          "type": "string"
+                        },
+                        "file": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "type": "string"
+                        },
+                        "link_symbol": {
+                          "type": "string"
+                        },
+                        "module": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "section": {
+                          "type": "string"
+                        },
+                        "size": {
+                          "type": "integer"
+                        },
+                        "storage_kind": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "va": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "va",
+                        "module"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "dry_run",
+                  "input_digest",
+                  "changed",
+                  "set"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "dry_run": {
+                    "type": "boolean"
+                  },
+                  "files": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "edits": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "column": {
+                                "type": "integer"
+                              },
+                              "line": {
+                                "type": "integer"
+                              },
+                              "role": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "line",
+                              "column",
+                              "role"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "file": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "file",
+                        "edits"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "files_updated": {
+                    "type": "integer"
+                  },
+                  "input_digest": {
+                    "type": "string"
+                  },
+                  "input_hashes": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "module": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "move": {
+                    "oneOf": [
+                      {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "new_name": {
+                    "type": "string"
+                  },
+                  "new_symbol": {
+                    "type": "string"
+                  },
+                  "notes": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "old_name": {
+                    "type": "string"
+                  },
+                  "pending_owners": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "file": {
+                          "type": "string"
+                        },
+                        "identity": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "file",
+                        "identity"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "preserved_references": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "reference_owners": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "file": {
+                          "type": "string"
+                        },
+                        "owner": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "file",
+                        "owner"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "rows": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "module": {
+                          "type": "string"
+                        },
+                        "new": {
+                          "type": "object"
+                        },
+                        "old": {
+                          "type": "object"
+                        },
+                        "store": {
+                          "enum": [
+                            "function",
+                            "data"
+                          ],
+                          "type": "string"
+                        },
+                        "va": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "store",
+                        "module",
+                        "va",
+                        "old",
+                        "new"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "va": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "old_name",
+                  "new_name",
+                  "files",
+                  "rows",
+                  "move",
+                  "notes",
+                  "files_updated",
+                  "dry_run"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "count": {
+                    "type": "integer"
+                  },
+                  "dry_run": {
+                    "type": "boolean"
+                  },
+                  "files": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "output": {
+                          "type": "string"
+                        },
+                        "retargeted": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "source": {
+                          "type": "string"
+                        },
+                        "symbol": {
+                          "type": "string"
+                        },
+                        "va": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "va",
+                        "symbol",
+                        "output",
+                        "retargeted"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "output_dir": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "source",
+                  "output_dir",
+                  "count",
+                  "dry_run",
+                  "files"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "accepted_unresolved_includes": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "consolidated": {
+                    "type": "boolean"
+                  },
+                  "count": {
+                    "type": "integer"
+                  },
+                  "deleted": {
+                    "type": "boolean"
+                  },
+                  "dry_run": {
+                    "type": "boolean"
+                  },
+                  "extern_conflicts": {
+                    "additionalProperties": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "type": "object"
+                  },
+                  "extern_dropped": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "guarded_interleave": {
+                    "type": "boolean"
+                  },
+                  "input_count": {
+                    "type": "integer"
+                  },
+                  "input_digest": {
+                    "type": "string"
+                  },
+                  "inputs": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "merged_source": {
+                    "type": "string"
+                  },
+                  "output": {
+                    "type": "string"
+                  },
+                  "retargeted": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "tolerated_unresolved_includes": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "context": {
+                          "type": "string"
+                        },
+                        "missing": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "target": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "target",
+                        "context",
+                        "missing"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "vas": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "output",
+                  "count",
+                  "input_count",
+                  "dry_run",
+                  "deleted",
+                  "consolidated",
+                  "inputs",
+                  "vas",
+                  "extern_dropped",
+                  "extern_conflicts",
+                  "retargeted"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "best_score": {
+                    "oneOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "best_source": {
+                    "type": "string"
+                  },
+                  "best_source_sha256": {
+                    "type": "string"
+                  },
+                  "elapsed_sec": {
+                    "type": "number"
+                  },
+                  "exact": {
+                    "type": "boolean"
+                  },
+                  "generations": {
+                    "type": "integer"
+                  },
+                  "mode": {
+                    "enum": [
+                      "ga"
+                    ],
+                    "type": "string"
+                  },
+                  "pop_size": {
+                    "type": "integer"
+                  },
+                  "restarts": {
+                    "type": "integer"
+                  },
+                  "seed": {
+                    "type": "integer"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "stagnant_gens": {
+                    "type": "integer"
+                  },
+                  "symbol": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "source",
+                  "symbol",
+                  "mode",
+                  "generations",
+                  "pop_size",
+                  "best_score",
+                  "exact",
+                  "elapsed_sec",
+                  "stagnant_gens",
+                  "restarts",
+                  "seed"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "candidates": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "candidates"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "claim_token": {
+                    "type": "string"
+                  },
+                  "compiler": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "reused": {
+                    "type": "boolean"
+                  },
+                  "slug": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "slug",
+                  "claim_token",
+                  "url",
+                  "compiler",
+                  "platform",
+                  "reused"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "compiler": {
+                    "type": "string"
+                  },
+                  "context_bytes": {
+                    "type": "integer"
+                  },
+                  "dry_run": {
+                    "type": "boolean"
+                  },
+                  "flags": {
+                    "type": "string"
+                  },
+                  "platform": {
+                    "type": "string"
+                  },
+                  "source_file": {
+                    "type": "string"
+                  },
+                  "target_obj_bytes": {
+                    "type": "integer"
+                  },
+                  "va": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "dry_run",
+                  "compiler",
+                  "platform",
+                  "flags",
+                  "context_bytes",
+                  "source_file",
+                  "va",
+                  "target_obj_bytes"
+                ],
+                "type": "object"
+              }
+            ]
           }
         },
         "required": [
@@ -13115,6 +13911,107 @@
                   "execution": {
                     "oneOf": [
                       {
+                        "additionalProperties": false,
+                        "properties": {
+                          "catalog_digest": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "digest": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "display_tag": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "entrypoint": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "kind": {
+                            "enum": [
+                              "image",
+                              "native",
+                              "registry",
+                              "none"
+                            ],
+                            "type": "string"
+                          },
+                          "profile_id": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "release_digest": {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "release_status": {
+                            "enum": [
+                              "admitted",
+                              "unavailable"
+                            ],
+                            "type": "string"
+                          },
+                          "runner": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": [
+                              "admitted",
+                              "unavailable"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "status",
+                          "kind",
+                          "runner",
+                          "digest",
+                          "display_tag",
+                          "entrypoint",
+                          "profile_id",
+                          "catalog_digest",
+                          "release_digest",
+                          "release_status"
+                        ],
                         "type": "object"
                       },
                       {
@@ -14168,6 +15065,107 @@
                         "execution": {
                           "oneOf": [
                             {
+                              "additionalProperties": false,
+                              "properties": {
+                                "catalog_digest": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "digest": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "display_tag": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "entrypoint": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "kind": {
+                                  "enum": [
+                                    "image",
+                                    "native",
+                                    "registry",
+                                    "none"
+                                  ],
+                                  "type": "string"
+                                },
+                                "profile_id": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "release_digest": {
+                                  "oneOf": [
+                                    {
+                                      "type": "string"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "release_status": {
+                                  "enum": [
+                                    "admitted",
+                                    "unavailable"
+                                  ],
+                                  "type": "string"
+                                },
+                                "runner": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "enum": [
+                                    "admitted",
+                                    "unavailable"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "status",
+                                "kind",
+                                "runner",
+                                "digest",
+                                "display_tag",
+                                "entrypoint",
+                                "profile_id",
+                                "catalog_digest",
+                                "release_digest",
+                                "release_status"
+                              ],
                               "type": "object"
                             },
                             {

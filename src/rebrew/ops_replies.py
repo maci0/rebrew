@@ -83,12 +83,33 @@ class FileDigest(TypedDict):
     sha256: str
 
 
+#: An execution pin's state (recompile ``ExecutionProvenance.status`` and ``release_status``).
+PinStatus = Literal["admitted", "unavailable"]
+
+
+class ExecutionProvenance(TypedDict):
+    """The pin a remote compile ran under, as recompile answers it: its
+    ``recompile.models.ExecutionProvenance``, every member always present (the same in
+    recompile 12.0.0 to 15.0.0; ``tests/fixtures/recompile/execution-provenance.json``)."""
+
+    status: PinStatus
+    kind: Literal["image", "native", "registry", "none"]
+    runner: str
+    digest: str | None
+    display_tag: str | None
+    entrypoint: str | None
+    profile_id: str | None
+    catalog_digest: str | None
+    release_digest: str | None
+    release_status: PinStatus
+
+
 class CompileRecord(TypedDict, total=False):
     """What a remote compile ran with (``CompareResult.remote_compile``)."""
 
     flags: Required[list[str]]
-    #: The service's execution provenance, verbatim (recompile ``ExecutionProvenance``).
-    execution: Required[dict[str, Any] | None]
+    #: The service's execution provenance; null for a compile no service ran.
+    execution: Required[ExecutionProvenance | None]
     source_dir: str
     includes: list[FileDigest]
 
@@ -1273,6 +1294,194 @@ class ApplyCandidateReply(TypedDict):
     remote_compile: RemoteCompile
 
 
+class RenameEdit(TypedDict):
+    line: int
+    column: int
+    role: str
+
+
+class RenamedFile(TypedDict):
+    file: str
+    edits: list[RenameEdit]
+
+
+class RenamedRow(TypedDict):
+    store: Literal["function", "data"]
+    module: str
+    va: str
+    #: the row's fields before and after, as the metadata store holds them
+    old: dict[str, Any]
+    new: dict[str, Any]
+
+
+class ReferenceOwner(TypedDict):
+    file: str
+    owner: str
+
+
+class PendingOwner(TypedDict):
+    file: str
+    identity: str
+
+
+class RenameResult(TypedDict, total=False):
+    """``rebrew source rename --json``: the plan and what it changed."""
+
+    kind: Required[str]
+    old_name: Required[str]
+    new_name: Required[str]
+    files: Required[list[RenamedFile]]
+    rows: Required[list[RenamedRow]]
+    move: Required[list[str] | None]
+    notes: Required[list[str]]
+    files_updated: Required[int]
+    dry_run: Required[bool]
+    # a plan read against the files it hashed: each file's digest, by project path
+    input_digest: str
+    input_hashes: dict[str, str]
+    reference_owners: list[ReferenceOwner]
+    preserved_references: list[str]
+    pending_owners: list[PendingOwner]
+    # a function or data rename: the identity renamed
+    module: str | None
+    va: str | None
+    new_symbol: str
+
+
+class SplitFile(TypedDict):
+    source: str
+    va: str
+    symbol: str
+    output: str
+    retargeted: list[str]
+
+
+class SplitResult(TypedDict):
+    """``rebrew source split --json --dry-run``; ``source`` and ``output_dir`` are project paths."""
+
+    source: str
+    output_dir: str
+    count: int
+    dry_run: bool
+    files: list[SplitFile]
+
+
+class ToleratedInclude(TypedDict):
+    target: str
+    context: str
+    missing: list[str]
+
+
+class MergeResult(TypedDict, total=False):
+    """``rebrew source merge --json --dry-run``; ``output`` is the request's project path."""
+
+    output: Required[str]
+    count: Required[int]
+    input_count: Required[int]
+    dry_run: Required[bool]
+    deleted: Required[bool]
+    consolidated: Required[bool]
+    inputs: Required[list[str]]
+    vas: Required[list[str]]
+    extern_dropped: Required[list[str]]
+    extern_conflicts: Required[dict[str, list[str]]]
+    retargeted: Required[list[str]]
+    # a guarded interleave: the merged text and what the plan read
+    merged_source: str
+    guarded_interleave: bool
+    input_digest: str
+    accepted_unresolved_includes: list[str]
+    tolerated_unresolved_includes: list[ToleratedInclude]
+
+
+class VariantSearch(TypedDict, total=False):
+    """``rebrew match run --json``: the search's outcome; ``source`` is the request's."""
+
+    source: Required[str]
+    symbol: Required[str]
+    mode: Required[Literal["ga"]]
+    generations: Required[int]
+    pop_size: Required[int]
+    best_score: Required[float | None]
+    exact: Required[bool]
+    elapsed_sec: Required[float]
+    stagnant_gens: Required[int]
+    restarts: Required[int]
+    seed: Required[int]
+    # when the search kept a best candidate: its text and SHA-256
+    best_source: str
+    best_source_sha256: str
+
+
+class VariantCount(TypedDict):
+    """``count_only``: the compiles the search would make."""
+
+    candidates: int
+
+
+class DecompmePreview(TypedDict):
+    """``rebrew export decompme --json --dry-run``; ``source_file`` is the request's."""
+
+    dry_run: bool
+    compiler: str
+    platform: str
+    flags: str
+    context_bytes: int
+    source_file: str
+    va: str
+    target_obj_bytes: int
+
+
+class DecompmeScratch(TypedDict):
+    """``rebrew export decompme --json``: the uploaded (or reused) decomp.me scratch."""
+
+    slug: str
+    claim_token: str
+    url: str
+    compiler: str
+    platform: str
+    reused: bool
+
+
+#: The result of each retained source operation, by operation, ``variants`` with
+#: ``count_only`` and ``decompme`` with ``dry_run`` by their own key; the op
+#: projects the operation's result onto its declaration.
+RETAINED_RESULTS: dict[str, Any] = {
+    "data-set": DataSetReply,
+    "rename": RenameResult,
+    "split": SplitResult,
+    "merge": MergeResult,
+    "variants": VariantSearch,
+    "variants-count": VariantCount,
+    "decompme": DecompmeScratch,
+    "decompme-dry-run": DecompmePreview,
+}
+
+
+class ProposalFile(TypedDict):
+    path: str
+    digest: str
+    size: int
+    content: Annotated[str, {"contentEncoding": "base64"}]
+
+
+class RetainedSourceOperationReply(TypedDict, total=False):
+    #: one of :data:`RETAINED_RESULTS`, selected by the request's operation
+    result: Required[
+        DataSetReply
+        | RenameResult
+        | SplitResult
+        | MergeResult
+        | VariantSearch
+        | VariantCount
+        | DecompmeScratch
+        | DecompmePreview
+    ]
+    # data-set, rename, split and merge: the proposed snapshot's files
+    files: list[ProposalFile]
+    remote_compile: Required[RemoteCompile]
+
+
 #: Members the command an op runs prints that its reply withholds, by op: each is a
 #: path of the engine's host, which never leaves it, and no consumer reads it.  A
 #: member of a list's items is ``<list>[].<member>`` (a library row's link ``map``), and
@@ -1332,6 +1541,7 @@ DECLARED: dict[str, Any] = {
     "rebrew.security_scan_snapshot": SecuritySnapshotReply,
     "rebrew.report": ReportReply,
     "rebrew.apply_candidate": ApplyCandidateReply,
+    "rebrew.retained_source_operation": RetainedSourceOperationReply,
 }
 
 
@@ -1379,6 +1589,10 @@ def json_schema(hint: Any) -> dict[str, Any]:
         for extra in keywords:
             annotated.update(extra)
         return annotated
+    if get_origin(hint) in (Union, types.UnionType) and all(
+        is_typeddict(arg) for arg in get_args(hint)
+    ):
+        return {"oneOf": [json_schema(arg) for arg in get_args(hint)]}
     inner, nullable = _optional_inner(hint)
     schema: dict[str, Any]
     if is_typeddict(inner):

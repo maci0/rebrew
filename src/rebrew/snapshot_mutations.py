@@ -12,6 +12,43 @@ lazy from typing import Any
 OPERATIONS = frozenset({"data-set", "rename", "split", "merge", "variants", "decompme"})
 
 
+def _declared_result(req: Any, root: Path, result: dict[str, Any], invalid: Any) -> dict[str, Any]:
+    """*result* with the snapshot's paths as project paths, projected onto the
+    operation's declaration (:data:`rebrew.ops_replies.RETAINED_RESULTS`).
+
+    The commands name files by the proposal's scratch path, which never leaves
+    the engine: ``split``'s ``source`` and ``output_dir``, ``merge``'s ``output``
+    and the keys of ``rename``'s ``input_hashes``.
+    """
+    from rebrew.ops_replies import RETAINED_RESULTS, project
+
+    def project_path(value: str) -> str:
+        path = Path(value)
+        if not path.is_absolute():
+            return value
+        if not path.resolve().is_relative_to(root):
+            raise invalid("an operation result names a path outside the snapshot")
+        return path.resolve().relative_to(root).as_posix()
+
+    result = dict(result)
+    if req.operation == "split":
+        result["source"] = req.source
+        if isinstance(result.get("output_dir"), str):
+            result["output_dir"] = project_path(result["output_dir"])
+    elif req.operation == "merge" and "output" in result:
+        result["output"] = req.output
+    elif req.operation == "rename" and isinstance(result.get("input_hashes"), dict):
+        result["input_hashes"] = {
+            project_path(name): digest for name, digest in result["input_hashes"].items()
+        }
+    key = req.operation
+    if req.operation == "variants" and req.count_only:
+        key = "variants-count"
+    elif req.operation == "decompme" and req.dry_run:
+        key = "decompme-dry-run"
+    return project(result, RETAINED_RESULTS[key], f"rebrew.retained_source_operation {key}")
+
+
 def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
     """Execute one bounded operation without exposing the published worktree."""
     from rebrew import ops
@@ -215,6 +252,7 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
             or (root / "rebrew-project.toml").read_bytes() != project
         ):
             raise invalid("target binary or project configuration changed")
+        result = _declared_result(req, root, result, invalid)
         if req.operation in {"variants", "decompme"}:
             if renamed is not None and checked_path(root, registry).read_bytes() != renamed:
                 raise invalid("retained source changed during execution")
