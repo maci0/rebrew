@@ -41,11 +41,12 @@ def _reconcile_process(root: str) -> dict[str, Any]:
 
 def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     from collections.abc import Iterator  # noqa: TC003 - tests keep eager imports
+    from typing import Never
 
     # Every SQLite read path (read, text, exists, fingerprint) opens the
     # database through _reader, which raises this error for a real outage.
     @contextmanager
-    def reader(self: SqliteStore) -> Iterator[Any]:
+    def reader(self: SqliteStore) -> Iterator[Never]:
         raise MetadataUnavailableError("offline")
         yield
 
@@ -412,11 +413,14 @@ class TestReplicationHotPaths:
     def test_identical_replica_contents_share_hash_but_verify_each_record(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        import json
+        import tomllib
+
         import rebrew.metadata.replication as replication
         from rebrew.metadata.files import TomlStore
 
         key = "rebrew-functions.toml"
-        journal = TomlStore(tmp_path / "journal.toml", tmp_path)
+        journal = TomlStore(tmp_path / JOURNAL_PATH, tmp_path)
         replica = TomlStore(tmp_path / "replica.toml", tmp_path)
         content = 'note = "same"\n'
         record = replication._Record({"node:x": 1}, 7, content, False)
@@ -425,23 +429,46 @@ class TestReplicationHotPaths:
         rendered = replication._render_state({key: replica_record}, "")
         replica.write_text(rendered, "test replica")
         seen: list[str] = []
+        decoded: list[str] = []
         raw_hash = replication._content_sha256
+        raw_decode = json.JSONDecoder.raw_decode
 
         def counted(text: str) -> str:
             seen.append(text)
             return raw_hash(text)
 
+        def decode(decoder: json.JSONDecoder, line: str, idx: int = 0) -> tuple[Any, int]:
+            if line.startswith("content = "):
+                decoded.append(line)
+            return raw_decode(decoder, line, idx)
+
         monkeypatch.setattr(replication, "_content_sha256", counted)
+        monkeypatch.setattr(json.JSONDecoder, "raw_decode", decode)
         known, _ = replication._load(journal)
         loaded, _ = replication._load(replica, known)
         assert loaded == {key: replica_record}
         assert loaded[key].content is known[key].content
         assert seen == [content]
+        assert len(decoded) == 1
 
         replica.write_text(rendered.replace('content_sha256 = "', 'content_sha256 = "0'), "test")
         with pytest.raises(MetadataStorageError, match="content hash mismatch"):
             replication._load(replica, known)
         assert seen == [content]
+        assert len(decoded) == 1
+
+        # An equivalent escape still decodes, and a change with the old hash fails.
+        replica.write_text(rendered.replace("same", r"s\u0061me"), "test")
+        assert replication._load(replica, known)[0] == {key: replica_record}
+        assert len(decoded) == 2
+
+        replica.write_text(rendered.replace("same", "fake"), "test")
+        with pytest.raises(MetadataStorageError, match="content hash mismatch"):
+            replication._load(replica, known)
+
+        replica.write_text(rendered.replace("same", r"s\qme"), "test")
+        with pytest.raises(tomllib.TOMLDecodeError, match="Unescaped"):
+            replication._load(replica, known)
 
     def test_store_text_and_write_text(self, tmp_path: Path) -> None:
         _project(tmp_path)
@@ -618,13 +645,13 @@ class TestReplicationHotPaths:
         from rebrew.metadata.sqlite import DATABASE_FILENAME, reading
 
         roots = {"msvc-6.0-sp6": tmp_path / "live", "msvc-4.2": tmp_path / "restored"}
-        for toolchain, root in roots.items():
+        for profile, root in roots.items():
             _project(root, reads=["sqlite"], writes=["sqlite"])
             update_field(root, 0x1000, "NOTE", "provisions the database", "GAME")
             (root / "src" / "unit").mkdir()
             library = metadata_store(root / "src" / LIBRARY_METADATA_FILE, root=root)
             with library.transaction():
-                library.write({"toolchain": toolchain}, "test")
+                library.write({"toolchain": profile}, "test")
         live = roots["msvc-6.0-sp6"]
         cfg = load_config(live)
         clear_library_override_cache()
@@ -717,11 +744,11 @@ def test_rendered_state_parser_matches_tomllib() -> None:
         "rebrew-functions.toml": _Record({"node:x": 3, 'odd "node"': 1}, 7, content, False),
         "rebrew-data.toml": _Record({}, 9, "", True),
     }
-    for node in ("", 'node "id"'):
-        text = _render_state(records, node)
-        assert _parse_rendered(text) == tomllib.loads(text)
+    text = _render_state(records, "")
+    for rendered in (text, _render_state(records, 'node "id"')):
+        assert _parse_rendered(rendered) == tomllib.loads(rendered)
         # 6.59.0 wrote the same layout under format 1.
-        released = text.replace("format = 2\n", "format = 1\n", 1)
+        released = rendered.replace("format = 2\n", "format = 1\n", 1)
         assert _parse_rendered(released) == tomllib.loads(released)
     assert _parse_rendered(_render_state({}, "")) == tomllib.loads(_render_state({}, ""))
     # Any other layout is left to tomllib.

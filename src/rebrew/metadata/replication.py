@@ -5,7 +5,7 @@ import functools
 import logging
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 lazy import hashlib
 lazy import json
@@ -112,7 +112,12 @@ def _render_state(records: dict[str, _Record], node: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _parse_rendered(text: str) -> dict[str, Any] | None:
+def _parse_rendered(
+    text: str,
+    known_records: dict[str, _Record] | None = None,
+    *,
+    content_lines: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
     """Read exactly the layout :func:`_render_state` writes; None for anything else.
 
     ``tomllib`` scans a basic string one character at a time in Python, which
@@ -174,6 +179,7 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
         key = string(header[len("[records.") : -1])
         if key is None or key in records or clock_header != f"[records.{_toml_string(key)}.clock]":
             return None
+        known = known_records.get(key) if known_records is not None else None
         row: dict[str, Any] = {}
         for line, name in (
             (stamp, "updated_at_ns"),
@@ -189,6 +195,8 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
                 value: Any = integer(line[len(prefix) :])
             elif name == "deleted":
                 value = {"true": True, "false": False}.get(line[len(prefix) :])
+            elif name == "content" and known is not None and line == known.content_line:
+                value = known.content
             else:
                 value = string(line, len(prefix))
             if value is None:
@@ -206,6 +214,8 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
             position += 1
         row["clock"] = clock
         records[key] = row
+        if content_lines is not None:
+            content_lines[key] = content
     return doc
 
 
@@ -215,6 +225,7 @@ class _Record:
     updated_at_ns: int
     content: str
     deleted: bool
+    content_line: str | None = field(default=None, compare=False, repr=False)
 
     @functools.cached_property
     def content_sha256(self) -> str:
@@ -266,8 +277,11 @@ def _parse_state(
     text = store.text()
     if text is None:
         return {}, ""
-    doc = _parse_rendered(text)
+    # Only the journal supplies exact source lines for later replica reads.
+    content_lines: dict[str, str] | None = {} if store.path == store.root / JOURNAL_PATH else None
+    doc = _parse_rendered(text, known_records, content_lines=content_lines)
     if doc is None:
+        content_lines = None
         doc = store.read("metadata replication state")
     if not doc:
         return {}, ""
@@ -319,7 +333,13 @@ def _parse_state(
             content = known.content
         else:
             known = None
-        record = _Record(row["clock"], row["updated_at_ns"], content, row["deleted"])
+        record = _Record(
+            row["clock"],
+            row["updated_at_ns"],
+            content,
+            row["deleted"],
+            content_lines.get(key) if content_lines is not None else None,
+        )
         if "content_sha256" in row:
             # The raw hash proves the content is what the digest was computed
             # from, so the stored digest stands without parsing the document.
