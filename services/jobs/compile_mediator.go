@@ -71,11 +71,11 @@ func (m *CompileMediator) ServeSocket(dir string) (*http.Server, net.Listener, e
 // of its current attempt. The intent is in one of three states:
 //
 //   - result retained (Result set): the upstream's verdict, replayed under Key;
-//   - not run (NotRun): Key's attempt was refused without a verdict, and the
-//     next attempt draws a new key (recompile keeps the refusal under Key);
-//   - unresolved (neither): Key may be admitted upstream with an unknown
-//     outcome, so every later attempt resends Key, which compiles and bills
-//     at most once.
+//   - not run (NotRun): upstream proved Key billed nothing and cannot yield a
+//     result, so the next attempt draws a new key;
+//   - unresolved (neither): Key may be admitted upstream, or its refusal may
+//     follow billing, so every later attempt resends Key, which compiles and
+//     bills at most once.
 type compileOriginal struct {
 	Intent           string `json:"intent"`
 	Key              string `json:"key"`
@@ -121,23 +121,32 @@ type compileAnswer struct {
 
 // spentKeyCodes are the error codes of a refusal that says the key can never
 // yield a result and billed nothing, so the next attempt needs a new key
-// (recompile's client rules, rule 5: the admission ended before dispatch,
-// passed its payment deadline or ended without a retained result, or the
-// current credential may not receive the result).
+// (recompile's client rules, rule 5). Newer recompile releases can answer
+// delivery_denied or result_unavailable after billing, so neither belongs here.
 var spentKeyCodes = map[string]bool{
 	"admission_abandoned": true, "admission_expired": true,
-	"result_unavailable": true, "delivery_denied": true,
 }
 
-// keepsKey reports whether a refusal may follow a billed compile, so the key
-// is kept for every later attempt, which recompile answers with that
-// compile's outcome instead of billing another: a refused credential other
-// than delivery_denied (rule 3: resend once a valid credential is held), a key
-// with no local record (admission_unrecoverable, rule 5), or a spent receipt
-// whose output is not rebuilt (retained_output_unavailable).
+// keepsKey reports whether a refusal may follow a billed compile or asks for
+// the same key again. Keeping it makes recompile answer that compile's first
+// outcome instead of compiling and billing another. The statuses cover a
+// refused credential, a request timeout and Too Early; the codes
+// cover an admission conflict, a billed result the credential cannot receive,
+// an unrecoverable admission, an expired artifact and account refusals that
+// newer recompile releases send after settlement.
 func keepsKey(status int, code string) bool {
-	return (status == http.StatusUnauthorized || status == http.StatusForbidden) && code != "delivery_denied" ||
-		code == "admission_unrecoverable" || code == "retained_output_unavailable"
+	switch status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout,
+		http.StatusTooEarly:
+		return true
+	}
+	switch code {
+	case "admission_conflict", "admission_unrecoverable", "retained_output_unavailable",
+		"result_unavailable", "artifact_expired", "workbench_plan_required",
+		"account_under_review":
+		return true
+	}
+	return false
 }
 
 // errorCodePattern is the shape of recompile's error codes; another value is
@@ -371,16 +380,15 @@ func (m *CompileMediator) exchange(ctx context.Context, v compileOriginal, fresh
 		return v, unresolvedAnswer(code, retryAfter)
 	}
 	if resp.StatusCode != http.StatusOK {
-		// A key no exchange left unresolved was not admitted, a spent-key code
-		// says the key billed nothing and can never yield a result, and another
-		// 409 says it yields none under it (another request's key): the next
-		// attempt draws a new key, unless the refusal may follow a billed
-		// compile (keepsKey). Any other refusal says nothing about an unresolved
-		// key's first attempt, which stays.
+		// A key no exchange left unresolved was not admitted, unless the
+		// refusal asks for the same key or may follow a billed compile
+		// (keepsKey). A spent-key code says the key billed nothing and can never
+		// yield a result, so it settles even an unresolved attempt. Any other
+		// refusal says nothing about an unresolved key's first attempt, which
+		// stays, including an otherwise unnamed 409.
 		code := errorCode(b)
 		v.LastHTTPStatus = resp.StatusCode
-		if len(v.Result) == 0 && (spentKeyCodes[code] ||
-			(fresh || resp.StatusCode == http.StatusConflict) && !keepsKey(resp.StatusCode, code)) {
+		if len(v.Result) == 0 && (spentKeyCodes[code] || fresh && !keepsKey(resp.StatusCode, code)) {
 			v.NotRun = true
 		}
 		if err = m.writeOriginal(v); err != nil {

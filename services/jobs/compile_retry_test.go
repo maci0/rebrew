@@ -312,12 +312,45 @@ func TestCompileNotRunIntentDoesNotFenceTheJob(t *testing.T) {
 	}
 }
 
-// Recompile 11 says with a code that a key can never yield a result (the
-// admission expired, or the credential may not receive the result): such a
-// refusal settles even a key an earlier attempt left unresolved, and the next
-// attempt draws a new key. settlement_pending asks for the same key, and a
-// refusal with another code says nothing about the first attempt. The worker
-// gets recompile's code.
+// Recompile 12 can report delivery_denied or result_unavailable after settling
+// a compile as billed. Neither refusal proves the key is free, even after an
+// earlier ambiguous attempt, so every retry must resend that key.
+func TestCompileMediatorKeepsBilledRefusalKeyAfterUnresolvedAttempt(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		code   string
+	}{
+		{http.StatusForbidden, "delivery_denied"},
+		{http.StatusConflict, "result_unavailable"},
+	} {
+		refusal := fakeAnswer{status: c.status, body: `{"detail":"refused","code":"` + c.code + `"}`}
+		upstream := &fakeRecompile{retained: map[string]fakeAnswer{}, script: []fakeAnswer{
+			{status: http.StatusServiceUnavailable, body: `{"detail":"outcome unknown"}`},
+			refusal,
+			{status: http.StatusOK, body: fakeCompiled},
+		}}
+		m, dir := retryMediator(t, upstream, 1)
+		intent := strings.Repeat("1", 64)
+		for i, want := range []int{http.StatusServiceUnavailable, c.status, http.StatusOK} {
+			if w := compileIntent(m, intent, "int a;"); w.Code != want {
+				t.Fatalf("%s attempt %d: got %d, want %d", c.code, i, w.Code, want)
+			}
+		}
+		keys := upstream.sentKeys()
+		if len(keys) != 3 || keys[0] != keys[1] || keys[1] != keys[2] {
+			t.Fatalf("%s changed a possibly billed key: %v", c.code, keys)
+		}
+		if v := retainedIntent(t, dir, intent); compileNotRun(v) || len(v.Result) == 0 {
+			t.Fatalf("%s settled the intent without a verdict: %+v", c.code, v)
+		}
+	}
+}
+
+// Recompile 11 says with a code that a key can never yield a result and billed
+// nothing (the admission expired): such a refusal settles even a key an earlier
+// attempt left unresolved, and the next attempt draws a new key.
+// settlement_pending asks for the same key, and a refusal with another code
+// says nothing about the first attempt. The worker gets recompile's code.
 func TestCompileMediatorBranchesOnTheRefusalCode(t *testing.T) {
 	refusal := func(status int, code, retryAfter string) fakeAnswer {
 		return fakeAnswer{status: status, retryAfter: retryAfter, body: `{"detail":"refused","code":"` + code + `"}`}
@@ -327,7 +360,7 @@ func TestCompileMediatorBranchesOnTheRefusalCode(t *testing.T) {
 		refusal(409, "admission_expired", ""),
 		{status: 200, body: fakeCompiled},
 		refusal(503, "runtime_unavailable", "5"),
-		refusal(403, "delivery_denied", ""),
+		refusal(409, "admission_abandoned", ""),
 		{status: 200, body: fakeCompiled},
 		refusal(503, "platform_unavailable", "5"),
 		refusal(403, "forbidden", ""),
@@ -350,7 +383,7 @@ func TestCompileMediatorBranchesOnTheRefusalCode(t *testing.T) {
 		{a, "int a;", 409, "admission_expired"},
 		{a, "int a;", 200, ""},
 		{b, "int b;", 503, "runtime_unavailable"},
-		{b, "int b;", 403, "delivery_denied"},
+		{b, "int b;", 409, "admission_abandoned"},
 		{b, "int b;", 200, ""},
 		{c, "int c;", 503, "platform_unavailable"},
 		{c, "int c;", 403, "forbidden"},

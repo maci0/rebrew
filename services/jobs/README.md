@@ -27,23 +27,26 @@ no-network job request pinned, budgeted managed compiles without exposing the
 caller credential to the container. The owner retains each compile intent's
 request and the Idempotency-Key of its current attempt before dispatch, and
 counts each intent once against the budget; a spent budget answers 403. A
-refusal without a verdict (a 4xx such as a 429 throttle, or a 200 whose
-`error_code` is `capacity`, `timeout`, `runner_unavailable`, `publish_failed`
-or `provenance_unavailable`) reaches the worker with its status and
-`Retry-After` (and recompile 11's error `code`, which the mediator relays) and
-is not kept as the intent's result, so the intent's next attempt draws a new
-key; a code saying the key can never yield a result (`admission_expired`,
-`delivery_denied` and the others in `docs/TOOLCHAIN.md`) settles even a key an
-earlier attempt left unresolved. A refusal that may follow a billed compile keeps
-the key for the intent's next attempt, also on its first exchange: a 401, a 403
-other than `delivery_denied`, `admission_unrecoverable` and
-`retained_output_unavailable`. An ambiguous outcome (no answer, a 5xx, a reply that
-is unreadable or over 16 MiB) keeps the key: the worker's retry resends it,
-which recompile answers without compiling or billing twice. One intent's
-state never holds back another's. After the job stops, an intent still
-unresolved fences its capacity until an explicit reconciliation with the
-original caller credential resends that key. The worker's capability
-permits only its job's compile requests, their returned artifact paths, and
+fresh refusal that proves no compile ran (a 4xx such as a 429 throttle, or a
+200 whose `error_code` is `capacity`, `timeout`, `runner_unavailable`,
+`publish_failed` or `provenance_unavailable`) reaches the worker with its
+status and `Retry-After` (and recompile's error `code`, which the mediator
+relays). It is not kept as the intent's result, so the next attempt draws a
+new key.
+Only `admission_abandoned` and `admission_expired` prove that a key billed
+nothing and can never yield a result, so they settle even an unresolved
+attempt. A refusal that may follow a billed compile, or asks for the same key,
+keeps it for the intent's next attempt, also on its first exchange: a 401, 403,
+408 or 425, `admission_conflict`, `admission_unrecoverable`,
+`retained_output_unavailable`, `result_unavailable`, `artifact_expired`,
+`workbench_plan_required` or `account_under_review`. An ambiguous outcome (no
+answer, a 5xx, a reply that is unreadable or over 16 MiB) also keeps the key:
+the worker's retry resends it, which recompile answers without compiling or
+billing twice. One intent's state never holds back another's. After the job
+stops, an intent still unresolved fences its capacity until an explicit
+reconciliation with the original caller credential resends that key. The
+worker's capability permits only its job's compile requests, their returned
+artifact paths, and
 `GET /api/v1/features`, which the owner answers from the upstream without its
 credential so the worker can check for include bundles before it sends one, and
 `GET /api/v1/compilers`, answered the same way but cut to the rows of the job's

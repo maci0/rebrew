@@ -670,9 +670,8 @@ const compiledAnswer = `{"status":"ok","artifact_url":"/api/v1/artifacts/abcdef1
 
 // A refusal that may follow a billed compile keeps its key: the worker's next
 // attempt of the intent resends it, so recompile answers that compile's
-// outcome instead of compiling and billing again. A refusal that says the key
-// billed nothing (delivery_denied, a spent key) lets the next attempt draw a
-// new key.
+// outcome instead of compiling and billing again. Only a refusal that says the
+// key billed nothing lets the next attempt draw a new key.
 func TestCompileMediatorKeepsTheKeyOfARefusalThatMayFollowABilledCompile(t *testing.T) {
 	for _, c := range []struct {
 		status  int
@@ -680,10 +679,17 @@ func TestCompileMediatorKeepsTheKeyOfARefusalThatMayFollowABilledCompile(t *test
 		sameKey bool
 	}{
 		{401, "unauthenticated", true},
+		{402, "workbench_plan_required", true},
 		{403, "forbidden", true},
+		{403, "delivery_denied", true},
+		{408, "", true},
+		{409, "admission_conflict", true},
 		{409, "admission_unrecoverable", true},
 		{409, "retained_output_unavailable", true},
-		{403, "delivery_denied", false},
+		{409, "result_unavailable", true},
+		{410, "artifact_expired", true},
+		{423, "account_under_review", true},
+		{425, "", true},
 		{409, "admission_expired", false},
 		{402, "allowance_exhausted", false},
 	} {
