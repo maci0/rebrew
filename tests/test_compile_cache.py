@@ -49,6 +49,30 @@ class TestIncludeScanWork:
         assert 'const char *s = "#line";' in masked
         assert '#include "a.h"' in masked
 
+    def test_mask_keeps_angle_header_literals_across_line_boundaries(self) -> None:
+        source = (
+            "int before;\n"
+            "// note\n"
+            "\n"
+            "#include <dir/*literal*/api.h>\r\n"
+            "/* comment\n"
+            " */ #include <dir//other.h>\n"
+            "int value = x < y; // note"
+        )
+        assert cache_module.mask_preprocessor_comments(source) == (
+            "int before;\n"
+            "       \n"
+            "\n"
+            "#include <dir/*literal*/api.h>\r\n"
+            "          \n"
+            "    #include <dir//other.h>\n"
+            "int value = x < y;        "
+        )
+        assert list(cache_module.include_specs(source)) == [
+            ("angle", "dir/*literal*/api.h"),
+            ("angle", "dir//other.h"),
+        ]
+
     def test_repeated_header_text_is_lexed_once_but_edits_are_seen(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

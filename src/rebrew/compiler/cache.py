@@ -688,7 +688,8 @@ _TRIGRAPHS = {
 
 
 #: Characters that can change the masking state outside comments and literals.
-_MASK_SIGNIFICANT_RE = re.compile(r"[/\"'<\n]")
+#: emit() already tracks the last newline in a run of ordinary text.
+_MASK_SIGNIFICANT_RE = re.compile(r"[/\"'<]")
 _MASK_QUOTE_END_RE = {'"': re.compile(r'[\\"]'), "'": re.compile(r"[\\']")}
 _MASK_COMMENT_CHAR_RE = re.compile(r"[^\r\n]")
 _INCLUDE_ANGLE_PREFIX_RE = re.compile(r"\s*#\s*include(?:_next)?\s*")
