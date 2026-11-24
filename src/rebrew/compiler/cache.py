@@ -1358,12 +1358,15 @@ def scan_include_closure(
         base_dir: Path | None,
         current: Path | None = None,
         parents: tuple[Path, ...] = (),
-    ) -> None:
+    ) -> bool:
+        """Scan the directives and report whether there was an include to search for."""
         nonlocal fallback, consistent
+        has_includes = False
         for kind, name in _iter_include_specs(text):
+            has_includes = True
             if kind == "nonliteral" or not name:
                 fallback = True
-                return
+                return True
             if msvc_include_parents:
                 if name.startswith(("\\", "/")) or ":" in name:
                     raise ValueError("unsupported rooted or drive-qualified MSVC include")
@@ -1384,14 +1387,16 @@ def scan_include_closure(
             # Include-next may select any later search root; track them all.
             searches = [[d] for d in dirs] if kind == "next" else [dirs]
             next_found = False
-            current_root = next(
-                (
-                    i
-                    for i, directory in enumerate(dirs)
-                    if current is not None and current.is_relative_to(resolved_path(directory))
-                ),
-                -1,
-            )
+            current_root = -1
+            if kind == "next" and current is not None:
+                current_root = next(
+                    (
+                        i
+                        for i, directory in enumerate(dirs)
+                        if current.is_relative_to(resolved_path(directory))
+                    ),
+                    -1,
+                )
             path = _include_path(name)
             for index, dirs in enumerate(searches):
                 escaped = False
@@ -1409,7 +1414,7 @@ def scan_include_closure(
                         # conservative per-directory fingerprint rather than
                         # cache an entry whose closure is unknown.
                         fallback = True
-                        return
+                        return True
                 if found is None:
                     # Creating a header bumps the mtime of its immediate parent,
                     # which may sit below a searched directory and so never reach
@@ -1478,7 +1483,7 @@ def scan_include_closure(
                     fallback = True
                     consistent = False
                     reached.discard(found_str)
-                    return
+                    return True
                 if observed_path is not None and path_identity(observed_path) != current_identity:
                     raise ValueError(f"{observed_path}: include identity changed while reading")
                 if (before.st_mtime_ns, before.st_size, before.st_ino, before.st_ctime_ns) != (
@@ -1511,13 +1516,16 @@ def scan_include_closure(
                     )
                 ):
                     raise ValueError(f"{spelling[0][0]}: ambiguous symlinked include parent")
-                _scan(header_text, lexical_parent, found, next_parents)
-                if lexical_parent.resolve() != found.parent:
+                if (
+                    _scan(header_text, lexical_parent, found, next_parents)
+                    and lexical_parent.resolve() != found.parent
+                ):
                     _scan(header_text, found.parent, found, next_parents)
                 if fallback:
-                    return
+                    return True
             if kind == "next" and not next_found:
                 misses.append((name, include_dirs[current_root + 1 :]))
+        return has_includes
 
     _scan(source_content, source_path)
     paths = tuple(sorted(reached))

@@ -654,6 +654,33 @@ class TestIncludeFingerprint:
 
 
 class TestIncludePathResolution:
+    def test_only_resolves_roots_needed_for_nested_searches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        parent = tmp_path / "parent.h"
+        parent.write_text('#include "leaf.h"\n')
+        leaf = tmp_path / "leaf.h"
+        leaf.write_text("#define VALUE 1\n")
+        resolved_parents = []
+        real_resolve = Path.resolve
+
+        def resolve(path: Path, strict: bool = False) -> Path:
+            resolved_parents.append(path)
+            return real_resolve(path, strict=strict)
+
+        def unused_root(_path: Path) -> Path:
+            pytest.fail("ordinary includes do not need the current include-next root")
+
+        monkeypatch.setattr(Path, "resolve", resolve)
+        monkeypatch.setattr(cache_module, "resolved_path", unused_root)
+        paths, fallback, _, consistent = cache_module.scan_include_closure(
+            "#include <parent.h>\n", None, (str(tmp_path),)
+        )
+
+        assert paths == (str(leaf), str(parent))
+        assert consistent and not fallback
+        assert resolved_parents == [tmp_path]
+
     def test_lexical_paths_expose_fresh_file_type_info(self, tmp_path: Path) -> None:
         header = tmp_path / "api.h"
         header.write_text("int api;\n")
@@ -1614,30 +1641,104 @@ class TestHeaderDependencyHash:
         k2 = compile_cache_key(src, "f.c", flags, [], "wine CL", source_dir=str(src_dir))
         assert k1 != k2
 
-    def test_raced_scan_is_not_memoized(self, tmp_path: Path, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize("change", ["create", "remove", "edit"])
+    def test_header_change_between_scans_is_not_memoized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+    ) -> None:
+        header = tmp_path / "nested" / "api.h"
+        header.parent.mkdir()
+        if change != "create":
+            header.write_text("int before;\n")
+        child = tmp_path / "child.h"
+        child.write_text("int child;\n")
+        source = "#include <nested/api.h>\n"
+        roots = (str(tmp_path),)
+        real_scan = cache_module.scan_include_closure
+
+        def scan(*args: Any, **kwargs: Any) -> Any:
+            if kwargs.get("msvc_include_parents"):
+                if change == "create":
+                    header.write_text("int new;\n")
+                elif change == "remove":
+                    header.unlink()
+                else:
+                    header.write_text("#include <child.h>\n")
+            return real_scan(*args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(cache_module, "scan_include_closure", scan)
+            _, fallback = cache_module._resolve_include_paths(source, None, roots)
+        assert fallback
+        assert not any(key[2] == roots for key in cache_module._INCLUDE_CLOSURE_MEMO)
+
+        expected = {"create": (str(header),), "remove": (), "edit": (str(child), str(header))}
+        assert cache_module._resolve_include_paths(source, None, roots) == (expected[change], False)
+
+    @pytest.mark.skipif(
+        os.name != "posix", reason="Uses a case-sensitive include tree and symlinks"
+    )
+    def test_renamed_symlink_parent_changes_nested_search_between_scans(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = tmp_path / "include"
+        old = root / "nested"
+        old.mkdir(parents=True)
+        target = tmp_path / "api.h"
+        target.write_text('#include "child.h"\n')
+        (old / "api.h").symlink_to(target)
+        new = root / "NESTED"
+        child = new / "child.h"
+        source = "#include <nested/api.h>\n"
+        roots = (str(root),)
+        real_scan = cache_module.scan_include_closure
+
+        def scan(*args: Any, **kwargs: Any) -> Any:
+            if kwargs.get("msvc_include_parents"):
+                old.rename(new)
+                if old.exists():
+                    pytest.skip("case-sensitive paths required")
+                child.write_text("int child;\n")
+            return real_scan(*args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(cache_module, "scan_include_closure", scan)
+            paths, _ = cache_module._resolve_include_paths(source, None, roots)
+
+        assert set(paths) == {str(target), str(child)}
+        assert cache_module._resolve_include_paths(source, None, roots)[0] == paths
+
+    def test_raced_scan_is_not_memoized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A scan whose header changed mid-read must not be published.
 
         Storing the post-edit stat next to the pre-edit closure makes the
         next lookup treat that closure as fresh.
         """
-        import rebrew.compiler.cache as cc
+        header = tmp_path / "a.h"
+        header.write_text("int a;\n")
+        child = tmp_path / "b.h"
+        child.write_text("int b;\n")
+        source = "#include <a.h>\n"
+        roots = (str(tmp_path),)
+        real_read = Path.read_bytes
+        raced = False
 
-        inc = tmp_path / "inc"
-        inc.mkdir()
-        (inc / "a.h").write_text("int a;\n")
-        src = '#include "a.h"\nint f(void){return a;}\n'
-        real = cc.scan_include_closure
+        def read(path: Path) -> bytes:
+            nonlocal raced
+            raw = real_read(path)
+            if path == header and not raced:
+                raced = True
+                header.write_text("#include <b.h>\n")
+            return raw
 
-        def _raced(*args: object, **kwargs: object) -> tuple[object, ...]:
-            paths, fallback, stats, _consistent = real(*args, **kwargs)
-            return paths, fallback, tuple((-1, -1) for _ in stats), False
-
-        monkeypatch.setattr(cc, "scan_include_closure", _raced)
-        cc._INCLUDE_CLOSURE_MEMO.clear()
-        paths, fallback = cc._resolve_include_paths(src, str(inc), ())
-        assert paths
-        assert fallback is True
-        assert cc._INCLUDE_CLOSURE_MEMO == {}
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "read_bytes", read)
+            paths, fallback = cache_module._resolve_include_paths(source, None, roots)
+        assert raced and fallback
+        assert paths == (str(header), str(child))
+        assert not any(key[2] == roots for key in cache_module._INCLUDE_CLOSURE_MEMO)
+        assert cache_module._resolve_include_paths(source, None, roots) == (paths, False)
 
     def test_publish_keeps_valid_peer_closure(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A slower scan must not replace a closure whose stats still match."""
