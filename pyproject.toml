@@ -131,6 +131,8 @@ addopts = [
     "typer_command_cache",
     "-p",
     "reply_paths",
+    "-p",
+    "hypothesis_profile",
 ]
 filterwarnings = [
     # LIEF C extension emits this when parsing minimal Mach-O stubs with zeroed headers
@@ -358,6 +360,7 @@ files = [
     "tests/pytest_ansi_env.py",
     "tests/typer_command_cache.py",
     "tests/reply_paths.py",
+    "tests/hypothesis_profile.py",
     "tests/bin_util.py",
     "tests/cache_util.py",
     "tests/html_validate.py",
