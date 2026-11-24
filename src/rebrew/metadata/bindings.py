@@ -1355,6 +1355,9 @@ def source_bindings(
     # passed none.  A data anchor used to re-resolve the store and deep-copy
     # its row twice (the identity lookup and merge_into_data_binding), so a
     # file with many globals paid that per declaration.
+    # Keys an anchor of this file bound: a second anchor naming another function there is
+    # the file contradicting itself, not a stored record to skip.
+    anchored: set[tuple[str, int, bool]] = set()
     for anchor in anchors:
         if target and preset_module_key(anchor.module) != target:
             continue
@@ -1436,8 +1439,10 @@ def source_bindings(
                     f"{filepath}:{anchor.line}: address anchor names {anchor.name!r}, "
                     f"but the metadata names {existing.name!r}"
                 )
-                if is_data:
-                    raise BindingConflictError(message, existing.module, anchor.va)
+                if is_data or key in anchored:
+                    # A data row, or a second anchor of this file at one address: the file
+                    # itself is inconsistent, as before; only a stored record is skipped.
+                    raise ValueError(message)
                 _record_conflict(existing.module, anchor.va)
                 if _STRICT_BINDINGS.get():
                     raise BindingConflictError(message, existing.module, anchor.va)
@@ -1449,6 +1454,7 @@ def source_bindings(
             if not is_data and not existing.symbol:
                 existing.symbol = derive_c_symbol(anchor.name, anchor.prototype)
             existing.line = anchor.line
+            anchored.add(key)
             existing.prototype = anchor.prototype
             continue
         ann = SourceBinding(
@@ -1504,6 +1510,7 @@ def source_bindings(
             apply_metadata_entry(ann, stored)
             ann.kind = str(stored.get("kind", "FUNCTION"))
         indexed[key] = ann
+        anchored.add(key)
         rows.append(ann)
         if ann.is_data:
             data_rows.setdefault((ann.module, ann.va), []).append(ann)

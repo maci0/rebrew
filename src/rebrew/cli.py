@@ -23,7 +23,6 @@ import functools
 import logging
 import threading
 from typing import Any, Literal, NoReturn, get_args, override
-lazy import contextlib
 lazy import copy
 lazy import json
 lazy import os
@@ -623,9 +622,6 @@ BINDING_CONFLICT_KIND = "binding_conflict"
 _BINDING_CONFLICT_HINT = (
     "rebrew doctor lists such records; re-running rebrew intake repairs a generated stub"
 )
-#: Set to ``1`` for a child command a record-writing op runs: a function record whose
-#: source names another function refuses the command instead of being skipped.
-STRICT_BINDINGS_ENV = "REBREW_STRICT_BINDINGS"
 
 
 def _binding_conflict_message(module: str, va: int) -> str:
@@ -1187,12 +1183,10 @@ def run_cli(app: Callable[[], Any]) -> None:
     reset_verbosity()
 
     def entry() -> None:
-        from rebrew.metadata.bindings import binding_conflicts, strict_bindings
+        from rebrew.metadata.bindings import binding_conflicts
 
         # One command is one call: a record its source disagrees with is logged once.
-        with binding_conflicts(), contextlib.ExitStack() as stack:
-            if os.environ.get(STRICT_BINDINGS_ENV) == "1":
-                stack.enter_context(strict_bindings())
+        with binding_conflicts():
             if isinstance(app, typer.Typer):
                 add_global_options(exit_130_on_interrupt(typer.main.get_command(app)))()
             else:

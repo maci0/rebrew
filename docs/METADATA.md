@@ -685,7 +685,7 @@ for inspection. Sync health reports stale measurement evidence independently.
    existing stored fields. No compatibility reader is shipped.
    A function's `name` is its definition name, the identifier its ADDRESS anchor
    binds (optionally `::`- or `.`-qualified); `symbol` is the linker symbol derived
-   from it. The identity writers refuse any other `name`. Intake's stub defines the
+   from it. Intake's stub defines the
    record's name, or `fcn_<va>` when the stored name is no C identifier, and then
    writes that placeholder into the record with the old text kept in `note` as
    `earlier name: <text>`; it repairs a source-bound record whose stored name is no

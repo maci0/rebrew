@@ -23,7 +23,6 @@ from rebrew.metadata.functions import (
     clear_metadata_cache,
     import_status_history,
     load_metadata,
-    record_function_rows,
 )
 from rebrew.metadata.storage import metadata_store
 from rebrew.metadata_transfer import migrate_metadata, migration_input_digest
@@ -166,14 +165,6 @@ def test_doctor_reports_a_disagreeing_record(tmp_path: Path) -> None:
     result = check_function_bindings(load_config(project, target="mini"))
     assert result.status == "warn"
     assert KEY in result.message and FREE_TEXT not in result.message
-
-
-def test_identity_writer_refuses_a_name_that_is_no_identifier(tmp_path: Path) -> None:
-    _, project, cfg = _sqlite_project(tmp_path)
-    row = {"module": MODULE, "va": VA, "identity": {"name": FREE_TEXT}, "fields": {}}
-    with pytest.raises(ValueError, match="is not a valid identifier"):
-        record_function_rows(cfg.metadata_dir, [row], overwrite_name=True)
-    assert _record(project)["name"] == PLACEHOLDER
 
 
 def test_a_write_touching_a_disagreeing_record_refuses_as_invalid_project(tmp_path: Path) -> None:

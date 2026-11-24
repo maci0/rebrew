@@ -22,6 +22,7 @@ from rebrew.cli import (
     option_default,
     require_config,
 )
+from rebrew.metadata.bindings import strict_bindings
 lazy from rebrew.catalog import scan_reversed_dir
 lazy from rebrew.rename_ops import (
     KIND_DATA,
@@ -117,6 +118,8 @@ def _parse_va(ident: str) -> int | None:
 
 
 @app.callback(invoke_without_command=True)
+# A rename rewrites the records it reaches: one whose source names another function refuses it.
+@strict_bindings()
 def main(
     target_ident: str = typer.Argument(
         ...,

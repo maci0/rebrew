@@ -185,6 +185,10 @@ def blocker_reason(family: str, size: int, version_hint: str) -> str:
     return "Application code — pending per-function decompilation"
 
 
+#: A definition name an address anchor can bind, optionally ``::``- or ``.``-qualified
+#: (C++ and Delphi definitions), a destructor's ``~`` kept.
+_FUNCTION_NAME_RE = re.compile(r"~?[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.)~?[A-Za-z_][A-Za-z0-9_]*)*")
+
 #: How a record's note keeps the name a placeholder replaced.
 _EARLIER_NAME_NOTE = "earlier name: {name}"
 
@@ -206,20 +210,27 @@ def _repair_free_text_names(
 ) -> int:
     """Give each source-bound record of *module* whose name is no identifier its anchor's name.
 
-    The binding check refuses such a record, so every read skipped its function. The
-    anchor's definition name becomes the record's name and symbol, or the address
-    placeholder when the source has no anchor for it; the old text moves to the note.
+    The binding check refuses such a record (its source's anchor names a definition the
+    record does not), so every read skipped its function. The anchor's definition name
+    becomes the record's name and symbol; the old text moves to the note. A record whose
+    source has no anchor for it, or a LIBRARY row, is left alone: nothing refuses it.
     Answers the number of records repaired; a repaired store repairs nothing again.
     """
     from rebrew.config import address_comments_for_file
     from rebrew.metadata.anchors import parse_address_anchors
-    from rebrew.metadata.functions import is_function_name, record_function_rows
+    from rebrew.metadata.functions import record_function_rows
 
     rows = []
     for (row_module, va), entry in sorted(existing.items()):
         name = str(entry.get("name") or "")
         stored = str(entry.get("file") or "")
-        if row_module != module or not name or is_function_name(name) or not stored:
+        if (
+            row_module != module
+            or not name
+            or _FUNCTION_NAME_RE.fullmatch(name)
+            or not stored
+            or entry.get("kind") == "LIBRARY"
+        ):
             continue
         source = meta_base / stored
         if not source.is_file():
@@ -234,14 +245,17 @@ def _repair_free_text_names(
             ),
             None,
         )
-        new_name = anchor.name if anchor is not None else f"fcn_{va:08x}"
-        prototype = anchor.prototype if anchor is not None else ""
+        if anchor is None or anchor.name == name:
+            continue
         rows.append(
             {
                 "module": module,
                 "va": va,
-                "identity": {"name": new_name, "symbol": derive_c_symbol(new_name, prototype)},
-                "fields": _kept_name_note(entry, new_name),
+                "identity": {
+                    "name": anchor.name,
+                    "symbol": derive_c_symbol(anchor.name, anchor.prototype),
+                },
+                "fields": _kept_name_note(entry, anchor.name),
             }
         )
     record_function_rows(meta_base, rows, overwrite_name=True, updated_by="intake")

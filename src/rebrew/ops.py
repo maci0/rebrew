@@ -2765,9 +2765,7 @@ def run_rebrew(
     *timeout*, when sooner) less :data:`CHILD_REPORT_SECONDS` in
     ``REBREW_CALL_DEADLINE``, so its remote compiles stop retrying in time.
     """
-    from rebrew.cli import STRICT_BINDINGS_ENV
     from rebrew.compiler.compile import CALL_DEADLINE_ENV
-    from rebrew.metadata.bindings import strict_bindings_active
 
     name = " ".join(word for word in arguments[:2] if not word.startswith("-"))
     cancellation = _CANCELLATION.get()
@@ -2798,8 +2796,6 @@ def run_rebrew(
                     # The child counts its remote compiles into the op call's ledger.
                     **({} if remote is None else remote.environment()),
                     **({} if pipe is None else {PROGRESS_FD_ENV: str(pipe.write_fd)}),
-                    # A record-writing op's child refuses a disagreeing record as the op does.
-                    **({STRICT_BINDINGS_ENV: "1"} if strict_bindings_active() else {}),
                 },
                 pass_fds=() if pipe is None else (pipe.write_fd,),
                 stdin=subprocess.DEVNULL,
