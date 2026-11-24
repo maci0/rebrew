@@ -181,15 +181,37 @@ def test_promotion_patches_are_target_local_and_migrate_matching_legacy(tmp_path
     from rebrew.status import _load_cache_raw
     from rebrew.todo import load_verify_entries
     from rebrew.verify_cache import patch_verify_cache_entries
+    from rebrew.verify_hash import DEFAULT_TOOLCHAIN, comparison_inputs
 
     gold, tl = _cfg(tmp_path, "Gold"), _cfg(tmp_path, "TL")
     legacy = replace(gold, all_targets=["Gold"])
     entries, rows = _rows(gold, 0x1000)
     save_verify_cache(cache_path_for(legacy), legacy, rows, entries)
     legacy_path = cache_path_for(legacy)
-    patch_verify_cache_entries(gold, [{"va": 0x1000, "status": "RELOC"}])
+    gold_inputs = comparison_inputs(
+        cfg=gold,
+        source=gold.reversed_dir / rows[0]["filepath"],
+        reference=b"",
+        toolchain=DEFAULT_TOOLCHAIN,
+        cflags="/O2 /Gd",
+        module="Gold",
+        va=0x1000,
+        context_hash="",
+    )
+    tl_inputs = comparison_inputs(
+        cfg=tl,
+        source=tl.reversed_dir / rows[0]["filepath"],
+        reference=b"",
+        toolchain=DEFAULT_TOOLCHAIN,
+        cflags="/O2 /Gd",
+        module="TL",
+        va=0x1000,
+        context_hash="",
+    )
+    assert gold_inputs is not None and tl_inputs is not None
+    patch_verify_cache_entries(gold, [{"va": 0x1000, "status": "RELOC", "inputs": gold_inputs}])
     save_verify_cache(cache_path_for(tl), tl, rows, entries)
-    patch_verify_cache_entries(tl, [{"va": 0x1000, "status": "STUB"}])
+    patch_verify_cache_entries(tl, [{"va": 0x1000, "status": "STUB", "inputs": tl_inputs}])
     for cfg, expected in ((gold, "RELOC"), (tl, "STUB")):
         raw = _load_cache_raw(cfg)
         assert raw is not None and raw["entries"]["0x00001000"]["status"] == expected

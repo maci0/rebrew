@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 lazy import hashlib
 lazy import weakref
+lazy from collections.abc import Iterable
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -27,6 +28,21 @@ lazy from rebrew.config import ProjectConfig, compiler_dir, source_date_epoch
 DEFAULT_TOOLCHAIN = "(default)"
 
 log = logging.getLogger(__name__)
+
+
+def defines_fingerprint(defines: Iterable[str] | None) -> str:
+    """Canonical command-line definitions, preserving last-wins duplicates.
+
+    Distinct macro names commute, but repeating one name does not: the compiler
+    keeps its last definition. Sorting the raw strings loses that order and can
+    reuse a verdict measured with a different macro value.
+    """
+    latest: dict[str, str] = {}
+    for define in defines or ():
+        name, separator, value = define.partition("=")
+        latest[name] = f"{name}={value}" if separator and value else name
+    return "\x00".join(latest[name] for name in sorted(latest)) or "(none)"
+
 
 #: CFLAGS strings are a handful of distinct values across a batch, so the
 #: tokenization behind every entry fingerprint is memoized on the raw string.
@@ -108,7 +124,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     fingerprint = EntryFingerprint(
         toolchain=toolchain or DEFAULT_TOOLCHAIN,
         cflags=cflags,
-        defines="\x00".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)",
+        defines=defines_fingerprint(getattr(cfg, "defines", None)),
         size=getattr(entry, "size", 0) or 0,
         headers_fp=entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
         source_hash=source_digest,
@@ -841,9 +857,7 @@ def comparison_inputs(
             "module": module,
             "va": f"0x{va:x}",
             "context_hash": context_hash,
-            "defines": json.dumps(
-                sorted(getattr(cfg, "defines", None) or []), separators=(",", ":")
-            ),
+            "defines": defines_fingerprint(getattr(cfg, "defines", None)),
         }
     except (OSError, AttributeError, TypeError, ValueError) as exc:
         logging.getLogger(__name__).warning("cannot retain comparison input evidence: %s", exc)
@@ -863,6 +877,7 @@ def comparison_inputs_current(cfg: Any, source: Path, inputs: dict[str, str] | N
             source_hash(source) == inputs["source_hash"]
             and entry_headers_fp(cfg, source, inputs["cflags"]) == inputs["headers_hash"]
             and compiler_config_hash(cfg) == inputs["compiler_hash"]
+            and defines_fingerprint(getattr(cfg, "defines", None)) == inputs["defines"]
         )
     except OSError, AttributeError, TypeError, ValueError:
         return False

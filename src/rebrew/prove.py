@@ -1406,7 +1406,7 @@ def main(
     except _AlreadyMatched as m:
         new_status = m.new_status
         if not dry_run:
-            _promote_already_matched(cfg, ann, new_status)
+            _promote_already_matched(cfg, ann, new_status, m.measured_inputs)
         early: dict[str, Any] = {
             "schema_version": 1,
             "source": str(source_path),
@@ -1627,12 +1627,18 @@ class _ProveError(Exception):
 class _AlreadyMatched(Exception):
     """Bytes match after relocation accounting — RELOC/EXACT, prove not needed."""
 
-    def __init__(self, new_status: str) -> None:
+    def __init__(self, new_status: str, measured_inputs: dict[str, str] | None) -> None:
         super().__init__(new_status)
         self.new_status = new_status
+        self.measured_inputs = measured_inputs
 
 
-def _promote_already_matched(cfg: Any, ann: Any, new_status: str) -> None:
+def _promote_already_matched(
+    cfg: Any,
+    ann: Any,
+    new_status: str,
+    measured_inputs: dict[str, str] | None,
+) -> None:
     """Record an ALREADY_MATCHED verdict in metadata AND the verify cache.
 
     Both holders must move together: ``status.effective_status`` lets a
@@ -1662,7 +1668,16 @@ def _promote_already_matched(cfg: Any, ann: Any, new_status: str) -> None:
     try:
         patch_verify_cache_entries(
             cfg,
-            [{"va": ann.va, "status": new_status, "match_percent": 100.0, "delta": 0}],
+            [
+                {
+                    "va": ann.va,
+                    "status": new_status,
+                    "match_percent": 100.0,
+                    "delta": 0,
+                    "inputs": measured_inputs,
+                    "size": ann.size,
+                }
+            ],
         )
     except Exception:  # metadata already promoted; a cache failure must not fail the prove flow
         log.warning(
@@ -1731,6 +1746,19 @@ def _prepare_prove_inputs(
     )
     cflags_list = safe_shlex_split(cflags_str)
 
+    from rebrew.verify_hash import comparison_inputs, comparison_inputs_current
+
+    measured_inputs = comparison_inputs(
+        cfg,
+        source_path,
+        target_bytes,
+        toolchain=toolchain,
+        cflags=cflags_str,
+        module=ann.module,
+        va=va,
+        context_hash="",
+    )
+
     # Watched VAs for memory side-effect checking: CLI flags + metadata.
     watched_vas: list[int] = list(watch_va or [])
     meta_vas = ann.prove_constraints.get("watched_vas") if ann.prove_constraints else None
@@ -1797,7 +1825,9 @@ def _prepare_prove_inputs(
             iat_region=build_iat_region(cfg),
         )
         if matched:
-            raise _AlreadyMatched("RELOC" if _vr else "EXACT")
+            if not comparison_inputs_current(cfg, source_path, measured_inputs):
+                measured_inputs = None
+            raise _AlreadyMatched("RELOC" if _vr else "EXACT", measured_inputs)
 
     prototype = ann.prototype or ""
     arg_constraints = ann.prove_constraints if ann.prove_constraints else None
@@ -1858,7 +1888,7 @@ def _prove_single(
     except _AlreadyMatched as m:
         # Bytes already match → promote to RELOC/EXACT instead of PROVEN.
         if not dry_run:
-            _promote_already_matched(cfg, ann, m.new_status)
+            _promote_already_matched(cfg, ann, m.new_status, m.measured_inputs)
             _clear_prove_counterexample(cfg, ann)
         # Sentinel prefix so batch mode can count this separately from failures.
         return False, f"ALREADY_MATCHED:{m.new_status}"

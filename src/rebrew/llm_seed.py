@@ -1112,9 +1112,10 @@ def _cache_key(
 ) -> str:
     """Identity of one seed request: everything the endpoint would see.
 
-    Endpoint, model, prompt version, seed count, and the *sanitized* source
-    (the exact user message).  A hit therefore means byte-identical prompt
-    text to the one already billed, not merely the same C function.
+    Endpoint, credential, model, prompt version, seed count, and the
+    *sanitized* source (the exact user message). A hit therefore means
+    byte-identical prompt text to the one already billed for the same account,
+    not merely the same C function.
 
     The signature the response was gated against is part of the identity too.
     The user message is truncated at :data:`_MAX_SOURCE_CHARS`, so two
@@ -1131,9 +1132,13 @@ def _cache_key(
     sanitized = _sanitize_source(source)
     full = _sanitize_full(source)
     full_digest = hashlib.sha256(full.encode("utf-8", errors="surrogateescape")).hexdigest()
+    credential_digest = hashlib.sha256(
+        conf.get("api_key", "").encode("utf-8", errors="surrogateescape")
+    ).hexdigest()
     return "\x00".join(
         (
             conf["endpoint"],
+            credential_digest,
             model,
             _PROMPT_VERSION,
             str(count),

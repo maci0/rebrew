@@ -2330,16 +2330,26 @@ def _size_divergence_action(ann_size: int, canonical: int, status: str | None) -
     return "warn"
 
 
-def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
+def patch_cache_from_results(
+    cfg: Any,
+    v_results: list[dict[str, Any]],
+    entries: list[SourceBinding] | None = None,
+) -> None:
     """Sync the verify cache from batch results (one read + one write).
 
     Used by ``rebrew test --all`` so promoted statuses show up in status/todo
     immediately.  A worker crash (INTERNAL_ERROR) is not a verdict and is
     never patched, nor is a row whose remote compile the service could not
-    run (it carries ``error``).
+    run (it carries ``error``). *entries* supplies the inputs each comparison
+    measured; a result without current inputs invalidates its old cached row.
     """
     from rebrew.verify_cache import patch_verify_cache_entries
 
+    inputs_by_va = {
+        int(entry.va): entry.comparison_inputs
+        for entry in (entries or ())
+        if getattr(entry, "comparison_inputs", None) is not None
+    }
     patches: list[dict[str, Any]] = []
     for r in v_results:
         va_int = try_parse_int(r.get("va"), base=16)
@@ -2360,6 +2370,8 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
             # Cache identity: the row's own context digest, so a patch never
             # leaves the entry pointing at the context of an earlier run.
             "context_hash": r.get("context_hash"),
+            "inputs": inputs_by_va.get(va_int, r.get("inputs")),
+            "size": r.get("size"),
         }
         pct = r.get("match_percent")
         if pct is not None:

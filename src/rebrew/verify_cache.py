@@ -1132,15 +1132,22 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
 
     *patches*: list of dicts with ``va`` (int), ``status``, optional byte
     counts ``match_count`` and ``total``, optional ``delta`` (int|None),
-    optional ``match_percent`` (float).  Without ``total``, a missing
-    ``delta`` keeps the cached one, and a missing ``match_percent`` keeps the
-    usable cached percent rather than overwriting it with 0; an unusable
-    percent becomes ``None``. An explicit ``match_percent`` takes precedence
-    over byte counts and is clamped to the finite percentage range;
-    recomputing ``match_count / total`` disagrees with
+    optional ``match_percent`` (float), and the comparison's ``inputs``.
+    Without ``total``, a missing ``delta`` keeps the cached one, and a missing
+    ``match_percent`` keeps the usable cached percent rather than overwriting
+    it with 0; an unusable percent becomes ``None``. An explicit
+    ``match_percent`` takes precedence over byte counts and is clamped to the
+    finite percentage range; recomputing ``match_count / total`` disagrees with
     :func:`rebrew.compiler.compile.classify_compare_result` whenever lengths differ
     (SIZE_MISMATCH / truncated compare), and status/todo would then rank ROI
     from a wrong percent until the next full verify.
+
+    A byte verdict without measured inputs, or whose source/header/compiler
+    inputs no longer match, removes the cached row instead of attaching the
+    verdict to whatever bytes happen to be on disk now. Metadata remains the
+    status source, and the next verify measures the current inputs. ``PROVEN``
+    is semantic evidence rather than a byte verdict, so it needs no compile
+    snapshot and metadata PROVEN already wins the status overlay.
     """
     if not patches:
         return
@@ -1176,6 +1183,43 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             entry = entries.get(va_key)
             if not isinstance(entry, dict):
                 continue  # No cached entry to patch
+            measured_path: Path | None = None
+            if p["status"] != "PROVEN":
+                measured = p.get("inputs")
+                valid = isinstance(measured, dict) and all(
+                    isinstance(measured.get(field), str)
+                    for field in (
+                        "source_hash",
+                        "headers_hash",
+                        "compiler_hash",
+                        "toolchain",
+                        "cflags",
+                        "defines",
+                    )
+                )
+                if valid:
+                    assert isinstance(measured, dict)
+                    try:
+                        from rebrew.verify_hash import comparison_inputs_current
+
+                        fspath = cfg.reversed_dir / entry.get("filepath", "")
+                        valid = (
+                            isinstance(entry.get("filepath"), str)
+                            and bool(entry["filepath"])
+                            and fspath.resolve().is_relative_to(cfg.reversed_dir.resolve())
+                            and int(str(measured.get("va")), 16) == p["va"]
+                            and comparison_inputs_current(cfg, fspath, measured)
+                        )
+                        if valid:
+                            measured_path = fspath
+                    except OSError, KeyError, TypeError, ValueError:
+                        valid = False
+                if not valid:
+                    # The old row may still override metadata. Drop it rather
+                    # than blessing a verdict measured against other bytes.
+                    if entries.pop(va_key, None) is not None:
+                        changed = True
+                    continue
             total = p.get("total", 0)
             match_pct: float | None
             if p.get("match_percent") is not None:
@@ -1219,7 +1263,8 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             # (bare source); only a present key is written.
             ctx_matches = "context_hash" not in p or entry.get("context_hash") == p["context_hash"]
             if (
-                entry.get("status", "") == p["status"]
+                measured_path is None
+                and entry.get("status", "") == p["status"]
                 and pct_matches
                 and entry.get("passed") == passed
                 and entry.get("delta") == delta
@@ -1232,59 +1277,23 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             entry["delta"] = delta
             if "context_hash" in p:
                 entry["context_hash"] = p["context_hash"]
+            if measured_path is not None:
+                measured = p["inputs"]
+                entry["mtime_ns"] = measured_path.stat().st_mtime_ns
+                entry["source_hash"] = measured["source_hash"]
+                entry["headers_fp"] = measured["headers_hash"]
+                entry["cflags"] = measured["cflags"]
+                entry["toolchain"] = measured["toolchain"]
+                entry["defines"] = measured["defines"]
+                entry["module"] = measured.get("module", entry.get("module", ""))
+                if "size" in p:
+                    entry["size"] = p["size"]
             entries[va_key] = entry
             changed = True
 
         if not changed:
             return
         raw["entries"] = entries
-        # Refresh the patched entry's freshness guards so a test-run patch
-        # cannot outlive the source it measured: without this, a later source
-        # edit whose mtime lands in the same slot (coarse filesystems, git
-        # checkout, sub-second agent edits) can pass the mtime fast-path and
-        # the patch's metrics are re-served as current.  Refreshing the hash
-        # is O(file size) but patches are rare (one per promotion).
-        for p in patches:
-            va_key = f"0x{p['va']:08x}"
-            entry = entries.get(va_key)
-            if not isinstance(entry, dict):
-                continue
-            fpath = entry.get("filepath", "")
-            if not fpath or not isinstance(fpath, str):
-                continue
-            fspath = cfg.reversed_dir / fpath
-            # The cache is a project file, but its ``filepath`` entries are
-            # text: an absolute or ``..`` path would make the refresh hash an
-            # arbitrary file outside reversed_dir.
-            if not fspath.resolve().is_relative_to(cfg.reversed_dir.resolve()):
-                continue
-            try:
-                st = fspath.stat()
-            except OSError as exc:
-                # The entry keeps the guards the patch was measured against.
-                # Consumption re-stats and re-hashes, so a changed source is
-                # still caught, but an operator debugging a stale verdict needs
-                # to know the refresh was skipped.
-                logging.warning(
-                    "verify cache entry for %s keeps its pre-patch freshness guards: %s",
-                    fspath,
-                    exc,
-                )
-                continue
-            entry["mtime_ns"] = st.st_mtime_ns
-            try:
-                from rebrew.verify_hash import entry_headers_fp, source_hash
-
-                entry["source_hash"] = source_hash(fspath)
-                entry["headers_fp"] = entry_headers_fp(cfg, fspath, entry.get("cflags", ""))
-            except OSError as exc:
-                logging.warning(
-                    "verify cache entry for %s keeps its pre-patch freshness guards: %s",
-                    fspath,
-                    exc,
-                )
-                continue
-            entries[va_key] = entry
 
         try:
             atomic_write_text(cache_path, _dump_toml(toml_document(raw)), encoding="utf-8")

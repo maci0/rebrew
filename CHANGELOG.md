@@ -8,6 +8,9 @@
 - A bare final `--target` and `rebrew cfg target list --json` use the `{"items","total"}` collection envelope. The selector keeps `default_target`; target rows keep `default`.
 - `rebrew build sweep-link-flags` exits 2 when no candidate links, after writing its report. An unavailable CLI plugin writes one JSON error envelope in JSON mode instead of mixing prose with structured stderr.
 - `rebrew cfg target add --dry-run` no longer creates directories or copies an absolute binary. `rebrew build symbol-stubs --dry-run --build-cmd` is rejected before the build can rename sources or rewrite CMake files.
+- Verification-cache promotions keep the source, header and compiler identity measured by the comparison. A patch whose inputs changed drops the old row instead of attaching the verdict to newer bytes.
+- LLM seed-cache entries are scoped to the API credential, so one account cannot reuse another account's generated seeds.
+- Verification fingerprints preserve last-wins ordering for repeated macro definitions while still treating distinct macro names as order-independent.
 
 ## [6.77.0] - 2026-11-24
 

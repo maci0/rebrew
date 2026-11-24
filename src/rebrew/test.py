@@ -169,6 +169,8 @@ def _patch_verify_cache(
     delta: int | None = None,
     match_percent: float | None = None,
     context_hash: str | None = None,
+    measured_inputs: dict[str, str] | None = None,
+    size: int | None = None,
     pending: list[dict[str, object]] | None = None,
 ) -> None:
     """Update the verify cache entry for *va* so status/todo stay in sync.
@@ -191,6 +193,10 @@ def _patch_verify_cache(
     source) and is part of the cache row's identity, so the patched entry
     records it rather than inheriting the previous run's.
 
+    *measured_inputs* identifies the source, headers and compiler inputs the
+    comparison measured. If they no longer match, the shared writer drops the
+    stale cache row instead of attaching this verdict to newer bytes.
+
     *pending* collects the patch instead of writing it.  One write costs a
     full read, JSON decode, identity check, re-serialize and locked rewrite
     of a document that grows with the function count, so a per-function loop
@@ -210,7 +216,10 @@ def _patch_verify_cache(
         "total": total,
         "delta": delta,
         "context_hash": context_hash,
+        "inputs": measured_inputs,
     }
+    if size is not None:
+        patch["size"] = size
     if match_percent is not None:
         patch["match_percent"] = match_percent
     if pending is not None:
@@ -1862,6 +1871,8 @@ def _run_test_impl(
                     delta=cmp.delta,
                     match_percent=cmp.match_percent,
                     context_hash=cmp.context_hash,
+                    measured_inputs=measured_inputs,
+                    size=size_val,
                 )
         elif dry_run:
             # --dry-run must not write: preview the STATUS change (the compile
@@ -1912,6 +1923,8 @@ def _run_test_impl(
                     delta=cmp.delta,
                     match_percent=cmp.match_percent,
                     context_hash=cmp.context_hash,
+                    measured_inputs=measured_inputs,
+                    size=size_val,
                 )
             if written and not json_output:
                 console.print(f"[dim]STATUS → {untrusted_ident(new_status)}[/dim]")
@@ -2461,6 +2474,8 @@ def _test_multi(
                             delta=cmp.delta,
                             match_percent=cmp.match_percent,
                             context_hash=cmp.context_hash,
+                            measured_inputs=measured_inputs,
+                            size=ann.size,
                             pending=cache_patches,
                         )
                 elif dry_run:
@@ -2512,6 +2527,8 @@ def _test_multi(
                             delta=cmp.delta,
                             match_percent=cmp.match_percent,
                             context_hash=cmp.context_hash,
+                            measured_inputs=measured_inputs,
+                            size=ann.size,
                             pending=cache_patches,
                         )
                     if written and not json_output:
@@ -2665,7 +2682,7 @@ def emit_test_batch(
     # Sync the verify cache so status/todo don't keep reporting stale
     # pre-batch statuses (the single-file path patches per function).
     if not no_promote:
-        patch_cache_from_results(cfg, batch.results)
+        patch_cache_from_results(cfg, batch.results, batch.entries)
     if json_output:
         # Same shape as `rebrew verify --json` (see build_report) —
         # verify-only extras are null on this path.  ``dry_run`` is the

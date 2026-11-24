@@ -1656,6 +1656,20 @@ class TestSeedCache:
         assert usage is not None
         assert usage.requests == 1
 
+    def test_changed_credential_is_resent(self) -> None:
+        """One account's model output must not seed another account's request."""
+        source = "int f(void) { return 0; }"
+        first = self._client("int f(void) { return 1; }")
+        second = self._client("int f(void) { return 2; }")
+
+        assert request_seeds(_cfg("https://llm/v1", api_key="account-a"), source, client=first) == [
+            "int f(void) { return 1; }"
+        ]
+        assert request_seeds(
+            _cfg("https://llm/v1", api_key="account-b"), source, client=second
+        ) == ["int f(void) { return 2; }"]
+        assert (first.calls, second.calls) == (1, 1)
+
     def test_connect_failure_is_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A prompt that never reached the provider remains free to retry later."""
         monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)

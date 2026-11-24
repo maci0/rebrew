@@ -501,6 +501,23 @@ class TestRequireConfigErrors:
 
 
 class TestLoadVerifyCacheRaw:
+    @staticmethod
+    def _inputs() -> dict[str, str]:
+        return {
+            "source_hash": "abc",
+            "headers_hash": "headers",
+            "compiler_hash": "deadbeef",
+            "toolchain": "(default)",
+            "cflags": "/O2 /Gd",
+            "defines": "(none)",
+            "module": "GAME",
+            "va": "0x1000",
+        }
+
+    @staticmethod
+    def _allow_current(monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("rebrew.verify_hash.comparison_inputs_current", lambda *_args: True)
+
     def test_verify_cache_copy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """load_verify_cache_raw returns a copy: mutating the result must not
         corrupt the memo for later readers in the same process."""
@@ -674,11 +691,22 @@ class TestLoadVerifyCacheRaw:
         path.write_text(cache_text(raw), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
         monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
+        self._allow_current(monkeypatch)
+        (tmp_path / "a.c").write_text("int f(void) { return 1; }\n", encoding="utf-8")
         assert vc_mod.load_verify_cache_raw(cfg)["entries"]["0x00001000"]["status"] == "STUB"
         assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
         vc_mod.patch_verify_cache_entries(
             cfg,
-            [{"va": 0x1000, "status": "RELOC", "match_count": 10, "total": 10, "delta": 0}],
+            [
+                {
+                    "va": 0x1000,
+                    "status": "RELOC",
+                    "match_count": 10,
+                    "total": 10,
+                    "delta": 0,
+                    "inputs": self._inputs(),
+                }
+            ],
         )
         assert vc_mod._VERIFY_CACHE_MEMO == {}
         reloaded = vc_mod.load_verify_cache_raw(cfg)
@@ -698,12 +726,28 @@ class TestLoadVerifyCacheRaw:
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         path = cache_dir / "verify_cache.toml"
-        entry = {"status": "STUB", "va": "0x00001000", "match_percent": 0.0, "delta": 7}
+        entry = {
+            "status": "STUB",
+            "va": "0x00001000",
+            "filepath": "a.c",
+            "match_percent": 0.0,
+            "delta": 7,
+        }
         path.write_text(cache_text({"entries": {"0x00001000": entry}}), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
         monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
+        self._allow_current(monkeypatch)
+        (tmp_path / "a.c").write_text("int f(void) { return 1; }\n", encoding="utf-8")
         patch_cache_from_results(
-            cfg, [{"va": "0x00001000", "status": "NEAR_MATCHING", "match_percent": 72.3}]
+            cfg,
+            [
+                {
+                    "va": "0x00001000",
+                    "status": "NEAR_MATCHING",
+                    "match_percent": 72.3,
+                    "inputs": self._inputs(),
+                }
+            ],
         )
         patched = tomllib.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert patched["match_percent"] == 72.3
@@ -727,11 +771,22 @@ class TestLoadVerifyCacheRaw:
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         path = cache_dir / "verify_cache.toml"
-        entry = {"status": "STUB", "va": "0x00001000", "match_percent": 64.5, "delta": 7}
+        entry = {
+            "status": "STUB",
+            "va": "0x00001000",
+            "filepath": "a.c",
+            "match_percent": 64.5,
+            "delta": 7,
+        }
         path.write_text(cache_text({"entries": {"0x00001000": entry}}), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
         monkeypatch.setattr(vc_mod, "cache_identity_matches", lambda _raw, _cfg: True)
-        patch_cache_from_results(cfg, [{"va": "0x00001000", "status": "NEAR_MATCHING"}])
+        self._allow_current(monkeypatch)
+        (tmp_path / "a.c").write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        patch_cache_from_results(
+            cfg,
+            [{"va": "0x00001000", "status": "NEAR_MATCHING", "inputs": self._inputs()}],
+        )
         patched = tomllib.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert patched["status"] == "NEAR_MATCHING"
         assert patched["match_percent"] == 64.5

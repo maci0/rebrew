@@ -748,6 +748,12 @@ def _run_one_stub_ga(
                                     "match_count": stub.size or 0,
                                     "total": stub.size or 0,
                                     "delta": 0,
+                                    # The splice replaced the source after the
+                                    # confirmation compile. Let verify measure
+                                    # the final file instead of caching the
+                                    # temporary candidate's identity.
+                                    "inputs": None,
+                                    "size": stub.size,
                                 }
                             ],
                         )
@@ -1723,6 +1729,7 @@ def _run_batch_flag_sweep(
         cflags_updated = False
         confirmed = False
         resolved = ""
+        measured_inputs: dict[str, str] | None = None
         if is_exact and fix_cflags and best_flags and name_to_va:
             # The sweep's reloc-masked score alone cannot certify a match:
             # score_candidate masks every reloc slot, so a candidate that
@@ -1736,6 +1743,7 @@ def _run_batch_flag_sweep(
                 from rebrew.compiler.compile import compile_and_compare
                 from rebrew.compiler.overrides import resolve_compile_overrides
                 from rebrew.formats.binary_loader import extract_raw_bytes
+                from rebrew.verify_hash import comparison_inputs, comparison_inputs_current
 
                 target_bytes = extract_raw_bytes(cfg.target_binary, int(stub.va, 16), stub.size)
                 if target_bytes:
@@ -1753,16 +1761,29 @@ def _run_batch_flag_sweep(
                         stub.cflags or None,
                         getattr(stub, "module", ""),
                     )
+                    measured_flags = f"{resolved} {best_flags}".strip()
+                    measured_inputs = comparison_inputs(
+                        cfg,
+                        stub.filepath,
+                        target_bytes,
+                        toolchain=resolved_tc,
+                        cflags=measured_flags,
+                        module=stub.module,
+                        va=int(stub.va, 16),
+                        context_hash="",
+                    )
                     cmp_res = compile_and_compare(
                         cfg,
                         stub.filepath,
                         stub.symbol,
                         target_bytes,
-                        f"{resolved} {best_flags}".strip(),
+                        measured_flags,
                         name_to_va=name_to_va,
                         section_va=int(stub.va, 16),
                         toolchain=resolved_tc,
                     )
+                    if not comparison_inputs_current(cfg, stub.filepath, measured_inputs):
+                        measured_inputs = None
                     confirmed = cmp_res.matched
                     if not confirmed and not json_output:
                         console.print(
@@ -1841,6 +1862,8 @@ def _run_batch_flag_sweep(
                                 "match_count": stub.size or 0,
                                 "total": stub.size or 0,
                                 "delta": 0,
+                                "inputs": measured_inputs,
+                                "size": stub.size,
                             }
                         ],
                     )

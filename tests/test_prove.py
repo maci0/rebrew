@@ -1653,7 +1653,12 @@ class TestPromoteAlreadyMatched:
     def test_updates_metadata_and_verify_cache(self, tmp_path: Path) -> None:
 
         from rebrew.prove import _promote_already_matched
-        from rebrew.verify_hash import compiler_config_hash, headers_hash
+        from rebrew.verify_hash import (
+            DEFAULT_TOOLCHAIN,
+            comparison_inputs,
+            compiler_config_hash,
+            headers_hash,
+        )
 
         cfg = self._make_cfg(tmp_path)
         va = 0x1000
@@ -1690,8 +1695,21 @@ class TestPromoteAlreadyMatched:
             encoding="utf-8",
         )
 
-        ann = SimpleNamespace(va=va, module="GAME")
-        _promote_already_matched(cfg, ann, "EXACT")
+        source = cfg.reversed_dir / "func_a.c"
+        source.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        measured_inputs = comparison_inputs(
+            cfg,
+            source,
+            b"",
+            toolchain=DEFAULT_TOOLCHAIN,
+            cflags="/O2 /Gd",
+            module="GAME",
+            va=va,
+            context_hash="",
+        )
+        assert measured_inputs is not None
+        ann = SimpleNamespace(va=va, module="GAME", size=8)
+        _promote_already_matched(cfg, ann, "EXACT", measured_inputs)
 
         from rebrew.metadata.functions import load_metadata
 
@@ -1725,7 +1743,7 @@ class TestPromoteAlreadyMatched:
         original = {"version": 2, "entries": {}}
         cache_path.write_text(cache_text(original), encoding="utf-8")
 
-        _promote_already_matched(cfg, SimpleNamespace(va=va, module="GAME"), "EXACT")
+        _promote_already_matched(cfg, SimpleNamespace(va=va, module="GAME", size=8), "EXACT", None)
 
         from rebrew.metadata.functions import load_metadata
 

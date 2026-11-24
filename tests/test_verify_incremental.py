@@ -673,14 +673,44 @@ class TestPatchVerifyCacheEntries:
             },
         }
         cache_path.write_text(cache_text(data), encoding="utf-8")
+        source = cfg.reversed_dir / "func_a.c"
+        if not source.exists():
+            source.write_text("int f(void) { return 1; }\n", encoding="utf-8")
         return cache_path
 
-    def test_patches_status(self, tmp_path: Path) -> None:
+    @staticmethod
+    def _inputs(cfg: ProjectConfig, va: int = 0x1000) -> dict[str, str]:
+        from rebrew.verify_hash import comparison_inputs
+
+        source = cfg.reversed_dir / "func_a.c"
+        if not source.exists():
+            source.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        inputs = comparison_inputs(
+            cfg,
+            cfg.reversed_dir / "func_a.c",
+            b"",
+            toolchain=DEFAULT_TOOLCHAIN,
+            cflags="/O2 /Gd",
+            module=cfg.target_name,
+            va=va,
+            context_hash="",
+        )
+        assert inputs is not None
+        return inputs
+
+    def _patch(self, cfg: ProjectConfig, patches: list[dict[str, Any]]) -> None:
         from rebrew.verify_cache import patch_verify_cache_entries
+
+        for patch in patches:
+            if patch["status"] != "PROVEN" and "inputs" not in patch:
+                patch["inputs"] = self._inputs(cfg, int(patch["va"]))
+        patch_verify_cache_entries(cfg, patches)
+
+    def test_patches_status(self, tmp_path: Path) -> None:
 
         cfg = _make_cfg(tmp_path)
         self._make_cache(tmp_path, cfg, status="STUB")
-        patch_verify_cache_entries(
+        self._patch(
             cfg,
             [
                 {
@@ -712,7 +742,6 @@ class TestPatchVerifyCacheEntries:
     def test_patch_discards_unusable_cached_percent(
         self, tmp_path: Path, percent: Any, measured: bool, already_current: bool
     ) -> None:
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         status = "RELOC" if measured else "PROVEN"
@@ -723,7 +752,7 @@ class TestPatchVerifyCacheEntries:
         patch: dict[str, Any] = {"va": 0x1000, "status": status}
         if measured:
             patch.update(match_count=8, total=8, delta=0)
-        patch_verify_cache_entries(cfg, [patch])
+        self._patch(cfg, [patch])
         raw = load_verify_cache_raw(cfg)
         assert raw is not None
         entry = raw["entries"]["0x00001000"]
@@ -742,7 +771,6 @@ class TestPatchVerifyCacheEntries:
         overwrite the last real measurement, so todo's ROI ranking read a
         perfect match as a 0% one until the next full verify.
         """
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
@@ -751,7 +779,7 @@ class TestPatchVerifyCacheEntries:
         data["entries"]["0x00001000"]["delta"] = 8
         cache_path.write_text(cache_text(data), encoding="utf-8")
 
-        patch_verify_cache_entries(cfg, [{"va": 0x1000, "status": "PROVEN"}])
+        self._patch(cfg, [{"va": 0x1000, "status": "PROVEN"}])
 
         entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert entry["status"] == "PROVEN"
@@ -761,14 +789,12 @@ class TestPatchVerifyCacheEntries:
     @pytest.mark.parametrize("payload", [b"\xff\xfe not utf-8", b"[1, 2]"])
     def test_patch_ignores_unreadable_cache(self, tmp_path: Path, payload: bytes) -> None:
         """A non-UTF-8 or non-object cache degrades to "nothing to patch"."""
-        from rebrew.verify_cache import patch_verify_cache_entries, verify_cache_matches_cfg
+        from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="STUB")
         cache_path.write_bytes(payload)
-        patch_verify_cache_entries(
-            cfg, [{"va": 0x1000, "status": "RELOC", "match_count": 8, "total": 8}]
-        )
+        self._patch(cfg, [{"va": 0x1000, "status": "RELOC", "match_count": 8, "total": 8}])
         assert cache_path.read_bytes() == payload
         assert verify_cache_matches_cfg(cache_path, cfg) is False
 
@@ -779,7 +805,6 @@ class TestPatchVerifyCacheEntries:
         status; the old status-equality guard skipped the write, so todo's
         prover queue kept reading the stale 60% and filtered the candidate out.
         """
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
@@ -788,7 +813,7 @@ class TestPatchVerifyCacheEntries:
         data["entries"]["0x00001000"]["delta"] = 40
         cache_path.write_text(cache_text(data), encoding="utf-8")
 
-        patch_verify_cache_entries(
+        self._patch(
             cfg,
             [
                 {
@@ -813,7 +838,6 @@ class TestPatchVerifyCacheEntries:
         later bare ``rebrew verify`` serve a verdict compiled under
         declarations.
         """
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
@@ -821,7 +845,7 @@ class TestPatchVerifyCacheEntries:
         data["entries"]["0x00001000"]["context_hash"] = "stale-digest"
         cache_path.write_text(cache_text(data), encoding="utf-8")
 
-        patch_verify_cache_entries(
+        self._patch(
             cfg,
             [
                 {
@@ -851,7 +875,6 @@ class TestPatchVerifyCacheEntries:
         ``None`` is a reported value (bare source); an absent key means the
         caller had no context to report, which must not be read as "bare".
         """
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
@@ -859,7 +882,7 @@ class TestPatchVerifyCacheEntries:
         data["entries"]["0x00001000"]["context_hash"] = "kept-digest"
         cache_path.write_text(cache_text(data), encoding="utf-8")
 
-        patch_verify_cache_entries(
+        self._patch(
             cfg,
             [
                 {
@@ -881,11 +904,10 @@ class TestPatchVerifyCacheEntries:
         while classify used target length — recomputing would drift the cache
         percent that status/todo read for ROI ranking.
         """
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         self._make_cache(tmp_path, cfg, status="SIZE_MISMATCH")
-        patch_verify_cache_entries(
+        self._patch(
             cfg,
             [
                 {
@@ -907,7 +929,6 @@ class TestPatchVerifyCacheEntries:
     def test_patch_keeps_percent_below_near_threshold(self, tmp_path: Path) -> None:
         """A STUB at 59.96% must not be cached as 60.0 (the NEAR_MATCHING line)."""
         from rebrew.compiler.compile import NEAR_MATCH_THRESHOLD
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         self._make_cache(tmp_path, cfg, status="STUB")
@@ -916,13 +937,12 @@ class TestPatchVerifyCacheEntries:
             {"va": 0x1000, "status": "STUB", "match_percent": 59.96, "delta": 1},
             {"va": 0x1000, "status": "STUB", "match_count": 1499, "total": 2500},
         ):
-            patch_verify_cache_entries(cfg, [patch])
+            self._patch(cfg, [patch])
             entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
             assert entry["match_percent"] < NEAR_MATCH_THRESHOLD * 100
 
     def test_wrong_target_not_patched(self, tmp_path: Path) -> None:
         """A cache written for a different target must not be touched."""
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         self._make_cache(tmp_path, cfg, status="STUB")
@@ -936,7 +956,7 @@ class TestPatchVerifyCacheEntries:
             compiler_includes=cfg.compiler_includes,
             compiler_libs=cfg.compiler_libs,
         )
-        patch_verify_cache_entries(
+        self._patch(
             other,
             [
                 {
@@ -953,10 +973,9 @@ class TestPatchVerifyCacheEntries:
 
     def test_no_patch_when_absent(self, tmp_path: Path) -> None:
         """No cache file → no crash, no file created."""
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
-        patch_verify_cache_entries(
+        self._patch(
             cfg,
             [
                 {
@@ -970,23 +989,61 @@ class TestPatchVerifyCacheEntries:
         )
         assert not (tmp_path / ".rebrew" / "verify_cache.toml").exists()
 
+    @pytest.mark.parametrize("changed", ["source", "header"])
+    def test_patch_rejects_inputs_changed_after_measurement(
+        self, tmp_path: Path, changed: str
+    ) -> None:
+        """A verdict measured before an edit must not adopt the edited identity."""
+        from rebrew.verify_hash import comparison_inputs
+
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src" / "func_a.c"
+        header = tmp_path / "src" / "func_a.h"
+        src.write_text('#include "func_a.h"\nint f(void) { return VALUE; }\n', encoding="utf-8")
+        header.write_text("#define VALUE 1\n", encoding="utf-8")
+        cache_path = self._make_cache(tmp_path, cfg, status="STUB")
+        inputs = comparison_inputs(
+            cfg,
+            src,
+            b"",
+            toolchain=DEFAULT_TOOLCHAIN,
+            cflags="/O2 /Gd",
+            module=cfg.target_name,
+            va=0x1000,
+            context_hash="",
+        )
+        assert inputs is not None
+        (src if changed == "source" else header).write_text(
+            "int f(void) { return 2; }\n" if changed == "source" else "#define VALUE 2\n",
+            encoding="utf-8",
+        )
+
+        self._patch(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "RELOC",
+                    "match_count": 8,
+                    "total": 8,
+                    "delta": 0,
+                    "inputs": inputs,
+                }
+            ],
+        )
+
+        entries = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]
+        assert "0x00001000" not in entries
+
     def test_patch_refreshes_freshness_guards(self, tmp_path: Path) -> None:
-        """A patch refreshes mtime_ns + source_hash to the file on disk.
-
-        The patch previously updated only the result payload, leaving the
-        guards from whatever earlier verify wrote the entry.  A later edit
-        whose mtime collides then passes the fast-path and the patch's
-        metrics are re-served as current.
-        """
+        """A patch records the mtime_ns + source_hash it actually measured."""
         import hashlib
-
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src" / "func_a.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
         cache_path = self._make_cache(tmp_path, cfg, status="STUB")
-        patch_verify_cache_entries(
+        self._patch(
             cfg,
             [
                 {
@@ -1001,6 +1058,16 @@ class TestPatchVerifyCacheEntries:
         entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert entry["mtime_ns"] == src.stat().st_mtime_ns
         assert entry["source_hash"] == hashlib.sha256(src.read_bytes()).hexdigest()
+
+    def test_unchanged_metrics_still_refresh_measured_identity(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._make_cache(tmp_path, cfg, status="RELOC")
+        self._patch(
+            cfg,
+            [{"va": 0x1000, "status": "RELOC", "match_count": 8, "total": 8, "delta": 0}],
+        )
+        entry = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert entry["source_hash"] == self._inputs(cfg)["source_hash"]
 
     def test_identity_swapped_under_lock_not_patched(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1017,7 +1084,6 @@ class TestPatchVerifyCacheEntries:
         from contextlib import contextmanager
 
         import rebrew.verify_cache as verify_cache_mod
-        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="STUB")
@@ -1034,7 +1100,7 @@ class TestPatchVerifyCacheEntries:
                 yield
 
         monkeypatch.setattr(verify_cache_mod, "_verify_cache_write_lock", swapping_lock)
-        patch_verify_cache_entries(
+        self._patch(
             cfg,
             [
                 {
@@ -1087,7 +1153,16 @@ class TestPatchVerifyCacheEntries:
             try:
                 assert waiting.wait(5)
                 cache_mod.patch_verify_cache_entries(
-                    cfg, [{"va": 0x1000, "status": "RELOC", "match_count": 8, "total": 8}]
+                    cfg,
+                    [
+                        {
+                            "va": 0x1000,
+                            "status": "RELOC",
+                            "match_count": 8,
+                            "total": 8,
+                            "inputs": self._inputs(cfg),
+                        }
+                    ],
                 )
             finally:
                 resume.set()
@@ -2487,6 +2562,18 @@ class TestEntryFingerprint:
         second = entry_fingerprint(cfg, entry)
         assert first is not None and second is not None
         assert first.defines == second.defines
+
+    def test_duplicate_defines_preserve_last_wins_order(self, tmp_path: Path) -> None:
+        """Reordering a repeated macro changes the program and the cache key."""
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text("int a(void) { return A; }\n", encoding="utf-8")
+        entry = SimpleNamespace(filepath="a.c", size=4, cflags="", module="", toolchain="")
+        cfg.defines = ["A=1", "A=2"]
+        first = entry_fingerprint(cfg, entry)
+        cfg.defines = ["A=2", "A=1"]
+        second = entry_fingerprint(cfg, entry)
+        assert first is not None and second is not None
+        assert first.defines != second.defines
 
     def test_source_edit_changes_the_source_hash(self, tmp_path: Path) -> None:
         """The hash, not just mtime, is what makes a content edit a miss.
