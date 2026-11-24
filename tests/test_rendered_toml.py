@@ -35,9 +35,10 @@ def _same(got: Any, expected: Any, where: str = "$") -> None:
 def _agrees(text: str) -> None:
     try:
         expected = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        with pytest.raises(tomllib.TOMLDecodeError):
+    except tomllib.TOMLDecodeError as error:
+        with pytest.raises(tomllib.TOMLDecodeError) as actual:
             rendered_toml.loads(text)
+        assert str(actual.value) == str(error)
         return
     _same(rendered_toml.loads(text), expected)
 
@@ -77,6 +78,12 @@ kind = "FUNCTION"
 def test_the_rendered_layout_is_read_on_the_fast_path_and_matches() -> None:
     _same(_parse(_RENDERED), tomllib.loads(_RENDERED))
     _same(rendered_toml.loads(_RENDERED), tomllib.loads(_RENDERED))
+
+
+def test_repeated_field_keys_are_local_to_their_table() -> None:
+    text = '[a]\nsize = 1\nname = "f"\n[b]\n"name" = "g"\n"size" = 2\n'
+    _same(_parse(text), tomllib.loads(text))
+    _agrees(text + "size = 3\n")
 
 
 @pytest.mark.parametrize(

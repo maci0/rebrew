@@ -24,6 +24,7 @@ import json
 import re
 import tomllib
 from typing import Any
+lazy from functools import lru_cache
 
 _BARE_KEY = re.compile(r"[A-Za-z0-9_-]+")
 _INTEGER = re.compile(r"-?(?:0|[1-9][0-9]*)")
@@ -118,6 +119,9 @@ def _parse(text: str) -> dict[str, Any]:
         raise _Fallback
     root: dict[str, Any] = {}
     current = root
+    # Field names repeat across rows. The cache belongs to this parse and
+    # excludes header paths, which mostly contain distinct record identities.
+    field_key = lru_cache(maxsize=128)(_key)
     #: Tables a ``[header]`` declared, and arrays ``[[header]]`` made, by id.
     declared: set[int] = set()
     arrays: set[int] = set()
@@ -172,12 +176,12 @@ def _parse(text: str) -> dict[str, Any]:
             close = line.find('"', 1)
             if close < 0 or not line.startswith(" = ", close + 1):
                 raise _Fallback
-            key, literal = _key(line[: close + 1]), line[close + 4 :]
+            key, literal = field_key(line[: close + 1]), line[close + 4 :]
         else:
             separator = line.find(" = ")
             if separator < 0:
                 raise _Fallback
-            key, literal = _key(line[:separator]), line[separator + 3 :]
+            key, literal = field_key(line[:separator]), line[separator + 3 :]
         if key in current:
             raise _Fallback
         current[key] = _value(literal)
