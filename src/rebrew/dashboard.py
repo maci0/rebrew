@@ -44,7 +44,7 @@ Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
 served client drops its full-line comments (they stay in the source). The
-entry checkpoint measured 11235 B zstd / 11802 B gzip against a 13600 B budget;
+entry checkpoint measured 11337 B zstd / 11915 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -436,7 +436,7 @@ function formatWhen(value) {
 }
 function setFunctionsEmptyMessage() {
   const el = $("empty-state");
-  if (filtersActive()) {
+  if (filtersActive("functions")) {
     const m = moduleFilterState();
     const onlyQuery = !$("status").value && !m.blank && !m.value && !!$("q").value.trim();
     if (onlyQuery) {
@@ -456,7 +456,7 @@ function bindEmptyClear(btnId, inputId) {
 }
 function setGlobalsEmptyMessage() {
   const el = $("globals-empty");
-  if ($("gq").value.trim()) {
+  if (filtersActive("globals")) {
     el.innerHTML = "No globals match this search. <button type='button' id='empty-clear-gq' class='link-button'>Clear search</button> or try another name.";
     bindEmptyClear("empty-clear-gq", "gq");
   } else {
@@ -524,9 +524,9 @@ function selectAnyModule() {
   const any = select.querySelector && select.querySelector("option[value='']");
   if (any && (!any.dataset || any.dataset.filter !== "blank")) any.selected = true;
 }
-function filtersActive() {
-  if (currentView === "globals") return !!$("gq").value.trim();
-  if (currentView !== "functions") return false;
+function filtersActive(view = currentView) {
+  if (view === "globals") return !!$("gq").value.trim();
+  if (view !== "functions") return false;
   const moduleState = moduleFilterState();
   return !!($("status").value || moduleState.blank || moduleState.value || $("q").value.trim());
 }
@@ -620,12 +620,12 @@ function setModuleOptions(byModule) {
   // Pending stays until renderSummary: loadSummary paints an empty menu first.
 }
 function setListPageMessage(opts) {
-  const { count, total, noun, nounOne, hintId, moreWrapId, moreBtnId, tip, tipCapped } = opts;
+  const { count, total, noun, nounOne, hintId, moreWrapId, moreBtnId, tip, tipCapped, filtered } = opts;
   const hint = $(hintId);
   const more = moreWrapId ? $(moreWrapId) : null;  // null: sections is unpaged
   if (!total) {
     // "No functions match" is a claim about the filters, not the target.
-    $("results-status").textContent = "No " + noun + (filtersActive() ? " match" : " yet");
+    $("results-status").textContent = "No " + noun + (filtered ? " match" : " yet");
     hint.hidden = true;
     hint.textContent = "";
     if (more) more.hidden = true;
@@ -708,6 +708,7 @@ function renderFunctions(data, options) {
     moreBtnId: "show-more",
     tip: "Use Show more below, or narrow Status, Module, or Search.",
     tipCapped: "Narrow Status, Module, or Search: display stops at " + PAGE_MAX + " rows.",
+    filtered: filtersActive("functions"),
   });
   setFunctionsEmptyMessage();
   $("empty-state").hidden = shown !== 0;
@@ -833,6 +834,9 @@ async function loadSummary() {
   }
 }
 function scheduleSearch() {
+  // Leaving before the debounce fires cancels the load, so the cached rows no
+  // longer match the text still in the box. Reload them if the reader returns.
+  viewLoaded.functions = false;
   clearTimeout(searchTimer);
   updateFilterActions();
   searchTimer = setTimeout(() => {
@@ -841,6 +845,7 @@ function scheduleSearch() {
   }, 200);
 }
 function scheduleGlobalsSearch() {
+  viewLoaded.globals = false;
   clearTimeout(globalsSearchTimer);
   updateFilterActions();
   globalsSearchTimer = setTimeout(() => {
@@ -884,6 +889,7 @@ function renderSections(data) {
     nounOne: "section",
     hintId: "sections-hint",
     moreWrapId: null,
+    filtered: false,
   });
 }
 const globalRowHtml = (r) => {
@@ -916,6 +922,7 @@ function renderGlobals(data, options) {
     moreBtnId: "show-more-globals",
     tip: "Use Show more below, or narrow the search.",
     tipCapped: "Narrow the search: display stops at " + PAGE_MAX + " rows.",
+    filtered: filtersActive("globals"),
   });
   updateFilterActions();
   syncError();
@@ -951,6 +958,7 @@ function renderHistory(data, options) {
     moreBtnId: "show-more-history",
     tip: "Use Show more below to load older entries.",
     tipCapped: "Display stops at " + PAGE_MAX + " rows.",
+    filtered: false,
   });
 }
 async function loadSections() {
@@ -1302,6 +1310,15 @@ async function init() {
   bindControls();
   $("no-targets").hidden = !!targets.length;
   if (!targets.length) {
+    $("controls").hidden = true;
+    $("views").hidden = true;
+    $("summary").hidden = true;
+    VIEWS.forEach((name) => ($("view-" + name).hidden = true));
+    $("target").innerHTML = "";
+    $("target").disabled = true;
+    loadErrors.summary = loadErrors.functions = loadErrors.view = "";
+    syncError();
+    document.title = "Rebrew coverage dashboard";
     $("results-status").textContent = "No targets in the coverage documents";
     return;
   }

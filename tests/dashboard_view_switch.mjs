@@ -23,6 +23,11 @@ const globalsPage = {
 	total: 1,
 	globals: [["0x00403000", "g_flag", "int g_flag", 4, "game"]],
 };
+const searchedGlobalsPage = {
+	count: 1,
+	total: 1,
+	globals: [["0x00403000", "g_searched", "int g_searched", 4, "game"]],
+};
 
 const requested = [];
 globalThis.fetch = async (path) => {
@@ -36,7 +41,9 @@ globalThis.fetch = async (path) => {
 				: url.pathname === "/api/functions"
 					? functionPage("Searched")
 					: url.pathname === "/api/globals"
-						? globalsPage
+						? url.searchParams.has("q")
+							? searchedGlobalsPage
+							: globalsPage
 						: {};
 	return { ok: true, json: async () => body };
 };
@@ -75,3 +82,36 @@ assert.equal(
 	0,
 	"the Functions view was not queried behind the reader's back",
 );
+
+// Returning to a view whose search was canceled must apply the text still in
+// its box. Reusing the cached unfiltered rows would claim a search that never
+// ran.
+setView("functions");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(
+	requested.filter((path) => path === "/api/functions").length,
+	1,
+	"Functions reloads when the reader returns to its pending search",
+);
+assert.match(el("rows").innerHTML, /Searched/);
+assert.match(el("q").value, /Win/);
+
+// Globals owns the other debounced search and follows the same rule.
+el("gq").value = "g_";
+el("gq").oninput();
+setView("functions");
+await new Promise((resolve) => setTimeout(resolve, 400));
+assert.equal(
+	requested.filter((path) => path === "/api/globals").length,
+	1,
+	"the Globals search was not queried behind the reader's back",
+);
+setView("globals");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(
+	requested.filter((path) => path === "/api/globals").length,
+	2,
+	"Globals reloads when the reader returns to its pending search",
+);
+assert.match(el("globals-rows").innerHTML, /g_searched/);
+assert.equal(el("gq").value, "g_");

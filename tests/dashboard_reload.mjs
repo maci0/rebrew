@@ -62,7 +62,7 @@ globalThis.fetch = (path) => {
 		return Promise.resolve({
 			ok: true,
 			json: async () =>
-				boot === 0
+				boot === 0 || boot === 3
 					? { targets: [] }
 					: {
 							targets: ["t"],
@@ -121,3 +121,19 @@ assert.equal(bootCalls.length, booted + 2);
 assert.match(elements.get("rows").innerHTML, /second/);
 assert.equal(elements.get("reload").textContent, "Reload");
 assert.equal(elements.get("reload").disabled, false);
+
+// Coverage can disappear while the page is open. Reload must replace the old
+// target's controls and tables with the empty state, not leave stale data under
+// a message that says there are no targets.
+boot = 3;
+await elements.get("reload").onclick();
+assert.equal(elements.get("no-targets").hidden, false);
+assert.equal(elements.get("controls").hidden, true);
+assert.equal(elements.get("views").hidden, true);
+assert.equal(elements.get("summary").hidden, true);
+assert.equal(elements.get("view-functions").hidden, true);
+assert.equal(
+	document.title,
+	"Rebrew coverage dashboard",
+	"the title no longer names the removed target",
+);

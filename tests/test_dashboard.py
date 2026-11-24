@@ -796,6 +796,9 @@ class TestViewSwitch:
     def test_pending_search_debounce_does_not_load_the_view_left_behind(self) -> None:
         _run_script("dashboard_view_switch.mjs")
 
+    def test_hidden_function_results_keep_their_own_filter_context(self) -> None:
+        _run_script("dashboard_hidden_filter_state.mjs")
+
 
 class TestLoadErrors:
     def test_error_messages_carry_the_server_reason(self) -> None:
@@ -947,7 +950,7 @@ class TestHandle:
         # ..." read as two).
         assert "No functions recorded for this target yet" in body
         # An empty result says whether the filters or the target emptied it.
-        assert '(filtersActive() ? " match" : " yet")' in body
+        assert '(filtered ? " match" : " yet")' in body
         assert "setGlobalsEmptyMessage" in body
         assert "setFunctionsEmptyMessage" in body
         assert 'id="retry-summary"' in body
@@ -2558,7 +2561,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 11235), ("gzip", None)],
+        [("zstd", 11337), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None
