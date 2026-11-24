@@ -9,7 +9,7 @@ lazy import tomllib
 lazy import unicodedata
 lazy from collections.abc import Callable, Iterator
 lazy from pathlib import Path
-lazy from typing import Any
+lazy from typing import Any, cast
 
 lazy from tomlkit.exceptions import ParseError
 
@@ -31,6 +31,7 @@ __all__ = [
     "metadata_database_documents",
     "metadata_paths",
     "preserve_displaced",
+    "read_metadata_database_documents",
     "reading",
     "restore_metadata_database",
     "restore_metadata_toml",
@@ -1255,8 +1256,8 @@ def snapshot_metadata_database(root: Path, dest: Path) -> Path:
     return dest
 
 
-def metadata_database_documents(database: Path) -> dict[str, str]:
-    """Validate an isolated database and hash every persisted logical document."""
+def _read_metadata_database(database: Path, convert: Callable[[str], Any]) -> dict[str, Any]:
+    """Validate an isolated database and convert each document in one query."""
     from rebrew.metadata.replication import STATE_PATH
     from rebrew.metadata.storage import managed_metadata_filenames
     from rebrew.utils import portable_path_parts
@@ -1274,7 +1275,7 @@ def metadata_database_documents(database: Path) -> dict[str, str]:
             _check_database_schema(connection, database)
             if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise MetadataStorageError(f"{database}: metadata integrity check failed")
-            documents = {}
+            documents: dict[str, Any] = {}
             for path, content in connection.execute(
                 "SELECT path, content FROM metadata_documents ORDER BY path"
             ):
@@ -1288,11 +1289,25 @@ def metadata_database_documents(database: Path) -> dict[str, str]:
                     or not isinstance(content, str)
                 ):
                     raise MetadataStorageError(f"{database}: invalid isolated metadata document")
-                tomllib.loads(content)
-                documents[path] = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                documents[path] = convert(content)
             return documents
-    except (sqlite3.Error, ValueError, UnicodeError) as exc:
+    except (sqlite3.Error, ValueError, UnicodeError, ParseError) as exc:
         raise MetadataStorageError(f"{database}: invalid isolated metadata: {exc}") from exc
+
+
+def metadata_database_documents(database: Path) -> dict[str, str]:
+    """Validate an isolated database and hash every persisted logical document."""
+
+    def digest(content: str) -> str:
+        tomllib.loads(content)
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    return cast("dict[str, str]", _read_metadata_database(database, digest))
+
+
+def read_metadata_database_documents(database: Path) -> dict[str, dict[str, Any]]:
+    """Validate an isolated database and parse every document in one query."""
+    return cast("dict[str, dict[str, Any]]", _read_metadata_database(database, rendered_toml.loads))
 
 
 def backup_metadata_database(root: Path, backup_dir: Path) -> Path:

@@ -17,7 +17,12 @@ lazy from rebrew.errors import RebrewError
 lazy from rebrew.metadata.document import parse_metadata_key
 lazy from rebrew.metadata.records import metadata_records
 lazy from rebrew.metadata.replication import STATE_PATH
-lazy from rebrew.metadata.sqlite import DATABASE_FILENAME, SqliteStore, metadata_database_documents
+lazy from rebrew.metadata.sqlite import (
+    DATABASE_FILENAME,
+    SqliteStore,
+    metadata_database_documents,
+    read_metadata_database_documents,
+)
 lazy from rebrew.metadata.storage import (
     MetadataStore,
     backend_routes,
@@ -159,8 +164,11 @@ def describe_metadata(
         _refuse_foreign(root, backend)
     try:
         documents = _logical_digests(root, backend)
-        for relative in documents:
-            _store(root, backend, relative).read(f"{relative} metadata")
+        if backend != "sqlite":
+            # The SQLite bulk reader already parses every document to validate
+            # the isolated database; do not query and parse each one again.
+            for relative in documents:
+                _store(root, backend, relative).read(f"{relative} metadata")
         files = _physical_files(root, backend, documents)
     except (OSError, ValueError) as exc:
         raise MetadataSetError(str(exc)) from exc
@@ -187,6 +195,8 @@ def read_metadata_documents(root: Path) -> dict[str, dict[str, Any]]:
     backend = metadata_backend(root)
     _refuse_foreign(root, backend)
     try:
+        if backend == "sqlite":
+            return read_metadata_database_documents(root / DATABASE_FILENAME)
         return {
             relative: _store(root, backend, relative).read(f"{relative} metadata")
             for relative in _logical_digests(root, backend)

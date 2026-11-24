@@ -99,6 +99,65 @@ class TestDescribe:
             ],
         }
 
+    def test_sqlite_describe_reuses_the_bulk_document_validation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.sqlite import SqliteStore
+
+        config, _ = _stage(tmp_path)
+        entries = _sqlite_entries(tmp_path, config)
+
+        def reread(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("the bulk database read already parsed every document")
+
+        monkeypatch.setattr(SqliteStore, "read", reread)
+        status, reply = _call(config, "rebrew.metadata_describe", {"files": entries})
+        assert status == 200, reply
+        assert [row["path"] for row in reply["documents"]] == [
+            "rebrew-data.toml",
+            "rebrew-functions.toml",
+        ]
+
+    def test_sqlite_document_reads_use_one_bulk_query(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.sqlite import SqliteStore
+        from rebrew.metadata_sets import read_metadata_documents
+
+        config, _ = _stage(tmp_path)
+        _sqlite_entries(tmp_path, config)
+        isolated = tmp_path / "isolated"
+        isolated.mkdir()
+        for name in ("rebrew-project.toml", DATABASE_FILENAME):
+            (isolated / name).write_bytes((tmp_path / "producer" / name).read_bytes())
+
+        def reread(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            raise AssertionError("the bulk database read already parsed every document")
+
+        monkeypatch.setattr(SqliteStore, "read", reread)
+        documents = read_metadata_documents(isolated)
+        assert set(documents) == {"rebrew-data.toml", "rebrew-functions.toml"}
+        assert documents["rebrew-data.toml"]["MINI.0x00402000"]["name"] == "g_counter"
+
+    def test_sqlite_bulk_document_read_still_refuses_malformed_toml(self, tmp_path: Path) -> None:
+        import sqlite3
+
+        from rebrew.metadata_sets import MetadataSetError, read_metadata_documents
+
+        config, _ = _stage(tmp_path)
+        _sqlite_entries(tmp_path, config)
+        isolated = tmp_path / "isolated"
+        isolated.mkdir()
+        for name in ("rebrew-project.toml", DATABASE_FILENAME):
+            (isolated / name).write_bytes((tmp_path / "producer" / name).read_bytes())
+        with sqlite3.connect(isolated / DATABASE_FILENAME) as connection:
+            connection.execute(
+                "UPDATE metadata_documents SET content = ? WHERE path = ?",
+                ("format = [", "rebrew-data.toml"),
+            )
+        with pytest.raises(MetadataSetError, match="invalid isolated metadata"):
+            read_metadata_documents(isolated)
+
     @pytest.mark.parametrize(
         ("change", "detail"),
         [

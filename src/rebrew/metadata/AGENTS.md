@@ -10,7 +10,7 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `data.py` | `rebrew-data.toml` store for DATA/GLOBAL rows |
 | `storage.py` | `MetadataStore` protocol, backend selection, discovery and review-input API |
 | `files.py` | Default TOML backend, `.d/*.toml` discovery and ownership-preserving writes |
-| `sqlite.py` | Experimental project-wide SQLite backend and cross-store transactions |
+| `sqlite.py` | Experimental project-wide SQLite backend, cross-store transactions, and bulk document validation/reads |
 | `pgsql.py` | Optional PostgreSQL backend, project namespaces and cross-client transactions |
 | `replication.py` | Ordered readers, durable write journal, tombstones and causal reconciliation |
 | `locking.py` | Reentrant project and physical-storage locks |

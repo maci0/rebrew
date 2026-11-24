@@ -1154,6 +1154,34 @@ class TestProjectOps:
             "fcn_00401010",
         ]
 
+    def test_project_report_resolves_each_function_source_once(
+        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.ops as ops
+        from rebrew.coverage_project import load_project_coverage
+
+        _config, project = world
+        view = load_project_coverage(project, refresh=True)
+        monkeypatch.setattr(
+            "rebrew.coverage_project.load_project_coverage", lambda *args, **kwargs: view
+        )
+        resolved: list[Path] = []
+        resolve = Path.resolve
+
+        def counted(path: Path, *args: Any, **kwargs: Any) -> Path:
+            if path.suffix == ".c":
+                resolved.append(path)
+            return resolve(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "resolve", counted)
+        report = ops.project_report(project, None, include_source=True)
+        functions = report["targets"][0]["functions"]
+        assert len(resolved) == len(functions)
+        assert {row["source_path"] for row in functions} == {
+            "src/mini/fcn_00401000.c",
+            "src/mini/fcn_00401010.c",
+        }
+
     def test_import_project_build_db_reads_live_coverage(
         self, world: tuple[WorkerConfig, Path]
     ) -> None:

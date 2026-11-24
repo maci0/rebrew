@@ -4006,13 +4006,18 @@ def project_report(
     for name in sorted(coverage):
         entry = table.get(name, {})
         cfg = load_config(root, target=name) if include_source else None
+        resolved_root = root.resolve() if include_source else root
 
-        def source_path(row: Any, source_dir: Path = cfg.reversed_dir if cfg else root) -> str:
+        def source_path(
+            row: Any,
+            source_dir: Path = cfg.reversed_dir if cfg else root,
+            project_root: Path = resolved_root,
+        ) -> str:
             paths: set[str] = set()
             for value in row.files:
                 path = (source_dir / value).resolve()
-                if path.is_relative_to(root.resolve()) and path.is_file():
-                    paths.add(path.relative_to(root.resolve()).as_posix())
+                if path.is_relative_to(project_root) and path.is_file():
+                    paths.add(path.relative_to(project_root).as_posix())
             return next(iter(paths)) if len(paths) == 1 else ""
 
         binary = target_binary(root, entry) if entry else None
@@ -4023,8 +4028,11 @@ def project_report(
             if binary is not None
             else {}
         )
-        functions: list[dict[str, Any]] = [
-            {
+        functions: list[dict[str, Any]] = []
+        for row in sorted(coverage[name].functions, key=lambda row: row.va):
+            if row.markerType in _DATA_MARKERS:
+                continue
+            item = {
                 "va": row.va,
                 "name": symbol_names.get(row.va, (0, row.name.strip()))[1]
                 if row.name.strip() == f"fcn_{row.va:08x}"
@@ -4033,13 +4041,10 @@ def project_report(
                 if row.name.strip() == f"fcn_{row.va:08x}"
                 else max(0, row.size or 0),
                 "status": row.status,
-                **(
-                    {"source_path": source_path(row)} if include_source and source_path(row) else {}
-                ),
             }
-            for row in sorted(coverage[name].functions, key=lambda row: row.va)
-            if row.markerType not in _DATA_MARKERS
-        ]
+            if include_source and (source := source_path(row)):
+                item["source_path"] = source
+            functions.append(item)
         import_stubs: dict[int, str] = find_import_stubs(binary) if binary is not None else {}
         # An import thunk that is also a function row is one identity.  A row
         # nobody worked on (generated name, STUB) is an import: older discovery
@@ -4052,10 +4057,10 @@ def project_report(
             or row["name"] != f"fcn_{row['va']:08x}"
             or row["status"] != "STUB"
         ]
-        for row in functions:
-            stub = import_stubs.pop(row["va"], None)
-            if stub is not None and row["name"] == f"fcn_{row['va']:08x}":
-                row["name"] = stub
+        for function in functions:
+            stub = import_stubs.pop(function["va"], None)
+            if stub is not None and function["name"] == f"fcn_{function['va']:08x}":
+                function["name"] = stub
         stubs = sorted(import_stubs.items())
         targets.append(
             {
