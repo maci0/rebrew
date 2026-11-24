@@ -91,15 +91,28 @@ _LIEF_ENTRY_POINTS = (
 
 
 def _refuse_lief_bytes() -> None:
-    """Wrap each LIEF entry point to raise on a ``bytes`` argument; see the module docstring."""
+    """Wrap each LIEF entry point to raise on a ``bytes`` argument from rebrew's own code.
+
+    A test may hand LIEF bytes it built (a PE holds NUL bytes, which LIEF never
+    reads as a path); the guard holds the shipped code, the caller one frame up.
+    """
+    import sys
+    from pathlib import Path
+
     import lief
+
+    import rebrew
+
+    package = str(Path(rebrew.__file__).parent)
 
     for module_name, name in _LIEF_ENTRY_POINTS:
         module = getattr(lief, module_name) if module_name else lief
         real = getattr(module, name)
 
         def guarded(source: Any, *args: Any, _real: Any = real, **kwargs: Any) -> Any:
-            if isinstance(source, (bytes, bytearray, memoryview)):
+            if isinstance(source, (bytes, bytearray, memoryview)) and sys._getframe(
+                1
+            ).f_code.co_filename.startswith(package):
                 raise TypeError(
                     "LIEF was given bytes, which it opens as a path when they spell one;"
                     " pass io.BytesIO(data)"

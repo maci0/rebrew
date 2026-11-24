@@ -1235,9 +1235,36 @@ class PublishedMetadata(TypedDict):
     documents: list[LogicalDocument]
 
 
+class AppliedVerdict(TypedDict, total=False):
+    """The applied candidate's ``rebrew test --json`` verdict, EXACT or RELOC (any other is
+    refused): the members of :class:`VerifyFunctionReply` but ``remote_compile``, which the
+    apply reply carries beside it, and the not-run ones, which a byte match never has."""
+
+    source: Required[str]
+    symbol: Required[str]
+    va: Required[str]
+    size: Required[int]
+    status: Required[str]
+    match_count: Required[int]
+    total: Required[int]
+    reloc_count: Required[int]
+    obj_size: Required[int]
+    context_hash: Required[str | None]
+    mismatches: Required[list[ByteMismatch]]
+    compile: Required[CompileRecord | None]
+    relocation_bindings: list[RelocationBinding]
+    aligned_pairs: int
+    target_instructions: int
+    candidate_instructions: int
+    hunks: int
+    similarity: float
+    instructions: InstructionComparison
+    compile_inputs: CompileInputs
+    verdict_valid: bool
+
+
 class ApplyCandidateReply(TypedDict):
-    #: the candidate's verdict, EXACT or RELOC (any other is refused)
-    result: VerifyFunctionReply
+    result: AppliedVerdict
     files: list[AppliedFile]
     metadata: PublishedMetadata
     attested_registry_digest: str

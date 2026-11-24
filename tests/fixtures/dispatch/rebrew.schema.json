@@ -1609,78 +1609,6 @@
                   }
                 ]
               },
-              "error": {
-                "additionalProperties": false,
-                "properties": {
-                  "error_code": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "group": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "kind": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "name": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "retry_after": {
-                    "oneOf": [
-                      {
-                        "type": "number"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "retryable": {
-                    "type": "boolean"
-                  },
-                  "status_code": {
-                    "oneOf": [
-                      {
-                        "type": "integer"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "type": {
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              },
               "hunks": {
                 "type": "integer"
               },
@@ -1911,19 +1839,6 @@
                 },
                 "type": "array"
               },
-              "not_run_reason": {
-                "enum": [
-                  "network",
-                  "http",
-                  "validation",
-                  "protocol",
-                  "service",
-                  "deadline",
-                  "compiler_withdrawn",
-                  "compiler_not_installed"
-                ],
-                "type": "string"
-              },
               "obj_size": {
                 "type": "integer"
               },
@@ -1990,30 +1905,6 @@
                 },
                 "type": "array"
               },
-              "remote_compile": {
-                "additionalProperties": false,
-                "properties": {
-                  "billed_undelivered": {
-                    "type": "integer"
-                  },
-                  "count": {
-                    "type": "integer"
-                  },
-                  "unsettled": {
-                    "type": "integer"
-                  },
-                  "wait_ms": {
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "count",
-                  "billed_undelivered",
-                  "unsettled",
-                  "wait_ms"
-                ],
-                "type": "object"
-              },
               "similarity": {
                 "type": "number"
               },
@@ -2054,8 +1945,7 @@
               "obj_size",
               "context_hash",
               "mismatches",
-              "compile",
-              "remote_compile"
+              "compile"
             ],
             "type": "object"
           }
