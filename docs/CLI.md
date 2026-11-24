@@ -85,7 +85,7 @@ In JSON mode the kind is `confirmation_required`, and those writes require
 `--force` instead of prompting.
 A compile the toolchain ran and rejected (`rebrew test`'s COMPILE ERROR) exits 2
 with kind `toolchain_rejected` and the compiler's diagnostics as the message; a
-toolchain or compile service that could not run is kind `failure`.
+toolchain or compile service that could not run is `NOT_RUN`, exit 2.
 Continuous watch modes are terminal-only. `--watch --json` is rejected.
 `sync watch` has no `--json` option. `rebrew -o json sync watch` exits 2
 before export or the watch loop. For one structured result, use `sync push --json`.
@@ -397,8 +397,10 @@ graph TD
 ```
 
 
-If the remote compile service provides no compiler verdict, the result is
-`NOT_RUN`. The JSON row carries a structured error with `kind`, `error_code`,
+If the remote compile service, or the local toolchain, provides no compiler verdict, the
+result is `NOT_RUN`. Locally that is a `ToolchainError`: a container runtime that ran no
+compiler (`docker run` or `podman run` exit 125, 126 or 127), a compile killed (137), a
+timeout, a missing image. The JSON row carries a structured error with `kind`, `error_code`,
 `retryable`, and `message`. Rebrew preserves the stored STATUS and cached
 verification result. A compiler rejection is `COMPILE_ERROR`.
 
@@ -7223,7 +7225,8 @@ Op details the contract leaves open:
   answers 200 with the `rebrew test` report whose `status` is `NOT_RUN`, with
   `not_run_reason` (the compile client's outcome kind: `network`, `http`,
   `validation`, `protocol`, `service` or `deadline`, or `compiler_withdrawn` or
-  `compiler_not_installed`; `rebrew.ops_replies.NotRunReason`), `error` (the
+  `compiler_not_installed`, or `toolchain_not_run` for a local toolchain that gave no
+  verdict; `rebrew.ops_replies.NotRunReason`), `error` (the
   structured `RecompileError` without its message: `status_code`, `error_code`,
   `retry_after`, `retryable`) and `verdict_valid` false, the same status as a
   `verify_target` row, which carries the same two members; the compile client's

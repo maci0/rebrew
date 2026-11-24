@@ -296,7 +296,7 @@ IN_PROCESS_TIMEOUT_SECONDS = 600
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "55cd900d6a819553ed909f8e9e2fcabc50d9548060f1f3871a3c45fdfb3199e0"
+DISPATCH_SCHEMA_SHA256 = "c6b7c8a320d11a942b5d574f32e366950ffa8c2e240f60e5b03a9e47be51afc3"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -862,6 +862,9 @@ def _not_run_detail(error: Any) -> str:
     logged where it received them (``recompile_client.compile_source``).
     """
     fields = error if isinstance(error, dict) else {}
+    if fields.get("type") == "ToolchainError":
+        # The runtime's own words (hosts, paths) go to the worker log, never here.
+        return "the toolchain did not run the compile: nothing was applied"
     status = fields.get("status_code")
     code = fields.get("error_code")
     named = [
@@ -909,9 +912,12 @@ def _not_run_reason(verdict: dict[str, Any]) -> None:
     fields = error if isinstance(error, dict) else {}
     # The error keeps its structured fields; its message carries the client's words.
     fields.pop("message", None)
+    kind = fields.get("type")
     reason = (
         fields.get("error_code")
-        if fields.get("type") == "CompilerNotOffered"
+        if kind == "CompilerNotOffered"
+        else "toolchain_not_run"
+        if kind == "ToolchainError"
         else fields.get("kind")
     )
     if reason not in get_args(NotRunReason):
@@ -4509,6 +4515,12 @@ def _applied(
 
     if result.get("status") == "NOT_RUN":
         error = result.get("error")
+        logger.warning(
+            "%s apply_candidate: the compile did not run: %s trace_id=%s",
+            _request_id(),
+            _escape_log_text(str(result.get("message", ""))),
+            _trace_id(),
+        )
         wait = error.get("retry_after") if isinstance(error, dict) else None
         raise OpsError(
             _not_run_detail(error),

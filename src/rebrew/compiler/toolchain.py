@@ -1494,6 +1494,9 @@ def run_toolchain(
             )
         except (UnshareError, ConfigError, OSError) as exc:
             raise ToolchainError(str(exc), kind="invocation", name=spec.name) from exc
+        if result.returncode != 125:
+            # 125 is the container runtimes' own code; the namespace helper has no such status.
+            _refuse_compiler_not_run("unshare", result.returncode, result.stderr, spec.name)
         return RunResult(result.returncode, result.stdout, result.stderr, backend="unshare")
     runtime = (
         container_runtime() if execution_backend is None else container_runtime(execution_backend)

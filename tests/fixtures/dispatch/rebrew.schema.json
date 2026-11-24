@@ -3125,7 +3125,8 @@
                     "service",
                     "deadline",
                     "compiler_withdrawn",
-                    "compiler_not_installed"
+                    "compiler_not_installed",
+                    "toolchain_not_run"
                   ],
                   "type": "string"
                 },
@@ -13530,7 +13531,8 @@
               "service",
               "deadline",
               "compiler_withdrawn",
-              "compiler_not_installed"
+              "compiler_not_installed",
+              "toolchain_not_run"
             ],
             "type": "string"
           },
@@ -14546,7 +14548,8 @@
                     "service",
                     "deadline",
                     "compiler_withdrawn",
-                    "compiler_not_installed"
+                    "compiler_not_installed",
+                    "toolchain_not_run"
                   ],
                   "type": "string"
                 },

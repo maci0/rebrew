@@ -666,6 +666,23 @@ def classify_compare_result(
             error=error,
         )
 
+    from rebrew.compiler.toolchain import ToolchainError
+
+    if isinstance(error, ToolchainError):
+        # The local toolchain never gave a verdict on the source (a runtime that
+        # ran no compiler, a timeout, a missing image): no compile error either.
+        return CompareResult(
+            matched=False,
+            status="NOT_RUN",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message=f"not run (toolchain): {error}",
+            match_count=0,
+            error=error,
+        )
+
     if "COMPILE_ERROR" in msg or obj_bytes is None:
         return CompareResult(
             matched=False,

@@ -1658,3 +1658,45 @@ def test_a_target_op_refuses_a_compiler_not_offered_before_any_work(
     assert (status, refusal["error"]) == (400, "compiler-not-offered"), refusal
     assert reason in refusal["detail"]
     assert not seen
+
+
+def test_a_compile_the_toolchain_never_ran_applies_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A local ToolchainError is no verdict: 503 compile-not-run, a fixed sentence, no files.
+
+    The runtime's own line can name hosts and paths: it reaches the worker log, never the reply.
+    """
+    from typer.testing import CliRunner
+
+    from rebrew import ops
+    from rebrew.app.main import app as umbrella
+    from rebrew.compiler.compile import classify_compare_result
+    from rebrew.compiler.toolchain import ToolchainError
+
+    daemon = "docker did not run the compiler (exit 125): daemon on host build-7 refused"
+    monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
+
+    def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(umbrella, [str(a) for a in args])
+        return json.loads(result.stdout)  # type: ignore[no-any-return]
+
+    monkeypatch.setattr(ops, "run_rebrew", run)
+    monkeypatch.setattr(
+        "rebrew.test.compile_and_compare",
+        lambda *a, **k: classify_compare_result(
+            False,
+            f"COMPILE_ERROR: {daemon}",
+            b"\xc3" * 11,
+            None,
+            None,
+            error=ToolchainError(daemon, kind="invocation", retryable=True),
+        ),
+    )
+    config, entries = _stage(tmp_path)
+    status, raw = dispatch(config, "rebrew.apply_candidate", _request(entries))
+    refusal = json.loads(raw)
+    assert (status, refusal["error"]) == (503, "compile-not-run"), refusal
+    assert refusal["detail"] == "the toolchain did not run the compile: nothing was applied"
+    assert "build-7" not in raw.decode()

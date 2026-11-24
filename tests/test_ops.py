@@ -2853,49 +2853,20 @@ class TestReconstructionOps:
         # The rejection is a verdict recompile bills: the in-process compile counted it.
         assert refusal["remote_compile"]["count"] == 1
 
-    @staticmethod
-    def _local_runtime(monkeypatch: pytest.MonkeyPatch, bin_dir: Path, status: int) -> None:
-        """A ``docker`` on PATH whose images exist and whose ``run`` exits *status*."""
-        import rebrew.compiler.toolchain as toolchain
-
-        bin_dir.mkdir()
-        runtime = bin_dir / "docker"
-        runtime.write_text(
-            "#!/bin/sh\n"
-            'if [ "$1" = run ]; then\n'
-            "  echo \"fcn.c(3) : error C2065: 'nope' : undeclared identifier\"\n"
-            '  echo "$FAKE_RUN_STDERR" >&2\n'
-            '  exit "$FAKE_RUN_STATUS"\n'
-            "fi\n"
-            'if [ "$1" = image ] && [ "$3" = --format ]; then\n'
-            "  echo sha256:" + "a" * 64 + "\n"
-            "fi\n"
-            "exit 0\n"
-        )
-        runtime.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
-        monkeypatch.delenv("REBREW_CONTAINER_RUNTIME", raising=False)
-        monkeypatch.setenv("FAKE_RUN_STATUS", str(status))
-        monkeypatch.setenv(
-            "FAKE_RUN_STDERR",
-            "docker: Error response from daemon: failed to create task" if status != 1 else "",
-        )
-        # The runtime memos are process-wide: start them empty and leave them as they were.
-        monkeypatch.setattr(toolchain, "_docker_available_cache", None)
-        monkeypatch.setattr(toolchain, "_runtime_availability", set())
-        monkeypatch.setattr(toolchain, "_image_presence", {})
-        monkeypatch.setattr(toolchain, "_toolchain_digest_cache", {})
-
     @pytest.mark.parametrize("status", [125, 126, 127, 137])
-    def test_a_runtime_that_ran_no_compiler_is_no_rejection_of_the_source(
+    def test_a_runtime_that_ran_no_compiler_answers_not_run(
         self,
         world: tuple[WorkerConfig, Path],
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         status: int,
     ) -> None:
-        """Exit 125 to 127 and 137 come from the runtime or a kill: no verdict, nothing written."""
+        """Exit 125 to 127 and 137 come from the runtime or a kill: no verdict, nothing written.
+
+        The runtime's own line can name hosts and paths: it reaches the worker log, not the reply.
+        """
+        from fake_runtime import DAEMON_LINE, DIAGNOSTIC, install_fake_runtime
+
         from rebrew.config import load_config
         from rebrew.metadata.functions import load_metadata
 
@@ -2903,19 +2874,50 @@ class TestReconstructionOps:
         source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
         metadata_dir = load_config(project).metadata_dir
         before = load_metadata(metadata_dir)
-        self._local_runtime(monkeypatch, tmp_path / "bin", status)
+        install_fake_runtime(monkeypatch, tmp_path / "bin", status)
         body = json.dumps({"project_dir": str(project), "source": source}).encode()
-        refusal = _refusal(config, "rebrew.verify_function", body)
-        assert (refusal["status"], refusal["error"]) == (500, "engine-error"), refusal
-        assert "C2065" not in refusal["detail"], refusal
+        code, raw = dispatch(config, "rebrew.verify_function", body)
+        reply = json.loads(raw)
+        assert (code, reply["status"], reply["not_run_reason"]) == (
+            200,
+            "NOT_RUN",
+            "toolchain_not_run",
+        ), reply
+        assert reply["error"]["kind"] == "invocation"
+        assert reply["error"]["retryable"] is (status in (125, 137))
+        assert "message" not in reply and "message" not in reply["error"]
+        assert DAEMON_LINE not in raw.decode() and "C2065" not in raw.decode()
+        assert DIAGNOSTIC.split(":")[0] not in raw.decode()
         assert load_metadata(metadata_dir) == before
+
+    def test_a_target_verification_counts_a_runtime_that_ran_nothing_as_not_run(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No row of a compile that did not run reads COMPILE_ERROR or counts as one."""
+        from fake_runtime import DAEMON_LINE, install_fake_runtime
+
+        config, project = _project_copy(world, "verify_target_runtime")
+        install_fake_runtime(monkeypatch, tmp_path / "bin", 125)
+        body = json.dumps({"project_dir": str(project), "no_promote": True}).encode()
+        code, raw = dispatch(config, "rebrew.verify_target", body)
+        report = json.loads(raw)
+        assert code == 200, report
+        rows = report["results"]
+        assert rows and {(row["status"], row.get("not_run_reason")) for row in rows} == {
+            ("NOT_RUN", "toolchain_not_run")
+        }, rows
+        assert report["summary"]["compile_error"] == 0
+        assert report["summary"]["not_run"] == len(rows)
+        assert DAEMON_LINE not in raw.decode()
 
     def test_a_local_compiler_that_rejects_the_source_is_still_a_rejection(
         self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from fake_runtime import install_fake_runtime
+
         config, project = _project_copy(world, "verify_function_local_rejected")
         source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
-        self._local_runtime(monkeypatch, tmp_path / "bin", 1)
+        install_fake_runtime(monkeypatch, tmp_path / "bin", 1)
         body = json.dumps({"project_dir": str(project), "source": source}).encode()
         refusal = _refusal(config, "rebrew.verify_function", body)
         assert (refusal["status"], refusal["error"]) == (422, "toolchain-rejected"), refusal

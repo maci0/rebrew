@@ -103,6 +103,25 @@ class TestUnshareRouting:
         assert calls[0][1] == ["/DVALUE=a b", "f.c"]
         assert calls[0][2]["entrypoint"] == "/usr/local/bin/cl"
 
+    @pytest.mark.parametrize(("status", "retryable"), [(126, False), (127, False), (137, True)])
+    def test_a_compiler_the_namespace_could_not_run_is_a_tooling_failure(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, status: int, retryable: bool
+    ) -> None:
+        def direct(image: str, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(args, status, "", "exec: cl: not found\n")
+
+        monkeypatch.setattr(unshare, "run_unshare", direct)
+        with pytest.raises(ToolchainError, match=f"exit {status}") as caught:
+            run_toolchain(
+                TOOLCHAINS["msvc-6.0-sp5"],
+                ["f.c"],
+                workdir=tmp_path,
+                image_id=_IMAGE_ID,
+                execution_backend="unshare",
+            )
+        assert (caught.value.kind, caught.value.retryable) == ("invocation", retryable)
+        assert "exec: cl: not found" in str(caught.value)
+
     @pytest.mark.parametrize("image_id", [None, "sha256:short", "mutable:tag"])
     def test_missing_pin_is_not_a_docker_fallback(
         self, tmp_path: Path, image_id: str | None

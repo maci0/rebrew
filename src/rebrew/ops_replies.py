@@ -29,9 +29,10 @@ from typing import (
 
 log = logging.getLogger(__name__)
 
-#: Why a remote compile has no verdict (status ``NOT_RUN``): the kind of the
-#: recompile client's failure (``rebrew.compiler.recompile_client.RecompileErrorKind``),
-#: or the code of a compiler that is not offered (``CompilerNotOffered.error_code``).
+#: Why a compile has no verdict (status ``NOT_RUN``): the kind of the recompile
+#: client's failure (``rebrew.compiler.recompile_client.RecompileErrorKind``), the code
+#: of a compiler that is not offered (``CompilerNotOffered.error_code``), or
+#: ``toolchain_not_run`` for a local toolchain that gave none (a ``ToolchainError``).
 NotRunReason = Literal[
     "network",
     "http",
@@ -41,6 +42,7 @@ NotRunReason = Literal[
     "deadline",
     "compiler_withdrawn",
     "compiler_not_installed",
+    "toolchain_not_run",
 ]
 
 

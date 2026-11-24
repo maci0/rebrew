@@ -505,7 +505,7 @@ class TestARejectionIsNotAFailureToRun:
     def test_a_rejected_source_carries_no_error_and_a_missing_compiler_does(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """``COMPILE_ERROR`` without ``error`` is the toolchain's verdict on the source."""
+        """``COMPILE_ERROR`` is the toolchain's verdict on the source; a compiler that cannot run is ``NOT_RUN``."""
         from rebrew.compiler.compile import compile_and_compare
         from rebrew.compiler.toolchain import ToolchainError
 
@@ -524,7 +524,7 @@ class TestARejectionIsNotAFailureToRun:
         not_run = compile_and_compare(
             _cfg(root, remote=False), source, "f", b"\x00", "", use_cache=False
         )
-        assert not_run.status == "COMPILE_ERROR"
+        assert not_run.status == "NOT_RUN"
         assert isinstance(not_run.error, ToolchainError)
 
 
