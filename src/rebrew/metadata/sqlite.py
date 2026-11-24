@@ -30,6 +30,7 @@ __all__ = [
     "metadata_database_documents",
     "metadata_paths",
     "preserve_displaced",
+    "reading",
     "restore_metadata_database",
     "restore_metadata_toml",
     "rotate_preserved_copy",
@@ -151,6 +152,33 @@ def _connections() -> dict[Path, sqlite3.Connection]:
     return connections
 
 
+#: A reader kept by :func:`reading`: the connection and the ``(st_dev, st_ino)`` it opened.
+_Reader = tuple[sqlite3.Connection, tuple[int, int]]
+
+
+@contextlib.contextmanager
+def reading() -> Iterator[None]:
+    """Keep one read-only connection per database for the reads of this thread inside.
+
+    Without it every read opens a connection and checks the schema again. A
+    connection is opened and checked at its first read, opened again when the
+    database file is replaced, and closed when the outermost block exits, also on
+    error. Between statements it holds no lock (autocommit), so a write in the
+    block commits without waiting on it, and the next read sees that write.
+    """
+    if getattr(_CONNECTIONS, "readers", None) is not None:
+        yield
+        return
+    readers: dict[Path, _Reader] = {}
+    _CONNECTIONS.readers = readers
+    try:
+        yield
+    finally:
+        _CONNECTIONS.readers = None
+        for connection, _identity in readers.values():
+            connection.close()
+
+
 class SqliteStore:
     """One logical metadata document inside a project SQLite database.
 
@@ -182,34 +210,57 @@ class SqliteStore:
             except sqlite3.Error as exc:
                 raise MetadataStorageError(f"{self.location}: {exc}") from exc
             return
+        readers: dict[Path, _Reader] | None = getattr(_CONNECTIONS, "readers", None)
         try:
-            self.location.stat()
+            stat = self.location.stat()
         except FileNotFoundError:
+            if readers is not None and (kept := readers.pop(self.location, None)) is not None:
+                kept[0].close()
             yield None
             return
+        identity = (stat.st_dev, stat.st_ino)
         try:
-            with contextlib.closing(
-                sqlite3.connect(self.location.as_uri() + "?mode=ro", uri=True, timeout=30)
-            ) as connection:
-                connection.execute("PRAGMA busy_timeout = 30000")
-                try:
-                    self._check_schema(connection)
-                except MetadataStorageError:
-                    # A 6.24.0 database (user_version 1, legacy DDL) is upgraded
-                    # in place on first access, even for a read: the read-only
-                    # check above rejects it, so upgrade through the write path
-                    # and retry the read on the migrated database.
-                    if not _is_migratable_legacy(self.location):
-                        raise
-                    with self.transaction():
-                        pass
-                    connection.execute("PRAGMA busy_timeout = 30000")
-                    self._check_schema(connection)
-                yield connection
+            if readers is None:
+                with contextlib.closing(self._open_reader()) as connection:
+                    yield connection
+                return
+            kept = readers.get(self.location)
+            if kept is not None and kept[1] != identity:
+                # The file was replaced (a restore renames over it): check the new one.
+                del readers[self.location]
+                kept[0].close()
+                kept = None
+            if kept is None:
+                kept = (self._open_reader(), identity)
+                readers[self.location] = kept
+            yield kept[0]
         except sqlite3.OperationalError as exc:
             raise MetadataUnavailableError(f"{self.location}: {exc}") from exc
         except sqlite3.Error as exc:
             raise MetadataStorageError(f"{self.location}: {exc}") from exc
+
+    def _open_reader(self) -> sqlite3.Connection:
+        """A read-only connection to the database whose schema is checked."""
+        connection = sqlite3.connect(self.location.as_uri() + "?mode=ro", uri=True, timeout=30)
+        try:
+            connection.execute("PRAGMA busy_timeout = 30000")
+            try:
+                self._check_schema(connection)
+            except MetadataStorageError:
+                # A 6.24.0 database (user_version 1, legacy DDL) is upgraded
+                # in place on first access, even for a read: the read-only
+                # check above rejects it, so upgrade through the write path
+                # and retry the read on the migrated database.
+                if not _is_migratable_legacy(self.location):
+                    raise
+                with self.transaction():
+                    pass
+                connection.execute("PRAGMA busy_timeout = 30000")
+                self._check_schema(connection)
+        except BaseException:
+            connection.close()
+            raise
+        return connection
 
     def _row(self) -> tuple[str, int] | None:
         with self._reader() as connection:

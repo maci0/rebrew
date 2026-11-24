@@ -5412,10 +5412,11 @@ def _refusing_disagreeing_records(what: str) -> Iterator[None]:
 def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mapping[str, Any]:
     """*op*'s reply to *request*, as its declared reply when :mod:`rebrew.ops_replies` declares one."""
     from rebrew.metadata.bindings import binding_conflicts
+    from rebrew.metadata.sqlite import reading
     from rebrew.ops_replies import DECLARED
 
     try:
-        with binding_conflicts() as skipped:
+        with binding_conflicts() as skipped, reading():
             reply = op.run(config, request)
     except OpsError:
         raise

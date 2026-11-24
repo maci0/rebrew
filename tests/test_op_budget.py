@@ -4,12 +4,14 @@ Each op below runs on the two-function ``mini_pe.exe`` analysis, and the
 test counts what its second call (the first pays one-time process reads)
 does that costs more than computing: fsyncs, subprocess
 spawns, SQL statements, retained snapshot builds, binary parses, source tree
-scans, and files opened.  :data:`FLOOR` is the least each of the first six
-can be for one call; :data:`OVER_FLOOR` lists the counts still above it, so a
-regression fails here and so does an improvement left off the list, which can
-only shrink.  Files opened have no floor: :data:`OPENS` holds each op's
-ceiling at this fixture.  Instructions are measured by a script outside the
-gate, never asserted.
+scans, files opened and SQLite connections.  :data:`FLOOR` is the least each
+of the first six can be for one call; :data:`OVER_FLOOR` lists the counts
+still above it, so a regression fails here and so does an improvement left off
+the list, which can only shrink.  Files opened have no floor: :data:`OPENS`
+holds each op's ceiling at this fixture, and :data:`CONNECTIONS` the SQLite
+connections each op may open (``rebrew.analyse`` keeps a project's metadata in
+SQLite).  Instructions are measured by a script outside the gate, never
+asserted.
 """
 
 from __future__ import annotations
@@ -56,9 +58,19 @@ FLOOR = {
 #: ``(case, counter)`` still over :data:`FLOOR`, with the count this fixture
 #: answers.  Empty is the goal; an entry leaves when its count reaches the floor.
 OVER_FLOOR: dict[tuple[str, str], int] = {
-    # Each read of an SQLite-backed metadata store opens a connection and checks
-    # the schema again (73 connections for two functions).
-    ("coverage_report retained", "sql"): 365,
+    # The retained snapshot's SQLite store: its validation (schema, integrity
+    # check, every document), one reader's schema check, and the document reads.
+    ("coverage_report retained", "sql"): 81,
+}
+
+#: SQLite connections per call: the retained snapshot's validation and one reader.
+CONNECTIONS = {
+    "coverage_report retained": 2,
+    "coverage_report project": 0,
+    "instruction_listing": 0,
+    "pe_info": 0,
+    "strings": 0,
+    "imports": 0,
 }
 
 #: Files opened per call at this fixture: a ceiling, not a floor.
@@ -182,6 +194,7 @@ def _counting(
 def _traced_connect(counts: Counter[str], connect: Callable[..., Any]) -> Callable[..., Any]:
     def traced(*args: Any, **kwargs: Any) -> Any:
         connection = connect(*args, **kwargs)
+        counts["connect"] += 1
         connection.set_trace_callback(lambda _statement: counts.update(("sql",)))
         return connection
 
@@ -235,4 +248,6 @@ def test_an_op_does_no_more_work_than_its_budget(
             )
     if counted["open"] > OPENS[case]:
         over.append(f"open: {counted['open']} > ceiling {OPENS[case]}")
+    if counted["connect"] > CONNECTIONS[case]:
+        over.append(f"connect: {counted['connect']} > ceiling {CONNECTIONS[case]}")
     assert not over, f"{case}: {'; '.join(over)}"

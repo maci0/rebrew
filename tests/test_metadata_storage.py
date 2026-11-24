@@ -5,6 +5,7 @@ import multiprocessing
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,7 +30,7 @@ from rebrew.metadata.source_provenance import (
     load_source_provenance,
     set_source_file,
 )
-from rebrew.metadata.sqlite import DATABASE_FILENAME, MetadataStorageError
+from rebrew.metadata.sqlite import DATABASE_FILENAME, MetadataStorageError, reading
 from rebrew.metadata.storage import (
     input_digest,
     metadata_inputs,
@@ -275,6 +276,89 @@ class TestSqliteDomainParity:
         assert load_data_metadata(tmp_path)[("GAME", 0x4000)]["size"] == 8
         with pytest.raises(ValueError, match="changed since preview"):
             patch_data_fields_batch(tmp_path, updates, expected_digest=preview["input_digest"])
+
+
+class TestReadingSession:
+    @staticmethod
+    def _connects(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        opened: list[str] = []
+        connect = sqlite3.connect
+
+        def counted(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+            opened.append(str(args[0]))
+            connection: sqlite3.Connection = connect(*args, **kwargs)
+            return connection
+
+        monkeypatch.setattr(sqlite3, "connect", counted)
+        return opened
+
+    def test_one_reader_serves_every_read_and_sees_the_blocks_own_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path, "sqlite")
+        update_field(tmp_path, 0x1000, "SIZE", 4, "GAME")
+        opened = self._connects(monkeypatch)
+        with reading():
+            for _ in range(5):
+                assert get_entry(tmp_path, 0x1000, "GAME")["size"] == 4
+            readers = [uri for uri in opened if uri.endswith("?mode=ro")]
+            assert len(readers) == 1
+            update_field(tmp_path, 0x1000, "SIZE", 8, "GAME")
+            assert get_entry(tmp_path, 0x1000, "GAME")["size"] == 8
+            assert [uri for uri in opened if uri.endswith("?mode=ro")] == readers
+        assert get_entry(tmp_path, 0x1000, "GAME")["size"] == 8
+
+    def test_the_reader_holds_no_lock_between_reads(self, tmp_path: Path) -> None:
+        _project(tmp_path, "sqlite")
+        update_field(tmp_path, 0x1000, "SIZE", 4, "GAME")
+        store = metadata_store(tmp_path / "rebrew-functions.toml")
+        with reading():
+            assert store.exists() and store.provisioned() and store.read("test")
+            assert store.fingerprint() and store.documents()
+            # An exclusive lock with no wait is refused while any reader holds a shared one.
+            with closing(sqlite3.connect(tmp_path / DATABASE_FILENAME, timeout=0)) as other:
+                other.execute("BEGIN EXCLUSIVE")
+                other.rollback()
+
+    def test_the_reader_closes_at_the_end_and_on_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path, "sqlite")
+        update_field(tmp_path, 0x1000, "SIZE", 4, "GAME")
+        kept: list[sqlite3.Connection] = []
+        connect = sqlite3.connect
+
+        def keep(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+            connection: sqlite3.Connection = connect(*args, **kwargs)
+            kept.append(connection)
+            return connection
+
+        monkeypatch.setattr(sqlite3, "connect", keep)
+        with pytest.raises(RuntimeError, match="abort"), reading():
+            get_entry(tmp_path, 0x1000, "GAME")
+            raise RuntimeError("abort")
+        assert kept
+        for connection in kept:
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                connection.execute("SELECT 1")
+
+    def test_a_replaced_database_is_opened_and_checked_again(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path, "sqlite")
+        update_field(tmp_path, 0x1000, "SIZE", 4, "GAME")
+        database = tmp_path / DATABASE_FILENAME
+        replacement = tmp_path / "replacement.sqlite3"
+        with reading():
+            assert get_entry(tmp_path, 0x1000, "GAME")["size"] == 4
+            replacement.write_bytes(database.read_bytes())
+            with closing(sqlite3.connect(replacement)) as connection, connection:
+                connection.execute("PRAGMA user_version = 999")
+            replacement.replace(database)
+            with pytest.raises(MetadataStorageError, match="unsupported metadata schema"):
+                get_entry(tmp_path, 0x1000, "GAME")
+            database.unlink()
+            assert get_entry(tmp_path, 0x1000, "GAME") == {}
 
 
 class TestMetadataTransfer:
