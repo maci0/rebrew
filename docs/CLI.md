@@ -967,6 +967,7 @@ every named symbol. An unknown data spelling is unchecked in both.
 | --- | --- | --- | --- |
 | `--limit` / `-n` | int | `20` | Number of items to show (0 = none) |
 | `--offset` | int | `0` | Skip this many items before listing |
+| `--fields` | str | none | Comma-separated JSON item fields; envelope fields are always included |
 | `--category` / `-c` | str | none | Filter by category (fix-delta, start-function, compile-error, ...) |
 | `--stats` / `-s` | flag | `False` | Show coverage stats header |
 | `--json` | flag | `False` | Output results as JSON |
@@ -1157,6 +1158,13 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 comments for existing canonical bindings across all modules. Apply only the
 reviewed input digest with `--expected-digest`; ambiguous definitions are refused.
 
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `FILE...` | path… | required | Source files with existing canonical bindings |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--expected-digest` | str | none | Reviewed preview input digest; required to apply |
+| `--json` | flag | `False` | Output results as JSON |
+
 ### `rebrew source units`
 
 `rebrew source units [OPTIONS]`
@@ -1206,12 +1214,12 @@ format-3 functions, then removes the retired source store. Data remains format 2
 Stale digests and conflicting existing source sections refuse without writes;
 ordinary readers never fall back to the retired store.
 
-| Option | Meaning |
-| --- | --- |
-| `--dry-run` | Preview changes without writing |
-| `--expected-digest` | Reviewed preview input digest; required to apply |
-| `--json` | Output results as JSON |
-| `--target` / `-t` | Select the configured target's metadata root |
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--expected-digest` | str | none | Reviewed preview input digest; required to apply |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | none | Select the configured target's metadata root |
 
 ### `rebrew source register`
 
@@ -2707,6 +2715,7 @@ of pagination.
 | `--output` / `-o` | path | none | Write function_structure.json to this path (default: stdout as text) |
 | `--offset` | int | `0` | Skip this many functions before listing |
 | `--limit` | int | none | Maximum functions to list (0 = none; omitted = unlimited) |
+| `--fields` | str | none | Comma-separated JSON item fields (`va`, `size`, `name`); envelope fields are always included |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
 
@@ -4746,6 +4755,7 @@ the culprit while the symbol rows show the victims. Terminal mode prints a
 | `--data-metadata` | path | none | Data metadata file (default: configured metadata directory/rebrew-data.toml) |
 | `--built` | path | none | Built image (default: build/<target>) |
 | `--limit` | int | `15` | Max misplaced symbols to print (0 = none) |
+| `--offset` | int | `0` | Skip this many misplaced symbols before listing |
 | `--cut` | str | none | VA of a .data cut. Score size shifts of the bytes after it |
 | `--shift-step` | int | `8` | Bytes between candidate size shifts |
 | `--shifts` | int | `4` | Candidate shifts to try on each side of zero |
@@ -4778,6 +4788,7 @@ its extent is unknown. The audit is diagnostic and does not change the exit code
 | --- | --- | --- | --- |
 | `--built` | path | none | Built image (default: build/<target>) |
 | `--limit` | int | `15` | Max misplaced functions to print (0 = none) |
+| `--offset` | int | `0` | Skip this many misplaced or missing functions before listing |
 | `--list-correct` | flag | `False` | Include the functions already at their expected VA in the `--json` payload as `correct_list` |
 | `--rounding` | flag | `False` | Report functions whose linked extent is shorter than the reference rounding, as `rounding` in the `--json` payload |
 | `--json` | flag | `False` | Output results as JSON |
@@ -5116,6 +5127,13 @@ exports every configured target unless you select one with `--target`. Pass
 metadata, inventory, binaries and sources directly and need no export step.
 Exports include durable status history and stored comparison measurements.
 
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--output` / `-o` | path | required | Directory for portable coverage snapshots |
+| `--root` | path | none | Project root directory (default: auto-detected from rebrew-project.toml) |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags); omitted exports every target |
+
 ### `rebrew coverage import-history`
 
 `rebrew coverage import-history --snapshots <directory> [--root <project>] [--target T] [--dry-run] [--json]`
@@ -5129,6 +5147,14 @@ retain any configured inventory files beside them.
 
 Preview with `--dry-run`, then repeat without it. Repeated imports are
 idempotent and preserve current STATUS, verification, identity, and provenance.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--snapshots` | path | required | Directory containing portable coverage snapshots |
+| `--root` | path | none | Project root directory (default: auto-detected from rebrew-project.toml) |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | none | Import one target's snapshot (default: every readable snapshot) |
 
 ### `rebrew coverage serve`
 
@@ -5765,6 +5791,12 @@ goes to `.rebrew/decompme-uploads.json` keyed by a digest of the payload
 prints the same claim URL and reports `"reused": true` under `--json`.
 Entries older than 90 days are dropped on write, and the file is capped at
 500 entries.  `--reupload` uploads anyway.
+
+Retained `rebrew ops` exports keep the ledger in the worker workspace and mix a
+scope into the digest: target, binary and source snapshot, plus organization,
+project and user when attribution is supplied. Replay after snapshot cleanup
+therefore reuses the scratch without crossing projects. The internal environment
+overrides are listed in [CONFIG.md](CONFIG.md#environment-variables).
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

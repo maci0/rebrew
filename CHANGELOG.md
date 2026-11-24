@@ -2,7 +2,6 @@
 
 ### Changed
 
-- **Breaking:** `rebrew.link_anchors.console` is no longer re-exported; import the shared console from `rebrew.cli`.
 - `rebrew todo` and `rebrew binary functions` accept `--fields` for JSON item projection while preserving pagination and envelope metadata. The clispec document declares both collections as offset-paginated and reads argument types and choices from Typer's resolved annotations.
 - The jobs service computes workspace digests without copying and syncing the tree, and streams retained-output hashing instead of allocating the full log. Remote compiles no longer stage source bytes that the local compiler never reads. Library-header verification loads function metadata once for the whole header set.
 - Project reports resolve each function source once per capture. SQLite metadata description and document reads reuse one bulk document pass instead of querying and parsing each document again.
@@ -13,6 +12,7 @@
 
 ### Fixed
 
+- The CLI reference documents field projection, placement pagination, retained decomp.me ledger overrides, and the remaining source/coverage option tables. A documentation test now compares every registered argument and long option with its reference table.
 - The coverage dashboard applies a status card clicked from another view instead of clearing the hidden Functions filter, cancels abandoned view requests before they can overwrite the active view, and explains each displayed status with the report's shared reference.
 - Retained decomp.me exports keep their upload ledger in the worker workspace instead of a deleted source snapshot, and scope replay keys by project, user, target and source snapshot. Retrying the same export now reuses its first scratch rather than creating another public scratch.
 - The retained decomp.me ledger path and scope variables are documented as internal child-command settings in `docs/CONFIG.md` and `.env.example`.

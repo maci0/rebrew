@@ -172,6 +172,70 @@ def test_every_nested_cli_route_is_documented() -> None:
     assert not missing, f"Runtime routes missing from docs/CLI.md: {sorted(missing)}"
 
 
+def test_every_cli_option_documented() -> None:
+    """Option tables name every argument and long option the command accepts."""
+    import typer
+    from typer._click.core import Command
+    from typer.core import TyperGroup
+
+    from rebrew.app.main import app
+
+    root = typer.main.get_command(app)
+    reference = (ROOT / "docs" / "CLI.md").read_text(encoding="utf-8")
+    headings = list(re.compile(r"^#{2,3} `rebrew ([^`]+)`\s*$", re.M).finditer(reference))
+    global_options = {"--help", "--version", "--verbose", "--quiet"}
+    problems: list[str] = []
+    for index, heading in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(reference)
+        section = reference[heading.end() : end]
+        command: Command = root
+        for token in heading.group(1).split():
+            if not isinstance(command, TyperGroup) or token not in command.commands:
+                break
+            command = command.commands[token]
+        else:
+            actual: set[str] = set()
+            for param in command.params:
+                actual.update(getattr(param, "opts", ()))
+                actual.update(getattr(param, "secondary_opts", ()))
+            table = re.search(r"^\| Argument or option \|.*$", section, re.M)
+            if table is None:
+                missing = sorted(
+                    flag for flag in actual if flag.startswith("--") and flag not in global_options
+                )
+                if missing:
+                    problems.append(f"{heading.group(1)}: no option table for {missing}")
+                continue
+            table_end = section.find("\n\n", table.start())
+            block = section[table.start() : table_end if table_end >= 0 else len(section)]
+            documented: set[str] = set()
+            documented_labels: list[str] = []
+            for line in block.splitlines():
+                first_cell = line.strip().strip("|").split("|", 1)[0].strip()
+                if not first_cell.startswith("`"):
+                    continue
+                documented_labels.append(first_cell)
+                documented.update(re.findall(r"--[a-z0-9-]+", first_cell))
+            missing = sorted(
+                flag
+                for flag in actual - documented
+                if flag.startswith("--") and flag not in global_options
+            )
+            extra = sorted(documented - actual)
+            labels = "\n".join(documented_labels)
+            for param in command.params:
+                name = getattr(param, "name", "")
+                if (
+                    name
+                    and not getattr(param, "opts", None)
+                    and not re.search(rf"\b{re.escape(name)}\b", labels, re.I)
+                ):
+                    problems.append(f"{heading.group(1)}: argument {name} not documented")
+            if missing or extra:
+                problems.append(f"{heading.group(1)}: missing={missing}, unknown={extra}")
+    assert not problems, "CLI option tables drifted:\n" + "\n".join(problems)
+
+
 def test_cli_reference_counts_match_the_registered_tree() -> None:
     """The header counts are measured against the Typer tree, not remembered."""
     import typer

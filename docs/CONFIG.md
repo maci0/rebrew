@@ -770,11 +770,13 @@ rebrew receives.
 - `REBREW_DECOMPME_UPLOADS_PATH`: internal child-command override for the
   decomp.me upload ledger. Retained `rebrew ops` runs point it at a durable
   worker-workspace file instead of the snapshot's
-  `.rebrew/decompme-uploads.json`. Do not export it.
+  `.rebrew/decompme-uploads.json`, so the ledger outlives the temporary project
+  snapshot. Unset keeps the ordinary project-local ledger. Do not export it.
 - `REBREW_DECOMPME_UPLOADS_SCOPE`: internal namespace mixed into an upload's
-  dedup digest. Retained ops scope it by project, user, target, and source
-  snapshot so a shared worker ledger cannot return another project's claim
-  token. Do not export it.
+  dedup digest. Retained ops set its JSON object beside the ledger override and
+  scope it by project, user, target, and source snapshot so a shared worker
+  ledger cannot return another project's claim token. The scope excludes the job
+  id, allowing a retry under a new job to reuse the scratch. Do not export it.
 - `REBREW_PROJECTS_ROOT`: root directory scanned by `tools/audit_projects.py`  (default: parent of this install).
 - `REBREW_LOG_LEVEL`: base log level for a run that passes no `-v` / `-q`:
   `debug`, `info`, `warning`, `error`, or `critical` (default: `warning`).  An
