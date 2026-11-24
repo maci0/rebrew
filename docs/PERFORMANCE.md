@@ -626,6 +626,18 @@ not read that role cache. The separate annotation walk skips function-prototype 
 that walk was 3.339s and returned 664 rows. The new gates are the symlink
 rejection, the verify-cache parse count, and the prototype call count.
 
+`rebrew status` keeps one delete-safe PE layout entry per binary path under
+the user cache directory (`$XDG_CACHE_HOME/rebrew/pe-layout/`, usually
+`~/.cache/rebrew/pe-layout/`). It uses the same atomic sidecar writes as
+the repository's other derived caches. An entry holds LIEF's section and
+data-directory layouts, architecture, image base, and code bounds. The
+loader checks the entry checksum, the binary's full SHA-256, the LIEF
+distribution version, the Rebrew release version, and the format hint.
+If any check fails, LIEF parses the bytes used to calculate the hash.
+A hit lets `rebrew status` reuse those facts across processes without
+loading LIEF. The cache contains only layout facts, so binary data reads
+still go through the target file.
+
 ## Metadata-backed inventories (2026-10-18)
 
 Status/todo and verification preparation use stored function identities without

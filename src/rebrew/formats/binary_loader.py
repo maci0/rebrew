@@ -24,14 +24,22 @@ import contextlib
 import functools
 import logging
 import threading
+from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
+lazy import hashlib
+lazy import importlib.metadata
 lazy import io
+lazy import json
+lazy import os
+lazy from contextvars import Token
+lazy from dataclasses import asdict
 
 from rebrew.errors import RebrewError
 from rebrew.formats.binary_model import MAX_BINARY_SIZE, BinaryInfo, DataDirectory, SectionInfo
 from rebrew.utils import detect_source_encoding
+lazy from rebrew.utils import atomic_write_bytes, xdg_cache_home
 
 if TYPE_CHECKING:
     import lief
@@ -473,6 +481,13 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
 _load_binary_cache: dict[tuple[str, str], BinaryInfo] = {}
 _LOAD_BINARY_CACHE_MAX = 16
 _load_binary_lock = threading.Lock()
+_cache_pe_layouts = ContextVar("rebrew_cache_pe_layouts", default=False)
+
+
+def cache_pe_layouts() -> Token[bool]:
+    """Enable the persistent PE layout cache for the current command scope."""
+    return _cache_pe_layouts.set(True)
+
 
 # Bounded memo for :func:`iat_slot_vas` (IAT slot VAs).  Keyed on
 # ``resolved:mtime_ns:ctime_ns:size:ino`` so a rebuilt binary at the same path
@@ -586,7 +601,10 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         result.arch = "x86_16"
     else:
         try:
-            result = _parse_regular(path, fmt)
+            if _cache_pe_layouts.get():
+                result = _load_regular(path, fmt, resolved, fsize)
+            else:
+                result = _parse_regular(path, fmt)
         except ValueError:
             # LIEF cannot parse it — a plugin binary loader (novel container
             # format) gets the fallback before we give up.
@@ -659,18 +677,100 @@ def _unparseable(path: str | Path, kind: str) -> UnsupportedBinaryFormat:
     )
 
 
-def _parse_regular(path: Path, fmt: str) -> BinaryInfo:
+_PE_LAYOUT_FIELDS = (
+    "arch",
+    "endian",
+    "pointer_size",
+    "image_base",
+    "text_va",
+    "text_size",
+    "text_raw_offset",
+    "sections",
+    "data_directories",
+)
+_PE_LAYOUT_CACHE_LIMIT = 1 << 20
+
+
+def _load_regular(path: Path, fmt: str, resolved: str, size: int) -> BinaryInfo:
+    """Reuse LIEF's PE layout when the complete input and parser identity match."""
+    from rebrew import __version__
+
+    if fmt not in ("auto", "pe"):
+        return _parse_regular(path, fmt)
+    data = b""
+    cache_input = None
+    try:
+        with path.open("rb") as stream:
+            if stream.read(2) == b"MZ":
+                stream.seek(0)
+                data = stream.read(size + 1)
+        if data and len(data) == size:
+            lief_version = importlib.metadata.version("lief")
+            cache = xdg_cache_home() / "rebrew" / "pe-layout"
+            entry = cache / (hashlib.sha256(os.fsencode(resolved)).hexdigest() + ".cache")
+            key = [hashlib.sha256(data).hexdigest(), lief_version, __version__, fmt]
+            cache_input = entry, key
+    except OSError, importlib.metadata.PackageNotFoundError:
+        pass
+    if cache_input is None:
+        return _parse_regular(path, fmt)
+
+    entry, key = cache_input
+    if (cached := _read_pe_layout(entry, key, path)) is not None:
+        return cached
+
+    # Parse the same snapshot used by the key, even if the path is replaced
+    # while LIEF runs. A cache miss uses the original LIEF format selection.
+    info = _parse_regular(path, fmt, data)
+    if info.format == "pe":
+        layout = asdict(info)
+        payload = json.dumps([key, {name: layout[name] for name in _PE_LAYOUT_FIELDS}]).encode()
+        if len(payload) + 32 <= _PE_LAYOUT_CACHE_LIMIT:
+            with contextlib.suppress(OSError):
+                atomic_write_bytes(
+                    entry, hashlib.sha256(payload).digest() + payload, mode=0o600, durable=False
+                )
+    return info
+
+
+def _read_pe_layout(entry: Path, key: list[str], path: Path) -> BinaryInfo | None:
+    """Decode a complete, checksummed cache entry or force a fresh parse."""
+    try:
+        with entry.open("rb") as stream:
+            blob = stream.read(_PE_LAYOUT_CACHE_LIMIT + 1)
+        checksum, payload = blob[:32], blob[32:]
+        if len(blob) > _PE_LAYOUT_CACHE_LIMIT or checksum != hashlib.sha256(payload).digest():
+            return None
+        stored_key, layout = json.loads(payload)
+        if (
+            stored_key != key
+            or not isinstance(layout, dict)
+            or layout.keys() != set(_PE_LAYOUT_FIELDS)
+        ):
+            return None
+        layout["sections"] = {
+            name: SectionInfo(**section) for name, section in layout["sections"].items()
+        }
+        layout["data_directories"] = tuple(
+            DataDirectory(**directory) for directory in layout["data_directories"]
+        )
+        return BinaryInfo(path=path, format="pe", **layout)
+    except OSError, ValueError, TypeError, AttributeError, RecursionError:
+        return None
+
+
+def _parse_regular(path: Path, fmt: str, data: bytes | None = None) -> BinaryInfo:
     """Parse a PE/ELF/Mach-O binary via LIEF (used by load_binary)."""
     import lief
 
-    spath = str(path)
+    source = str(path) if data is None else io.BytesIO(data)
     result: BinaryInfo
     # lief.parse returns a polymorphic Binary union; the isinstance dispatch
     # below handles runtime narrowing, so Any is the pragmatic annotation.
     binary: Any = None
     try:
         if fmt == "auto":
-            binary = lief.parse(spath)
+            binary = lief.parse(source)
             if binary is None:
                 raise _unparseable(path, "an executable")
             if isinstance(binary, lief.PE.Binary):
@@ -682,17 +782,17 @@ def _parse_regular(path: Path, fmt: str) -> BinaryInfo:
             else:
                 raise _unparseable(path, "an executable rebrew reads")
         elif fmt == "pe":
-            binary = lief.PE.parse(spath)
+            binary = lief.PE.parse(source)
             if binary is None:
                 raise _unparseable(path, "a PE")
             result = _load_pe(binary, path)
         elif fmt == "elf":
-            binary = lief.ELF.parse(spath)
+            binary = lief.ELF.parse(source)
             if binary is None:
                 raise _unparseable(path, "an ELF")
             result = _load_elf(binary, path)
         elif fmt == "macho":
-            binary = lief.MachO.parse(spath)
+            binary = lief.MachO.parse(source)
             if binary is None:
                 raise _unparseable(path, "a Mach-O")
             result = _load_macho(binary, path)

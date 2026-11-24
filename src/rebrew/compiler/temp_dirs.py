@@ -18,7 +18,7 @@ lazy import re
 lazy import time
 lazy from collections.abc import Callable
 
-lazy from rebrew.utils import SOURCE_CHECKOUT
+lazy from rebrew.utils import SOURCE_CHECKOUT, xdg_cache_home
 
 __all__ = [
     "STALE_TEMP_DIR_AGE_S",
@@ -28,38 +28,6 @@ __all__ = [
     "writable_temp_dir",
     "xdg_cache_home",
 ]
-
-
-def xdg_cache_home() -> Path:
-    """Return ``$XDG_CACHE_HOME``, or the platform cache dir when unset/relative.
-
-    The XDG Base Directory spec requires ignoring a relative value; honoring
-    one would resolve against the cwd and hand docker a relative bind mount.
-
-    On Windows ``~/.cache`` under ``USERPROFILE`` is not where Windows
-    programs keep caches; ``%LOCALAPPDATA%`` is.  ``Path.home()`` alone
-    would land under the profile dir, which works but ignores the
-    platform convention every other Windows tool follows.  Probe
-    ``LOCALAPPDATA`` first, then the home dir.
-
-    Raises :class:`OSError` when no home can be determined: ``Path.home``
-    raises ``RuntimeError`` when neither ``HOME`` (``USERPROFILE`` on
-    Windows) nor a passwd entry names one, which a passwd-less container
-    running as a bare uid hits.  That would escape the ``OSError``
-    contract :func:`writable_temp_dir` documents and fail every compile
-    with a traceback instead of naming the fix.
-    """
-    xdg = Path(os.environ.get("XDG_CACHE_HOME", "").strip())
-    if xdg.is_absolute():
-        return xdg
-    local_appdata = Path(os.environ.get("LOCALAPPDATA", "").strip())
-    if local_appdata.is_absolute():
-        return local_appdata
-    with contextlib.suppress(RuntimeError):
-        return Path.home() / ".cache"
-    raise OSError(
-        "no home directory to resolve ~/.cache from: set XDG_CACHE_HOME to an absolute path"
-    )
 
 
 #: ``/proc/self/mountinfo`` (not ``/proc/mounts``): it lists every mount in

@@ -27,7 +27,7 @@ it belongs to rather than starting another.
 - **Subprocesses**: ``run_process_group`` (process-tree teardown, timeout,
   captured pipes), ``interruptible_pool`` (leaving the pool does not wait on
   the queue), ``watch_files``
-- **Host environment**: ``container_runtime`` / ``DEFAULT_CONTAINER_RUNTIME`` /
+- **Host environment**: ``xdg_cache_home``, ``container_runtime`` / ``DEFAULT_CONTAINER_RUNTIME`` /
   ``CONTAINER_RUNTIMES``, ``find_install_tool``, ``md5_file``,
   ``SOURCE_CHECKOUT`` (the contributor checkout, ``None`` in an install),
   ``rel_display_path``
@@ -909,6 +909,25 @@ def posix_child(text: str, root: str) -> str | None:
         if text.startswith(root + sep):
             return text[len(root) + 1 :].replace("\\", "/")
     return None
+
+
+def xdg_cache_home() -> Path:
+    """Find the user cache directory, ignoring relative environment settings.
+
+    Prefer XDG_CACHE_HOME, then the Windows convention LOCALAPPDATA, then
+    ~/.cache. Raise OSError if the account has no home directory.
+    """
+    xdg = Path(os.environ.get("XDG_CACHE_HOME", "").strip())
+    if xdg.is_absolute():
+        return xdg
+    local_appdata = Path(os.environ.get("LOCALAPPDATA", "").strip())
+    if local_appdata.is_absolute():
+        return local_appdata
+    with contextlib.suppress(RuntimeError):
+        return Path.home() / ".cache"
+    raise OSError(
+        "no home directory to resolve ~/.cache from: set XDG_CACHE_HOME to an absolute path"
+    )
 
 
 def container_runtime(runtime: str | None = None) -> str:

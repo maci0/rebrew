@@ -1971,11 +1971,13 @@ def main(
         run_one=lambda n: main(json_output=json_output, target=n, all_targets=False),
     ):
         return
-    cfg = require_config(target=target, json_mode=json_output)
     from rebrew.compiler.cache import include_closure_cache
+    from rebrew.formats.binary_loader import cache_pe_layouts
 
-    with include_closure_cache(cfg.root / ".rebrew" / "include-closures.json"):
-        report = collect_status(cfg)
+    with cache_pe_layouts():
+        cfg = require_config(target=target, json_mode=json_output)
+        with include_closure_cache(cfg.root / ".rebrew" / "include-closures.json"):
+            report = collect_status(cfg)
 
     if json_output:
         json_print(report.to_dict())
