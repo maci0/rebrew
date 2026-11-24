@@ -1215,10 +1215,13 @@ def run_cli(app: Callable[[], Any]) -> None:
 
     def entry() -> None:
         from rebrew.metadata.bindings import binding_conflicts, report_skipped_records
+        from rebrew.metadata.sqlite import reading
 
         # One command is one call: a record its source disagrees with is logged once,
-        # and, under an op, the skipped records go to the file the op names.
-        with report_skipped_records(), binding_conflicts():
+        # and, under an op, the skipped records go to the file the op names. Its
+        # metadata reads share one connection per database (`rebrew status` on
+        # guild-rebrew opened 11,322, one per read).
+        with report_skipped_records(), binding_conflicts(), reading():
             if isinstance(app, typer.Typer):
                 add_global_options(exit_130_on_interrupt(typer.main.get_command(app)))()
             else:
