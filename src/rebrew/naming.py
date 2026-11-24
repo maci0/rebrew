@@ -526,18 +526,25 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     # One read-only load for the walk: read_source_bindings and
     # library_bindings_for_file otherwise re-fingerprint the same store once
     # per source and once per library header.
+    from rebrew.metadata.bindings import binding_conflicts
     from rebrew.metadata.functions import load_metadata
 
     function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else None
     for cfile in iter_sources(src_path, cfg):
         rel_name = rel_display_path(cfile, src_path)
-        entries = read_source_bindings(
-            cfile,
-            target_name=target,
-            metadata_dir=metadata_dir,
-            project_root=getattr(cfg, "root", None),
-            function_entries=function_entries,
-        )
+        with binding_conflicts() as skipped:
+            entries = read_source_bindings(
+                cfile,
+                target_name=target,
+                metadata_dir=metadata_dir,
+                project_root=getattr(cfg, "root", None),
+                function_entries=function_entries,
+            )
+        # A record whose source names another function is skipped by the read, but its
+        # address stays covered: nothing may generate or identify a second function there.
+        for module, va in skipped:
+            if module == target and va >= min_valid_va_for(cfg):
+                existing[va] = rel_name
         for entry in entries:
             if entry.is_data:
                 continue

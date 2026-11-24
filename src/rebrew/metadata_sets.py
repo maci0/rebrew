@@ -130,8 +130,23 @@ def _physical_files(root: Path, backend: str, documents: dict[str, str]) -> list
     ]
 
 
-def describe_metadata(root: Path, *, exclusive: bool = True) -> dict[str, Any]:
-    """The descriptor of the metadata *root*'s config reads.
+def published_backend(root: Path) -> str:
+    """The backend a target's published file set is read with.
+
+    The configured one, except a SQLite config whose set holds no store: an imported
+    target published none, or the TOML documents an engine before the SQLite store
+    wrote; that set is read as TOML (none of its files, or those documents).
+    """
+    backend = metadata_backend(root)
+    if backend == "sqlite" and not (root / DATABASE_FILENAME).is_file():
+        return "toml"
+    return backend
+
+
+def describe_metadata(
+    root: Path, *, exclusive: bool = True, backend: str | None = None
+) -> dict[str, Any]:
+    """The descriptor of the metadata *root*'s config reads, or *backend* when given.
 
     ``files`` are the physical files with the SHA-256 of their bytes;
     ``documents`` the logical documents, hashed over the storage layer's
@@ -139,7 +154,7 @@ def describe_metadata(root: Path, *, exclusive: bool = True) -> dict[str, Any]:
     *exclusive* refuses a tree that also holds the other backend's files, as a
     supplied file set must; a worker's own tree keeps a migration's source files.
     """
-    backend = metadata_backend(root)
+    backend = backend or metadata_backend(root)
     if exclusive:
         _refuse_foreign(root, backend)
     try:
@@ -317,7 +332,7 @@ def carry_metadata(capture: Path, target: Path, into: Path) -> None:
 
     backend = metadata_backend(capture)
     captured = _document_texts(capture, backend)
-    published = _document_texts(target, metadata_backend(target))
+    published = _document_texts(target, published_backend(target))
     documents = dict(captured)
     for relative, text in published.items():
         if Path(relative).name == _REGISTRY:

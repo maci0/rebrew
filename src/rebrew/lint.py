@@ -2182,16 +2182,18 @@ def lint_file(
         _check_body_rules(result, lines, True)
         return result
     try:
-        from rebrew.metadata.bindings import source_bindings
+        from rebrew.metadata.bindings import source_bindings, strict_bindings
 
-        bindings = source_bindings(
-            text,
-            filepath,
-            None,
-            None,
-            directory,
-            project_root=getattr(cfg, "root", None),
-        )
+        # Lint reports a record its source disagrees with; reads skip it.
+        with strict_bindings():
+            bindings = source_bindings(
+                text,
+                filepath,
+                None,
+                None,
+                directory,
+                project_root=getattr(cfg, "root", None),
+            )
         definition_lines: dict[str, int] = {}
         if any(a.is_function for a in bindings):
             from rebrew.c_parser import find_c_function_definitions

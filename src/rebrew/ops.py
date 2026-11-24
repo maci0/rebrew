@@ -92,6 +92,7 @@ lazy from rebrew.compiler.compile import (
 )
 lazy from rebrew.compiler.recompile_client import Attribution
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat, load_binary
+lazy from rebrew.metadata.bindings import BindingConflictError
 lazy from rebrew.utils import fold_host, split_source_lines
 
 logger = logging.getLogger(__name__)
@@ -2967,8 +2968,15 @@ def run_rebrew(
             raise _invalid(
                 _bounded(f"rebrew {name} refused: {_without_host_paths(message, [project])}")
             )
-        from rebrew.cli import COMPILER_NOT_OFFERED_KIND, TOOLCHAIN_REJECTED_KIND
+        from rebrew.cli import (
+            BINDING_CONFLICT_KIND,
+            COMPILER_NOT_OFFERED_KIND,
+            TOOLCHAIN_REJECTED_KIND,
+        )
 
+        if kind == BINDING_CONFLICT_KIND:
+            logger.error("rebrew %s refused a function record: %s", name, _escape_log_text(message))
+            raise _binding_conflict()
         if kind == TOOLCHAIN_REJECTED_KIND:
             raise _toolchain_rejected(message, [project])
         if kind == COMPILER_NOT_OFFERED_KIND:
@@ -3761,7 +3769,7 @@ def metadata_carry(config: WorkerConfig, req: MetadataCarryRequest) -> dict[str,
     reviewed migration into the capture's backend; its logical documents must equal
     those inputs. Without published metadata the target reads the capture's own.
     """
-    from rebrew.metadata_sets import carry_metadata, describe_metadata
+    from rebrew.metadata_sets import carry_metadata, describe_metadata, published_backend
 
     with (
         _staged_file_set(config, req.capture) as capture,
@@ -3770,7 +3778,9 @@ def metadata_carry(config: WorkerConfig, req: MetadataCarryRequest) -> dict[str,
         scratch = config.require_workspace() / SCRATCH_DIR
         with tempfile.TemporaryDirectory(prefix="metadata-carry-", dir=scratch) as temp:
             carried = Path(temp).resolve()
-            published = _metadata_answer(lambda: describe_metadata(target))
+            published = _metadata_answer(
+                lambda: describe_metadata(target, backend=published_backend(target))
+            )
             _metadata_answer(lambda: carry_metadata(capture, target, carried))
             reads = carried if published["files"] else capture
             metadata = _metadata_answer(lambda: describe_metadata(reads))
@@ -5249,17 +5259,58 @@ def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str
 _EXITS = (KeyboardInterrupt, SystemExit, GeneratorExit)
 
 
+#: Ops that write a function record the caller selects. A record whose source's anchor
+#: names another function refuses them (400 :data:`INVALID_PROJECT_CONFIG`), where every
+#: other op skips that record and answers for the rest of the project.
+_RECORD_WRITE_OPS = frozenset(
+    {
+        "rebrew.apply_candidate",
+        "rebrew.rename_identifier",
+        "rebrew.retained_source_operation",
+    }
+)
+
+#: The detail of a write refused for a function record and source that disagree; the
+#: record's key goes to the worker log.
+BINDING_CONFLICT_DETAIL = (
+    "invalid project config: a function record names another function than its source's "
+    "address anchor; rebrew doctor lists such records and a re-analysis repairs a generated stub"
+)
+
+
+def _binding_conflict() -> OpsError:
+    """The project's own function record and source disagree: 400, a fixed sentence."""
+    return OpsError(BINDING_CONFLICT_DETAIL, code=INVALID_PROJECT_CONFIG, status=400)
+
+
 def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mapping[str, Any]:
     """*op*'s reply to *request*, as its declared reply when :mod:`rebrew.ops_replies` declares one."""
+    from rebrew.metadata.bindings import binding_conflicts, strict_bindings
     from rebrew.ops_replies import DECLARED
 
     try:
-        reply = op.run(config, request)
+        with binding_conflicts(), contextlib.ExitStack() as stack:
+            if name in _RECORD_WRITE_OPS:
+                stack.enter_context(strict_bindings())
+            reply = op.run(config, request)
     except OpsError:
         raise
+    except BindingConflictError as exc:
+        logger.warning(
+            "%s %s refused the function record %s.0x%08x: its source's anchor names another "
+            "function trace_id=%s",
+            _request_id(),
+            name,
+            exc.module,
+            exc.va,
+            _trace_id(),
+        )
+        raise _binding_conflict() from None
     except typer.Exit as exc:
-        from rebrew.cli import TOOLCHAIN_REJECTED_KIND, CommandExit
+        from rebrew.cli import BINDING_CONFLICT_KIND, TOOLCHAIN_REJECTED_KIND, CommandExit
 
+        if isinstance(exc, CommandExit) and exc.kind == BINDING_CONFLICT_KIND:
+            raise _binding_conflict() from None
         if isinstance(exc, CommandExit) and exc.kind == TOOLCHAIN_REJECTED_KIND:
             roots = [path for path in (config.workspace, config.filestore) if path is not None]
             raise _toolchain_rejected(exc.message, roots) from None

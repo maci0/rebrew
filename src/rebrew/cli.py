@@ -66,6 +66,7 @@ from rebrew.utils import (
     untrusted_text,
 )
 lazy from rebrew.metadata.bindings import (
+    BindingConflictError,
     SourceBinding,
     find_source_binding_by_symbol,
     read_source_bindings,
@@ -642,6 +643,22 @@ def _install_click_error_hook() -> None:
 _install_click_error_hook()
 
 
+#: The JSON error kind of a write refused because a function record and its source's
+#: address anchor name different functions.
+BINDING_CONFLICT_KIND = "binding_conflict"
+_BINDING_CONFLICT_HINT = (
+    "rebrew doctor lists such records; re-running rebrew intake repairs a generated stub"
+)
+
+
+def _binding_conflict_message(module: str, va: int) -> str:
+    """The JSON message of a refused record: its key, never the names (a caller logs it)."""
+    return (
+        f"the function record {module}.0x{va:08x} names another function than its source's "
+        "address anchor"
+    )
+
+
 #: The ``error_exit`` kind of a compile the toolchain ran and rejected: the
 #: source does not build, as opposed to a toolchain that could not run.
 TOOLCHAIN_REJECTED_KIND = "toolchain_rejected"
@@ -704,6 +721,17 @@ def error_exit(
     if code == EXIT_MISMATCH:
         _emit_outcome(msg, json_mode=use_json)
         raise typer.Exit(code=code)
+    from rebrew.metadata.bindings import recorded_binding_conflicts, strict_bindings_active
+
+    refused = sorted(recorded_binding_conflicts()) if strict_bindings_active() else []
+    if use_json and refused:
+        # A command that caught the refusal of a disagreeing record and reported it as its
+        # own failure: the caller is told which refusal it was, by the record's key.
+        module, va = refused[0]
+        _write_error(
+            BINDING_CONFLICT_KIND, _binding_conflict_message(module, va), _BINDING_CONFLICT_HINT
+        )
+        raise CommandExit(code=code, kind=BINDING_CONFLICT_KIND, message=msg)
     if use_json:
         _write_error(kind, msg, hint)
     else:
@@ -1184,10 +1212,14 @@ def run_cli(app: Callable[[], Any]) -> None:
     _error_written = False
 
     def entry() -> None:
-        if isinstance(app, typer.Typer):
-            add_global_options(exit_130_on_interrupt(typer.main.get_command(app)))()
-        else:
-            app()
+        from rebrew.metadata.bindings import binding_conflicts
+
+        # One command is one call: a record its source disagrees with is logged once.
+        with binding_conflicts():
+            if isinstance(app, typer.Typer):
+                add_global_options(exit_130_on_interrupt(typer.main.get_command(app)))()
+            else:
+                app()
 
     stdout_was_fifo = _stdout_is_fifo()
     try:
@@ -1228,6 +1260,19 @@ def run_cli(app: Callable[[], Any]) -> None:
         # error_exit() outside click's handler: the message is already out.
         _close_unreported_failure(e.exit_code)
         raise SystemExit(e.exit_code) from None
+    except BindingConflictError as e:
+        if json_mode_active():
+            _write_error(
+                BINDING_CONFLICT_KIND,
+                _binding_conflict_message(e.module, e.va),
+                _BINDING_CONFLICT_HINT,
+            )
+        else:
+            console.print(
+                f"[red]error:[/red] {untrusted_text(str(e))}\n  {_BINDING_CONFLICT_HINT}",
+                soft_wrap=not console.is_terminal,
+            )
+        raise SystemExit(EXIT_ERROR) from None
     except (ValueError, OSError, KeyError, RuntimeError) as e:
         if json_mode_active():
             _write_error("failure", str(e), "")
