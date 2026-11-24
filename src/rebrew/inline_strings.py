@@ -310,10 +310,7 @@ def inline_g_literal_uses(
         if row.get("storage_kind") != "literal":
             continue
         if not module_visible_to_target(row_module, cfg):
-            # Another target's row is not visible here, but it still counts
-            # for ambiguity when the active target has no row of its own.
-            # Keep it tagged so resolution can decide.
-            by_name.setdefault(name, []).append((row_module, va, row))
+            # Another target's row does not describe the selected binary.
             continue
         by_name.setdefault(name, []).append((row_module, va, row))
 
@@ -345,16 +342,7 @@ def inline_g_literal_uses(
         else:
             scoped = []
         if not scoped:
-            # Fall back to any module's row when the active target has none.
-            fallback = [
-                (mod, va, row)
-                for mod, va, row in candidates
-                if not row.get("file") or str(row["file"]).replace("\\", "/") == rel
-            ]
-            if fallback and not visible:
-                scoped = fallback
-            else:
-                continue
+            continue
         if len(scoped) > 1:
             resolved[name] = "ambiguous data rows across modules"
             continue

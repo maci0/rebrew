@@ -423,6 +423,9 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         )
         if t is not None
     )
+    instruction_flags = int(
+        lief.MachO.Section.FLAGS.PURE_INSTRUCTIONS | lief.MachO.Section.FLAGS.SOME_INSTRUCTIONS
+    )
 
     sections: dict[str, SectionInfo] = {}
     text_va = image_base
@@ -442,6 +445,10 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         # Mach-O section offsets are relative to the slice in a fat container.
         raw_offset = binary.fat_offset + section.offset
         raw_size = 0 if getattr(section, "type", None) in _zerofill else vsize
+        section_flags = getattr(section, "flags", None)
+        is_code = (
+            bool(int(section_flags) & instruction_flags) if section_flags is not None else None
+        )
 
         sections[name] = SectionInfo(
             name=name,
@@ -449,6 +456,7 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
             size=vsize,
             file_offset=raw_offset,
             raw_size=raw_size,
+            is_code=is_code,
         )
 
         # __text is the Mach-O equivalent of .text

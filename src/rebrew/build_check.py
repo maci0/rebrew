@@ -163,7 +163,8 @@ def per_file_pin(source_path: Path, build_dir: Path = DEFAULT_BUILD_DIR) -> tupl
     metadata is silent.
 
     Returns ``(toolchain, flags)`` — both ``None``/``""`` when the file is not
-    pinned (no build tree, or no Custom comment for it).
+    pinned (no build tree, or no Custom comment for it).  An unreadable build
+    tree raises ``OSError`` instead of reporting an absent pin.
 
     Matches the object record by stem: CMake spells the object
     ``<dir>.dir/<stem>.obj`` in the ``Custom`` comment and the build tree
@@ -176,12 +177,6 @@ def per_file_pin(source_path: Path, build_dir: Path = DEFAULT_BUILD_DIR) -> tupl
     try:
         dirs = sorted(cm.iterdir())
     except FileNotFoundError:
-        return None, ""
-    except OSError as exc:
-        # An unreadable build tree is not an absent one: returning "no pin"
-        # compiles the file with the metadata flags instead of the pinned
-        # ones, and the byte diff is then blamed on the source.
-        log.warning("cannot list %s, per-file pin unavailable: %s", cm, exc)
         return None, ""
     for td in dirs:
         if td.is_dir() and (td / "flags.make").is_file():

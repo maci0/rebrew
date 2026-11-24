@@ -304,6 +304,13 @@ _ANSWERS: Mapping[tuple[_Route, int, str | None], _AnswerRule] = MappingProxyTyp
         ("artifact", 503, "artifact_evidence_unavailable"): _AnswerRule(None, "wait"),
         ("artifact", 503, _ANY_CODE): _AnswerRule(None, "wait"),
         ("artifact", 504, _ANY_CODE): _AnswerRule(None, "retry"),
+        # The same edge failures as the compile route; the billed compile's cost
+        # is already settled, so only the artifact GET is repeated.
+        ("artifact", 520, _ANY_CODE): _AnswerRule(None, "wait"),
+        ("artifact", 524, _ANY_CODE): _AnswerRule(None, "wait"),
+        ("artifact", 521, _ANY_CODE): _AnswerRule(None, "wait"),
+        ("artifact", 522, _ANY_CODE): _AnswerRule(None, "wait"),
+        ("artifact", 523, _ANY_CODE): _AnswerRule(None, "wait"),
     }
 )
 

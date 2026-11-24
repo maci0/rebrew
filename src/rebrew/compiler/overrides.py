@@ -28,6 +28,7 @@ def resolve_cflags(
     → ``"/O2 /Gd"`` for an MSVC-style profile when the key is absent.  An
     explicitly empty ``[compiler].cflags`` means "no default flags", and a
     posix-style profile falls back to no flags instead of the MSVC spelling.
+    An explicitly empty per-module preset also means "no flags".
     Single source of truth so match/diff/verify/test/
     prove/probe/diagnose gap agree on the flags a function compiles with — a per-module preset
     must not make ``rebrew match run`` report EXACT while ``rebrew verify``
@@ -35,7 +36,11 @@ def resolve_cflags(
     """
     cflags = (per_function_cflags or "").strip()
     if not cflags and cfg is not None:
-        cflags = getattr(cfg, "cflags_presets", {}).get(preset_module_key(module), "")
+        presets = getattr(cfg, "cflags_presets", {})
+        module_key = preset_module_key(module)
+        if module_key in presets:
+            preset: str = presets[module_key]
+            return preset
     if not cflags:
         cfg_cflags = getattr(cfg, "cflags", "") if cfg is not None else ""
         # An EXPLICITLY set empty cflags means "no default flags": the

@@ -358,6 +358,7 @@ class CompareResult:
                 else {}
             ),
             **({"remote_compile": self.remote_compile} if self.remote_compile is not None else {}),
+            **({"instructions": self.instructions} if self.instructions is not None else {}),
         }
 
     @classmethod
