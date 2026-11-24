@@ -2556,7 +2556,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
     """
     from rebrew.function_providers import compiled_source_annotations
     from rebrew.metadata.bindings import library_bindings_for_file, library_inventory_bindings
-    from rebrew.metadata.functions import METADATA_FILENAME
+    from rebrew.metadata.functions import METADATA_FILENAME, load_metadata
     from rebrew.sources import iter_library_headers
 
     target_module_name = preset_module_key(target_module(cfg))
@@ -2582,9 +2582,14 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
             _LIBRARY_HEADER_CACHE.move_to_end(key)
     if cached is not None:
         return cached
+    function_entries = (
+        load_metadata(Path(metadata_dir), deepcopy=False) if metadata_dir is not None else None
+    )
     rows: dict[int, dict[str, str]] = {}
     for header in headers:
-        for e in library_bindings_for_file(header, metadata_dir=metadata_dir):
+        for e in library_bindings_for_file(
+            header, metadata_dir=metadata_dir, function_entries=function_entries
+        ):
             if preset_module_key(e.module or "") in ("", target_module_name):
                 rows[e.va] = {
                     "kind": e.kind or "LIBRARY",
@@ -2593,7 +2598,9 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
                     "symbol": e.symbol,
                 }
     if metadata_dir is not None:
-        for e in library_inventory_bindings(metadata_dir, cfg.reversed_dir):
+        for e in library_inventory_bindings(
+            metadata_dir, cfg.reversed_dir, function_entries=function_entries
+        ):
             if e.va not in rows and preset_module_key(e.module or "") in ("", target_module_name):
                 rows[e.va] = {
                     "kind": "LIBRARY",
@@ -2601,7 +2608,7 @@ def _library_header_rows(cfg: Any) -> dict[int, dict[str, str]]:
                     "name": e.name,
                     "symbol": e.symbol,
                 }
-    for entry in compiled_source_annotations(cfg):
+    for entry in compiled_source_annotations(cfg, metadata=function_entries):
         if entry.kind != "LIBRARY":
             continue
         rows[entry.va] = {

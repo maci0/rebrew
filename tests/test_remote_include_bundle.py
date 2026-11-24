@@ -190,12 +190,16 @@ class TestLocalAndRemoteAgree:
     ) -> None:
         root = tmp_path / "project"
         source = _project(root)
-        local, error = _compile(_cfg(root, remote=False), source, tmp_path / "local")
+        local_workdir = tmp_path / "local"
+        local, error = _compile(_cfg(root, remote=False), source, local_workdir)
         assert local is not None, error
+        assert (local_workdir / "plant.c").is_file()
         service = _Recompile(tmp_path / "service")
         service.install(monkeypatch)
-        remote, error = _compile(_cfg(root, remote=True), source, tmp_path / "remote")
+        remote_workdir = tmp_path / "remote"
+        remote, error = _compile(_cfg(root, remote=True), source, remote_workdir)
         assert remote is not None, error
+        assert not (remote_workdir / "plant.c").exists()
         assert Path(remote).read_bytes() == Path(local).read_bytes()
         assert b"plant.c\x00" in Path(local).read_bytes()
         assert b"wrong" not in Path(local).read_bytes(), "the source's own plant.h wins"

@@ -2545,25 +2545,6 @@ def compile_to_obj(
                 )
             return str(obj_file), ""
 
-    # The compiler is the only consumer of the workdir source copy, so it
-    # is made here (miss path only) - a cache hit above never needs it.
-    # A source already inside the workdir (compile in place) is not copied:
-    # copy2 would fail with "same file".  The docker mount / workdir then
-    # serves the source directly.
-    # The workdir gets the keyed text, never a second read of *source_path*:
-    # a rewrite between the two reads (GA splice, editor save under
-    # ``verify --watch``) would store the new object under the old key.
-    try:
-        if context is not None or local_src.resolve() != source_path.resolve():
-            local_src.write_bytes(compile_text.encode("utf-8", errors="surrogateescape"))
-    except OSError as e:
-        return _not_run(
-            backend_errors,
-            f"Failed to copy source into workdir: {e}",
-            kind="invocation",
-            name=active,
-        )
-
     if recompile_url(cfg) is not None:
         # Remote backend: one POST carries source text + resolved flags, and
         # the project headers the source reads as an include bundle; the
@@ -2604,6 +2585,25 @@ def compile_to_obj(
             remote_compiles=remote_compiles,
         )
         return obj_path, remote_err
+
+    # The local compiler is the only consumer of the workdir source copy, so
+    # it is made here (miss path only) after the remote branch has returned.
+    # A source already inside the workdir (compile in place) is not copied:
+    # copy2 would fail with "same file".  The docker mount / workdir then
+    # serves the source directly.
+    # The workdir gets the keyed text, never a second read of *source_path*:
+    # a rewrite between the two reads (GA splice, editor save under
+    # ``verify --watch``) would store the new object under the old key.
+    try:
+        if context is not None or local_src.resolve() != source_path.resolve():
+            local_src.write_bytes(compile_text.encode("utf-8", errors="surrogateescape"))
+    except OSError as e:
+        return _not_run(
+            backend_errors,
+            f"Failed to copy source into workdir: {e}",
+            kind="invocation",
+            name=active,
+        )
 
     if spec is not None and (spec.image is not None or spec.runtime == "native"):
         # The standardized runner: the toolchain's docker image, or native

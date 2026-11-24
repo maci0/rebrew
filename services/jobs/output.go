@@ -3,6 +3,7 @@ package jobs
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -109,13 +110,18 @@ func (w *outputWriter) finish() (string, error) {
 		_ = w.file.Close()
 		return "", err
 	}
+	name := w.file.Name()
 	if err := w.file.Close(); err != nil {
 		return "", err
 	}
-	b, err := os.ReadFile(w.file.Name())
+	f, err := os.Open(name)
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:]), nil
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

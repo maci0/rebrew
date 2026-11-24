@@ -287,6 +287,47 @@ class TestCompiledSources:
         )
         assert _library_header_rows(cfg)[entry.va]["symbol"] == "_changed"
 
+    def test_library_header_rows_loads_metadata_once_for_all_headers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import functions
+        from rebrew.verify import _library_header_rows
+
+        cfg = _project(tmp_path)
+        records: list[dict[str, Any]] = []
+        for index in range(3):
+            filename = f"library_vendor_{index}.h"
+            (cfg.reversed_dir / filename).write_text("int checksum(void);\n", encoding="utf-8")
+            records.append(
+                {
+                    "module": "GAME",
+                    "va": 0x10001000 + index,
+                    "identity": {
+                        "file": f"src/{filename}",
+                        "symbol": f"_checksum_{index}",
+                        "name": f"checksum_{index}",
+                        "kind": "LIBRARY",
+                    },
+                }
+            )
+        record_function_rows(cfg.metadata_dir, records)
+        real_load = functions.load_metadata
+        calls = 0
+
+        def counted_load(*args: Any, **kwargs: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            return real_load(*args, **kwargs)
+
+        monkeypatch.setattr(functions, "load_metadata", counted_load)
+        rows = _library_header_rows(cfg)
+        assert calls == 1
+        assert {row["symbol"] for row in rows.values()} == {
+            "_checksum_0",
+            "_checksum_1",
+            "_checksum_2",
+        }
+
     def test_missing_bound_source_is_still_a_verification_candidate(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         entry = bind_compiled_source(

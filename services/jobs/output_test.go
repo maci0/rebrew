@@ -2,6 +2,8 @@ package jobs
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,8 +31,12 @@ func TestOutputRetainsBoundAndReportsTruncation(t *testing.T) {
 		t.Fatal("bounded write failed")
 	}
 	digest, err := w.finish()
-	if err != nil || len(digest) != 64 {
+	if err != nil {
 		t.Fatal("output digest unavailable")
+	}
+	sum := sha256.Sum256(payload[:outputLimit])
+	if want := hex.EncodeToString(sum[:]); digest != want {
+		t.Fatalf("output digest = %s, want %s", digest, want)
 	}
 	r, err := owner.Get(id)
 	if err != nil || r.OutputBytes != outputLimit || !r.OutputTruncated {

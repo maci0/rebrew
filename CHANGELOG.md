@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- The jobs service computes workspace digests without copying and syncing the tree, and streams retained-output hashing instead of allocating the full log. Remote compiles no longer stage source bytes that the local compiler never reads. Library-header verification loads function metadata once for the whole header set.
+
 ### Fixed
 
 - The jobs service caps event streams across the owner, removes unreceipted custody after failed managed admission, and runs owner cleanup after graceful HTTP shutdown.

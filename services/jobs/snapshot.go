@@ -18,13 +18,7 @@ const snapshotFileLimit = 10000
 // WorkspaceDigest computes the same bounded full-tree digest used at admission.
 // The caller must retain and submit the resulting pin as part of its intent.
 func WorkspaceDigest(root string) (string, error) {
-	temp, err := os.MkdirTemp("", "rebrew-digest-")
-	if err != nil {
-		return "", err
-	}
-	defer os.RemoveAll(temp)
-	_, digest, err := snapshot(root, temp)
-	return digest, err
+	return hashWorkspace(root, "")
 }
 
 func hashField(h hash.Hash, b []byte) {
@@ -47,10 +41,36 @@ func snapshot(root, dir string) (string, string, error) {
 			_ = os.RemoveAll(stage)
 		}
 	}()
+	digest, err := hashWorkspace(root, stage)
+	if err != nil {
+		return "", "", err
+	}
+	_ = filepath.WalkDir(stage, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || !entry.IsDir() {
+			return walkErr
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return nil
+		}
+		_ = f.Close()
+		return nil
+	})
+	keep = true
+	return stage, digest, nil
+}
+
+// hashWorkspace validates and hashes a tree. A non-empty stage also receives a
+// synchronized copy; digest-only callers avoid that disk traffic entirely.
+func hashWorkspace(root, stage string) (string, error) {
 	h := sha256.New()
 	count := 0
 	var total int64
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -76,6 +96,9 @@ func snapshot(root, dir string) (string, string, error) {
 		if info.IsDir() {
 			hashField(h, []byte("d"))
 			hashField(h, []byte(rel))
+			if stage == "" {
+				return nil
+			}
 			return os.Mkdir(dest, 0700)
 		}
 		if !info.Mode().IsRegular() {
@@ -96,10 +119,13 @@ func snapshot(root, dir string) (string, string, error) {
 			_ = f.Close()
 			return errors.New("workspace changed during snapshot")
 		}
-		out, e := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm()&0700|0600)
-		if e != nil {
-			_ = f.Close()
-			return e
+		var out *os.File
+		if stage != "" {
+			out, e = os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm()&0700|0600)
+			if e != nil {
+				_ = f.Close()
+				return e
+			}
 		}
 		hashField(h, []byte("f"))
 		hashField(h, []byte(rel))
@@ -107,12 +133,18 @@ func snapshot(root, dir string) (string, string, error) {
 		var length [8]byte
 		binary.BigEndian.PutUint64(length[:], uint64(info.Size()))
 		_, _ = h.Write(length[:])
-		written, e := io.Copy(io.MultiWriter(out, h), io.LimitReader(f, info.Size()+1))
-		if e == nil {
+		var dst io.Writer = h
+		if out != nil {
+			dst = io.MultiWriter(out, h)
+		}
+		written, e := io.Copy(dst, io.LimitReader(f, info.Size()+1))
+		if e == nil && out != nil {
 			e = out.Sync()
 		}
-		if closeErr := out.Close(); e == nil {
-			e = closeErr
+		if out != nil {
+			if closeErr := out.Close(); e == nil {
+				e = closeErr
+			}
 		}
 		after, statErr := f.Stat()
 		if e != nil {
@@ -126,25 +158,9 @@ func snapshot(root, dir string) (string, string, error) {
 		return f.Close()
 	})
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	_ = filepath.WalkDir(stage, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil || !entry.IsDir() {
-			return walkErr
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return nil
-		}
-		if err := f.Sync(); err != nil {
-			_ = f.Close()
-			return nil
-		}
-		_ = f.Close()
-		return nil
-	})
-	keep = true
-	return stage, hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func sealSnapshot(root string) error {
@@ -185,12 +201,7 @@ func retainResultWorkspace(workspace, dir, id string) (string, error) {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return "", errors.New("invalid retained result")
 		}
-		stage, digest, err := snapshot(target, dir)
-		if err != nil {
-			return "", err
-		}
-		defer os.RemoveAll(stage)
-		return digest, nil
+		return WorkspaceDigest(target)
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", err
