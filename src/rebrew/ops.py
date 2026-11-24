@@ -1663,8 +1663,19 @@ class SnapshotMutationRequest:
     attribution: Attribution | None = None
 
 
-def _has_lone_surrogate(value: str) -> bool:
-    return any(0xD800 <= ord(char) <= 0xDFFF for char in value)
+def has_lone_surrogate(value: str) -> bool:
+    """Whether *value* holds a surrogate code point (U+D800 to U+DFFF).
+
+    Strict UTF-8 refuses exactly those, so the codec scans the string in C
+    instead of one Python comparison per character.
+    """
+    if value.isascii():
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return True
+    return False
 
 
 def _decode(value: Any, hint: Any, where: str) -> Any:
@@ -1687,7 +1698,7 @@ def _decode(value: Any, hint: Any, where: str) -> Any:
         # surfaces as a 500 instead of a 400. Reject it at the boundary.
         # Paired surrogates never survive json.loads as separate code
         # points (they arrive combined), so any surrogate here is lone.
-        if _has_lone_surrogate(value):
+        if has_lone_surrogate(value):
             raise _invalid(f"{where} contains an unpaired surrogate")
         return value
     if hint is bytes:

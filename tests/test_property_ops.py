@@ -41,6 +41,7 @@ from rebrew.ops import (
     OpsError,
     WorkerConfig,
     dispatch,
+    has_lone_surrogate,
     parse_request,
 )
 
@@ -268,3 +269,15 @@ class TestNestedRequest:
         # Every function entry decodes to an int pair.
         for fn in value.functions:
             assert isinstance(fn.va, int) and isinstance(fn.size, int)
+
+
+@settings(max_examples=500, deadline=None)
+@given(
+    st.text(
+        alphabet=st.characters(exclude_categories=()) | st.sampled_from("\ud800\udfffa\xe9"),
+        max_size=64,
+    )
+)
+def test_the_surrogate_check_answers_the_per_character_scan(value: str) -> None:
+    """The codec check against its scalar twin, one comparison per character."""
+    assert has_lone_surrogate(value) is any(0xD800 <= ord(char) <= 0xDFFF for char in value)
