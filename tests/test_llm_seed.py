@@ -1540,7 +1540,7 @@ class TestSeedCache:
         claim_lock = threading.Lock()
         real_claim = rebrew.llm_seed._claim_seed_request
 
-        def _claim_counting(key: str) -> bool:
+        def _claim_counting(key: str) -> bool | None:
             nonlocal claim_calls
             with claim_lock:
                 claim_calls += 1
@@ -1574,6 +1574,58 @@ class TestSeedCache:
             assert second.result(timeout=5) == [snippet]
         assert calls == 1
 
+    def test_timed_out_waiter_never_resends_a_billed_prompt(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A slow leader makes the waiter give up, not become a second sender."""
+        monkeypatch.setattr(rebrew.llm_seed, "_request_timeout", lambda: 0.01)
+        monkeypatch.setattr(rebrew.llm_seed, "_SINGLEFLIGHT_HEADROOM_S", 0.0)
+        source = "int f(void) { return 0; }"
+        entered = threading.Event()
+        release = threading.Event()
+        second_at_gate = threading.Event()
+        calls = 0
+        calls_lock = threading.Lock()
+        claim_calls = 0
+        claim_lock = threading.Lock()
+        real_claim = rebrew.llm_seed._claim_seed_request
+
+        def _claim_counting(key: str) -> bool | None:
+            nonlocal claim_calls
+            with claim_lock:
+                claim_calls += 1
+                is_second = claim_calls == 2
+            if is_second:
+                second_at_gate.set()
+            return real_claim(key)
+
+        monkeypatch.setattr(rebrew.llm_seed, "_claim_seed_request", _claim_counting)
+
+        class _Blocking:
+            @contextmanager
+            def stream(self, *args: object, **kwargs: object) -> Iterator[_FakeResponse]:
+                nonlocal calls
+                with calls_lock:
+                    calls += 1
+                entered.set()
+                assert release.wait(timeout=5), "the first request never unblocked"
+                raise httpx.ReadTimeout("reply lost after generation")
+                yield  # pragma: no cover - unreachable, keeps the generator typed
+
+        client = _Blocking()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(request_seeds, _cfg("https://llm/v1"), source, client=client)
+            assert entered.wait(timeout=5), "the first request never started"
+            second = pool.submit(request_seeds, _cfg("https://llm/v1"), source, client=client)
+            assert second_at_gate.wait(timeout=5), "the second request never reached the gate"
+            try:
+                assert second.result(timeout=1) == []
+                assert calls == 1
+            finally:
+                release.set()
+            assert first.result(timeout=5) == []
+        assert calls == 1
+
     def test_changed_source_is_resent(self) -> None:
         client = self._client("int f(void) { int r = 0; return r; }")
         request_seeds(_cfg("https://llm/v1"), "int f(void) { return 0; }", client=client)
@@ -1593,16 +1645,37 @@ class TestSeedCache:
         request_seeds(_cfg("https://llm/v1", model="gpt-4o-2024-08-06"), source, client=client)
         assert client.calls == 2
 
-    def test_empty_answer_is_not_cached(self) -> None:
-        """A refusal, a truncation, or an outage must not become a permanent miss."""
+    def test_empty_billed_answer_is_reused(self) -> None:
+        """A billed refusal must not turn a rerun into a second paid request."""
         client = _CountingClient({"choices": []})
-        assert (
-            request_seeds(_cfg("https://llm/v1"), "int f(void) { return 0; }", client=client) == []
-        )
-        assert (
-            request_seeds(_cfg("https://llm/v1"), "int f(void) { return 0; }", client=client) == []
-        )
-        assert client.calls == 2
+        source = "int f(void) { return 0; }"
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
+        assert client.calls == 1
+        usage = seed_usage_total()
+        assert usage is not None
+        assert usage.requests == 1
+
+    def test_connect_failure_is_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A prompt that never reached the provider remains free to retry later."""
+        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+
+        class _ConnectFails:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            @contextmanager
+            def stream(self, *args: object, **kwargs: object) -> Iterator[_FakeResponse]:
+                self.calls += 1
+                raise httpx.ConnectError("connection refused")
+                yield  # pragma: no cover - unreachable, keeps the generator typed
+
+        client = _ConnectFails()
+        source = "int f(void) { return 0; }"
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
+        assert client.calls == 2 * rebrew.llm_seed._CONNECT_ATTEMPTS
+        assert spent_tokens() == 0
 
     def test_cache_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.llm_seed._MAX_CACHED_PROMPTS", 2)
@@ -1844,8 +1917,8 @@ class TestSeedUsage:
                 "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
             }
         )
-        for _ in range(2):
-            request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        for source in ("int f(void){return 0;}", "int f(void){return 1;}"):
+            request_seeds(_cfg("https://llm/v1"), source, client=client)
         usage = seed_usage_total()
         assert usage is not None
         assert (usage.requests, usage.prompt_tokens, usage.completion_tokens) == (2, 10, 14)
@@ -1875,7 +1948,7 @@ class TestSeedUsage:
         )
         request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=ok)
         request_seeds(
-            _cfg("https://llm/v1"), "int f(void){return 0;}", client=_EchoingClient("boom")
+            _cfg("https://llm/v1"), "int f(void){return 1;}", client=_EchoingClient("boom")
         )
         usage = seed_usage_total()
         assert usage is not None

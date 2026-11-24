@@ -44,10 +44,13 @@ reservation and the configured token budget.
 A prompt this process
 already sent is answered from an in-process cache instead of the endpoint, so
 a watch rerun that leaves the function under match byte-identical costs
-nothing (only non-empty results are cached: an empty answer is a refusal, a
-truncation, or an outage, and re-asking can succeed).  Identical requests
-already in flight share one call, so a parallel batch cannot buy the same
-prompt once per worker.  A cache hit is
+nothing.  Every terminal outcome that may have been billed is cached, including
+an empty answer: a refusal, truncation, or lost reply can still cost money, so
+re-asking it is not a free retry.  Requests refused before dispatch (budget) or
+proven never to have reached the provider (connect failure) are not cached.
+Identical requests already in flight share one call, so a parallel batch cannot
+buy the same prompt once per worker; a waiter that outlives its bounded wait
+returns no seeds rather than becoming a second sender.  A cache hit is
 re-checked against the same name-and-prototype gate a live response passes,
 because the key carries a source truncated at a fixed length and a collision
 would otherwise hand one function's seeds to another.  Rate limits / overload
@@ -116,13 +119,14 @@ _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
 _MAX_RESPONSE_CHARS = 32_000
 MAX_SEED_CHARS = 8_000
 _MAX_HTTP_BODY_BYTES = 256_000  # reject before json.loads blows memory/budget
-#: Validated seeds kept per process, keyed by the exact prompt that produced
-#: them.  A ``--watch`` run re-runs the whole match on every save, and a save
-#: that touches another function in the same file leaves this function's seed
-#: source byte-identical, so the prompt is byte-identical too: without this
-#: every keystroke-triggered rerun bills the endpoint for an answer it
-#: already holds.  Bounded so a long watch loop cannot grow it without limit;
-#: the oldest entry is dropped.
+#: Terminal billed outcomes kept per process, keyed by the exact prompt that
+#: produced them.  A ``--watch`` run re-runs the whole match on every save, and
+#: a save that touches another function in the same file leaves this function's
+#: seed source byte-identical, so the prompt is byte-identical too: without this
+#: every keystroke-triggered rerun bills the endpoint for an answer it already
+#: holds.  Empty outcomes are retained because a refusal or lost reply can be
+#: billed too.  Bounded so a long watch loop cannot grow it without limit; the
+#: oldest entry is dropped.
 _MAX_CACHED_PROMPTS = 64
 #: Completion tokens reserved per requested seed.  A seed is a whole function
 #: definition, so the cap has to cover the number of seeds the system prompt
@@ -168,6 +172,9 @@ _CONNECT_ATTEMPTS = 3
 #: and ``ConnectTimeout`` is doing the waiting; without it three attempts could
 #: stretch past the single-request budget ``REBREW_LLM_TIMEOUT`` documents.
 _CONNECT_RETRY_WINDOW_S = 30.0
+#: Extra time a singleflight waiter gives the leader beyond twice the HTTP
+#: budget.  On expiry it returns no seeds; it never sends the paid prompt again.
+_SINGLEFLIGHT_HEADROOM_S = 30.0
 # Chat template control tokens that could switch roles in LLM provider engines
 # (covers ChatML, Llama 3, Qwen/FIM, Mistral/Llama 2 [INST], Gemma <start_of_turn>, etc.).
 _CONTROL_TOKENS_RE = re.compile(
@@ -220,16 +227,18 @@ _spent_tokens = 0
 #: provider.  Guarded by :data:`_token_lock` with :data:`_spent_tokens`.
 _reserved_tokens = 0
 _token_lock = threading.Lock()
-# Validated seeds from prompts this process already sent, so an identical
-# rerun costs nothing.  Guarded separately from the request budget so a cache
-# lookup never waits on a slot another thread is spending.
+#: Terminal outcomes from prompts this process already sent, so an identical
+#: rerun costs nothing.  Empty lists are retained too when the provider may have
+#: billed the request.  Guarded separately from the request budget so a cache
+#: lookup never waits on a slot another thread is spending.
 _seed_cache: dict[str, list[str]] = {}
 #: Identical prompts currently being requested, one event per cache key.  A
-#: parallel batch can reach the same prompt before the first answer is cached;
+#: parallel batch can reach the same prompt before the first outcome is cached;
 #: without this every worker pays for its own copy of the same request.  A
-#: waiter blocks on the leader's event, then re-checks the cache: a leader that
-#: failed or was refused publishes nothing, and the waiter takes its turn.
-#: Entries are removed in a ``finally``, so a failure cannot wedge the key.
+#: waiter blocks on the leader's event, then re-checks the cache.  A leader that
+#: failed before dispatch publishes nothing, so a later caller may retry; a
+#: terminal billed outcome publishes its (possibly empty) result.  Entries are
+#: removed in a ``finally``, so a failure cannot wedge the key.
 _seed_inflight: dict[str, threading.Event] = {}
 _cache_lock = threading.Lock()
 # Running cost of the billed requests this thread made, surfaced to the run
@@ -1137,31 +1146,26 @@ def _cache_key(
 
 
 def _cached_seeds(key: str) -> list[str] | None:
-    """Seeds an identical request already produced, or None when never sent."""
+    """The retained outcome for an identical billed request, or None when absent."""
     with _cache_lock:
         cached = _seed_cache.get(key)
     return list(cached) if cached is not None else None
 
 
-def _claim_seed_request(key: str) -> bool:
+def _claim_seed_request(key: str) -> bool | None:
     """Become the one caller that asks the endpoint for *key*.
 
-    Returns True after publishing this caller's in-flight event, or False when
-    the answer landed while it waited.  A waiter re-checks the cache through
-    :func:`_cached_seeds`; when a leader produced nothing (a refusal, an
-    outage, a budget stop) the next waiter takes over instead of inheriting an
-    empty answer that was never cacheable.
+    Returns True after publishing this caller's in-flight event, False when a
+    terminal outcome landed while it waited, and None when its bounded wait
+    expired.  The caller re-checks the cache on False and returns no seeds on
+    None: a timed-out waiter must not become a second sender for a prompt the
+    leader may already have billed.
 
-    The wait carries the same budget as the leader's HTTP request plus
-    headroom: an unbounded ``event.wait()`` leaks a waiter thread per
-    in-flight key for the life of the process if the leader never finishes
-    (hung socket read the per-chunk timeout does not bound, a deadlocked
-    pool checkout).  On timeout the waiter returns False and the outer
-    loop re-checks the cache / retries as a new leader, so a stuck leader
-    degrades to a duplicate paid request rather than a permanently parked
-    thread.
+    A leader that failed before dispatch publishes no outcome, so after its
+    event is set the next caller may retry.  A terminal outcome that may have
+    been billed is cached, including an empty list, and every waiter reuses it.
     """
-    deadline = time.monotonic() + _request_timeout() * 2 + 30.0
+    deadline = time.monotonic() + _request_timeout() * 2 + _SINGLEFLIGHT_HEADROOM_S
     while True:
         with _cache_lock:
             if key in _seed_cache:
@@ -1172,7 +1176,7 @@ def _claim_seed_request(key: str) -> bool:
                 return True
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return False
+            return None
         event.wait(timeout=remaining)
 
 
@@ -1185,14 +1189,13 @@ def _finish_seed_request(key: str) -> None:
 
 
 def _cache_seeds(key: str, seeds: list[str]) -> None:
-    """Keep *seeds* for a later identical request, dropping the oldest entry.
+    """Keep one terminal billed outcome, dropping the oldest cache entry.
 
-    Only non-empty results are stored: an empty answer is a refusal, a
-    truncated completion, or an endpoint that was down at that moment, and
-    re-asking after any of those can legitimately succeed.
+    Empty outcomes are retained too: a refusal, truncation, or lost response
+    may already have cost tokens.  Callers use this only after a response or a
+    failure that may have been billed, never for a pre-dispatch budget refusal
+    or a proven connect-stage failure.
     """
-    if not seeds:
-        return
     with _cache_lock:
         _seed_cache[key] = list(seeds)
         while len(_seed_cache) > _MAX_CACHED_PROMPTS:
@@ -1531,7 +1534,11 @@ def request_seeds(
     have billed it, and a call that bills nothing leaves the earlier requests'
     cost in the total rather than hiding it.  An identical prompt this process
     already answered is answered from :func:`_cached_seeds` instead: no HTTP,
-    no request slot, and no cost record, because nothing was billed.
+    no request slot, and no cost record, because nothing new was billed.  The
+    bounded cache retains empty terminal outcomes as well, so a rerun cannot
+    buy a second refusal, truncation, or lost reply.  A concurrent caller that
+    times out waiting for the leader returns no seeds instead of sending the
+    same paid prompt itself.
     Two budgets can refuse a request before it is sent: the call count
     (``REBREW_LLM_MAX_REQUESTS``) and the token admission budget
     (``REBREW_LLM_MAX_TOKENS``). Token estimates are reserved atomically so
@@ -1585,9 +1592,13 @@ def request_seeds(
             logging.debug("LLM seeding: %d cached seed(s) for an identical prompt", len(seeds))
             return seeds
         # Singleflight: an identical request already in flight is paid for
-        # once.  A waiter loops after the leader publishes (or fails and
-        # publishes nothing), then either reads the cache or takes its turn.
-        if _claim_seed_request(key):
+        # once.  False means a terminal outcome is cached; None means this
+        # waiter's bounded wait expired, so returning no seeds is safer than
+        # becoming a second sender for a prompt the leader may have billed.
+        claim = _claim_seed_request(key)
+        if claim is None:
+            return []
+        if claim:
             break
     try:
         return _request_seed_answer(conf, model, source, count, expect, key, client)
@@ -1631,10 +1642,17 @@ def _request_seed_answer(
     try:
         seeds = _send_seeds(client, conf, source, count, expect, model, billed_ceiling)
     except Exception as exc:  # LLM availability must never break the GA
-        # The request left this process, so the provider may already have
-        # billed it; without a record the run reports no cost for a call that
-        # spent money.
-        _record_attempt(model, time.monotonic() - _started, billed_ceiling=billed_ceiling)
+        if _never_billed(exc):
+            # Every connect-stage attempt failed before the prompt left the
+            # process.  Release the token reservation and leave the key
+            # uncached so a later logical request can try again for free.
+            _release_token_budget(billed_ceiling)
+        else:
+            # The provider may already have billed this request.  Record the
+            # uncertain spend and retain the empty terminal outcome so a rerun
+            # or a singleflight waiter cannot buy the same prompt again.
+            _record_attempt(model, time.monotonic() - _started, billed_ceiling=billed_ceiling)
+            _cache_seeds(key, [])
         # --seed-llm was explicitly requested; a silent empty result hides a
         # misconfigured endpoint/key.  Warn so the user knows seeds were asked
         # for but never arrived (still return [] — the GA must run unchanged).

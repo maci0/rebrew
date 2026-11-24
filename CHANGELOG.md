@@ -3,6 +3,7 @@
 ### Fixed
 
 - The jobs service caps event streams across the owner, removes unreceipted custody after failed managed admission, and runs owner cleanup after graceful HTTP shutdown.
+- LLM-assisted GA seeding reuses terminal billed outcomes from its bounded in-process cache, including empty responses and lost replies. A concurrent waiter that times out returns no seeds instead of becoming a second sender, while connect-stage failures remain retryable and release their unused token reservation.
 
 ## [6.77.0] - 2026-11-24
 
