@@ -1333,14 +1333,25 @@ DECLARED: dict[str, Any] = {
 }
 
 
-def _members(declared: Any) -> tuple[dict[str, Any], set[str]]:
-    hints = get_type_hints(declared, include_extras=True)
-    members: dict[str, Any] = {}
-    for name, hint in hints.items():
-        if get_origin(hint) in (Required, NotRequired):
-            (hint,) = get_args(hint)
-        members[name] = hint
-    return members, set(declared.__required_keys__)
+#: Members and required names per declared TypedDict, one entry per declaration.
+_MEMBERS: dict[Any, tuple[dict[str, Any], frozenset[str]]] = {}
+
+
+def _members(declared: Any) -> tuple[dict[str, Any], frozenset[str]]:
+    """The member hints and required names of *declared*, resolved on its first use.
+
+    A declaration is fixed when its class is defined; projecting a reply
+    resolved its hints once per projected row. Callers only read the dict.
+    """
+    found = _MEMBERS.get(declared)
+    if found is None:
+        members: dict[str, Any] = {}
+        for name, hint in get_type_hints(declared, include_extras=True).items():
+            if get_origin(hint) in (Required, NotRequired):
+                (hint,) = get_args(hint)
+            members[name] = hint
+        found = _MEMBERS.setdefault(declared, (members, frozenset(declared.__required_keys__)))
+    return found
 
 
 def _optional_inner(hint: Any) -> tuple[Any, bool]:
