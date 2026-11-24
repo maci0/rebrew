@@ -2853,6 +2853,74 @@ class TestReconstructionOps:
         # The rejection is a verdict recompile bills: the in-process compile counted it.
         assert refusal["remote_compile"]["count"] == 1
 
+    @staticmethod
+    def _local_runtime(monkeypatch: pytest.MonkeyPatch, bin_dir: Path, status: int) -> None:
+        """A ``docker`` on PATH whose images exist and whose ``run`` exits *status*."""
+        import rebrew.compiler.toolchain as toolchain
+
+        bin_dir.mkdir()
+        runtime = bin_dir / "docker"
+        runtime.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = run ]; then\n'
+            "  echo \"fcn.c(3) : error C2065: 'nope' : undeclared identifier\"\n"
+            '  echo "$FAKE_RUN_STDERR" >&2\n'
+            '  exit "$FAKE_RUN_STATUS"\n'
+            "fi\n"
+            'if [ "$1" = image ] && [ "$3" = --format ]; then\n'
+            "  echo sha256:" + "a" * 64 + "\n"
+            "fi\n"
+            "exit 0\n"
+        )
+        runtime.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.delenv("REBREW_CONTAINER_RUNTIME", raising=False)
+        monkeypatch.setenv("FAKE_RUN_STATUS", str(status))
+        monkeypatch.setenv(
+            "FAKE_RUN_STDERR",
+            "docker: Error response from daemon: failed to create task" if status != 1 else "",
+        )
+        # The runtime memos are process-wide: start them empty and leave them as they were.
+        monkeypatch.setattr(toolchain, "_docker_available_cache", None)
+        monkeypatch.setattr(toolchain, "_runtime_availability", set())
+        monkeypatch.setattr(toolchain, "_image_presence", {})
+        monkeypatch.setattr(toolchain, "_toolchain_digest_cache", {})
+
+    @pytest.mark.parametrize("status", [125, 126, 127, 137])
+    def test_a_runtime_that_ran_no_compiler_is_no_rejection_of_the_source(
+        self,
+        world: tuple[WorkerConfig, Path],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        status: int,
+    ) -> None:
+        """Exit 125 to 127 and 137 come from the runtime or a kill: no verdict, nothing written."""
+        from rebrew.config import load_config
+        from rebrew.metadata.functions import load_metadata
+
+        config, project = _project_copy(world, f"verify_function_runtime_{status}")
+        source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
+        metadata_dir = load_config(project).metadata_dir
+        before = load_metadata(metadata_dir)
+        self._local_runtime(monkeypatch, tmp_path / "bin", status)
+        body = json.dumps({"project_dir": str(project), "source": source}).encode()
+        refusal = _refusal(config, "rebrew.verify_function", body)
+        assert (refusal["status"], refusal["error"]) == (500, "engine-error"), refusal
+        assert "C2065" not in refusal["detail"], refusal
+        assert load_metadata(metadata_dir) == before
+
+    def test_a_local_compiler_that_rejects_the_source_is_still_a_rejection(
+        self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config, project = _project_copy(world, "verify_function_local_rejected")
+        source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
+        self._local_runtime(monkeypatch, tmp_path / "bin", 1)
+        body = json.dumps({"project_dir": str(project), "source": source}).encode()
+        refusal = _refusal(config, "rebrew.verify_function", body)
+        assert (refusal["status"], refusal["error"]) == (422, "toolchain-rejected"), refusal
+        assert "error C2065" in refusal["detail"]
+
     def test_a_toolchain_rejection_has_one_prefix_and_keeps_its_lines(
         self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:

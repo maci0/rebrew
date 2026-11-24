@@ -1351,6 +1351,43 @@ def docker_hardening_args(
     return args
 
 
+#: Exit statuses that say the compiler never ran or did not finish, with whether a retry
+#: can help.  ``docker run`` and ``podman run`` answer 125 when the runtime cannot create
+#: or start the container, 126 when the image's command cannot be invoked and 127 when it
+#: is not found; a shell wrapper inside the image answers 126 and 127 for its compiler the
+#: same way.  137 (and -9 from a process run directly) is a SIGKILL: the OOM killer or an
+#: operator.  None of them is the source's fault; a compiler that ran and rejected the
+#: source answers its own status with diagnostics.
+_COMPILER_NOT_RUN_STATUSES: dict[int, bool] = {
+    125: True,
+    126: False,
+    127: False,
+    137: True,
+    -9: True,
+}
+
+#: The longest runtime stderr line a not-run error quotes.
+_NOT_RUN_LINE_CHARS = 300
+
+
+def _refuse_compiler_not_run(who: str, returncode: int, stderr: str, name: str) -> None:
+    """Raise a ``ToolchainError`` for a *returncode* in :data:`_COMPILER_NOT_RUN_STATUSES`.
+
+    The message quotes *who* (the runtime, or the compiler run directly) and the first
+    non-empty line of *stderr*.
+    """
+    retryable = _COMPILER_NOT_RUN_STATUSES.get(returncode)
+    if retryable is None:
+        return
+    line = next((text.strip() for text in stderr.splitlines() if text.strip()), "no output")
+    raise ToolchainError(
+        f"{who} did not run the compiler (exit {returncode}): {line[:_NOT_RUN_LINE_CHARS]}",
+        kind="invocation",
+        name=name,
+        retryable=retryable,
+    )
+
+
 def run_toolchain(
     spec: ToolchainSpec,
     args: list[str],
@@ -1567,6 +1604,7 @@ def run_toolchain(
                 name=spec.name,
                 retryable=True,
             ) from exc
+        _refuse_compiler_not_run(runtime, r.returncode, r.stderr, spec.name)
         return RunResult(r.returncode, r.stdout, r.stderr, backend=runtime)
 
     if spec.runtime == "native":
@@ -1606,6 +1644,9 @@ def run_toolchain(
                 name=spec.name,
                 retryable=True,
             ) from exc
+        if r.returncode == -9:
+            # Killed (the OOM killer, an operator): the compiler did not finish.
+            _refuse_compiler_not_run(spec.name, r.returncode, r.stderr, spec.name)
         return RunResult(r.returncode, r.stdout, r.stderr, backend="native")
 
     raise ToolchainError(

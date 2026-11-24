@@ -1291,7 +1291,7 @@ class TestMingwEndToEnd:
             "EXTRACT_ERROR",
             "INTERNAL_ERROR",
             "READ_ERROR",
-        ), res
+        ), f"{res['status']}: {res.get('message')} (error: {res.get('error')})"
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
         assert "FUNCTION:" not in text
         assert "SIZE:" not in text
