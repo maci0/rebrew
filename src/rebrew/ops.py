@@ -3033,9 +3033,12 @@ def _run_rebrew_child(
     try:
         stdout, stderr = _communicate(process, timeout, cancellation, relay)
     except (subprocess.TimeoutExpired, OpsError) as stopped:
-        from rebrew.utils import kill_process_group
+        from rebrew.utils import stop_process_tree
 
-        kill_process_group(process)
+        # Snapshot descendants before signalling the group. A helper that called
+        # setsid escapes the group; killing only the group first reparents it to
+        # init, so the later process-tree walk can no longer find or stop it.
+        stop_process_tree(process)
         # Do not call communicate() unbounded here: a grandchild that escaped
         # the process group can hold the pipe write end, and Python's
         # communicate() waits for EOF forever on it.  utils.run_process_group
@@ -5629,36 +5632,45 @@ class OpsServer(ThreadingHTTPServer):
         answer: Callable[[WorkerConfig, str, bytes], tuple[int, bytes]] = dispatch,
     ) -> None:
         super().__init__(address, _OpsHandler)
-        self.config = config
-        self.ops = frozenset(ops)
-        self.answer = answer
-        self.token = token
-        self.slots = threading.BoundedSemaphore(concurrency)
-        self._active = 0
-        self._draining = False
-        self._idle = threading.Condition()
-        self.allowed_hosts = _allowed_hosts_for(address[0], self.server_address[1]) | allowed_hosts
-        self._metrics_lock = threading.Lock()
-        self._request_count = 0
-        self._error_count = 0
-        self._server_error_count = 0
-        self._client_error_count = 0
-        self._latency_ms_total = 0.0
-        self._latency_ms_max = 0.0
-        self._latency_ms_buckets = [0] * len(_LATENCY_BUCKETS_MS)
-        self._started_at = time.monotonic()
-        self._busy_refusals = 0
-        # Faults that escaped a handler thread.  ``record_request`` never sees
-        # them (``send_response`` did not run), so without this counter a
-        # handler that crashes on every call leaves /health and /metrics at
-        # zero errors while the process dumps tracebacks.
-        self._unhandled_errors = 0
-        self.concurrency = concurrency
-        # Per-op breakdown, bounded by the op set: one entry per known op
-        # plus "/unknown" for paths outside it.  Without it a metric anomaly
-        # cannot say which op is slow or failing; the access line names the
-        # op but no counter does.
-        self._per_op: dict[str, dict[str, float]] = {}
+        try:
+            self.config = config
+            self.ops = frozenset(ops)
+            self.answer = answer
+            self.token = token
+            self.slots = threading.BoundedSemaphore(concurrency)
+            self._active = 0
+            self._draining = False
+            self._idle = threading.Condition()
+            self.allowed_hosts = (
+                _allowed_hosts_for(address[0], self.server_address[1]) | allowed_hosts
+            )
+            self._metrics_lock = threading.Lock()
+            self._request_count = 0
+            self._error_count = 0
+            self._server_error_count = 0
+            self._client_error_count = 0
+            self._latency_ms_total = 0.0
+            self._latency_ms_max = 0.0
+            self._latency_ms_buckets = [0] * len(_LATENCY_BUCKETS_MS)
+            self._started_at = time.monotonic()
+            self._busy_refusals = 0
+            # Faults that escaped a handler thread.  ``record_request`` never sees
+            # them (``send_response`` did not run), so without this counter a
+            # handler that crashes on every call leaves /health and /metrics at
+            # zero errors while the process dumps tracebacks.
+            self._unhandled_errors = 0
+            self.concurrency = concurrency
+            # Per-op breakdown, bounded by the op set: one entry per known op
+            # plus "/unknown" for paths outside it.  Without it a metric anomaly
+            # cannot say which op is slow or failing; the access line names the
+            # op but no counter does.
+            self._per_op: dict[str, dict[str, float]] = {}
+        except BaseException:
+            # TCPServer has already bound and activated its socket. A failure in
+            # post-bind setup must not leave that descriptor behind for a caller
+            # that never received a server object to close.
+            self.server_close()
+            raise
 
     def request_stop(self) -> None:
         """Refuse every new call 503 and end :meth:`serve_forever`; later calls change nothing.
@@ -6474,11 +6486,17 @@ def serve_command(
     hosts = frozenset(fold_host(item.strip()) for item in allowed_hosts.split(",") if item.strip())
     if any(not re.fullmatch(r"[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?", item) for item in hosts):
         error_exit("--allowed-hosts must contain exact DNS names and optional ports")
-    server = OpsServer((host, port), config, token, concurrency, hosts)
     try:
         stop_telemetry = telemetry.configure_from_env("relumea-rebrew", __version__)
     except ValueError as exc:
         error_exit(str(exc))
+    try:
+        server = OpsServer((host, port), config, token, concurrency, hosts)
+    except BaseException:
+        # A failed bind must not leave the exporter thread running in a process
+        # that continues serving some other caller.
+        stop_telemetry()
+        raise
     if host not in ("127.0.0.1", "localhost", "::1"):
         console.print(
             f"serving rebrew ops on http://{host}:{server.server_port} (non-loopback bind: bearer auth required)"

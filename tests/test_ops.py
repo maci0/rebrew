@@ -3545,6 +3545,75 @@ class TestOpDeadlines:
     work not at all, so neither side knew how long an op may run.
     """
 
+    def test_a_timed_out_child_stops_a_grandchild_that_left_its_group(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A setsid helper holding stdout must not outlive the timed-out command.
+
+        The descendant has to be snapshotted while the direct child is still
+        its parent. A group kill alone kills that child first, reparenting the
+        helper to init and making the later tree walk miss it.
+        """
+        if os.name != "posix" or not Path("/proc").is_dir():
+            pytest.skip("descendant snapshot uses POSIX /proc")
+        import rebrew.ops as ops
+
+        pid_file = tmp_path / "grandchild.pid"
+        launcher = tmp_path / "escaping-python"
+        helper = (
+            "import os, time; os.setsid(); "
+            f"open({str(pid_file)!r}, 'w').write(str(os.getpid())); time.sleep(60)"
+        )
+        launcher.write_text(
+            "#!/usr/bin/env python3\n"
+            "import subprocess, sys, time\n"
+            f"subprocess.Popen([sys.executable, '-c', {helper!r}])\n"
+            "time.sleep(60)\n"
+        )
+        launcher.chmod(0o755)
+        monkeypatch.setattr(sys, "executable", str(launcher))
+
+        def time_out_after_the_helper_starts(
+            process: subprocess.Popen[str],
+            timeout: float,
+            cancellation: Any,
+            relay: Any,
+        ) -> tuple[str, str]:
+            deadline = time.monotonic() + 10
+            while not pid_file.is_file() or not pid_file.read_text().strip():
+                assert time.monotonic() < deadline, "the escaped helper never started"
+                time.sleep(0.05)
+            raise subprocess.TimeoutExpired(process.args, timeout)
+
+        monkeypatch.setattr(ops, "_communicate", time_out_after_the_helper_starts)
+        grandchild = 0
+        try:
+            with pytest.raises(ops.OpsError):
+                ops._run_rebrew_child(
+                    ["data", "list", "--json"],
+                    tmp_path,
+                    1,
+                    outcome_exit=False,
+                    skipped_file=tmp_path / "skipped.json",
+                )
+            grandchild = int(pid_file.read_text())
+            deadline = time.monotonic() + _STOP_SECONDS
+            while True:
+                try:
+                    state = (
+                        Path(f"/proc/{grandchild}/stat").read_text().rsplit(")", 1)[1].split()[0]
+                    )
+                except FileNotFoundError:
+                    break
+                if state in ("Z", "X"):
+                    break
+                if time.monotonic() >= deadline:
+                    pytest.fail(f"escaped helper survived in state {state}")
+                time.sleep(0.05)
+        finally:
+            if grandchild:
+                _kill_leftover(grandchild)
+
     def test_every_op_publishes_the_deadline_it_runs_under(self) -> None:
         published = {
             name: (entry["timeout_seconds"], entry["interruptible"])
@@ -3952,6 +4021,84 @@ class TestRetainedSnapshotApi:
 
 
 class TestHttpTransport:
+    def test_invalid_telemetry_configuration_precedes_listener_setup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import typer
+
+        import rebrew.ops as ops
+
+        monkeypatch.setenv(ops.TOKEN_ENV, TOKEN)
+
+        def invalid_telemetry(*_args: Any) -> Any:
+            raise ValueError("bad collector")
+
+        monkeypatch.setattr(ops.telemetry, "configure_from_env", invalid_telemetry)
+
+        def unexpected_server(*_args: Any, **_kwargs: Any) -> Any:
+            pytest.fail("listener setup ran before telemetry configuration")
+
+        monkeypatch.setattr(ops, "OpsServer", unexpected_server)
+        with pytest.raises(typer.Exit):
+            ops.serve_command(
+                port=0,
+                host="127.0.0.1",
+                filestore=None,
+                workspace=tmp_path,
+                max_download_bytes=1024,
+                concurrency=1,
+                allowed_hosts="",
+            )
+
+    def test_a_failed_listener_bind_stops_the_exporter(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.ops as ops
+
+        monkeypatch.setenv(ops.TOKEN_ENV, TOKEN)
+        stopped: list[bool] = []
+        monkeypatch.setattr(
+            ops.telemetry, "configure_from_env", lambda *_args: lambda: stopped.append(True)
+        )
+
+        def failed_bind(*_args: Any, **_kwargs: Any) -> Any:
+            raise OSError("bind failed")
+
+        monkeypatch.setattr(ops, "OpsServer", failed_bind)
+        with pytest.raises(OSError, match="bind failed"):
+            ops.serve_command(
+                port=0,
+                host="127.0.0.1",
+                filestore=None,
+                workspace=tmp_path,
+                max_download_bytes=1024,
+                concurrency=1,
+                allowed_hosts="",
+            )
+        assert stopped == [True]
+
+    def test_post_bind_setup_failure_closes_the_listener(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.ops import OpsServer
+
+        closed: list[Any] = []
+        real_close = OpsServer.server_close
+
+        def close(server: OpsServer) -> None:
+            closed.append(server)
+            real_close(server)
+
+        def fail(*_args: Any, **_kwargs: Any) -> frozenset[str]:
+            raise RuntimeError("host resolution failed")
+
+        monkeypatch.setattr(OpsServer, "server_close", close)
+        monkeypatch.setattr("rebrew.ops._allowed_hosts_for", fail)
+        with pytest.raises(RuntimeError, match="host resolution failed"):
+            OpsServer(("127.0.0.1", 0), WorkerConfig(), TOKEN, 1)
+        assert len(closed) == 1
+        assert closed[0].socket.fileno() == -1
+
     def test_ephemeral_port_uses_bound_port_for_host_checks(self) -> None:
         from rebrew.ops import OpsServer
 
