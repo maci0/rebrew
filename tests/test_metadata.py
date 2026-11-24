@@ -945,6 +945,25 @@ class TestWritePathsCorruptToml:
 
 
 class TestMergeAnnotationEdges:
+    def test_provenance_overlay_preserves_order_and_detaches_nested_values(self) -> None:
+        from rebrew.metadata.bindings import SourceBinding
+        from rebrew.metadata.functions import apply_metadata_entry
+
+        origins = {"size": "binsync", "name": "manual"}
+        inputs = {"flags": ["/O2"]}
+        verification = {"reference": inputs, "build": inputs}
+        ann = SourceBinding(va=0x1000, module="SERVER", name="f")
+
+        apply_metadata_entry(ann, {"origins": origins, "verification": verification})
+
+        assert list(ann.origins.items()) == list(origins.items())
+        assert list(ann.verification) == list(verification)
+        assert ann.verification["reference"] is ann.verification["build"]
+        ann.origins["size"] = "changed"
+        ann.verification["reference"]["flags"].append("/Gd")
+        assert origins["size"] == "binsync"
+        assert inputs["flags"] == ["/O2"]
+
     def test_blocker_delta_non_numeric_sets_none(self, tmp_path: Path) -> None:
         from rebrew.metadata.bindings import SourceBinding
         from rebrew.metadata.functions import merge_into_binding, update_field

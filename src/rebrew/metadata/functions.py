@@ -22,6 +22,7 @@ lazy import typing
 lazy import unicodedata
 lazy from collections.abc import Callable
 lazy from datetime import UTC, datetime
+lazy from itertools import chain
 
 lazy import tomlkit
 
@@ -1697,6 +1698,9 @@ def merge_into_binding(ann: SourceBinding, directory: Path | str | Any) -> Sourc
     return ann
 
 
+_BINDING_ATOMIC_TYPES = frozenset({str, int, float, bool, bytes, type(None)})
+
+
 def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
     """Overlay one ``{field: value}`` metadata *entry* onto *ann* in place.
 
@@ -1710,7 +1714,12 @@ def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
     for field in ("origins", "verification"):
         value = entry.get(field)
         if isinstance(value, dict):
-            setattr(ann, field, copy.deepcopy(value))
+            if type(value) is dict and _BINDING_ATOMIC_TYPES.issuperset(
+                map(type, chain(value, value.values()))
+            ):
+                setattr(ann, field, value.copy())
+            else:
+                setattr(ann, field, copy.deepcopy(value))
 
     if "size" in entry:
         try:
