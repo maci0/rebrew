@@ -183,6 +183,31 @@ class TestSingleCommandEntry:
         assert (component.name if component else None) == expected
 
     @pytest.mark.parametrize(
+        ("argv", "only_version"),
+        [
+            (["--version"], True),
+            (["-V"], True),
+            (["-o", "json", "--version"], True),
+            (["--output=json", "-vv", "-q", "-V"], True),
+            (["--version", "--help"], False),
+            (["--version", "status"], False),
+            (["--verbose"], False),
+            ([], False),
+        ],
+    )
+    def test_a_version_request_mounts_nothing_and_answers_as_the_umbrella(
+        self, argv: list[str], only_version: bool
+    ) -> None:
+        from rebrew.app.main import _asks_only_version, _new_root
+
+        assert _asks_only_version(argv) is only_version
+        if only_version:
+            expected = runner.invoke(app, argv)
+            got = runner.invoke(_new_root(), argv)
+            assert expected.exit_code == got.exit_code == 0
+            assert got.output == expected.output
+
+    @pytest.mark.parametrize(
         "argv",
         [
             ["test", "--help"],  # module command

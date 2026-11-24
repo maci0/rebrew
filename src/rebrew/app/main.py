@@ -267,6 +267,26 @@ def _invoked_builtin(argv: list[str]) -> CliComponent | None:
 _VERBOSE = re.compile(r"-v+")
 
 
+def _asks_only_version(argv: list[str]) -> bool:
+    """Whether *argv* is root options only, ``--version`` or ``-V`` among them.
+
+    The eager version option exits before a command is resolved, so a root
+    with nothing mounted prints the same answer as the whole umbrella.
+    """
+    asked = False
+    tokens = iter(argv)
+    for token in tokens:
+        if token in _ROOT_VALUE_OPTIONS:
+            next(tokens, None)
+        elif token in ("--version", "-V"):
+            asked = True
+        elif not (
+            token in _ROOT_FLAGS or token.startswith("--output=") or _VERBOSE.fullmatch(token)
+        ):
+            return False
+    return asked
+
+
 def _single_command_app(
     component: CliComponent,
 ) -> tuple[typer.Typer, tuple[Context, CoeffectScope]]:
@@ -332,14 +352,19 @@ def _traced_command() -> Iterator[None]:
 def main() -> None:
     """Package entry point for the ``rebrew`` umbrella CLI.
 
-    A run of one built-in command mounts only that command; every other
-    invocation mounts the whole umbrella.
+    A run of one built-in command mounts only that command, a version request
+    with root options only mounts none, and every other invocation mounts the
+    whole umbrella.
     """
     component = _invoked_builtin(sys.argv[1:])
     # _fiber holds the single command's scope until the command returns. The
     # module attribute (not a global lookup) reaches the lazy `app`.
     entry, _fiber = (
-        _single_command_app(component) if component else (sys.modules[__name__].app, None)
+        _single_command_app(component)
+        if component
+        else (_new_root(), None)
+        if _asks_only_version(sys.argv[1:])
+        else (sys.modules[__name__].app, None)
     )
     # The startup CLI graph (typer options, rich, registries) is live for the
     # whole process but would be rescanned by every full collection. Move it

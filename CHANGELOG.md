@@ -6,6 +6,7 @@
 
 ### Changed
 
+- `rebrew --version` (or `-V`, after root options only) answers from a root with no command mounted instead of composing every command first: 0.51 G user-space instructions instead of 2.02 G, the same output and exit status. A plugin that fails to load is no longer warned about by a version request; any other invocation still warns.
 - `rebrew.coverage_report` and `rebrew coverage report --decomp-dev` walk the reversed tree once and, for a retained snapshot, scan its sources and bind the trusted verdicts once per report: the progress model (`collect_status`, which takes the bound inventory as `bound_inventory`) reused neither and scanned and bound them a second time. The reply is byte-identical; a repeated call on bench-rebrew (123 functions) costs 1.06 G user-space instructions instead of 1.17 G.
 - Listings, jump-table layouts, control-flow blocks and the instruction diff decode with capstone's `disasm_lite` instead of building a `CsInsn` object per instruction; they read only the address, size, mnemonic and operands, which are the same. The instruction diff of 886 user32.dll functions (604 KB, 10,830 relocation fields) costs 35.4 G user-space instructions instead of 40.0 G, with identical answers.
 - The instruction diff normalizes and tokenizes each distinct instruction text once per function instead of once per instruction: the 886-function diff costs 31.1 G user-space instructions instead of 35.4 G, with identical answers.
