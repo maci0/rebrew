@@ -143,11 +143,29 @@ def instruction_diff(
             return {"op": "equal", "left": i, "right": j, "reloc": True}
         return {"op": "replace", "left": i, "right": j}
 
+    # A function repeats few distinct instruction texts: each is normalized and
+    # tokenized once per diff.  The token lists are shared and only read.
+    normalized: dict[tuple[str, str], str] = {}
+    parsed: dict[tuple[bool, str], list[tuple[int, int, str, Any]]] = {}
+    registers = _register_names(cs_arch, cs_mode)
+
+    def normal(insn: Insn) -> str:
+        key = (insn.mnemonic, insn.op_str)
+        text = normalized.get(key)
+        if text is None:
+            text = normalized[key] = normalize_instruction(insn)
+        return text
+
+    def tokens(insn: Insn) -> list[tuple[int, int, str, Any]]:
+        key = (insn.mnemonic == DATA_MNEMONIC, insn.op_str)
+        found = parsed.get(key)
+        if found is None:
+            found = parsed[key] = _tokens(insn, registers)
+        return found
+
     rows: list[dict[str, Any]] = []
     matcher = AlignedMatcher(
-        a=[normalize_instruction(i) for i in left],
-        b=[normalize_instruction(i) for i in right],
-        autojunk=False,
+        a=[normal(i) for i in left], b=[normal(i) for i in right], autojunk=False
     )
     for _tag, i1, i2, j1, j2 in matcher.get_opcodes():
         paired = min(i2 - i1, j2 - j1)
@@ -155,9 +173,8 @@ def instruction_diff(
         rows.extend({"op": "delete", "left": i, "right": None} for i in range(i1 + paired, i2))
         rows.extend({"op": "insert", "left": None, "right": j} for j in range(j1 + paired, j2))
 
-    registers = _register_names(cs_arch, cs_mode)
-    left_tokens = [_tokens(i, registers) for i in left]
-    right_tokens = [_tokens(i, registers) for i in right]
+    left_tokens = [tokens(i) for i in left]
+    right_tokens = [tokens(i) for i in right]
     values: dict[tuple[str, Any], int] = {}
     left_spans: list[list[dict[str, Any]]] = [[] for _ in left]
     right_spans: list[list[dict[str, Any]]] = [[] for _ in right]
