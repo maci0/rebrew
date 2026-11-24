@@ -2975,8 +2975,8 @@ def run_rebrew(
         )
 
         if kind == BINDING_CONFLICT_KIND:
-            logger.error("rebrew %s refused a function record: %s", name, _escape_log_text(message))
-            raise _binding_conflict()
+            # The child names the record by its key; _run_parsed answers the refusal.
+            raise BindingConflictError(_bounded(message))
         if kind == TOOLCHAIN_REJECTED_KIND:
             raise _toolchain_rejected(message, [project])
         if kind == COMPILER_NOT_OFFERED_KIND:
@@ -5259,13 +5259,11 @@ def _run_op(config: WorkerConfig, name: str, op: Op, body: bytes) -> Mapping[str
 _EXITS = (KeyboardInterrupt, SystemExit, GeneratorExit)
 
 
-#: Ops that write a function record the caller selects. A record whose source's anchor
-#: names another function refuses them (400 :data:`INVALID_PROJECT_CONFIG`), where every
+#: Ops that write a function record the caller selects and declare 400 :data:`INVALID_PROJECT_CONFIG`:
+#: a record whose source's anchor names another function refuses them, where every
 #: other op skips that record and answers for the rest of the project.
 _RECORD_WRITE_OPS = frozenset(
     {
-        "rebrew.apply_candidate",
-        "rebrew.rename_identifier",
         "rebrew.retained_source_operation",
     }
 )
@@ -5296,13 +5294,14 @@ def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mappin
     except OpsError:
         raise
     except BindingConflictError as exc:
+        # The key, never the names: an in-process refusal carries it, a child's message is it.
+        record = f"{exc.module}.0x{exc.va:08x}" if exc.module else _escape_log_text(str(exc))
         logger.warning(
-            "%s %s refused the function record %s.0x%08x: its source's anchor names another "
-            "function trace_id=%s",
+            "%s %s refused a function record whose source's anchor names another function: "
+            "%s trace_id=%s",
             _request_id(),
             name,
-            exc.module,
-            exc.va,
+            record,
             _trace_id(),
         )
         raise _binding_conflict() from None
