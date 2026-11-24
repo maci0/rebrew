@@ -125,6 +125,7 @@ class TestErrorsLazyExports:
 
         expected = {
             "CapstoneUnavailable",
+            "BindingConflictError",
             "CatalogScanError",
             "CompareResultError",
             "CompilerNotOffered",
@@ -195,6 +196,7 @@ class TestErrorsLazyExports:
         assert "ConfigError" in d
         assert "DecompmeError" in d
         assert err_mod.__all__ == [
+            "BindingConflictError",
             "CapstoneUnavailable",
             "CatalogScanError",
             "CompareResultError",
