@@ -41,7 +41,10 @@ CANDIDATE = "int __stdcall add(int a, int b) { return a + b; }\n"
 
 
 def _stage(
-    root: Path, source: str = "src/stub.c", extra: tuple[tuple[str, bytes], ...] = ()
+    root: Path,
+    source: str = "src/stub.c",
+    extra: tuple[tuple[str, bytes], ...] = (),
+    functions: bytes = FUNCTIONS,
 ) -> tuple[WorkerConfig, list[dict[str, Any]]]:
     filestore = root / "files"
     (filestore / "binaries").mkdir(parents=True)
@@ -52,7 +55,7 @@ def _stage(
     for name, data in (
         ("rebrew-project.toml", PROJECT),
         (source, STUB),
-        ("rebrew-functions.toml", FUNCTIONS.replace(b'"src/stub.c"', f'"{source}"'.encode())),
+        ("rebrew-functions.toml", functions.replace(b'"src/stub.c"', f'"{source}"'.encode())),
         *extra,
     ):
         digest = hashlib.sha256(data).hexdigest()
@@ -116,6 +119,24 @@ def _request(entries: list[dict[str, Any]], **extra: Any) -> bytes:
         **extra,
     }
     return json.dumps(body).encode()
+
+
+def test_the_candidates_own_contradicted_record_follows_the_candidate(
+    tmp_path: Path, promote_in_process: list[list[str]]
+) -> None:
+    """The record at the candidate's address names another function than its source's
+    anchor: the apply follows the candidate's name, as any apply does, and refuses nothing."""
+    contradicted = FUNCTIONS.replace(
+        b'name = "fcn_00401000"', b'name = "lib_cont (split from a merged entry)"'
+    )
+    config, entries = _stage(tmp_path, functions=contradicted)
+    status, reply = dispatch(config, "rebrew.apply_candidate", _request(entries))
+    assert status == 200, reply
+    registry = next(f for f in json.loads(reply)["files"] if f["path"] == "rebrew-functions.toml")
+    assert (
+        tomllib.loads(base64.b64decode(registry["data"]).decode())["MINI.0x00401000"]["name"]
+        == "add"
+    )
 
 
 def test_an_exact_candidate_returns_its_source_and_registry(

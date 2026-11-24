@@ -296,7 +296,7 @@ IN_PROCESS_TIMEOUT_SECONDS = 600
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "638eb2eaace3e569aa04be235492a233e053ceb7fa7e60eaf3e005d0db6798ed"
+DISPATCH_SCHEMA_SHA256 = "277f4854ffe512224b07914eb60a56e2b3996324b604e5cf4fba62676454c9ef"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -743,7 +743,6 @@ _COVERAGE_PROBLEMS = _RETAINED_PROBLEMS | {COVERAGE_INPUT_UNVERIFIED}
 OP_PROBLEMS: dict[str, frozenset[str]] = {
     "rebrew.analyse": frozenset({ANALYSIS_CAPTURE_FAILED, COMPILER_NOT_OFFERED, READSET_TOO_LARGE}),
     "rebrew.apply_candidate": _CANDIDATE_PROBLEMS | {INVALID_PROJECT_CONFIG},
-    "rebrew.rename_identifier": frozenset({INVALID_PROJECT_CONFIG}),
     "rebrew.verify_function": _CANDIDATE_PROBLEMS,
     "rebrew.build": _COMPILE_PROBLEMS | {INVALID_PROJECT_CONFIG},
     "rebrew.verify_target": _COMPILE_PROBLEMS | {INVALID_PROJECT_CONFIG},
@@ -3727,12 +3726,6 @@ MAX_IDENTIFIER_RENAMES = 256
 
 
 def rename_identifier(_config: WorkerConfig, req: RenameIdentifierRequest) -> dict[str, Any]:
-    """Answer :func:`_renamed_identifiers`; a record its source contradicts refuses the op."""
-    with _refusing_disagreeing_records("rebrew.rename_identifier"):
-        return _renamed_identifiers(req)
-
-
-def _renamed_identifiers(req: RenameIdentifierRequest) -> dict[str, Any]:
     """Apply ordered identifier renames to one C text, each against the previous result.
 
     Every rename answers ``applied`` with the UTF-8 byte ``offsets`` of the

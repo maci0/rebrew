@@ -11010,11 +11010,6 @@
             403
           ]
         },
-        "invalid-project-config": {
-          "status": [
-            400
-          ]
-        },
         "invalid-request": {
           "status": [
             400,
