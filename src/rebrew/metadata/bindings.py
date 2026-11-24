@@ -16,6 +16,7 @@ lazy import unicodedata
 lazy from collections.abc import Callable, Iterable, Iterator
 lazy from pathlib import Path
 
+from rebrew.errors import RebrewError
 lazy from rebrew.c_parser import extract_function_name_from_line
 lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
 lazy from rebrew.utils import (
@@ -30,10 +31,12 @@ lazy from rebrew.workspace.status import MATCHED_STATUSES
 logger = logging.getLogger(__name__)
 
 
-class BindingConflictError(ValueError):
+class BindingConflictError(RebrewError, ValueError):
     """A source's address anchor names another function than the record at its address."""
 
-    def __init__(self, message: str, module: str, va: int) -> None:
+    STRUCTURED_FIELDS = (*RebrewError.STRUCTURED_FIELDS, "module", "va")
+
+    def __init__(self, message: str, *, module: str = "", va: int = 0) -> None:
         super().__init__(message)
         self.module = module
         self.va = va
@@ -1445,7 +1448,7 @@ def source_bindings(
                     raise ValueError(message)
                 _record_conflict(existing.module, anchor.va)
                 if _STRICT_BINDINGS.get():
-                    raise BindingConflictError(message, existing.module, anchor.va)
+                    raise BindingConflictError(message, module=existing.module, va=anchor.va)
                 rows.remove(existing)
                 del indexed[key]
                 continue

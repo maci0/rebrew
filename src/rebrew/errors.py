@@ -87,6 +87,7 @@ if TYPE_CHECKING:
     from rebrew.ghidra.client import McpError as McpError
     from rebrew.ghidra.client import McpErrorKind as McpErrorKind
     from rebrew.matcher.scoring import SimilarityUnavailable as SimilarityUnavailable
+    from rebrew.metadata.bindings import BindingConflictError as BindingConflictError
     from rebrew.metadata.functions import LibraryOverrideError as LibraryOverrideError
     from rebrew.metadata.model import MetadataValidationError as MetadataValidationError
     from rebrew.metadata.replication import MetadataConflictError as MetadataConflictError
@@ -272,6 +273,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ConfigKeyError": ("rebrew.errors", "ConfigKeyError"),
     "ConfigNotFoundError": ("rebrew.errors", "ConfigNotFoundError"),
     "CapstoneUnavailable": ("rebrew.analysis", "CapstoneUnavailable"),
+    "BindingConflictError": ("rebrew.metadata.bindings", "BindingConflictError"),
     "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
     "ComponentError": ("rebrew.app.plugin", "ComponentError"),
     "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
@@ -374,6 +376,7 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
+    "BindingConflictError",
     "CapstoneUnavailable",
     "CatalogScanError",
     "CompareResultError",
