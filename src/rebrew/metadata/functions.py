@@ -44,7 +44,7 @@ lazy from rebrew.metadata.document import (
     stamp_now,
 )
 lazy from rebrew.metadata.source_schema import validate_identity_file
-lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
+lazy from rebrew.metadata.storage import MetadataStore, metadata_store, metadata_write_lock
 lazy from rebrew.utils import (
     parse_int_literal,
     resolved_path,
@@ -2256,19 +2256,19 @@ _LIBRARY_DB_MEMO: OrderedDict[
 
 
 def _database_library_fingerprint(
-    start_dir: str | Path, root: str | Path | None
+    start_dir: str | Path, root: str | Path | None, store: MetadataStore
 ) -> tuple[str, MetadataDocFingerprint] | None:
     """:func:`library_override_fingerprint` for database-backed stores, memoized by token."""
     from rebrew.metadata.storage import named_documents_token
 
-    def current_token() -> tuple[object, ...] | None:
+    def current_token(selected: MetadataStore | None = None) -> tuple[object, ...] | None:
         if root is None:
             return None
-        documents = named_documents_token(Path(root), LIBRARY_METADATA_FILE)
+        documents = named_documents_token(Path(root), LIBRARY_METADATA_FILE, selected=selected)
         link = _library_stat_id(os.fspath(start_dir), follow=False)
         return None if documents is None else (documents, link)
 
-    token = current_token()
+    token = current_token(store)
     key = (os.fspath(start_dir), "" if root is None else os.fspath(root))
     if token is not None:
         with _LIBRARY_CACHE_LOCK:
@@ -2301,8 +2301,9 @@ def library_override_fingerprint(
     file instead of resolving the walk again.  A new file, a removed file,
     or an in-place edit still returns the fresh fingerprint.
     """
-    if metadata_store(Path(start_dir) / LIBRARY_METADATA_FILE).name != "toml":
-        return _database_library_fingerprint(start_dir, root)
+    store = metadata_store(Path(start_dir) / LIBRARY_METADATA_FILE)
+    if store.name != "toml":
+        return _database_library_fingerprint(start_dir, root, store)
     key = (os.fspath(start_dir), "" if root is None else os.fspath(root))
     with _LIBRARY_CACHE_LOCK:
         cached = _LIBRARY_FP_MEMO.get(key)

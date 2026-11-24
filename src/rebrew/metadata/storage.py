@@ -415,15 +415,32 @@ def input_exists(path: Path) -> bool:
     return metadata_store(path).exists() if path.name in METADATA_FILENAMES else path.is_file()
 
 
-def named_documents_token(root: Path, name: str) -> tuple[object, ...] | None:
+def named_documents_token(
+    root: Path, name: str, *, selected: MetadataStore | None = None
+) -> tuple[object, ...] | None:
     """Exact change token for every document named *name*; None when not cacheable.
 
     Covers a SQLite store and a replicated store whose first read backend is a
     provisioned SQLite database: the ``(path, content SHA-256)`` of each such document
     plus the replication journal's stat.  Other backends, and an unprovisioned
     replica whose reads fall back to TOML, return None.
+
+    A store just selected by normal routing can supply the SQLite reader for
+    the same resolved root. Transaction pins can differ per path.
     """
-    store = metadata_store(root / name, root=root)
+    store: MetadataStore
+    if (
+        (
+            type(selected) is SqliteStore
+            or (type(selected) is RoutedStore and selected.factories[selected.name] is SqliteStore)
+        )
+        and name in METADATA_FILENAMES
+        and not _PINNED_STORES.get()
+        and os.fspath(root) == os.fspath(selected.root) == os.path.realpath(root)
+    ):
+        store = selected
+    else:
+        store = metadata_store(root / name, root=root)
     journal: tuple[object, ...] = ()
     if isinstance(store, RoutedStore):
         journal = TomlStore(root / JOURNAL_PATH, root).fingerprint()
