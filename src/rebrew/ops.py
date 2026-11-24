@@ -365,6 +365,12 @@ DOWNLOAD_TIMEOUT_SECONDS = 60
 #: worker slot for the kernel timeout and later requests queue behind it.
 DNS_TIMEOUT_SECONDS = 10
 
+#: Resolver threads that may remain blocked after their request timed out.
+#: Python cannot cancel ``getaddrinfo``; the cap keeps repeated hung lookups
+#: from retaining one daemon thread per URL request.
+DNS_RESOLUTION_LIMIT = 32
+_DNS_SLOTS = threading.BoundedSemaphore(DNS_RESOLUTION_LIMIT)
+
 #: Bytes read per chunk of a ``url`` download.
 DOWNLOAD_CHUNK_BYTES = 1 << 20
 
@@ -1876,7 +1882,11 @@ def _check_download_host(hostname: str) -> str:
     import socket as _socket
 
     # getaddrinfo blocks with no timeout: a hung resolver would pin this
-    # request thread (and its worker slot) for the kernel timeout.
+    # request thread (and its worker slot) for the kernel timeout. A timed-out
+    # resolver cannot be cancelled, so retain at most DNS_RESOLUTION_LIMIT of
+    # them and refuse further URL lookups until one finishes.
+    if not _DNS_SLOTS.acquire(blocking=False):
+        raise _refused("url host cannot be resolved")
     _result: list[Any] = []
     _error: list[BaseException] = []
 
@@ -1885,9 +1895,15 @@ def _check_download_host(hostname: str) -> str:
             _result.append(_socket.getaddrinfo(hostname, 443, type=_socket.SOCK_STREAM))
         except BaseException as exc:  # propagated below; resolve runs on a thread
             _error.append(exc)
+        finally:
+            _DNS_SLOTS.release()
 
     _thread = threading.Thread(target=_resolve, daemon=True)
-    _thread.start()
+    try:
+        _thread.start()
+    except BaseException:
+        _DNS_SLOTS.release()
+        raise
     _thread.join(DNS_TIMEOUT_SECONDS)
     if _thread.is_alive():
         raise _refused("url host cannot be resolved")

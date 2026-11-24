@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import http.server
 import json
@@ -125,6 +126,40 @@ def test_configure_refuses_a_bad_endpoint() -> None:
     for bad in ("file:///x", "collector:4318", "http://user:pw@host:4318"):
         with pytest.raises(ValueError, match="REBREW_OTLP_ENDPOINT"):
             telemetry.configure(bad, "s", "v")
+
+
+def test_export_worker_survives_http_protocol_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    posted = threading.Event()
+    calls = 0
+
+    class Opener:
+        def open(self, *args: Any, **kwargs: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise http.client.HTTPException("malformed collector response")
+            posted.set()
+            return contextlib.nullcontext(None)
+
+    monkeypatch.setattr(telemetry.urllib.request, "build_opener", lambda *args, **kwargs: Opener())
+    stop = telemetry.configure("http://collector.invalid", "relumea-rebrew", "1.2.3")
+    exporter = telemetry._current_exporter()
+    assert exporter is not None
+    try:
+        with telemetry.span("first"):
+            pass
+        deadline = time.monotonic() + 2
+        while exporter.export_failed_spans == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert exporter.export_failed_spans == 1
+        assert exporter._thread.is_alive()
+        with telemetry.span("second"):
+            pass
+        assert posted.wait(2)
+    finally:
+        stop()
 
 
 class _Resp:

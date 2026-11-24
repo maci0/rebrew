@@ -1401,6 +1401,45 @@ class TestUrlBinaries:
         finally:
             release.set()
 
+    def test_hung_dns_cannot_accumulate_resolver_threads(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest import mock
+
+        import rebrew.ops as ops
+
+        release = threading.Event()
+        entered = threading.Event()
+        calls: list[str] = []
+
+        def _hung(*args: Any, **kwargs: Any) -> Any:
+            calls.append(args[0])
+            entered.set()
+            release.wait()
+            return []
+
+        monkeypatch.setattr(ops, "DNS_TIMEOUT_SECONDS", 0.05)
+        monkeypatch.setattr(ops, "_DNS_SLOTS", threading.BoundedSemaphore(1), raising=False)
+        config = self._config(tmp_path)
+        try:
+            with mock.patch.object(socket, "getaddrinfo", _hung):
+                first = _refusal(
+                    config,
+                    "rebrew.fingerprint",
+                    json.dumps(self._url_file("https://one.example.com")).encode(),
+                )
+                assert first["detail"] == "url host cannot be resolved"
+                assert entered.wait(1)
+                second = _refusal(
+                    config,
+                    "rebrew.fingerprint",
+                    json.dumps(self._url_file("https://two.example.com")).encode(),
+                )
+                assert second["detail"] == "url host cannot be resolved"
+                assert calls == ["one.example.com"]
+        finally:
+            release.set()
+
     def test_private_dns_answer_is_refused(self, tmp_path: Path) -> None:
         from unittest import mock
 

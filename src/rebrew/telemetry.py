@@ -282,7 +282,10 @@ class _Exporter:
         try:
             with opener.open(request, timeout=EXPORT_TIMEOUT_SECONDS):
                 pass
-        except OSError as exc:
+        except Exception as exc:
+            # The exporter is a long-lived worker. A protocol-level HTTP error
+            # must count this batch as lost, not kill the thread and silently
+            # fill the queue on every later span.
             with self._lock:
                 self._export_failed += len(batch)
             logger.warning("trace export failed (%d spans): %s", len(batch), type(exc).__name__)
