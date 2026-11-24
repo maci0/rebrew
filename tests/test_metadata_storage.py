@@ -756,8 +756,23 @@ def test_project_root_cache_survives_scan_and_rechecks_backend(
         return real(start)
 
     monkeypatch.setattr(storage, "walk_up_to_root", counting)
-    assert all(storage.metadata_store(path).name == "sqlite" for path in paths)
+    with monkeypatch.context() as cached:
+
+        def unexpected_rebuild(directory: str) -> None:
+            pytest.fail(f"rebuilding marker paths for a cached directory: {directory}")
+
+        cached.setattr(storage, "_ancestor_identities", unexpected_rebuild)
+        assert all(storage.metadata_store(path).name == "sqlite" for path in paths)
     assert calls == 0
+
+    nested = paths[0].parent / "rebrew-project.toml"
+    nested.write_text('[metadata]\nbackend = "toml"\n')
+    assert storage.metadata_store(paths[0]).root == paths[0].parent
+    assert storage.metadata_store(paths[0]).name == "toml"
+    assert storage.metadata_store(paths[1]).name == "sqlite"
+    nested.unlink()
+    assert storage.metadata_store(paths[0]).name == "sqlite"
+
     config.write_text('[metadata]\nbackend = "toml"\n')
     assert all(storage.metadata_store(path).name == "toml" for path in paths)
     config.unlink()
@@ -781,8 +796,8 @@ def test_project_root_cache_evicts_only_least_recently_used(
     storage._project_root(dirs[0])
     storage._project_root(dirs[-1])
     assert len(storage._PROJECT_ROOTS) == storage._PROJECT_ROOTS_MAX
-    assert dirs[0] in storage._PROJECT_ROOTS
-    assert dirs[1] not in storage._PROJECT_ROOTS
+    assert str(dirs[0]) in storage._PROJECT_ROOTS
+    assert str(dirs[1]) not in storage._PROJECT_ROOTS
 
 
 class TestScopeMetadataToModule:

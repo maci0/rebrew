@@ -181,39 +181,36 @@ def _configured_routes(
     return backend_routes(load_tomllib(path).get("metadata", {}))
 
 
-#: ``directory -> (project root, ancestor identities)``.  The walk lstats every
+#: ``directory spelling -> (project root, marker paths and identities)``.  The walk stats every
 #: ancestor; a whole-tree scan calls ``metadata_store`` once per source file.
 #: Misses are not cached: a config created later must still be found.  A hit is
 #: only reused while every ancestor's identity is unchanged, so creating or
 #: removing a ``rebrew-project.toml`` marker above a cached directory — or
 #: replacing an ancestor with a lookalike — invalidates the memo instead of
 #: keeping the old root for the life of the process.
-_PROJECT_ROOTS: OrderedDict[Path, tuple[Path, tuple[tuple[str, tuple[int, ...] | None], ...]]] = (
+_PROJECT_ROOTS: OrderedDict[str, tuple[Path, tuple[tuple[str, tuple[int, ...] | None], ...]]] = (
     OrderedDict()
 )
 _PROJECT_ROOTS_LOCK = threading.Lock()
 _PROJECT_ROOTS_MAX = 256
 
 
-def _marker_identity(directory: str) -> tuple[int, int, int, int, int] | None:
-    """Stat identity of the project marker in *directory*, ``None`` when absent."""
+def _marker_identity(marker: str) -> tuple[int, int, int, int, int] | None:
+    """Stat identity of the project marker, ``None`` when absent."""
     try:
-        st = os.stat(os.path.join(directory, "rebrew-project.toml"))  # noqa: PTH116, PTH118 -- per-ancestor hot path, no Path per stat
+        st = os.stat(marker)  # noqa: PTH116 -- marker paths are already strings
     except OSError:
         return None
     return (st.st_mtime_ns, st.st_ctime_ns, st.st_ino, st.st_size, 1)
 
 
-def _ancestor_identities(directory: Path) -> tuple[tuple[str, tuple[int, ...] | None], ...]:
-    """Marker identity of absolute *directory* and every ancestor, for cache validation.
-
-    Walks str paths: ``os.path.dirname`` of an absolute ``str(Path)`` is its
-    ``Path.parent``, without building a ``Path`` per ancestor.
-    """
+def _ancestor_identities(directory: str) -> tuple[tuple[str, tuple[int, ...] | None], ...]:
+    """Marker paths and identities for *directory* and every ancestor."""
     identities: list[tuple[str, tuple[int, ...] | None]] = []
-    current = str(directory)
+    current = directory
     while True:
-        identities.append((current, _marker_identity(current)))
+        marker = os.path.join(current, CONFIG_NAME)  # noqa: PTH118 -- the marker cache uses strings
+        identities.append((marker, _marker_identity(marker)))
         parent = os.path.dirname(current)
         if parent == current:
             break
@@ -223,20 +220,23 @@ def _ancestor_identities(directory: Path) -> tuple[tuple[str, tuple[int, ...] | 
 
 def _project_root(directory: Path) -> Path:
     """Find and memoize the project root for *directory*, if one exists."""
+    spelling = str(directory)
     with _PROJECT_ROOTS_LOCK:
-        cached = _PROJECT_ROOTS.get(directory)
-    if cached is not None and cached[1] == _ancestor_identities(directory):
+        cached = _PROJECT_ROOTS.get(spelling)
+    if cached is not None and all(
+        _marker_identity(marker) == identity for marker, identity in cached[1]
+    ):
         with _PROJECT_ROOTS_LOCK:
-            if directory in _PROJECT_ROOTS:
-                _PROJECT_ROOTS.move_to_end(directory)
+            if spelling in _PROJECT_ROOTS:
+                _PROJECT_ROOTS.move_to_end(spelling)
         return cached[0]
     walked = walk_up_to_root(directory)
     if walked is None:
         return directory
-    identities = _ancestor_identities(directory)
+    identities = _ancestor_identities(spelling)
     with _PROJECT_ROOTS_LOCK:
-        _PROJECT_ROOTS[directory] = (walked, identities)
-        _PROJECT_ROOTS.move_to_end(directory)
+        _PROJECT_ROOTS[spelling] = (walked, identities)
+        _PROJECT_ROOTS.move_to_end(spelling)
         while len(_PROJECT_ROOTS) > _PROJECT_ROOTS_MAX:
             _PROJECT_ROOTS.popitem(last=False)
     return walked
