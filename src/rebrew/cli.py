@@ -560,6 +560,14 @@ def _write_error(kind: str, message: str, hint: str) -> None:
     _error_written = True
 
 
+def _report_interrupt() -> None:
+    """Report Ctrl+C in the caller's selected output format."""
+    if json_mode_active():
+        _write_error("interrupted", "Interrupted by user", "")
+        return
+    console.print("[red]error:[/red] Interrupted by user")
+
+
 def _close_unreported_failure(code: Any) -> None:
     """Append the error object a JSON-mode ``EXIT_ERROR`` exit left out.
 
@@ -671,6 +679,9 @@ COMPILER_NOT_OFFERED_KIND = "compiler_not_offered"
 #: The ``error_exit`` kind of a decompile refused before it ran because its
 #: decompiler cannot run here (``rebrew.decompiler.cli_backend_state``).
 DECOMPILER_NOT_AVAILABLE_KIND = "decompiler_not_available"
+
+#: The JSON error kind of a command that cannot run without a terminal.
+TTY_REQUIRED_KIND = "tty_required"
 
 
 class CommandExit(typer.Exit):
@@ -1032,7 +1043,13 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
                 cfg = require_config(root=Path(root) if root else None, json_mode=json_mode)
                 names = list(cfg.all_targets) or [cfg.target_name]
                 if json_mode:
-                    json_print({"targets": names, "default_target": cfg.target_name})
+                    json_print(
+                        {
+                            "items": names,
+                            "total": len(names),
+                            "default_target": cfg.target_name,
+                        }
+                    )
                 else:
                     console.print("Configured targets:")
                     for name in names:
@@ -1183,7 +1200,7 @@ def exit_130_on_interrupt(cmd: TyperBaseCommand) -> TyperBaseCommand:
         try:
             return original(ctx)
         except KeyboardInterrupt:
-            console.print("[red]error:[/red] Interrupted by user")
+            _report_interrupt()
             raise SystemExit(EXIT_INTERRUPTED) from None
 
     cmd.invoke = invoke  # type: ignore[method-assign]
@@ -1234,6 +1251,8 @@ def run_cli(app: Callable[[], Any]) -> None:
         except SystemExit as exc:
             if exc.code == EXIT_MISMATCH and _stdout_pipe_closed(stdout_was_fifo):
                 raise BrokenPipeError from None
+            if exc.code == EXIT_INTERRUPTED and not _error_written:
+                _report_interrupt()
             _close_unreported_failure(exc.code)
             raise
         finally:
@@ -1288,7 +1307,7 @@ def run_cli(app: Callable[[], Any]) -> None:
             )
         raise SystemExit(EXIT_ERROR) from None
     except KeyboardInterrupt:
-        console.print("[red]error:[/red] Interrupted by user")
+        _report_interrupt()
         raise SystemExit(EXIT_INTERRUPTED) from None
 
 
@@ -1364,7 +1383,7 @@ def ensure_watch_terminal(*, json_mode: bool = False) -> None:
         error_exit(
             "--watch requires a terminal (stdin is not a terminal)",
             json_mode=json_mode,
-            kind="usage",
+            kind=TTY_REQUIRED_KIND,
             hint="Run --watch only from an interactive terminal.",
         )
 
@@ -1668,6 +1687,7 @@ __all__ = [
     "SOURCE_TARGETS_HELP",
     "TIER_HELP",
     "TOOLCHAIN_REJECTED_KIND",
+    "TTY_REQUIRED_KIND",
     "VERBOSE_HELP",
     "VERSION_HELP",
     "WATCH_FILE_HELP",

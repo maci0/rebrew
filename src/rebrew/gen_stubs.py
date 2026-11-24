@@ -1802,6 +1802,12 @@ def main(
 ) -> None:
     """Generate a stub TU for unresolved linker symbols."""
     root = Path.cwd()
+    if dry_run and build_cmd:
+        error_exit(
+            "--dry-run cannot run --build-cmd; pass --log or pipe linker output instead",
+            json_mode=json_output,
+            kind="usage",
+        )
 
     if update_symbol or update_data_symbol:
         import hashlib

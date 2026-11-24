@@ -424,6 +424,28 @@ class TestCliComponent:
         assert app.registered_commands == [] and app.registered_groups == []
         ctx.dispose()
 
+    def test_unavailable_stub_uses_one_json_error_envelope(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+        import sys
+
+        from typer.testing import CliRunner
+
+        import rebrew.app.plugin as plug
+
+        app = plug.make_stub_app("broken.module", ValueError("bad import"), Console(stderr=True))
+        monkeypatch.setattr(sys, "argv", ["rebrew", "broken", "--json"])
+        result = CliRunner().invoke(app, [])
+
+        assert result.exit_code == 2
+        assert result.stdout == ""
+        assert len(result.stderr.strip().splitlines()) == 1
+        error = json.loads(result.stderr)["error"]
+        assert error["kind"] == "failure"
+        assert "broken.module" in error["message"]
+        assert "bad import" in error["message"]
+
     def _context(self, app: typer.Typer) -> Context:
         ctx = Context()
         ctx.provide(CLI_SERVICE, app)

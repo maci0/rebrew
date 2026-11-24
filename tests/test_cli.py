@@ -94,7 +94,8 @@ class TestMissingTargetArgument:
         assert result.exit_code == 0, result.output
         if json_mode:
             assert cli_payload(result) == {
-                "targets": ["alpha", "beta"],
+                "items": ["alpha", "beta"],
+                "total": 2,
                 "default_target": "beta",
             }
         else:
@@ -156,7 +157,8 @@ class TestRootOutputTargetListing:
         result = CliRunner().invoke(app, [*prefix, "test", "--target"])
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout) == {
-            "targets": ["alpha", "beta"],
+            "items": ["alpha", "beta"],
+            "total": 2,
             "default_target": "beta",
         }
         assert "Configured targets:" not in result.stderr
@@ -320,6 +322,29 @@ class TestRunCliFailureEnvelope:
         code, _, err = self._run(_report_then_fail_app(), [], monkeypatch, capsys)
         assert code == EXIT_ERROR
         assert '"error"' not in err
+
+    def test_interrupt_uses_the_declared_json_error(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from rebrew.cli import EXIT_INTERRUPTED
+
+        app = typer.Typer()
+
+        @app.command()
+        def interrupted(json_output: bool = typer.Option(False, "--json")) -> None:
+            del json_output
+            raise KeyboardInterrupt
+
+        code, out, err = self._run(app, ["--json"], monkeypatch, capsys)
+        assert code == EXIT_INTERRUPTED, err
+        assert out == ""
+        assert json.loads(err) == {
+            "error": {
+                "kind": "interrupted",
+                "message": "Interrupted by user",
+                "hint": "",
+            }
+        }
 
 
 # ---------------------------------------------------------------------------

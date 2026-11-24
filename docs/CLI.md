@@ -40,7 +40,7 @@ For byte verdicts and symbolic proof, see [match types](MATCH_TYPES.md).
 | `--no-cache` | Recheck functions selected by `verify` without saved verdicts. Compiler objects may still be reused. |
 
 For commands using the shared target selector, a bare final `--target` lists
-configured targets. The JSON envelope is `{"targets","default_target"}`.
+configured targets. The JSON envelope is `{"items","total","default_target"}`.
 `init` and `intake` use `--target` to name a target. Standalone inspection
 commands may accept a binary path without project selection.
 
@@ -6561,7 +6561,9 @@ Manage configured targets.
 
 `rebrew cfg target list [OPTIONS]`
 
-List all targets defined in rebrew-project.toml.
+List all targets defined in rebrew-project.toml. JSON uses the collection
+envelope `{"items","total"}`; each item has `name`, `binary`, `arch`, and
+`default`.
 
 
 ```bash

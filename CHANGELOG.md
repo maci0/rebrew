@@ -4,6 +4,10 @@
 
 - The jobs service caps event streams across the owner, removes unreceipted custody after failed managed admission, and runs owner cleanup after graceful HTTP shutdown.
 - LLM-assisted GA seeding reuses terminal billed outcomes from its bounded in-process cache, including empty responses and lost replies. A concurrent waiter that times out returns no seeds instead of becoming a second sender, while connect-stage failures remain retryable and release their unused token reservation.
+- The clispec document declares every JSON error kind the CLI emits, describes repeatable `--verbose` as a count, and records terminal and prompt behavior. JSON-mode Ctrl+C now writes the declared `interrupted` error envelope before exiting 130.
+- A bare final `--target` and `rebrew cfg target list --json` use the `{"items","total"}` collection envelope. The selector keeps `default_target`; target rows keep `default`.
+- `rebrew build sweep-link-flags` exits 2 when no candidate links, after writing its report. An unavailable CLI plugin writes one JSON error envelope in JSON mode instead of mixing prose with structured stderr.
+- `rebrew cfg target add --dry-run` no longer creates directories or copies an absolute binary. `rebrew build symbol-stubs --dry-run --build-cmd` is rejected before the build can rename sources or rewrite CMake files.
 
 ## [6.77.0] - 2026-11-24
 

@@ -12,6 +12,14 @@ lazy from typing import Any
 lazy import typer
 
 lazy from rebrew import __version__
+lazy from rebrew.cli import (
+    BINDING_CONFLICT_KIND,
+    COMPILER_NOT_OFFERED_KIND,
+    DECOMPILER_NOT_AVAILABLE_KIND,
+    QUIET_HELP,
+    TOOLCHAIN_REJECTED_KIND,
+    TTY_REQUIRED_KIND,
+)
 
 _RICH_TAG = re.compile(
     r"\[/?(?:bold|dim|cyan|green|yellow|red|italic|underline|white|blue|magenta)\]",
@@ -66,7 +74,13 @@ _READ_ONLY_LEAVES = frozenset(
 # These edits already exit 0 when the requested state is in place and report
 # ``changed`` in JSON. Do not add a command here without that field.
 _IDEMPOTENT = frozenset(
-    {"cfg target add", "cfg target remove", "cfg module add", "cfg module remove"}
+    {
+        "cfg target add",
+        "cfg target remove",
+        "cfg module add",
+        "cfg module remove",
+        "types apply",
+    }
 )
 
 # Full paths that are read-only even though their leaf is not in
@@ -84,7 +98,6 @@ _READ_ONLY_PATHS = frozenset(
         "build check-text-placement",
         "build check-tu-data",
         "build order-sources",
-        "build sweep-link-flags",
         "cfg effective",
         "cfg path",
         "cfg raw",
@@ -132,6 +145,7 @@ _WRITING_PATHS = frozenset(
         "binary functions",
         "binary resource extract",
         "binary unpack-lzexe",
+        "build sweep-link-flags",
         "coverage catalog",
         "decompile",
         "diagnose near",
@@ -151,6 +165,13 @@ _CONFIRMATION = {
     "cfg module remove": "--force",
     "coverage catalog": "--force",
 }
+
+_REQUIRES_TTY = frozenset({"sync watch"})
+
+# ``init`` keeps its established split: prompt on a terminal, proceed with
+# defaults without one. ``confirmation_bypass_arg`` would promise a refusal
+# that this command does not make, so the extension describes the exception.
+_TTY_PROMPTS = {"init": "--no-wizard"}
 
 _RETRY_NOTE = (
     " No idempotency key is accepted, so a retry is not a safe substitute for"
@@ -193,7 +214,7 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
             {
                 "name": "--verbose",
                 "short": "-v",
-                "type": "integer",
+                "type": "count",
                 "default": 0,
                 "description": "Increase log verbosity (-v: info, -vv: debug).",
             },
@@ -202,7 +223,7 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
                 "short": "-q",
                 "type": "boolean",
                 "default": False,
-                "description": "Cancel --verbose and leave logs at warning.",
+                "description": QUIET_HELP,
             },
             {
                 "name": "--version",
@@ -227,7 +248,25 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
                 "description": "The command could not finish.",
             },
             {
-                "kind": "toolchain_rejected",
+                "kind": BINDING_CONFLICT_KIND,
+                "exit_code": 2,
+                "retryable": False,
+                "description": "A function record and its source anchor name different functions.",
+            },
+            {
+                "kind": COMPILER_NOT_OFFERED_KIND,
+                "exit_code": 2,
+                "retryable": False,
+                "description": "The selected compiler is not offered by the execution service.",
+            },
+            {
+                "kind": DECOMPILER_NOT_AVAILABLE_KIND,
+                "exit_code": 2,
+                "retryable": False,
+                "description": "No configured decompiler backend can run in this environment.",
+            },
+            {
+                "kind": TOOLCHAIN_REJECTED_KIND,
                 "exit_code": 2,
                 "retryable": False,
                 "description": (
@@ -240,6 +279,12 @@ def build_schema(root: typer.Typer, *, path: str | None = None) -> dict[str, Any
                 "exit_code": 2,
                 "retryable": False,
                 "description": "A confirmation prompt had no terminal. The hint names the bypass flag.",
+            },
+            {
+                "kind": TTY_REQUIRED_KIND,
+                "exit_code": 2,
+                "retryable": False,
+                "description": "The command needs a terminal and stdin is not a terminal.",
             },
             {
                 "kind": "interrupted",
@@ -323,9 +368,25 @@ def _command(path: str, cmd: Any) -> dict[str, Any]:
             {"name": "description", "type": "string"},
             {"name": "origin", "type": "string"},
         ]
+    elif path == "cfg target list":
+        entry["cardinality"] = "bounded"
+        entry["output_fields"] = [
+            {"name": "name", "type": "string"},
+            {"name": "binary", "type": "string"},
+            {"name": "arch", "type": "string"},
+            {"name": "default", "type": "boolean"},
+        ]
     else:
         entry["cardinality"] = "single"
         entry["stdout_schema"] = {}
+    if path in _REQUIRES_TTY:
+        entry["requires_tty"] = True
+    if path in _TTY_PROMPTS:
+        entry["x-rebrew-interaction"] = {
+            "tty": "prompt",
+            "non_tty": "proceed",
+            "bypass_arg": _TTY_PROMPTS[path],
+        }
     args = _args(cmd)
     if args:
         entry["args"] = args

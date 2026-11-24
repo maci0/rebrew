@@ -51,7 +51,7 @@ lazy from rich.console import Console
 lazy from rich.markup import escape
 
 from rebrew.errors import RebrewError
-lazy from rebrew.cli import EXIT_ERROR
+lazy from rebrew.cli import EXIT_ERROR, error_exit, json_mode_active
 lazy from rebrew.registry import Registration, RegistryError, import_registration
 lazy from rebrew.utils import remove_identity
 
@@ -1093,7 +1093,10 @@ def make_stub_command(module: str, error: Exception, console: Console) -> Callab
     """A command callable that reports why its module could not be loaded."""
 
     def _stub() -> None:
-        console.print(f"[red]error:[/red] could not load '{escape(module)}': {escape(str(error))}")
+        message = f"could not load '{module}': {error}"
+        if json_mode_active():
+            error_exit(message, json_mode=True)
+        console.print(f"[red]error:[/red] {escape(message)}")
         raise typer.Exit(code=EXIT_ERROR)
 
     return _stub

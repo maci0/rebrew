@@ -441,7 +441,7 @@ def list_targets(
     targets = doc.get("targets", {})
     if not targets:
         if json_output:
-            json_print({"targets": []})
+            json_print({"items": [], "total": 0})
         else:
             console.print("No targets defined.")
         return
@@ -459,7 +459,7 @@ def list_targets(
                     "default": name == (default_target or next(iter(targets))),
                 }
             )
-        json_print({"targets": result})
+        json_print({"items": result, "total": len(result)})
     else:
         project = doc.get("project", {})
         default_target = project.get("default_target") if isinstance(project, dict) else None
@@ -792,8 +792,9 @@ def _add_target_locked(
         doc["targets"] = targets
 
     if name in targets:
-        (root / "src" / name).mkdir(parents=True, exist_ok=True)
-        (root / "bin" / name).mkdir(parents=True, exist_ok=True)
+        if not dry_run:
+            (root / "src" / name).mkdir(parents=True, exist_ok=True)
+            (root / "bin" / name).mkdir(parents=True, exist_ok=True)
         if json_output:
             json_print({"target": name, "added": False, "existed": True, "changed": False})
         else:
@@ -859,18 +860,20 @@ def _add_target_locked(
 
     if copy_binary and binary_path.is_absolute() and binary_path.exists():
         original_dir = root / "original"
-        original_dir.mkdir(exist_ok=True)
         dest = original_dir / binary_path.name
-        if not dest.exists():
-            shutil.copy2(binary_path, dest)
-            if not json_output:
-                console.print(f"  [green]Copied {binary_path.name} → original/[/green]")
+        if not dry_run:
+            original_dir.mkdir(exist_ok=True)
+            if not dest.exists():
+                shutil.copy2(binary_path, dest)
+                if not json_output:
+                    console.print(f"  [green]Copied {binary_path.name} → original/[/green]")
         binary = f"original/{binary_path.name}"
 
     src_dir = root / "src" / name
-    src_dir.mkdir(parents=True, exist_ok=True)
     bin_dir = root / "bin" / name
-    bin_dir.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        src_dir.mkdir(parents=True, exist_ok=True)
+        bin_dir.mkdir(parents=True, exist_ok=True)
     # A second target means one codebase in several binaries: scaffold the
     # shared root (ADR-010) so the workflow is discoverable.  Existing
     # projects with shared_dir disabled keep it disabled — only create the

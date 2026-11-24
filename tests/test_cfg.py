@@ -501,7 +501,8 @@ class TestCLIListTargets:
         result = runner.invoke(cfg_app, ["target", "list", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
-        defaults = [item["name"] for item in data["targets"] if item["default"]]
+        defaults = [item["name"] for item in data["items"] if item["default"]]
+        assert data["total"] == len(data["items"])
         assert defaults == ["client"]
 
 
@@ -586,6 +587,41 @@ class TestCLIAddRemoveTarget:
         assert "dry-run" in result.output
         doc, _ = load_toml(tmp_path)
         assert "client.exe" not in doc.get("targets", {})
+        assert not (tmp_path / "src" / "client.exe").exists()
+        assert not (tmp_path / "bin" / "client.exe").exists()
+
+    def test_add_target_dry_run_does_not_copy_an_absolute_binary(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        _make_project(tmp_path)
+        binary = make_pe_stub(tmp_path / "client.exe")
+        monkeypatch.chdir(tmp_path)
+        before = {
+            path
+            for path in tmp_path.rglob("*")
+            if ".rebrew" not in path.parts and path.name != "rebrew-project.toml.lock"
+        }
+
+        result = runner.invoke(
+            cfg_app,
+            [
+                "target",
+                "add",
+                "client",
+                "--binary",
+                str(binary),
+                "--dry-run",
+                "--json",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["dry_run"] is True
+        assert {
+            path
+            for path in tmp_path.rglob("*")
+            if ".rebrew" not in path.parts and path.name != "rebrew-project.toml.lock"
+        } == before
 
     def test_remove_target(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
@@ -1562,7 +1598,8 @@ class TestCfgCli:
         result = self._invoke(tmp_path, monkeypatch, ["target", "list", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
-        assert data["targets"][0]["name"] == "main"
+        assert data["items"][0]["name"] == "main"
+        assert data["total"] == 1
 
     def test_list_targets_empty(self, tmp_path: Path, monkeypatch: object) -> None:
 
@@ -1570,7 +1607,7 @@ class TestCfgCli:
             tmp_path, monkeypatch, ["target", "list", "--json"], toml="[project]\n"
         )
         assert result.exit_code == 0
-        assert cli_payload(result) == {"targets": []}
+        assert cli_payload(result) == {"items": [], "total": 0}
 
     def test_show_full_json(self, tmp_path: Path, monkeypatch: object) -> None:
 

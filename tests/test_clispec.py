@@ -51,6 +51,48 @@ def test_schema_is_json_without_config(tmp_path: Path, monkeypatch: pytest.Monke
     assert document["outcomes"][0]["code"] == 1
 
 
+def test_schema_declares_every_runtime_error_kind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    document = _schema(tmp_path, monkeypatch)
+    kinds = {error["kind"]: error["exit_code"] for error in document["errors"]}
+    assert {
+        "binding_conflict": 2,
+        "compiler_not_offered": 2,
+        "decompiler_not_available": 2,
+        "tty_required": 2,
+    }.items() <= kinds.items()
+    verbose = next(arg for arg in document["global_args"] if arg["name"] == "--verbose")
+    assert verbose["type"] == "count"
+    quiet = next(arg for arg in document["global_args"] if arg["name"] == "--quiet")
+    assert quiet["description"] == "Cancel --verbose; leave logs at warning."
+
+
+def test_schema_declares_terminal_and_prompt_behavior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands = _commands(_schema(tmp_path, monkeypatch))
+    assert commands["sync watch"]["requires_tty"] is True
+    assert commands["init"]["x-rebrew-interaction"] == {
+        "tty": "prompt",
+        "non_tty": "proceed",
+        "bypass_arg": "--no-wizard",
+    }
+
+
+def test_target_list_is_a_bounded_collection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    command = _commands(_schema(tmp_path, monkeypatch))["cfg target list"]
+    assert command["cardinality"] == "bounded"
+    assert {field["name"] for field in command["output_fields"]} == {
+        "name",
+        "binary",
+        "arch",
+        "default",
+    }
+
+
 def test_schema_filters_a_command_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = _invoke(["schema", "skills", "list"], tmp_path, monkeypatch)
     assert result.exit_code == 0, result.output
@@ -133,6 +175,8 @@ def test_writers_are_classified_by_full_path(
     assert "--fix" in lint_flags
     assert "--fix-blocker" in diff_flags
     assert {"--format", "--inline-c", "--output"} <= asm_flags
+    assert commands["build sweep-link-flags"]["effects"] == "non_idempotent"
+    assert commands["types apply"]["effects"] == "idempotent"
 
 
 def test_negative_spellings_stay_on_the_same_parameter(

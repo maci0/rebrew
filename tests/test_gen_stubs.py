@@ -960,6 +960,28 @@ class TestCli:
         assert str(spec) in error
         assert problem in error
 
+    def test_dry_run_rejects_a_mutating_build_before_it_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import gen_stubs
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+
+        def _unexpected(*_args: object, **_kwargs: object) -> None:
+            pytest.fail("a dry-run started a build")
+
+        monkeypatch.setattr(gen_stubs, "_run_build", _unexpected)
+        result = CliRunner().invoke(
+            app,
+            ["--dry-run", "--build-cmd", "build", "--json"],
+        )
+
+        assert result.exit_code == 2, result.output
+        error = cli_payload(result)["error"]
+        assert "--dry-run" in error and "--build-cmd" in error
+        assert "--log" in error
+
     def test_cmake_stub_var_patched_and_restored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

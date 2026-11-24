@@ -291,6 +291,7 @@ def main(
                 }
             )
 
+        linked_any = any(not result.get("link_failed") for result in results)
         if json_output:
             json_print(
                 {
@@ -299,15 +300,15 @@ def main(
                     "results": results,
                 }
             )
+            if not linked_any:
+                error_exit("no candidate linked", json_mode=True)
             return
 
         # render
         stamp_only = set(ref)
-        linked_any = False
         for r in results:
             if r.get("link_failed"):
                 continue
-            linked_any = True
             stamp_only &= set(r["diffs"])
         table = TerminalTable(
             title="build sweep-link-flags — header fields differing from the reference"
@@ -330,7 +331,7 @@ def main(
             console.print("\n[yellow]No candidate linked — field classification skipped.[/]")
             if keep:
                 console.print(f"\n[dim]Scratch DLLs kept in: {scratch_dir}[/]")
-            return
+            error_exit("no candidate linked", json_mode=json_output)
         # classify the stamp-only set: section-derived fields are fixed by the
         # *objects* (data-restore/BSS work), not by link options or header stamps.
         _SECTION_DERIVED = {
