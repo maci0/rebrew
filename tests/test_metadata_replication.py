@@ -551,7 +551,7 @@ class TestReplicationHotPaths:
         """A restore or copy of the database can hold other text under the same revisions."""
         from rebrew.compiler.overrides import resolve_compile_overrides_cached
         from rebrew.metadata.functions import LIBRARY_METADATA_FILE, clear_library_override_cache
-        from rebrew.metadata.sqlite import DATABASE_FILENAME
+        from rebrew.metadata.sqlite import DATABASE_FILENAME, reading
 
         roots = {"msvc-6.0-sp6": tmp_path / "live", "msvc-4.2": tmp_path / "restored"}
         for toolchain, root in roots.items():
@@ -570,9 +570,10 @@ class TestReplicationHotPaths:
                 0
             ]
 
-        assert toolchain() == "msvc-6.0-sp6"
-        (roots["msvc-4.2"] / DATABASE_FILENAME).replace(live / DATABASE_FILENAME)
-        assert toolchain() == "msvc-4.2"
+        with reading():
+            assert toolchain() == "msvc-6.0-sp6"
+            (roots["msvc-4.2"] / DATABASE_FILENAME).replace(live / DATABASE_FILENAME)
+            assert toolchain() == "msvc-4.2"
 
 
 def _replicated_documents(root: Path) -> list[Path]:

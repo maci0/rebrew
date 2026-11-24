@@ -432,9 +432,9 @@ def named_documents_token(root: Path, name: str) -> tuple[object, ...] | None:
     if isinstance(store, RoutedStore):
         journal = tuple(TomlStore(root / JOURNAL_PATH, root).fingerprint())
         store = store.store(store.read_backends[0], store.key)
-    if not isinstance(store, SqliteStore) or not store.provisioned():
+    if not isinstance(store, SqliteStore):
         return None
-    documents = store.documents_named(name)
+    documents = store.provisioned_documents_named(name)
     return None if documents is None else (journal, documents)
 
 

@@ -320,6 +320,53 @@ class TestReadingSession:
                 other.execute("BEGIN EXCLUSIVE")
                 other.rollback()
 
+    def test_named_document_token_reuses_the_scan_until_a_commit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.functions import LIBRARY_METADATA_FILE
+        from rebrew.metadata.sqlite import SqliteStore
+        from rebrew.metadata.storage import named_documents_token
+
+        _project(tmp_path, "sqlite")
+        store = metadata_store(tmp_path / LIBRARY_METADATA_FILE)
+        assert isinstance(store, SqliteStore)
+        assert store.documents_named(LIBRARY_METADATA_FILE) is None
+        store.write({"cflags": "/O1"}, "test")
+        scans: list[str] = []
+        open_reader = SqliteStore._open_reader
+
+        def traced(self: SqliteStore) -> sqlite3.Connection:
+            connection = open_reader(self)
+
+            def trace(sql: str) -> None:
+                if sql.startswith("SELECT path, content FROM metadata_documents"):
+                    scans.append(sql)
+
+            connection.set_trace_callback(trace)
+            return connection
+
+        monkeypatch.setattr(SqliteStore, "_open_reader", traced)
+        with reading():
+            before = named_documents_token(tmp_path, LIBRARY_METADATA_FILE)
+            assert before is not None
+            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) == before
+            assert len(scans) == 1
+
+            with pytest.raises(RuntimeError, match="rollback"), store.transaction():
+                store.write({"cflags": "/O2"}, "test")
+                uncommitted = named_documents_token(tmp_path, LIBRARY_METADATA_FILE)
+                assert uncommitted != before
+                store.write({"cflags": "/Od"}, "test")
+                assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) != uncommitted
+                raise RuntimeError("rollback")
+            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) == before
+
+            store.write({"cflags": "/O2"}, "test")
+            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) == uncommitted
+            store.remove()
+            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) is None
+            assert store.documents_named(LIBRARY_METADATA_FILE) == ()
+
     def test_the_reader_closes_at_the_end_and_on_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

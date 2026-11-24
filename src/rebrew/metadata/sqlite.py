@@ -153,8 +153,14 @@ def _connections() -> dict[Path, sqlite3.Connection]:
     return connections
 
 
-#: A reader kept by :func:`reading`: the connection and the ``(st_dev, st_ino)`` it opened.
-_Reader = tuple[sqlite3.Connection, tuple[int, int]]
+_NamedDocuments = tuple[tuple[str, str], ...]
+_DatabaseVersion = tuple[int, int, int, int]
+#: The connection, the ``(st_dev, st_ino)`` it opened, and its named-document digests.
+_Reader = tuple[
+    sqlite3.Connection,
+    tuple[int, int],
+    dict[str, tuple[_DatabaseVersion, _NamedDocuments | None]],
+]
 
 
 @contextlib.contextmanager
@@ -176,7 +182,7 @@ def reading() -> Iterator[None]:
         yield
     finally:
         _CONNECTIONS.readers = None
-        for connection, _identity in readers.values():
+        for connection, _identity, _documents in readers.values():
             connection.close()
 
 
@@ -232,7 +238,7 @@ class SqliteStore:
                 kept[0].close()
                 kept = None
             if kept is None:
-                kept = (self._open_reader(), identity)
+                kept = (self._open_reader(), identity, {})
                 readers[self.location] = kept
             yield kept[0]
         except sqlite3.OperationalError as exc:
@@ -306,28 +312,63 @@ class SqliteStore:
         creates the file before its first document lands; neither is a populated store.
         """
         with self._reader() as connection:
-            if connection is None:
-                return False
-            row = connection.execute(
-                "SELECT 1 FROM metadata_documents WHERE path NOT LIKE '.rebrew/%' LIMIT 1"
-            ).fetchone()
-            return row is not None
+            return connection is not None and self._provisioned(connection)
+
+    @staticmethod
+    def _provisioned(connection: sqlite3.Connection) -> bool:
+        row = connection.execute(
+            "SELECT 1 FROM metadata_documents WHERE path NOT LIKE '.rebrew/%' LIMIT 1"
+        ).fetchone()
+        return row is not None
 
     def documents_named(self, name: str) -> tuple[tuple[str, str], ...] | None:
-        """``(path, content SHA-256)`` of every document whose file name is *name*; None without a database.
+        """Return each matching document's path and digest, or None without a database."""
+        with self._reader() as connection:
+            return None if connection is None else self._read_named_digests(connection, name)
 
-        The result changes whenever a document of that name is added, removed or
-        rewritten, also when another database file holding other text under the
-        same revisions replaces this one (a restore or a copy).
+    def provisioned_documents_named(self, name: str) -> _NamedDocuments | None:
+        """Hash every document named *name*, or return None for an unprovisioned database.
+
+        A kept reader reuses these exact digests until another connection commits
+        or the file changes. Active transactions read their own pending writes.
         """
         with self._reader() as connection:
             if connection is None:
                 return None
-            rows = connection.execute(
-                "SELECT path, content FROM metadata_documents WHERE path = ? OR path LIKE ? "
-                "ORDER BY path",
-                (name, "%/" + name),
-            ).fetchall()
+            readers: dict[Path, _Reader] | None = getattr(_CONNECTIONS, "readers", None)
+            kept = readers.get(self.location) if readers is not None else None
+            if kept is None or kept[0] is not connection:
+                return self._read_provisioned_named_digests(connection, name)
+            try:
+                stat = self.location.stat()
+            except FileNotFoundError:
+                return self._read_provisioned_named_digests(connection, name)
+            version = (
+                int(connection.execute("PRAGMA data_version").fetchone()[0]),
+                stat.st_mtime_ns,
+                stat.st_ctime_ns,
+                stat.st_size,
+            )
+            cache = kept[2]
+            cached = cache.get(name)
+            if cached is not None and cached[0] == version:
+                return cached[1]
+            documents = self._read_provisioned_named_digests(connection, name)
+            cache[name] = (version, documents)
+            return documents
+
+    def _read_provisioned_named_digests(
+        self, connection: sqlite3.Connection, name: str
+    ) -> _NamedDocuments | None:
+        return self._read_named_digests(connection, name) if self._provisioned(connection) else None
+
+    @staticmethod
+    def _read_named_digests(connection: sqlite3.Connection, name: str) -> _NamedDocuments:
+        rows = connection.execute(
+            "SELECT path, content FROM metadata_documents WHERE path = ? OR path LIKE ? "
+            "ORDER BY path",
+            (name, "%/" + name),
+        ).fetchall()
         return tuple(
             (str(path), hashlib.sha256(str(content).encode("utf-8")).hexdigest())
             for path, content in rows
