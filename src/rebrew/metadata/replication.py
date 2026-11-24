@@ -123,14 +123,16 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
     under format 1.
     """
 
-    def string(token: str) -> str | None:
-        if not (token.startswith('"') and token.endswith('"')):
+    decoder = json.JSONDecoder()
+
+    def string(line: str, start: int = 0) -> str | None:
+        if not (line.startswith('"', start) and line.endswith('"')):
             return None
         try:
-            value = json.loads(token)
+            value, end = decoder.raw_decode(line, start)
         except ValueError:
             return None
-        return value if isinstance(value, str) else None
+        return value if end == len(line) and isinstance(value, str) else None
 
     def integer(token: str) -> int | None:
         digits = token[1:] if token.startswith("-") else token
@@ -183,13 +185,12 @@ def _parse_rendered(text: str) -> dict[str, Any] | None:
             prefix = f"{name} = "
             if not line.startswith(prefix):
                 return None
-            token = line[len(prefix) :]
             if name == "updated_at_ns":
-                value: Any = integer(token)
+                value: Any = integer(line[len(prefix) :])
             elif name == "deleted":
-                value = {"true": True, "false": False}.get(token)
+                value = {"true": True, "false": False}.get(line[len(prefix) :])
             else:
-                value = string(token)
+                value = string(line, len(prefix))
             if value is None:
                 return None
             row[name] = value

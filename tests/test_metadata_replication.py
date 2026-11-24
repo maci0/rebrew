@@ -694,6 +694,8 @@ def test_rendered_state_parser_matches_tomllib() -> None:
     other = {"format": 1, "records": {"rebrew-data.toml": {"clock": {"n": 1}, "updated_at_ns": 1}}}
     assert _parse_rendered(tomlkit.dumps(other)) is None
     assert _parse_rendered(text.replace("deleted = false", "deleted=false")) is None
+    for invalid in ('"" "extra"', ' ""', '"" ', '"unterminated'):
+        assert _parse_rendered(text.replace('content = ""', f"content = {invalid}")) is None
 
 
 def test_fresh_clone_without_the_database_reads_and_keeps_the_toml_replica(tmp_path: Path) -> None:
