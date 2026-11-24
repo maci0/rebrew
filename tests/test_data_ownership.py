@@ -336,7 +336,14 @@ def test_warm_data_scan_replays_roles_without_parsing_again(tmp_path: Path, monk
     monkeypatch.setattr("rebrew.c_parser.find_variable_roles", roles)
     monkeypatch.setattr("rebrew.c_parser.find_extern_variables", externs)
 
+    import os
+
+    # The role cache is a cache: it is written whole by a rename, never synced to disk.
+    syncs: list[int] = []
+    real_fsync = os.fsync
+    monkeypatch.setattr(os, "fsync", lambda fd: (syncs.append(fd), real_fsync(fd))[1])
     cold = scan_globals(tmp_path)
+    assert syncs == []
     assert roles.call_count == 1
     assert externs.call_count == 1
     assert (tmp_path / ".rebrew" / "data-scan-roles.json").is_file()

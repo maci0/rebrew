@@ -547,8 +547,13 @@ def _flush_name_cover(cover: dict[str, Any]) -> None:
             "files": cover["files"],
         }
         try:
+            # A cache needs no fsync: the rename keeps it whole, and a copy a crash loses or garbles
+            # is refused by its stamp check and rebuilt.
             atomic_write_text(
-                cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+                cache_path,
+                json.dumps(payload, separators=(",", ":")),
+                encoding="utf-8",
+                durable=False,
             )
         except OSError:
             return
@@ -720,8 +725,13 @@ def _flush_role_cache(cache: dict[str, Any]) -> None:
             "files": cache["files"],
         }
         try:
+            # A cache needs no fsync: the rename keeps it whole, and a copy a crash loses or garbles
+            # is refused by its stamp check and rebuilt.
             atomic_write_text(
-                cache_path, json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+                cache_path,
+                json.dumps(payload, separators=(",", ":")),
+                encoding="utf-8",
+                durable=False,
             )
         except OSError:
             return
