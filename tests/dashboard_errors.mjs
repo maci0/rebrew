@@ -71,3 +71,13 @@ assert.equal(
 	false,
 	"Reload is reachable alongside the retry buttons",
 );
+assert.equal(
+	typeof el("reload").onclick,
+	"function",
+	"Reload also retries a bootstrap failure that ran before control binding",
+);
+assert.equal(
+	el("reload").onclick,
+	el("retry-summary").onclick,
+	"both boot-failure controls run the same recovery",
+);

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 lazy import hashlib
 lazy import json
 lazy import re
+lazy import shlex
 lazy import shutil
 lazy import subprocess
 lazy import sys
@@ -608,6 +609,25 @@ def _binary_stem_target(binary_name: str) -> str | None:
     return stem or None
 
 
+def _prompt_target_name(binary_name: str, target_name: str) -> str:
+    """Ask for a usable target name, correcting mistakes before confirmation."""
+    stem = _binary_stem_target(binary_name)
+    default = stem or target_name
+    while True:
+        answer = Prompt.ask("Target name", default=default, console=console) or target_name
+        try:
+            return validate_target_name(answer)
+        except ConfigError as exc:
+            # Keep the correction beside the field that needs it. Waiting until
+            # main() validates makes the user answer every later question before
+            # learning the project cannot be created.
+            console.print(str(exc), style="yellow", markup=False)
+            console.print(
+                "Use a single name without path separators.", style="yellow", markup=False
+            )
+            default = target_name
+
+
 def _resolve_manual_binary(cwd: Path, raw: str) -> str:
     """Validate a manually entered binary path/name and return its name.
 
@@ -739,10 +759,7 @@ def _run_wizard(
         compiler_profile = answer
 
     if "target_name" in needed:
-        stem = _binary_stem_target(binary_name)
-        target_name = (
-            Prompt.ask("Target name", default=stem or target_name, console=console) or target_name
-        )
+        target_name = _prompt_target_name(binary_name, target_name)
 
     # Every wizard question is asked before the summary: a prompt after the
     # confirmation would ask about a setting the user already said yes to.
@@ -768,14 +785,22 @@ def _run_wizard(
     if not Confirm.ask("Create project with these settings?", default=True, console=console):
         # The recovery line repeats every answer the wizard collected, including
         # the completion choice, so a re-run reproduces the same project.
-        flags = (
-            f"  rebrew init --no-wizard --target {target_name} "
-            f"--binary {binary_name} --toolchain {compiler_profile}"
-        )
+        flags = [
+            "rebrew",
+            "init",
+            "--no-wizard",
+            "--target",
+            target_name,
+            "--binary",
+            binary_name,
+            "--toolchain",
+            compiler_profile,
+        ]
         if write_completion_scripts:
-            flags += " --write-completions"
+            flags.append("--write-completions")
         console.print(
-            "Aborted — nothing was written. Re-run with flags to skip the wizard:\n" + flags
+            "Aborted — nothing was written. Re-run with flags to skip the wizard:\n  "
+            + shlex.join(flags)
         )
         raise typer.Exit(code=EXIT_OK)
 
@@ -1198,7 +1223,7 @@ def main(
     # The target name becomes src/<target>/, bin/<target>/ and a [targets.<name>]
     # key, so a separator or a dot segment would scaffold outside the project.
     try:
-        validate_target_name(target_name)
+        target_name = validate_target_name(target_name)
     except ConfigError as exc:
         error_exit(str(exc), json_mode=json_output)
 
@@ -1486,7 +1511,10 @@ def main(
         )
     else:
         console.print("\n[bold cyan]Initialization complete! Next steps:[/]")
-        console.print(f"1. Copy your original binary to original/{binary_name}")
+        if (original_dir / binary_name).is_file():
+            console.print(f"1. Binary ready at original/{binary_name}")
+        else:
+            console.print(f"1. Copy your original binary to original/{binary_name}")
         console.print("2. Verify your compiler paths in rebrew-project.toml")
         console.print("3. Run 'rebrew todo' to get started!")
         console.print(
@@ -1495,7 +1523,7 @@ def main(
         )
         if wizard_ran:
             console.print("5. Run 'rebrew doctor' to check project health and toolchain setup")
-            console.print("6. Run 'rebrew intake original/<binary>' to onboard the binary")
+            console.print(f"6. Run 'rebrew intake original/{binary_name}' to onboard the binary")
         if write_completion_scripts:
             console.print("\n[bold cyan]Shell completion:[/]")
             console.print("  bash: source completions/rebrew.bash")

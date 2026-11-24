@@ -283,6 +283,27 @@ class TestBinaryStemTarget:
 class TestInit:
     """Tests for the main() function using tmp_path."""
 
+    def test_target_name_is_normalized_before_scaffolding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The validated NFC spelling names the config, directories and JSON."""
+        monkeypatch.chdir(tmp_path)
+        main(
+            target_name="Cafe\u0301",
+            binary_name="game.exe",
+            compiler_profile="msvc-6.0",
+            install_wibo=False,
+            json_output=True,
+            write_completion_scripts=False,
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["target"] == "Café"
+        content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+        assert 'default_target = "Café"' in content
+        assert (tmp_path / "src" / "Café").is_dir()
+        assert (tmp_path / "bin" / "Café").is_dir()
+        assert not (tmp_path / "src" / "Cafe\u0301").exists()
+
     @pytest.mark.skipif(not hasattr(os, "setxattr"), reason="Extended attributes unavailable")
     def test_principles_does_not_inherit_packaged_xattrs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

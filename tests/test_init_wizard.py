@@ -156,6 +156,9 @@ class TestWizardFlow:
         assert 'binary = "original/mini_pe.exe"' in content
         assert not (tmp_path / "completions").exists()
         assert "msvc-8.0" in result.stderr  # detection summary surfaced
+        assert "Binary ready at original/mini_pe.exe" in result.stderr
+        assert "Copy your original binary" not in result.stderr
+        assert "Run 'rebrew intake original/mini_pe.exe'" in result.stderr
 
     def test_explicit_compiler_flag_skips_profile_prompt(self, tmp_path: Path, monkeypatch) -> None:
         """--toolchain counts as explicit: its prompt is skipped and the
@@ -201,6 +204,23 @@ class TestWizardFlow:
         assert "ido-5.3" in result.stderr
         assert "see --help" not in result.stderr
 
+    def test_invalid_target_name_reprompts_before_confirmation(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A path separator is corrected at the Target name prompt, not after
+        the user has answered the remaining setup questions."""
+        _place_mini_pe(tmp_path)
+        _force_wizard(monkeypatch)
+        image_present(monkeypatch, True)
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, [], input="1\n\nbad/name\nvalid_name\nn\ny\n")
+        assert result.exit_code == 0, result.output + result.stderr
+        content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+        assert 'default_target = "valid_name"' in content
+        assert "must not contain a path separator" in result.stderr
+        assert "Use a single name without path separators" in result.stderr
+        assert (tmp_path / "src" / "valid_name").is_dir()
+
     def test_manual_binary_entry(self, tmp_path: Path, monkeypatch) -> None:
         """The 'm' choice takes a free-form path/name — missing targets warn
         but keep the entered name verbatim for later staging."""
@@ -218,6 +238,18 @@ class TestWizardFlow:
 
 class TestWizardConfirmAbort:
     """Declining the summary aborts cleanly with nothing written."""
+
+    def test_recovery_command_quotes_names_with_spaces(self, tmp_path: Path, monkeypatch) -> None:
+        """The printed re-run command preserves each answer as one argument."""
+        _place_mini_pe(tmp_path)
+        _force_wizard(monkeypatch)
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, [], input="m\nmy game.exe\n\nmy target\ny\nn\n")
+        assert result.exit_code == 0, result.output + result.stderr
+        flat = " ".join(result.stderr.split())
+        assert "--target 'my target' --binary 'my game.exe'" in flat
+        assert "--toolchain msvc-6.0 --write-completions" in flat
+        assert not (tmp_path / "rebrew-project.toml").exists()
 
     def test_exit_0_and_nothing_written(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)

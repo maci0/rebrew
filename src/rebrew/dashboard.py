@@ -44,7 +44,7 @@ Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
 served client drops its full-line comments (they stay in the source). The
-entry checkpoint measured 12085 B zstd / 12707 B gzip against a 13600 B budget;
+entry checkpoint measured 12092 B zstd / 12713 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -1435,6 +1435,10 @@ function start() {
       await start();
       restoreFocus(["target", "main"]);
     };
+    // syncError reveals the shared Reload button for every load failure, but a
+    // failed bootstrap runs before bindControls(). Give it the same recovery
+    // action so the visible button is not inert on the first failure.
+    $("reload").onclick = $("retry-summary").onclick;
     $("retry-summary").focus();
   });
 }
