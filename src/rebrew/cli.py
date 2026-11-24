@@ -1602,7 +1602,9 @@ def require_positive_size(size: int, *, json_mode: bool = False) -> int:
     defect: every slice is empty.
     """
     if size <= 0:
-        error_exit(f"Invalid size {size}: pass a positive byte count", json_mode=json_mode)
+        error_exit(
+            f"Invalid size {size}: pass a positive byte count", json_mode=json_mode, kind="usage"
+        )
     return size
 
 
@@ -1616,7 +1618,9 @@ def require_non_negative(value: int, flag: str, *, json_mode: bool = False) -> i
     whole one.  ``0`` stays legal: several commands spell it "no cap".
     """
     if value < 0:
-        error_exit(f"{flag} must be zero or positive, got {value}", json_mode=json_mode)
+        error_exit(
+            f"{flag} must be zero or positive, got {value}", json_mode=json_mode, kind="usage"
+        )
     return value
 
 

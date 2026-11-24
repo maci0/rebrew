@@ -1858,6 +1858,73 @@ class TestTodoCli:
         assert page["truncated"] is False
         assert first not in {item["va"] for item in page["items"]}
 
+    def test_json_fields_project_items_but_keep_envelope(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[FunctionEntry(va=0x1000, size=100, name="my_func")],
+            existing={0x1000: {"status": "NEAR_MATCHING", "symbol": "my_func", "size": "100"}},
+            covered_vas={0x1000: "my_func.c"},
+            args=["--json", "--limit", "1", "--fields", "va, byte_delta,command"],
+        )
+        assert result.exit_code == 0, result.output
+        data = cli_payload(result)
+        assert {
+            "coverage",
+            "total_items",
+            "count",
+            "offset",
+            "limit",
+            "truncated",
+            "summary",
+        } <= set(data)
+        assert data["count"] == 1
+        assert data["items"]
+        assert all(set(item) <= {"va", "byte_delta", "command"} for item in data["items"])
+        assert all("va" in item and "command" in item for item in data["items"])
+
+    def test_unknown_fields_fail_before_project_load(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.todo import app
+
+        monkeypatch.setattr(
+            "rebrew.todo.require_config",
+            lambda **_kwargs: pytest.fail("field validation must precede project loading"),
+        )
+        result = CliRunner().invoke(app, ["--json", "--fields", "va,not_a_field"])
+        assert result.exit_code == 2, result.output
+        error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
+        assert error["kind"] == "usage"
+        assert "--fields" in error["message"]
+        assert "not_a_field" in error["message"]
+        assert result.stdout == ""
+
+    def test_all_targets_forwards_the_field_selector(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def sweep(*, run_one: Any, all_targets: bool, **_kwargs: object) -> bool:
+            if not all_targets:
+                return False
+            run_one("alpha")
+            return True
+
+        monkeypatch.setattr("rebrew.todo.all_targets_run", sweep)
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[FunctionEntry(va=0x1000, size=100, name="my_func")],
+            existing={0x1000: {"status": "NEAR_MATCHING", "symbol": "my_func", "size": "100"}},
+            covered_vas={0x1000: "my_func.c"},
+            args=["--json", "--all-targets", "--fields", "va,command"],
+        )
+        assert result.exit_code == 0, result.output
+        assert set(cli_payload(result)["items"][0]) == {"va", "command"}
+
     def test_library_rows_do_not_crowd_out_new_functions(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

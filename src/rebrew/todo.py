@@ -187,6 +187,33 @@ class TodoItem:
 
 _DATA_CATEGORIES = frozenset({CAT_DATA_DRIFT, CAT_START_DATA})
 
+#: Item fields accepted by ``--fields``. Optional fields may be absent from a row.
+_TODO_FIELDS = tuple(TodoItem.__dataclass_fields__)
+
+
+def _requested_item_fields(fields: str | None, *, json_mode: bool) -> list[str] | None:
+    """Validate ``--fields`` before any project work and preserve request order."""
+    if fields is None:
+        return None
+    selected = [name.strip() for name in fields.split(",") if name.strip()]
+    unknown = sorted(set(selected) - set(_TODO_FIELDS))
+    if unknown:
+        error_exit(
+            f"unknown --fields value(s): {', '.join(unknown)}; "
+            f"choose from: {', '.join(_TODO_FIELDS)}",
+            json_mode=json_mode,
+            kind="usage",
+        )
+    return selected
+
+
+def _select_item_fields(items: list[TodoItem], selected: list[str] | None) -> list[dict[str, Any]]:
+    """Project JSON rows without changing pagination or envelope metadata."""
+    rows = [item.to_dict() for item in items]
+    if selected is None:
+        return rows
+    return [{name: row[name] for name in selected if name in row} for row in rows]
+
 
 def _item_domain(item: TodoItem) -> str:
     """``data`` or ``code``. The two do not replace each other at one address."""
@@ -1737,6 +1764,7 @@ _EPILOG = (
     "  # Filter to functions needing general work\n"
     "  rebrew todo --category improve-match\n\n"
     "  rebrew todo --json  # Machine-readable JSON output\n\n"
+    "  rebrew todo --json --fields category,va,command  # Select item fields\n\n"
     "[bold]Categories (ranked by affected bytes, then estimated effort):[/bold]\n\n"
     "  setup · · · · · · · · · Project setup steps (fresh projects)\n\n"
     "  compile-error · · · · · Failed verify syntax/includes\n\n"
@@ -1794,6 +1822,11 @@ app = typer.Typer(
 def main(
     count: int = typer.Option(20, "--limit", "-n", help="Number of items to show (0 = none)"),
     offset: int = typer.Option(0, "--offset", help="Skip this many items before listing"),
+    fields: str | None = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated JSON item fields (envelope fields are always included)",
+    ),
     category: str | None = typer.Option(
         None,
         "--category",
@@ -1807,6 +1840,8 @@ def main(
 ) -> None:
     """Show prioritized actions ranked by affected extent, then estimated effort."""
     category = option_default(category, None)
+    fields = option_default(fields, None)
+    selected_fields = _requested_item_fields(fields, json_mode=option_default(json_output, False))
     count = require_non_negative(
         option_default(count, 20), "--limit", json_mode=option_default(json_output, False)
     )
@@ -1826,6 +1861,7 @@ def main(
         run_one=lambda n: main(
             count=count,
             offset=offset,
+            fields=fields,
             category=category,
             stats=stats,
             json_output=json_output,
@@ -1984,7 +2020,7 @@ def main(
                 "limit": count,
                 "truncated": truncated,
                 "summary": cat_summary,
-                "items": [i.to_dict() for i in display_items],
+                "items": _select_item_fields(display_items, selected_fields),
             }
         )
         return

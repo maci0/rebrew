@@ -7,7 +7,8 @@ project, a credential, or the network. ``schema`` is the only caller.
 from __future__ import annotations
 
 import re
-lazy from typing import Any
+lazy from types import UnionType
+lazy from typing import Any, Union, get_args, get_origin
 
 lazy import typer
 
@@ -368,6 +369,37 @@ def _command(path: str, cmd: Any) -> dict[str, Any]:
             {"name": "description", "type": "string"},
             {"name": "origin", "type": "string"},
         ]
+    elif path == "todo":
+        entry["cardinality"] = "unbounded"
+        entry["pagination"] = {"style": "offset", "offset_arg": "--offset", "limit_arg": "--limit"}
+        entry["fields_arg"] = "--fields"
+        entry["output_fields"] = [
+            {"name": "category", "type": "string"},
+            {"name": "roi_score", "type": "number"},
+            {"name": "va", "type": "string"},
+            {"name": "name", "type": "string"},
+            {"name": "size", "type": "integer"},
+            {"name": "filename", "type": "string"},
+            {"name": "description", "type": "string"},
+            {"name": "command", "type": "string"},
+            {"name": "byte_delta", "type": "integer"},
+            {"name": "difficulty", "type": "integer"},
+            {"name": "status", "type": "string"},
+            {"name": "match_percent", "type": "number"},
+            {"name": "mutations", "type": "array", "items": {"type": "string"}},
+            {"name": "blocker", "type": "string"},
+            {"name": "impact_bytes", "type": "integer"},
+            {"name": "affected_functions", "type": "integer"},
+        ]
+    elif path == "binary functions":
+        entry["cardinality"] = "unbounded"
+        entry["pagination"] = {"style": "offset", "offset_arg": "--offset", "limit_arg": "--limit"}
+        entry["fields_arg"] = "--fields"
+        entry["output_fields"] = [
+            {"name": "va", "type": "string"},
+            {"name": "size", "type": "integer"},
+            {"name": "name", "type": "string"},
+        ]
     elif path == "cfg target list":
         entry["cardinality"] = "bounded"
         entry["output_fields"] = [
@@ -440,6 +472,9 @@ def _args(cmd: Any) -> list[dict[str, Any]]:
         if default is not _OMIT:
             spec["default"] = default
         choices = getattr(getattr(param, "type", None), "choices", None)
+        descriptor = getattr(param, "type_descriptor", None)
+        if descriptor is not None and descriptor.choices is not None:
+            choices = descriptor.choices
         if choices:
             spec["enum"] = [choice for choice in choices if _json_default(choice) is not _OMIT]
         help_text = _plain(str(getattr(param, "help", "") or ""))
@@ -470,6 +505,37 @@ def _scalar_type(param: Any) -> str:
         return "number"
     if "path" in type_name or "file" in type_name:
         return "path"
+    # Typer 0.29 builds its Click-compatible parameter lazily, so ``param.type``
+    # does not exist while the schema is introspected. Read the same resolved
+    # annotation Typer coerces with instead of declaring every value as string.
+    descriptor = getattr(param, "type_descriptor", None)
+    if descriptor is None:
+        return "string"
+    if descriptor.is_path:
+        return "path"
+    annotation = descriptor.annotation
+    origin = get_origin(annotation)
+    if origin is list and (args := get_args(annotation)):
+        annotation = args[0]
+        origin = get_origin(annotation)
+    if origin in (Union, UnionType):
+        non_null = tuple(arg for arg in get_args(annotation) if arg is not type(None))
+        if len(non_null) == 1:
+            annotation = non_null[0]
+            origin = get_origin(annotation)
+    if annotation is bool:
+        return "boolean"
+    if annotation is int:
+        return "integer"
+    if annotation is float:
+        return "number"
+    if isinstance(annotation, type):
+        if issubclass(annotation, bool):
+            return "boolean"
+        if issubclass(annotation, int):
+            return "integer"
+        if issubclass(annotation, float):
+            return "number"
     return "string"
 
 

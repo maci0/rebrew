@@ -905,6 +905,55 @@ class TestDiscoveryCliInputs:
         assert [item["name"] for item in data["items"]] == ["f1", "f2"]
         assert [item["name"] for item in data["sample"]] == ["f1", "f2"]
 
+    def test_fields_project_items_and_sample(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew import discover
+
+        binary = tmp_path / "standalone.bin"
+        binary.write_bytes(b"binary")
+        funcs = [(0x1000 + i * 0x10, 10, f"f{i}") for i in range(3)]
+        monkeypatch.setattr(
+            discover,
+            "discover_functions",
+            lambda _path, *, min_size: discover.Discovery(funcs, {"test": 1}),
+        )
+        result = CliRunner().invoke(
+            discover.app, ["--json", "--limit", "2", "--fields", "name,va", str(binary)]
+        )
+        assert result.exit_code == 0, result.output
+        data = cli_payload(result)
+        assert {"binary", "functions", "sources", "output", "offset", "limit", "truncated"} <= set(
+            data
+        )
+        assert data["items"] == [
+            {"name": "f0", "va": "0x00001000"},
+            {"name": "f1", "va": "0x00001010"},
+        ]
+        assert data["sample"] == data["items"]
+
+    def test_unknown_fields_fail_before_binary_resolution(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew import discover
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            "rebrew.discover.resolve_binary_arg",
+            lambda *_args, **_kwargs: pytest.fail(
+                "field validation must precede binary resolution"
+            ),
+        )
+        result = CliRunner().invoke(discover.app, ["--json", "--fields", "va,not_a_field"])
+        assert result.exit_code == 2, result.output
+        error = cli_payload(result)
+        assert "--fields" in error["error"]
+        assert "not_a_field" in error["error"]
+
     def test_unpaged_is_not_truncated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -928,8 +977,9 @@ class TestDiscoveryCliInputs:
         assert data["limit"] is None
         assert [item["name"] for item in data["items"]] == ["f0"]
 
-    def test_negative_limit_is_usage_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("flag", ["--limit", "--offset"])
+    def test_negative_pagination_is_usage_error_before_discovery(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str
     ) -> None:
         from typer.testing import CliRunner
 
@@ -938,14 +988,13 @@ class TestDiscoveryCliInputs:
         monkeypatch.chdir(tmp_path)
         binary = tmp_path / "standalone.bin"
         binary.write_bytes(b"binary")
-
-        def _discover(path: Path, *, min_size: int) -> discover.Discovery:
-            return discover.Discovery([(0x1000, 10, "f0")], {"test": 1})
-
-        monkeypatch.setattr(discover, "discover_functions", _discover)
-        result = CliRunner().invoke(discover.app, ["--json", "--limit", "-1", str(binary)])
+        monkeypatch.setattr(
+            "rebrew.discover.resolve_binary_arg",
+            lambda *_args, **_kwargs: pytest.fail("pagination validation must precede resolution"),
+        )
+        result = CliRunner().invoke(discover.app, ["--json", flag, "-1", str(binary)])
         assert result.exit_code == 2, result.output
-        assert "--limit" in cli_payload(result)["error"]
+        assert flag in cli_payload(result)["error"]
 
     @pytest.mark.parametrize("target, expected", [(None, "server"), ("client", "client")])
     def test_project_target_is_resolved_before_discovery(

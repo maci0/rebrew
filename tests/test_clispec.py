@@ -93,6 +93,52 @@ def test_target_list_is_a_bounded_collection(
     }
 
 
+def test_schema_argument_types_match_typer_annotations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands = _commands(_schema(tmp_path, monkeypatch))
+    todo_args = {arg["name"]: arg for arg in commands["todo"]["args"]}
+    assert todo_args["--offset"]["type"] == "integer"
+    assert todo_args["--limit"]["type"] == "integer"
+    assert todo_args["--fields"]["type"] == "string"
+    asm_args = {arg["name"]: arg for arg in commands["binary asm show"]["args"]}
+    assert asm_args["--size"]["type"] == "integer"
+    assert asm_args["--output"]["type"] == "path"
+    match_args = {arg["name"]: arg for arg in commands["match run"]["args"]}
+    assert match_args["--mutation-focus"]["enum"] == [
+        "auto",
+        "register",
+        "equivalent",
+        "structural",
+    ]
+
+
+def test_todo_declares_offset_pagination_and_field_selection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    command = _commands(_schema(tmp_path, monkeypatch))["todo"]
+    assert command["effects"] == "read_only"
+    assert command["cardinality"] == "unbounded"
+    assert command["pagination"] == {
+        "style": "offset",
+        "offset_arg": "--offset",
+        "limit_arg": "--limit",
+    }
+    assert command["fields_arg"] == "--fields"
+    args = {arg["name"]: arg for arg in command["args"]}
+    assert args["--offset"]["type"] == "integer"
+    assert args["--limit"]["type"] == "integer"
+    assert args["--fields"]["type"] == "string"
+    assert {"category", "va", "command", "mutations"} <= {
+        field["name"] for field in command["output_fields"]
+    }
+    functions = _commands(_schema(tmp_path, monkeypatch))["binary functions"]
+    assert functions["cardinality"] == "unbounded"
+    assert functions["pagination"] == command["pagination"]
+    assert functions["fields_arg"] == "--fields"
+    assert {field["name"] for field in functions["output_fields"]} == {"va", "size", "name"}
+
+
 def test_schema_filters_a_command_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     result = _invoke(["schema", "skills", "list"], tmp_path, monkeypatch)
     assert result.exit_code == 0, result.output

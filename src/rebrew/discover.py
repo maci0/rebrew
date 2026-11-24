@@ -68,7 +68,9 @@ _EPILOG = (
     "  # Machine-readable output\n"
     "  rebrew binary functions mini.exe --min-size 32 --json\n\n"
     "  # Page a large inventory\n"
-    "  rebrew binary functions mini.exe --limit 50 --offset 100 --json\n"
+    "  rebrew binary functions mini.exe --limit 50 --offset 100 --json\n\n"
+    "  # Select JSON item fields\n"
+    "  rebrew binary functions mini.exe --json --fields va,name\n"
 )
 
 
@@ -77,6 +79,35 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
+
+_FUNCTION_FIELDS = ("va", "size", "name")
+
+
+def _requested_function_fields(fields: str | None, *, json_mode: bool) -> list[str] | None:
+    """Validate a JSON field projection before resolving or scanning a binary."""
+    if fields is None:
+        return None
+    selected = [name.strip() for name in fields.split(",") if name.strip()]
+    unknown = sorted(set(selected) - set(_FUNCTION_FIELDS))
+    if unknown:
+        error_exit(
+            f"unknown --fields value(s): {', '.join(unknown)}; "
+            f"choose from: {', '.join(_FUNCTION_FIELDS)}",
+            json_mode=json_mode,
+            kind="usage",
+        )
+    return selected
+
+
+def _function_rows(
+    functions: list[tuple[int, int, str]], selected: list[str] | None
+) -> list[dict[str, Any]]:
+    """Render function records, optionally projecting only requested fields."""
+    rows = [{"va": f"0x{va:08x}", "size": size, "name": name} for va, size, name in functions]
+    if selected is None:
+        return rows
+    return [{name: row[name] for name in selected} for row in rows]
+
 
 #: setuptools entry-point group whose members register extra function
 #: discoverers.  A member is a callable ``fn(binary: Path) ->
@@ -1256,19 +1287,31 @@ def main(
         None, "--limit", help="Maximum functions to list (0 = none; omitted = unlimited)"
     ),
     offset: int = typer.Option(0, "--offset", help="Skip this many functions before listing"),
+    fields: str | None = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated JSON item fields (envelope fields are always included)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Enumerate functions with chained strategies and validated sizes."""
+    binary = option_default(binary, None)
+    output = option_default(output, None)
+    min_size = option_default(min_size, 8)
+    limit = option_default(limit, None)
+    offset = option_default(offset, 0)
+    fields = option_default(fields, None)
+    json_output = option_default(json_output, False)
+    target = option_default(target, None)
+    offset_val = require_non_negative(offset, "--offset", json_mode=json_output)
+    limit_val = (
+        require_non_negative(limit, "--limit", json_mode=json_output) if limit is not None else None
+    )
+    selected_fields = _requested_function_fields(fields, json_mode=json_output)
     bin_path = resolve_binary_arg(binary, target=target, json_mode=json_output)
 
     d = discover_functions(bin_path, min_size=min_size)
-    offset_val = require_non_negative(option_default(offset, 0), "--offset", json_mode=json_output)
-    limit_val = (
-        require_non_negative(option_default(limit, 0), "--limit", json_mode=json_output)
-        if limit is not None
-        else None
-    )
     total = len(d.functions)
     paged = d.functions[offset_val:]
     if limit_val is not None:
@@ -1305,6 +1348,7 @@ def main(
             error_exit(str(exc), json_mode=json_output)
 
     if json_output:
+        rows = _function_rows(paged, selected_fields)
         json_print(
             {
                 "binary": str(bin_path),
@@ -1314,13 +1358,8 @@ def main(
                 "offset": offset_val,
                 "limit": limit_val,
                 "truncated": truncated,
-                "items": [
-                    {"va": f"0x{va:08x}", "size": size, "name": name} for va, size, name in paged
-                ],
-                "sample": [
-                    {"va": f"0x{va:08x}", "size": size, "name": name}
-                    for va, size, name in paged[:10]
-                ],
+                "items": rows,
+                "sample": rows[:10],
             }
         )
     else:

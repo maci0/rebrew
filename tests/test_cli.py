@@ -19,6 +19,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    require_non_negative,
     require_positive_size,
     resolve_source_arg,
     run_cli,
@@ -469,6 +470,15 @@ class TestRequirePositiveSize:
             require_positive_size(-1, json_mode=True)
         data = json.loads(capsys.readouterr().err)
         assert "positive" in data["error"]["message"]
+        assert data["error"]["kind"] == "usage"
+
+    def test_negative_count_is_a_usage_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with pytest.raises(typer.Exit) as exc_info:
+            require_non_negative(-1, "--limit", json_mode=True)
+        assert exc_info.value.exit_code == EXIT_ERROR
+        data = json.loads(capsys.readouterr().err)
+        assert data["error"]["kind"] == "usage"
+        assert "--limit" in data["error"]["message"]
 
 
 class TestRequireConfigErrors:
