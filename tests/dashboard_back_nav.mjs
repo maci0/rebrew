@@ -31,9 +31,11 @@ const summary = {
 		by_module_counts: { GAME: 1 },
 	},
 };
+let boots = 0;
 globalThis.fetch = async (path) => {
 	let body = {};
 	if (path === "/api/bootstrap") {
+		boots += 1;
 		body = {
 			targets: ["a", "b"],
 			summary,
@@ -102,3 +104,27 @@ assert.deepEqual(
 	["replace", "#target=a&q=Win"],
 	"restoring replaces the entry Back moved to instead of stacking a copy of it",
 );
+
+// Back must also restore the filters, including removing a filter that was
+// selected after the earlier history entry was written.
+el("status").value = "EXACT";
+el("module").value = "GAME";
+globalThis.location.hash = "#target=a&q=Win";
+const beforeBack = boots;
+globalThis.onpopstate();
+for (let i = 0; i < 50 && boots === beforeBack; i++) {
+	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(el("status").value, "", "Back clears a status absent from the restored hash");
+assert.equal(el("module").value, "", "Back clears a module absent from the restored hash");
+assert.equal(el("q").value, "Win", "Back keeps the restored search");
+
+globalThis.location.hash = "#target=a&status=EXACT&module=GAME&q=Other";
+globalThis.onpopstate();
+for (let i = 0; i < 50 && el("q").value !== "Other"; i++) {
+	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+assert.equal(el("status").value, "EXACT", "Back restores the saved status");
+assert.equal(el("module").value, "GAME", "Back restores the saved module");
+assert.equal(el("q").value, "Other", "Back restores the saved search");

@@ -82,6 +82,20 @@ assert.equal(
 	"Enter in the search box fetches the page once",
 );
 
+// Changing a filter while a search debounce is pending applies immediately.
+// The obsolete debounce must not start a second request for the same filters.
+const beforeStatus = countFunctions();
+el("q").value = "WinMain";
+el("q").oninput();
+el("status").value = "EXACT";
+el("status").onchange();
+await new Promise((resolve) => setTimeout(resolve, 400));
+assert.equal(
+	countFunctions(),
+	beforeStatus + 1,
+	"an immediate filter change cancels the pending search",
+);
+
 // A failed load empties the panel and hides Show more, so the paging hint
 // pointing at that button must go too: it otherwise sends the reader after a
 // control that is gone. The banner carries the reason and the retry.

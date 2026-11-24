@@ -807,6 +807,9 @@ class TestLoadErrors:
     def test_enter_searches_once_and_a_failure_clears_its_hint(self) -> None:
         _run_script("dashboard_search_and_failure.mjs")
 
+    def test_summary_retry_reloads_saved_function_filters(self) -> None:
+        _run_script("dashboard_summary_filter_retry.mjs")
+
     def test_a_failed_page_load_keeps_the_count_of_the_rows_left(self) -> None:
         _run_script("dashboard_stalled_append.mjs")
 
@@ -2564,7 +2567,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12033), ("gzip", None)],
+        [("zstd", 12085), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None

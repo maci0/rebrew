@@ -44,7 +44,7 @@ Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
 served client drops its full-line comments (they stay in the source). The
-entry checkpoint measured 12033 B zstd / 12649 B gzip against a 13600 B budget;
+entry checkpoint measured 12085 B zstd / 12707 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -737,6 +737,7 @@ function renderFunctions(data, options) {
 }
 async function loadFunctions(options) {
   const grow = !!(options && options.append);
+  clearTimeout(searchTimer);
   const t = $("target").value; if (!t) return;
   const seq = ++functionsSeq;
   if (functionsController) functionsController.abort();
@@ -846,6 +847,7 @@ async function loadSummary() {
       get("/api/summary?target=" + encodeURIComponent(t), signal));
     if (seq !== summarySeq || signal.aborted) return;
     renderSummary(s);
+    return true;
   } catch (error) {
     if (seq !== summarySeq || signal.aborted) return;
     $("cards").innerHTML = "";
@@ -853,6 +855,7 @@ async function loadSummary() {
     $("status").disabled = false;  // loadSummary disabled them
     $("module").disabled = false;
     setLoadError("summary", "Function coverage could not be loaded" + reason(error) + ". Use Retry summary to try again.");
+    return false;
   }
 }
 function scheduleSearch() {
@@ -1009,6 +1012,7 @@ async function loadSections() {
 }
 async function loadGlobals(options) {
   const grow = !!(options && options.append);
+  clearTimeout(globalsSearchTimer);
   const t = $("target").value; if (!t) return;
   const seq = ++viewSeq;
   if (viewController) viewController.abort();
@@ -1216,7 +1220,16 @@ function bindControls() {
   $("retry-summary").onclick = async () => {
     $("retry-summary").disabled = true;
     try {
-      await loadSummary();
+      const loaded = await loadSummary();
+      // Saved Status and Module filters become usable only when the summary
+      // restores their options. Reload rows that may have used the empty fallback.
+      if (loaded) {
+        viewLoaded.functions = false;
+        if (currentView === "functions") {
+          resetPaging();
+          await loadFunctions();
+        }
+      }
     } finally {
       $("retry-summary").disabled = false;
     }
@@ -1370,6 +1383,10 @@ async function init() {
   pendingModuleBlank = saved.has("module") && !saved.get("module");
   $("q").value = saved.get("q") || "";
   $("gq").value = saved.get("gq") || "";
+  // The hash is authoritative. Drop values left by the entry being navigated
+  // away from before the summary restores the saved options.
+  $("status").value = "";
+  $("module").value = "";
   // The bootstrap payload covers the first target with no filters.
   const bootFits = $("target").value === targets[0];
   syncViewChrome();

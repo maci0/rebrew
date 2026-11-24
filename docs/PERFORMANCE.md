@@ -1035,7 +1035,7 @@ gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
 Shell HTML (zstd-19): 3819 bytes on the wire (was ~8.2 KB with inlined JS).
-`/app.js` is served without its full-line comments (they stay in the source the bun harness runs). At this checkpoint, both entry assets totaled 12033 bytes zstd / 12649 gzip, inside the RFC 6928
+`/app.js` is served without its full-line comments (they stay in the source the bun harness runs). At this checkpoint, both entry assets totaled 12085 bytes zstd / 12707 gzip, inside the RFC 6928
 14600-byte initial window less a 500-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 13600), so the loading chrome paints before
 `/app.js` finishes. Gate:
@@ -1044,9 +1044,9 @@ Shell HTML (zstd-19): 3819 bytes on the wire (was ~8.2 KB with inlined JS).
 Gzip size also depends on the host's zlib version. These byte counts are a
 measurement checkpoint; tests enforce the 13600-byte budget on every host.
 
-The gzip path is the binding one: 12649 of 13600 budgeted bytes, 951 to spare
-(zstd has 1567). With the measured response headers (560 shell, 592 `/app.js`)
-the two entry responses total 13801 bytes, 799 under the 14600-byte window,
+The gzip path is the binding one: 12707 of 13600 budgeted bytes, 893 to spare
+(zstd has 1515). With the measured response headers (560 shell, 592 `/app.js`)
+the two entry responses total 13859 bytes, 741 under the 14600-byte window,
 the preloaded bootstrap rides past it, as below. Any shell or client growth
 has to come out of that remaining space, so trim copy before adding an asset.
 `test_cold_flight_fits_the_window_against_measured_headers` is the check that
@@ -1103,8 +1103,8 @@ inside the one document that has to fit RFC 6928's initial window, and it cost
 178 gzip bytes of the shell; linked, it is fetched off the critical path (a tab
 icon is not first paint). Hashing the linked URL cost 16 gzip bytes of the
 shell and buys the whole icon request back on every load after the first. The
-entry assets are now 12033 zstd / 12649 gzip against the 13600 B budget, so
-gzip has 951 B of room. One shell-trimming idea is a negative result worth
+entry assets are now 12085 zstd / 12707 gzip against the 13600 B budget, so
+gzip has 893 B of room. One shell-trimming idea is a negative result worth
 recording: deduplicating near-identical JavaScript *raised* the compressed
 size by 340 B even though it removed 262 raw ones, because the copies were
 what gzip matched.
@@ -1126,8 +1126,9 @@ the cold flight is left to absorb a growing first page. Gates:
 Remaining: 100-row HTML join. Table virtualization, splitting the non-Functions
 views out of `/app.js`, and cross-request pooling were not measured. The
 initial-window budget does not yet count the preloaded bootstrap among the
-entry assets: measured, the two entry responses fill 13801 of the 14600
-window with the reserved headers, so the bootstrap's 776 B now fits beside them.
+entry assets: measured, the two entry responses fill 13859 of the 14600
+window with the reserved headers, leaving 741 B, less than the bootstrap's
+776 B body.
 
 `/app.js` pays for the row render too, not only the download. `esc()` looked
 up its five entities in a fresh object literal on every matched character, so

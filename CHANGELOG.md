@@ -13,6 +13,7 @@
 ### Fixed
 
 - The CLI reference documents field projection, placement pagination, retained decomp.me ledger overrides, and the remaining source/coverage option tables. A documentation test now compares every registered argument and long option with its reference table.
+- The coverage dashboard restores removed Status and Module filters on Back navigation, reloads function rows with saved filters after a summary retry, and cancels pending search debounces when an immediate filter change loads the list.
 - The coverage dashboard applies a status card clicked from another view instead of clearing the hidden Functions filter, cancels abandoned view requests before they can overwrite the active view, and explains each displayed status with the report's shared reference.
 - Retained decomp.me exports keep their upload ledger in the worker workspace instead of a deleted source snapshot, and scope replay keys by project, user, target and source snapshot. Retrying the same export now reuses its first scratch rather than creating another public scratch.
 - The retained decomp.me ledger path and scope variables are documented as internal child-command settings in `docs/CONFIG.md` and `.env.example`.
