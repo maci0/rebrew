@@ -664,7 +664,6 @@ def _fingerprint_args(solver: Any, args: tuple[Any, ...]) -> str:
             # distinct names within one formula stay distinct (strcmp(a, b)
             # vs strcmp(a, a)), as do different ops and concrete leaves.
             names = sorted(a.variables)
-            canon = {name: f"v{i}" for i, name in enumerate(names)}
 
             def _label(var: str) -> str:
                 stem, _, _ = var.rpartition("_")

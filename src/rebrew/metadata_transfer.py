@@ -31,14 +31,12 @@ lazy from rebrew.metadata.storage import (
     project_metadata_stores,
 )
 lazy from rebrew.type_metadata import validate_type_document
-lazy from rebrew.utils import atomic_write_bytes, atomic_write_text, load_toml_for_write_strict
-
-
-def _sha256_file(path: Path) -> str:
-    """Streamed SHA-256 hex digest of *path*'s bytes."""
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
+lazy from rebrew.utils import (
+    atomic_write_bytes,
+    atomic_write_text,
+    load_toml_for_write_strict,
+    sha256_file,
+)
 
 #: Suffix beside the inactive destination holding its pre-transfer bytes.
 DESTINATION_SNAPSHOT_SUFFIX = ".before-transfer"
@@ -121,7 +119,7 @@ def _input_digest(
     """The digest a migration pins: every source and destination snapshot and the project config."""
     inputs = {f"source:{store.path}": store.digest() for store in stores}
     inputs.update({f"destination:{store.path}": store.digest() for store in destinations})
-    inputs[str(config)] = _sha256_file(config)
+    inputs[str(config)] = sha256_file(config)
     return hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
 
 

@@ -337,10 +337,6 @@ _COMPILE_FAILURES = frozenset(
     code for route, status, code in _ANSWERS if route == "compile" and status == 200 and code
 )
 
-#: The one ``error_code`` that is the compiler's verdict on the source
-#: (recompile ``models.CompileFailureKind``).
-_TOOLCHAIN_FAILURE = "toolchain_failure"
-
 #: Infrastructure failures of a compile the service refused before running it,
 #: so a re-sent ``emit_assembly`` request cannot repeat a retention side effect.
 _NOT_RUN_FAILURES = frozenset({"capacity"})

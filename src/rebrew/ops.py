@@ -93,7 +93,7 @@ lazy from rebrew.compiler.compile import (
 lazy from rebrew.compiler.recompile_client import Attribution
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat, load_binary
 lazy from rebrew.metadata.bindings import BindingConflictError
-lazy from rebrew.utils import fold_host, path_is_relative_to, split_source_lines
+lazy from rebrew.utils import fold_host, path_is_relative_to, sha256_file, split_source_lines
 
 logger = logging.getLogger(__name__)
 
@@ -636,7 +636,7 @@ def apply_project_cflags(root: Path, target_name: str, flags: str) -> tuple[int,
     if override is not None and "cflags" in override:
         override["cflags"] = text
     path.write_text(tomlkit.dumps(doc), encoding="utf-8")
-    return path.stat().st_size, _file_sha256(path)
+    return path.stat().st_size, sha256_file(path)
 
 
 def checked_cflags(text: str) -> str:
@@ -1823,11 +1823,6 @@ def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
 # ---------------------------------------------------------------------------
 
 
-def _file_sha256(path: Path) -> str:
-    with path.open("rb") as handle:
-        return hashlib.file_digest(handle, "sha256").hexdigest()
-
-
 def _sha256(text: str) -> str:
     if _SHA256.match(text) is None:
         raise _invalid("sha256 must be 64 lowercase hex digits")
@@ -1858,7 +1853,7 @@ def stored_file(config: WorkerConfig, key: str, sha256: str) -> Path:
         raise _refused("no stored file for the key") from None
     if not path_is_relative_to(path, root) or not path.is_file():
         raise _refused("the key does not name a stored file")
-    if _file_sha256(path) != wanted:
+    if sha256_file(path) != wanted:
         raise _refused("the stored file does not match its sha256")
     return path
 
@@ -2076,7 +2071,7 @@ def target_config(root: Path, sha256: str) -> Any:
     wanted = _sha256(sha256)
     for name, entry in targets_table(read_config(root)).items():
         binary = target_binary(root, entry)
-        if binary is not None and binary.is_file() and _file_sha256(binary) == wanted:
+        if binary is not None and binary.is_file() and sha256_file(binary) == wanted:
             return load_config(root, target=name)
     raise _invalid("no target of project_dir has a binary with that sha256")
 
@@ -2152,7 +2147,7 @@ def _stage_retained_binary(
     destination = _inside(root, target["binary"], "target binary", "snapshot")
     with binary_file(config, key, url, sha256, "binary_key") as binary:
         if destination.exists():
-            if not destination.is_file() or _file_sha256(destination) != sha256:
+            if not destination.is_file() or sha256_file(destination) != sha256:
                 raise _invalid("retained target binary conflicts with snapshot")
         else:
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -2161,7 +2156,7 @@ def _stage_retained_binary(
         if (
             resolved is None
             or resolved.resolve() != destination
-            or _file_sha256(destination) != sha256
+            or sha256_file(destination) != sha256
         ):
             raise _invalid("snapshot target binary does not match")
     return destination
@@ -2363,7 +2358,7 @@ def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]
 
     cfg = target_config(project_root(config, req.project_dir), "")
     binary = Path(cfg.target_binary)
-    digest = _file_sha256(binary)
+    digest = sha256_file(binary)
     with _call_scans_lock:
         kept = _call_scans.pop(digest, None)
         if kept is not None:
@@ -2383,7 +2378,7 @@ def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]
         "references": calls,
         "import_slots": [{"va": va, "name": imports[va]} for va in sorted(imports)],
     }
-    if _file_sha256(binary) == digest:
+    if sha256_file(binary) == digest:
         with _call_scans_lock:
             _call_scans[digest] = answer
             if len(_call_scans) > _CALL_SCANS_MAX:
@@ -2861,7 +2856,7 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
                             {
                                 "path": relative,
                                 "size": path.stat().st_size,
-                                "digest": _file_sha256(path),
+                                "digest": sha256_file(path),
                                 "kinds": kinds[relative],
                             }
                         )
@@ -3282,7 +3277,7 @@ def capture_project(
     confined_snapshot_config(cfg, root)
     if cfg.raw_link is not None:
         raise _capture_failed(f"{what} capture cannot include an unverified raw link")
-    if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
+    if not cfg.target_binary.is_file() or sha256_file(cfg.target_binary) != sha256:
         raise _invalid(f"{what} binary does not match the request")
     inventory = inventory_path_for(cfg.reversed_dir, cfg).resolve()
     source_paths = {p.resolve() for p in iter_sources(cfg.reversed_dir, cfg)}
@@ -3403,7 +3398,7 @@ def capture_project(
         elif (
             not path.is_file()
             or path.stat().st_size != captured["size"]
-            or _file_sha256(path) != captured["digest"]
+            or sha256_file(path) != captured["digest"]
         ):
             raise _capture_failed(f"{what} input changed during reporting")
     selected = None
@@ -3426,10 +3421,10 @@ def capture_project(
                 )
                 or not path.is_file()
                 or path.stat().st_size != captured["size"]
-                or _file_sha256(path) != captured["digest"]
+                or sha256_file(path) != captured["digest"]
             ):
                 raise _capture_failed(f"{what} input changed during reporting")
-        if not cfg.target_binary.is_file() or _file_sha256(cfg.target_binary) != sha256:
+        if not cfg.target_binary.is_file() or sha256_file(cfg.target_binary) != sha256:
             raise _capture_failed(f"{what} input changed during reporting")
         current = load_config(root, target=target)
         if inventory_path_for(current.reversed_dir, current).resolve() != inventory:
@@ -3567,7 +3562,7 @@ def _import_target(root: Path, raw: dict[str, Any], sha256: str) -> str:
         binary = target_binary(root, entry)
         if binary is None or not binary.resolve().is_relative_to(root) or not binary.is_file():
             continue
-        if _file_sha256(binary) == sha256:
+        if sha256_file(binary) == sha256:
             matches.append(name)
     if not matches:
         raise _import_refused(
@@ -4041,7 +4036,7 @@ def project_report(
                 ),
                 "functions": functions,
                 "stubs": [{"va": va, "name": stub} for va, stub in stubs],
-                "sha256": _file_sha256(binary) if binary is not None else "",
+                "sha256": sha256_file(binary) if binary is not None else "",
                 "path": str(binary) if binary is not None else "",
                 "size": binary.stat().st_size if binary is not None else 0,
             }
@@ -4338,7 +4333,7 @@ def _run_candidate(
         source = _project_file(root, req.source, "source")
         if source.suffix.lower() != ".c":
             raise _invalid("candidate source must be a C file")
-        if _file_sha256(source) != req.source_sha256:
+        if sha256_file(source) != req.source_sha256:
             raise _invalid("source does not match its retained digest")
         from rebrew.metadata.bindings import module_for_va
 
@@ -4379,7 +4374,7 @@ def _run_candidate(
             COMMAND_TIMEOUT_SECONDS,
             outcome_exit=True,
         )
-        if _file_sha256(destination) != req.sha256 or (
+        if sha256_file(destination) != req.sha256 or (
             not apply and source.read_bytes() != candidate.encode("utf-8")
         ):
             raise _invalid("snapshot candidate or binary changed during verification")
@@ -4398,7 +4393,7 @@ def _run_candidate(
                 if rewritten and entry.path == "rebrew-project.toml"
                 else (entry.size, entry.digest)
             )
-            if path.stat().st_size != size or _file_sha256(path) != digest:
+            if path.stat().st_size != size or sha256_file(path) != digest:
                 raise _invalid("snapshot source changed during verification")
         from rebrew.workspace.status import comparison_verdict_valid
 
@@ -4432,7 +4427,7 @@ def _compile_inputs(
             "path": source.relative_to(root).as_posix(),
             "sha256": hashlib.sha256(compiled).hexdigest(),
         },
-        {"path": config.name, "sha256": _file_sha256(config)},
+        {"path": config.name, "sha256": sha256_file(config)},
     ]
     shipped = remote.get("includes", []) if isinstance(remote, dict) else []
     if not isinstance(shipped, list):
@@ -4443,7 +4438,7 @@ def _compile_inputs(
         ):
             raise _refused("the compile reported a malformed include bundle")
         path = _project_file(root, header["path"], "include")
-        if _file_sha256(path) != header["sha256"]:
+        if sha256_file(path) != header["sha256"]:
             raise _invalid("snapshot source changed during verification")
         files.append({"path": header["path"], "sha256": header["sha256"]})
     documents = []
@@ -4740,7 +4735,7 @@ def retained_target_snapshot(
                 )
         yield root
         with _step("checking the retained snapshot after the run"):
-            if _file_sha256(destination) != sha256:
+            if sha256_file(destination) != sha256:
                 raise _invalid("snapshot target binary changed during operation")
             for entry in files:
                 path = _project_file(root, entry.path, "source file")
@@ -4749,7 +4744,7 @@ def retained_target_snapshot(
                     if rewritten and entry.path == "rebrew-project.toml"
                     else (entry.size, entry.digest)
                 )
-                if path.stat().st_size != size or _file_sha256(path) != digest:
+                if path.stat().st_size != size or sha256_file(path) != digest:
                     raise _invalid("snapshot source changed during operation")
 
 
@@ -4957,7 +4952,7 @@ def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
             exclusive=True,
         )
         source = _project_file(root, req.source, "source")
-        if _file_sha256(source) != req.source_sha256:
+        if sha256_file(source) != req.source_sha256:
             raise _invalid("source does not match its retained digest")
         cfg = load_config(root, target=req.rebrew_target)
         remote_header_refusal(cfg, [source])
@@ -4986,7 +4981,7 @@ def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:
             SEARCH_TIMEOUT_SECONDS,
             outcome_exit=True,
         )
-        if _file_sha256(source) != req.source_sha256 or _file_sha256(destination) != req.sha256:
+        if sha256_file(source) != req.source_sha256 or sha256_file(destination) != req.sha256:
             raise _invalid("snapshot source or binary changed during flag search")
         return result
 

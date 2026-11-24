@@ -1635,6 +1635,18 @@ class TestRunProcessGroup:
         assert isinstance(caught[0], subprocess.TimeoutExpired)
 
 
+class TestSha256File:
+    def test_streamed_digest(self, tmp_path: Path) -> None:
+        import hashlib
+
+        from rebrew.utils import sha256_file
+
+        sample = tmp_path / "data.bin"
+        payload = b"hello world" * 100_000
+        sample.write_bytes(payload)
+        assert sha256_file(sample) == hashlib.sha256(payload).hexdigest()
+
+
 class TestMd5File:
     def test_md5_file_usedforsecurity_false(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

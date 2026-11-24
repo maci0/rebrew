@@ -525,7 +525,6 @@ def data_byte_order(bin_path: Path) -> str:
 #: stay on the alternation scan below.
 _WORD_RE = re.compile(r"\b\w+\b")
 _WORD_NAME_RE = re.compile(r"\w+\Z")
-_C_TYPE_WORDS_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|__int64")
 #: Bounded cache for the multi-name alternation fallback in ``owner_of``;
 #: the same name set is queried once per ownership pass.
 _OWNER_PAT_CACHE_MAX = 64

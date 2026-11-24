@@ -414,6 +414,7 @@ def retained_snapshot(
     """
     from rebrew import ops
     from rebrew.config import load_config
+    from rebrew.utils import sha256_file
 
     _validate_manifest(req)
     try:
@@ -454,7 +455,7 @@ def retained_snapshot(
                     any(part.is_symlink() for part in parents)
                     or not path.is_file()
                     or path.stat().st_size != entry.size
-                    or ops._file_sha256(path) != entry.digest
+                    or sha256_file(path) != entry.digest
                 ):
                     raise ops._invalid("retained source changed during operation")
 

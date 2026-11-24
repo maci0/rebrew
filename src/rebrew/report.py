@@ -400,8 +400,6 @@ def _write_static(
     content: str | bytes,
     kinds: tuple[SiteDataKind, ...],
     declared: dict[str, tuple[SiteDataKind, ...]],
-    *,
-    encoding: str = "utf-8",
 ) -> None:
     """Write *content* and max-effort ``.gz`` / ``.zst`` sidecars when smaller.
 
@@ -415,8 +413,8 @@ def _write_static(
     across rebuilds.
     """
     if isinstance(content, str):
-        atomic_write_text(path, content, encoding=encoding)
-        raw = content.encode(encoding)
+        atomic_write_text(path, content, encoding="utf-8")
+        raw = content.encode("utf-8")
     else:
         atomic_write_bytes(path, content)
         raw = content

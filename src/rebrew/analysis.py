@@ -1099,9 +1099,6 @@ class _RegisterImportCalls:
 # Strings
 # ---------------------------------------------------------------------------
 
-_PRINTABLE = set(range(0x20, 0x7F))
-_UTF16_PRINTABLE = set(range(0x20, 0x7F))
-
 #: Whole-section strings scan: one compiled run per section instead of a
 #: per-byte Python loop. Matched runs are exactly the printable stretches the
 #: old loops collected, so results are identical; the regex engine does the

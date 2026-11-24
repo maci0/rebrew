@@ -1931,7 +1931,6 @@ def _save_report(
     orphans_pruned: int,
     functions_checked: bool = True,
     no_promote: bool = False,
-    now: datetime | None = None,
 ) -> None:
     """Assemble the verify report, save cache + baseline, print, gate."""
     results = batch.results
@@ -1961,7 +1960,6 @@ def _save_report(
         library_passed=library_passed,
         library_total=library_total,
         library_providers=batch.library_providers,
-        now=now,
     )
     report["functions_checked"] = functions_checked
 

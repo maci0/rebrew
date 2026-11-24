@@ -28,7 +28,7 @@ it belongs to rather than starting another.
   captured pipes), ``interruptible_pool`` (leaving the pool does not wait on
   the queue), ``watch_files``
 - **Host environment**: ``xdg_cache_home``, ``container_runtime`` / ``DEFAULT_CONTAINER_RUNTIME`` /
-  ``CONTAINER_RUNTIMES``, ``find_install_tool``, ``md5_file``,
+  ``CONTAINER_RUNTIMES``, ``find_install_tool``, ``sha256_file`` / ``md5_file``,
   ``SOURCE_CHECKOUT`` (the contributor checkout, ``None`` in an install),
   ``rel_display_path``
 - **Presentation helpers**: ``TerminalTable`` (width-aware reports), ``console`` (the stderr sink every module imports,
@@ -985,6 +985,12 @@ def find_install_tool(rel: str | Path) -> Path | None:
         return None
     p = SOURCE_CHECKOUT / rel
     return p if p.exists() else None
+
+
+def sha256_file(path: Path) -> str:
+    """Streamed SHA-256 hex digest of *path*'s bytes."""
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def md5_file(path: Path) -> str:

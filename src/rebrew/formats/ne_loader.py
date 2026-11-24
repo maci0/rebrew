@@ -308,7 +308,7 @@ def parse_entry_table(data: bytes, ne_offset: int, header: NeHeader) -> list[tup
 
 def ne_entry_seeds(data: bytes, header: NeHeader) -> set[tuple[int, int]]:
     """``(segment, offset)`` of the program entry and every entry-table entry: addresses that start functions."""
-    ne_offset = _u32(data, 0x3C)
+    ne_offset = struct.unpack_from("<I", data, 0x3C)[0]
     seeds = {(seg, off) for _, seg, off in parse_entry_table(data, ne_offset, header)}
     if header.entry_segment:
         seeds.add((header.entry_segment, header.entry_offset))
@@ -475,10 +475,6 @@ class NeParseError(RebrewError, ValueError):
 
 def _u16(data: bytes, off: int) -> int:
     return int(struct.unpack_from("<H", data, off)[0])
-
-
-def _u32(data: bytes, off: int) -> int:
-    return int(struct.unpack_from("<I", data, off)[0])
 
 
 @dataclass
@@ -686,7 +682,7 @@ def read_ne_header(data: bytes) -> tuple[int, NeHeader]:
     """Read a validated MZ/NE header from bytes, returning its offset and fields."""
     if len(data) < 0x40 or data[:2] != b"MZ":
         raise NeParseError("NE image needs a complete MZ header")
-    ne_offset = _u32(data, 0x3C)
+    ne_offset = struct.unpack_from("<I", data, 0x3C)[0]
     header = parse_ne_header(data, ne_offset)
     if header.alignment_shift > 16:
         raise NeParseError(f"corrupt NE alignment_shift {header.alignment_shift}")

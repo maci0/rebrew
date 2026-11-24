@@ -46,16 +46,8 @@ lazy from rebrew.utils import (
     container_runtime,
     read_capped_body,
     run_process_group,
+    sha256_file,
 )
-
-
-def _stream_sha256(path: Path) -> str:
-    """Streamed SHA-256 hex digest of *path*'s bytes."""
-    import hashlib
-
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
-
 
 #: ``check-updates`` row values. The two ``static`` spellings mark a source
 #: that cannot drift (an immutable release asset, a tarball pinned inside the
@@ -500,8 +492,6 @@ def _download_pinned_url(
     dest: Path,
     *,
     timeout: float = 1800,
-    attempts: int = _HTTP_ATTEMPTS,
-    backoff: float = _HTTP_RETRY_BACKOFF_S,
     sleep: Callable[[float], None] | None = None,
 ) -> None:
     """Download *url* to *dest*, following redirects only while hosts stay trusted.
@@ -531,7 +521,7 @@ def _download_pinned_url(
     nap = sleep if sleep is not None else time.sleep
     for _hop in range(_DOWNLOAD_REDIRECT_LIMIT):
         redirected = False
-        for attempt in range(max(1, attempts)):
+        for attempt in range(_HTTP_ATTEMPTS):
             try:
                 with httpx.stream(
                     "GET", current, timeout=timeout, follow_redirects=False, trust_env=False
@@ -565,9 +555,9 @@ def _download_pinned_url(
                 # unhandled OSError leaving a partial archive at *dest*.
                 last = exc
                 dest.unlink(missing_ok=True)
-                if attempt + 1 >= max(1, attempts):
+                if attempt + 1 == _HTTP_ATTEMPTS:
                     break
-                nap(backoff * 2**attempt)
+                nap(_HTTP_RETRY_BACKOFF_S * 2**attempt)
         if redirected:
             # A redirect consumed this hop without transferring bytes; the
             # next hop starts a fresh transport budget.  A chain longer
@@ -715,7 +705,7 @@ def vendor_cmd(
                     _download_pinned_url(src.url, archive, timeout=1800)
                 except ToolchainError as exc:
                     _abort_incomplete_vendor(extract_dir, str(exc), json_mode=json_output)
-                actual = _stream_sha256(archive)
+                actual = sha256_file(archive)
                 if actual != src.sha256:
                     msg = f"sha256 mismatch for {name}: expected {src.sha256}, got {actual}"
                     error_exit(msg, json_mode=json_output)
@@ -3719,9 +3709,7 @@ def _github_auth_headers() -> dict[str, str]:
     return base
 
 
-def _live_commit_sha(
-    owner: str, repo: str, branch: str, *, sleep: Callable[[float], None] | None = None
-) -> str:
+def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
     """Current default-branch commit sha for a GitHub repo (GitHub API —
     cheap: no tarball download).
 
@@ -3730,15 +3718,9 @@ def _live_commit_sha(
     from the API otherwise turns the nightly drift gate red without the pin
     having moved. A non-retryable status (404, 403) is raised on the first
     attempt, so a wrong repository still reports itself.
-
-    *sleep* is that backoff's only time source, the seam
-    :func:`_download_pinned_url` takes: inject a stepper to replay a
-    flaky-API sequence from virtual time.  Left unset it reads
-    :func:`time.sleep` per attempt, so a patched clock is honoured.
     """
     import httpx
 
-    nap = sleep if sleep is not None else time.sleep
     url = f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}"
     # No automatic redirects: an off-host Location would still receive the
     # optional GH_TOKEN Authorization header before httpx's strip runs.
@@ -3777,7 +3759,7 @@ def _live_commit_sha(
         except httpx.HTTPError:
             if attempt + 1 == _HTTP_ATTEMPTS:
                 raise
-        nap(_HTTP_RETRY_BACKOFF_S * 2**attempt)
+        time.sleep(_HTTP_RETRY_BACKOFF_S * 2**attempt)
     raise ToolchainError(f"unreachable: no attempt made for {url!r}")
 
 
@@ -3832,7 +3814,7 @@ def check_updates_cmd(
                 with tempfile.TemporaryDirectory() as td:
                     path = Path(td) / "src.bin"
                     _download_pinned_url(url, path, timeout=60)
-                    actual = _stream_sha256(path)
+                    actual = sha256_file(path)
                 if actual == src.sha256:
                     rows[name] = STATUS_CURRENT
                 else:
@@ -3906,7 +3888,7 @@ def update_cmd(
             _download_pinned_url(url, archive, timeout=1800)
         except ToolchainError as exc:
             error_exit(str(exc), json_mode=json_output)
-        actual_sha = _stream_sha256(archive)
+        actual_sha = sha256_file(archive)
     if actual_sha == src.sha256:
         msg = f"toolchain {name!r} is already current (sha256 {src.sha256[:16]}…)"
         if json_output:

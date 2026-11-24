@@ -13,6 +13,7 @@ from pathlib import Path
 lazy import shutil
 lazy import tempfile
 lazy from collections.abc import Callable
+lazy from operator import attrgetter
 lazy from typing import Any
 
 from rebrew.limits import NO_DELTA
@@ -270,14 +271,6 @@ def _find_by_status(
     )
 
 
-def _by_size(x: StubInfo) -> int:
-    return x.size
-
-
-def _by_delta_then_size(x: StubInfo) -> tuple[int, int]:
-    return (x.delta, x.size)
-
-
 def find_all_stubs(
     reversed_dir: Path,
     ignored: set[str] | None = None,
@@ -289,7 +282,7 @@ def find_all_stubs(
     return _find_by_status(
         reversed_dir,
         {"STUB"},
-        _by_size,
+        attrgetter("size"),
         ignored=ignored,
         cfg=cfg,
         warn_duplicates=warn_duplicates,
@@ -309,7 +302,7 @@ def find_near_miss(
     return _find_by_status(
         reversed_dir,
         {"NEAR_MATCHING"},
-        _by_delta_then_size,
+        attrgetter("delta", "size"),
         ignored=ignored,
         cfg=cfg,
         warn_duplicates=warn_duplicates,
@@ -329,7 +322,7 @@ def find_all_matching(
     return _find_by_status(
         reversed_dir,
         {"NEAR_MATCHING"},
-        _by_delta_then_size,
+        attrgetter("delta", "size"),
         ignored=ignored,
         cfg=cfg,
         warn_duplicates=warn_duplicates,
@@ -351,7 +344,7 @@ def find_size_mismatch(
     return _find_by_status(
         reversed_dir,
         {"SIZE_MISMATCH"},
-        _by_size,
+        attrgetter("size"),
         ignored=ignored,
         cfg=cfg,
         warn_duplicates=warn_duplicates,
