@@ -35,6 +35,7 @@ from session_cache import build_once
 
 import rebrew.catalog.loaders
 import rebrew.formats.binary_loader
+import rebrew.metadata.bindings
 import rebrew.ops
 from rebrew.ops import WorkerConfig, dispatch
 
@@ -67,6 +68,16 @@ OVER_FLOOR: dict[tuple[str, str], int] = {
 CONNECTIONS = {
     "coverage_report retained": 2,
     "coverage_report project": 0,
+    "instruction_listing": 0,
+    "pe_info": 0,
+    "strings": 0,
+    "imports": 0,
+}
+
+#: Source binding reads per call (the fixture has two sources): one per source the op reads.
+BINDINGS = {
+    "coverage_report retained": 2,
+    "coverage_report project": 2,
     "instruction_listing": 0,
     "pe_info": 0,
     "strings": 0,
@@ -210,6 +221,7 @@ def counted(monkeypatch: pytest.MonkeyPatch) -> Counter[str]:
     _counting(monkeypatch, counts, "snapshot", rebrew.ops, "_stage_retained_snapshot")
     _counting(monkeypatch, counts, "parse", rebrew.formats.binary_loader, "_parse_regular")
     _counting(monkeypatch, counts, "scan", rebrew.catalog.loaders, "scan_reversed_dir")
+    _counting(monkeypatch, counts, "bind", rebrew.metadata.bindings, "source_bindings")
     _counting(monkeypatch, counts, "open", io, "open")
     monkeypatch.setattr(builtins, "open", io.open)
     monkeypatch.setattr(sqlite3, "connect", _traced_connect(counts, sqlite3.connect))
@@ -250,4 +262,6 @@ def test_an_op_does_no_more_work_than_its_budget(
         over.append(f"open: {counted['open']} > ceiling {OPENS[case]}")
     if counted["connect"] > CONNECTIONS[case]:
         over.append(f"connect: {counted['connect']} > ceiling {CONNECTIONS[case]}")
+    if counted["bind"] > BINDINGS[case]:
+        over.append(f"bind: {counted['bind']} > ceiling {BINDINGS[case]}")
     assert not over, f"{case}: {'; '.join(over)}"

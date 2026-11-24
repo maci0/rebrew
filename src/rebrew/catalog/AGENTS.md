@@ -7,7 +7,7 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | Module | Role |
 |--------|------|
 | `models.py` | `FunctionEntry`, `GhidraDataLabel` |
-| `loaders.py` | Ghidra/discovery I/O, `scan_reversed_dir`, `parse_rizin_afl` |
+| `loaders.py` | Ghidra/discovery I/O, `scan_reversed_dir` (its per-source reads are `scan_source_bindings`, which a caller needing both passes back as `source_bindings=`), `parse_rizin_afl` |
 | `registry.py` | `build_function_registry` + canonical size resolution |
 | `grid.py` | `build_coverage_data` (coverage grid) |
 | `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; may write derived caches, no metadata changes or exports) |

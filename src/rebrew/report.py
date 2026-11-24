@@ -1614,21 +1614,42 @@ def decomp_dev_report(
     # and the shared progress model (collect_status).
     tree = scan_files(cfg.reversed_dir)
     inventory: list[dict[str, Any]] | None = None
-    if trusted is not None:
-        from rebrew.catalog.loaders import scan_reversed_dir, trusted_function_list
-
-        inventory = trusted_function_list(cfg)
-        trusted.bind(cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg, scanned=tree), inventory)
-        sizes = {int(item["va"]): int(item["size"]) for item in inventory}
     sources = list(iter_sources(cfg.reversed_dir, cfg, scanned=tree))
     target_module_name = target_module(cfg)
+    if trusted is not None:
+        from rebrew.catalog.loaders import (
+            scan_reversed_dir,
+            scan_source_bindings,
+            trusted_function_list,
+        )
+        from rebrew.metadata.functions import load_metadata
+
+        inventory = trusted_function_list(cfg)
+        # The scan's per-source reads serve the units too: each source is read once.
+        metadata_root = cfg.metadata_dir
+        per_source = scan_source_bindings(
+            cfg.reversed_dir,
+            cfg,
+            sources,
+            metadata_root,
+            load_metadata(metadata_root, deepcopy=False),
+        )
+        trusted.bind(
+            cfg,
+            scan_reversed_dir(cfg.reversed_dir, cfg=cfg, scanned=tree, source_bindings=per_source),
+            inventory,
+        )
+        sizes = {int(item["va"]): int(item["size"]) for item in inventory}
+        bound = [(path, annos) for path, annos in per_source if annos]
+    else:
+        bound = iter_source_bindings(
+            sources,
+            target=target_module_name,
+            metadata_dir=cfg.metadata_dir,
+            project_root=getattr(cfg, "root", None),
+        )
     annos_by_file: list[tuple[str, list[Any]]] = []
-    for path, annos in iter_source_bindings(
-        sources,
-        target=target_module_name,
-        metadata_dir=cfg.metadata_dir,
-        project_root=getattr(cfg, "root", None),
-    ):
+    for path, annos in bound:
         # Relative to reversed_dir, like every other source-path computation in
         # this module: a bare basename made two `pool.c` under different
         # directories indistinguishable in report.json.

@@ -369,12 +369,53 @@ def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
 # ---------------------------------------------------------------------------
 
 
+def scan_source_bindings(
+    reversed_dir: Path,
+    cfg: ProjectConfig | None,
+    sources: Sequence[Path],
+    metadata_root: Path,
+    function_entries: dict[tuple[str, int], dict[str, Any]],
+) -> list[tuple[Path, list[SourceBinding]]]:
+    """Each source's bindings, as :func:`scan_reversed_dir` reads them, in *sources* order.
+
+    A source that fails to parse raises, as in the scan.  *metadata_root* is the
+    scan's store root (``cfg.metadata_dir``, else *reversed_dir*) and
+    *function_entries* its function store (``load_metadata(..., deepcopy=False)``).
+    """
+    from rebrew.metadata.data import data_file_index, data_rows_for_path, load_data_metadata
+
+    if not sources:
+        # A scan with no sources does not read the data store.
+        return []
+    data_entries = load_data_metadata(metadata_root, deepcopy=False)
+    data_index = data_file_index(metadata_root)
+    return [
+        (
+            cfile,
+            read_source_bindings(
+                cfile,
+                target_name=target_module(cfg),
+                base_dir=reversed_dir,
+                metadata_dir=metadata_root,
+                project_root=cfg.root if cfg else None,
+                # One snapshot of both stores for every source, instead of
+                # re-reading and re-fingerprinting them per file.
+                function_entries=function_entries,
+                preloaded_data_rows=data_rows_for_path(metadata_root, cfile, index=data_index),
+                data_entries=data_entries,
+            ),
+        )
+        for cfile in sources
+    ]
+
+
 def scan_reversed_dir(
     reversed_dir: Path,
     cfg: ProjectConfig | None = None,
     *,
     inventory_only: bool = False,
     scanned: Sequence[Path] | None = None,
+    source_bindings: list[tuple[Path, list[SourceBinding]]] | None = None,
 ) -> list[SourceBinding]:
     """Scan source files and ``library_*.h`` headers under *reversed_dir*.
 
@@ -388,7 +429,9 @@ def scan_reversed_dir(
 
     *scanned* is a :func:`rebrew.sources.scan_files` result for
     *reversed_dir*, so a caller that already walked the tree does not walk it
-    again for sources and headers.
+    again for sources and headers.  *source_bindings* is a
+    :func:`scan_source_bindings` result for the same sources, so a caller that
+    also needs them per file reads each source once.
     """
     entries: list[SourceBinding] = []
     # Hoisted: `metadata_dir` re-derives its answer with a filesystem probe
@@ -411,26 +454,12 @@ def scan_reversed_dir(
         ):
             entries.extend(parsed)
     else:
-        from rebrew.metadata.data import data_file_index, data_rows_for_path, load_data_metadata
-
-        # A scan with no sources does not read the data store.
-        data_entries = load_data_metadata(metadata_root, deepcopy=False) if sources else {}
-        data_index = data_file_index(metadata_root) if sources else {}
-        for cfile in sources:
-            entries.extend(
-                read_source_bindings(
-                    cfile,
-                    target_name=target_module(cfg),
-                    base_dir=reversed_dir,
-                    metadata_dir=metadata_root,
-                    project_root=cfg.root if cfg else None,
-                    # The batch already loaded both stores: hand them to each
-                    # source instead of re-reading and re-fingerprinting them.
-                    function_entries=metadata,
-                    preloaded_data_rows=data_rows_for_path(metadata_root, cfile, index=data_index),
-                    data_entries=data_entries,
-                )
+        if source_bindings is None:
+            source_bindings = scan_source_bindings(
+                reversed_dir, cfg, sources, metadata_root, metadata
             )
+        for _cfile, parsed in source_bindings:
+            entries.extend(parsed)
 
     # Scan library_*.h files for LIBRARY bindings (CRT/zlib identifications).
     # `cfg` makes the scan include the project's shared root, which
