@@ -3048,6 +3048,25 @@ def _child_pid(path: Path) -> int:
     return int(path.read_text())
 
 
+def _deadline_once_the_child_runs(monkeypatch: pytest.MonkeyPatch, pid_file: Path) -> None:
+    """Let the op's deadline end the call only once its child command has written *pid_file*.
+
+    A 1 s deadline could otherwise pass before the op spawned the child (a loaded
+    host stages the snapshot slowly): the call answered 504 with no child to stop,
+    and the test waited for a pid that never came.  A caller's own cancellation
+    is not held.
+    """
+    import rebrew.ops as ops
+
+    real_check = ops._Cancellation.check
+
+    def check(self: Any) -> None:
+        if self._refusal is not None or (pid_file.is_file() and pid_file.read_text().strip()):
+            real_check(self)
+
+    monkeypatch.setattr(ops._Cancellation, "check", check)
+
+
 def _stopped(pid: int, within: float) -> bool:
     """Whether process *pid* is gone (killed and reaped) within *within* seconds."""
     deadline = time.monotonic() + within
@@ -3436,6 +3455,7 @@ class TestOpDeadlines:
         monkeypatch.setenv(_CHILD_PID_ENV, str(pid_file))
         op = OPS["rebrew.data_list"]
         monkeypatch.setitem(OPS, "rebrew.data_list", dataclasses.replace(op, timeout_seconds=1))
+        _deadline_once_the_child_runs(monkeypatch, pid_file)
         body = json.dumps({"project_dir": str(project)}).encode()
         replies: list[tuple[int, bytes]] = []
         call = threading.Thread(
@@ -3466,6 +3486,7 @@ class TestOpDeadlines:
         monkeypatch.setattr(sys, "executable", str(_sleeping_python(tmp_path)))
         monkeypatch.setenv(_CHILD_PID_ENV, str(pid_file))
         monkeypatch.setitem(OPS, op, dataclasses.replace(OPS[op], timeout_seconds=1))
+        _deadline_once_the_child_runs(monkeypatch, pid_file)
         replies: list[tuple[int, bytes]] = []
         call = threading.Thread(
             target=lambda: replies.append(dispatch(config, op, _request(entries))), daemon=True
