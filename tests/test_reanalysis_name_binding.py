@@ -149,6 +149,8 @@ def test_project_reads_skip_a_disagreeing_record(
     with caplog.at_level(logging.WARNING):
         status, raw = dispatch(config, op, json.dumps({"project_dir": str(project)}).encode())
     assert status == 200, json.loads(raw)
+    # The reply says which records it left out, by key, never by name.
+    assert json.loads(raw)["skipped_records"] == {"count": 1, "keys": [KEY], "truncated": False}
     if op == "rebrew.identify_library":
         # Logged in process: once, by the record's key, never its text.
         skipped = [r.getMessage() for r in caplog.records if KEY in r.getMessage()]
@@ -202,3 +204,24 @@ def test_a_write_touching_a_disagreeing_record_refuses_as_invalid_project(tmp_pa
         },
     )
     assert _record(project)["name"] == FREE_TEXT
+
+
+@pytest.mark.parametrize("op", ["rebrew.data_list", "rebrew.identify_library"])
+def test_a_clean_projects_read_names_no_skipped_record(tmp_path: Path, op: str) -> None:
+    config, project, _cfg = _sqlite_project(tmp_path)
+    status, raw = dispatch(config, op, json.dumps({"project_dir": str(project)}).encode())
+    assert status == 200, json.loads(raw)
+    assert "skipped_records" not in json.loads(raw)
+
+
+def test_skipped_records_past_the_bound_keep_their_count() -> None:
+    from rebrew.ops import MAX_SKIPPED_RECORD_KEYS, _skipped_records
+
+    skipped = {(MODULE, 0x401000 + 16 * i) for i in range(MAX_SKIPPED_RECORD_KEYS + 3)}
+    reply = _skipped_records(skipped)
+    assert reply["count"] == MAX_SKIPPED_RECORD_KEYS + 3 and reply["truncated"] is True
+    assert (
+        reply["keys"]
+        == sorted(f"{MODULE}.0x{va:08x}" for _m, va in skipped)[:MAX_SKIPPED_RECORD_KEYS]
+    )
+    assert _skipped_records({(MODULE, VA)}) == {"count": 1, "keys": [KEY], "truncated": False}

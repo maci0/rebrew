@@ -93,6 +93,33 @@ def recorded_binding_conflicts() -> frozenset[tuple[str, int]]:
     return frozenset(collectors[0]) if collectors else frozenset()
 
 
+#: Set by ``rebrew.ops.run_rebrew`` for a child command: the file the child writes the
+#: ``[module, va]`` keys of the records its reads skipped to, as one JSON list, at exit.
+SKIPPED_RECORDS_ENV = "REBREW_SKIPPED_RECORDS_FILE"
+
+
+@contextlib.contextmanager
+def report_skipped_records() -> Iterator[None]:
+    """Around a CLI command: write the records its reads skipped to :data:`SKIPPED_RECORDS_ENV`."""
+    import json
+
+    target = os.environ.get(SKIPPED_RECORDS_ENV)
+    if not target:
+        yield
+        return
+    with binding_conflicts() as skipped:
+        try:
+            yield
+        finally:
+            Path(target).write_text(json.dumps(sorted([m, va] for m, va in skipped)))
+
+
+def note_skipped_records(keys: Iterable[tuple[str, int]]) -> None:
+    """Add records a child command skipped (and logged) to the open collectors."""
+    for collected in _BINDING_CONFLICTS.get():
+        collected.update(keys)
+
+
 def _record_conflict(module: str, va: int) -> None:
     collectors = _BINDING_CONFLICTS.get()
     seen = any((module, va) in collected for collected in collectors)

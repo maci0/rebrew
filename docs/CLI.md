@@ -7246,6 +7246,13 @@ Op details the contract leaves open:
   count, and the counts agree with its status (EXACT and RELOC cover every byte,
   with relocations only for RELOC; NEAR_MATCHING, STUB and SIZE_MISMATCH stay below
   a full match). Any other status, a tooling failure, is no verdict.
+- A reply of an op in `rebrew.ops.SKIPPED_RECORD_OPS` (`data_list`, `identify_library`,
+  `coverage_report`, `report`, `describe`, `structs`, `verify_function`, `verify_target`,
+  `build`, `apply_candidate`, `flag_search`, `retained_source_operation`) carries
+  `skipped_records` `{count, keys, truncated}` when its read left out function records
+  whose source's anchor names another function: their `MODULE.0xVA` keys, at most
+  `MAX_SKIPPED_RECORD_KEYS` (256); past it `count` stays exact and `truncated` is true.
+  It is absent when nothing was left out. `rebrew doctor` lists the same records.
 - `rebrew.release` `{}` answers `release`, this engine's rebrew version, and
   `schema_sha256`, the SHA-256 of the dispatch schema it serves
   (`rebrew.ops.DISPATCH_SCHEMA_SHA256`, held to

@@ -616,6 +616,10 @@ by the CLI layer and win for that invocation.
 - `REBREW_RECOMPILE_ATTRIBUTION`: internal, set beside it when the op's request named an
   `attribution`: the JSON object every recompile call of the child sends in
   `X-Relumea-Attribution`. A value that is not one fails the compile.
+- `REBREW_SKIPPED_RECORDS_FILE`: internal, set by `rebrew ops` on each child command it runs:
+  the file the command writes, at exit, the `[module, va]` keys of the function records its
+  reads skipped (their source's anchor names another function), which the op's reply then
+  names in `skipped_records`. Unset, nothing is written.
 - `REBREW_PROGRESS_FD`: internal, set by `rebrew ops` on each child command it runs for a
   caller that takes progress: the file descriptor `rebrew verify` and `rebrew build round-trip`
   write their counts to, one `{"done": N, "total": M}` line per count, the total before the first

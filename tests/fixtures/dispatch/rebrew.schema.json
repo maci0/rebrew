@@ -2054,6 +2054,29 @@
               "compile"
             ],
             "type": "object"
+          },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
           }
         },
         "required": [
@@ -3608,6 +3631,29 @@
           "skipped_proven": {
             "type": "integer"
           },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
+          },
           "spliced": {
             "type": "integer"
           },
@@ -4599,6 +4645,29 @@
             ],
             "type": "object"
           },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
+          },
           "summary": {
             "additionalProperties": false,
             "properties": {
@@ -5269,6 +5338,29 @@
               ],
               "type": "object"
             },
+            "type": "object"
+          },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
             "type": "object"
           },
           "summary": {
@@ -6152,6 +6244,29 @@
               }
             ]
           },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
+          },
           "status": {
             "oneOf": [
               {
@@ -6991,6 +7106,29 @@
             },
             "type": "array"
           },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
+          },
           "structural_similarity": {
             "additionalProperties": false,
             "properties": {
@@ -7412,6 +7550,29 @@
           },
           "sigs_written": {
             "type": "integer"
+          },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
           },
           "to_write": {
             "type": "integer"
@@ -11468,6 +11629,29 @@
             },
             "type": "array"
           },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
+          },
           "summary": {
             "additionalProperties": false,
             "properties": {
@@ -12435,6 +12619,29 @@
                 "type": "object"
               }
             ]
+          },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
           }
         },
         "required": [
@@ -13617,6 +13824,29 @@
           "skipped": {
             "type": "integer"
           },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
+          },
           "structs": {
             "items": {
               "additionalProperties": false,
@@ -14523,6 +14753,29 @@
           },
           "size": {
             "type": "integer"
+          },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
           },
           "source": {
             "type": "string"
@@ -15821,6 +16074,29 @@
           },
           "skipped_proven": {
             "type": "integer"
+          },
+          "skipped_records": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "keys": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "keys",
+              "truncated"
+            ],
+            "type": "object"
           },
           "spliced": {
             "type": "integer"

@@ -29,6 +29,19 @@ from typing import (
 
 log = logging.getLogger(__name__)
 
+
+class SkippedRecords(TypedDict):
+    """The function records a project read left out because their source's address anchor
+    names another function (``rebrew doctor`` lists them; ``rebrew intake`` repairs a
+    generated stub), by ``MODULE.0xVA`` key; absent when the read left none out."""
+
+    count: int
+    #: at most ``rebrew.ops.MAX_SKIPPED_RECORD_KEYS``, in key order
+    keys: list[str]
+    #: ``count`` is past the bound and ``keys`` holds its first keys
+    truncated: bool
+
+
 #: Why a compile has no verdict (status ``NOT_RUN``): the kind of the recompile
 #: client's failure (``rebrew.compiler.recompile_client.RecompileErrorKind``), the code
 #: of a compiler that is not offered (``CompilerNotOffered.error_code``), or
@@ -350,6 +363,7 @@ class VerifyFunctionReply(TypedDict, total=False):
     instructions: InstructionComparison
     compile_inputs: CompileInputs
     verdict_valid: bool
+    skipped_records: SkippedRecords
 
 
 class TargetReportReply(TypedDict, total=False):
@@ -396,6 +410,7 @@ class TargetReportReply(TypedDict, total=False):
     reason_counts: dict[str, int]
     header_parity: list[HeaderParity]
     byte_coverage: ByteCoverage
+    skipped_records: SkippedRecords
 
 
 class LibraryCandidate(TypedDict):
@@ -414,6 +429,7 @@ class IdentifyLibraryReply(TypedDict):
     written: int
     candidates: list[LibraryCandidate]
     unreadable_signatures: list[str]
+    skipped_records: NotRequired[SkippedRecords]
 
 
 class CoverageSummary(TypedDict):
@@ -487,6 +503,7 @@ class CoverageDocument(TypedDict):
 class CoverageReportReply(TypedDict):
     summary: CoverageSummary
     report: CoverageDocument
+    skipped_records: NotRequired[SkippedRecords]
 
 
 class CfgBlock(TypedDict):
@@ -572,6 +589,7 @@ class DescribeReply(TypedDict):
     strings: list[DescribeString]
     globals: list[DescribeGlobal]
     imports: list[DescribeImport]
+    skipped_records: NotRequired[SkippedRecords]
 
 
 class RecoveredStruct(TypedDict):
@@ -594,6 +612,7 @@ class StructsReply(TypedDict, total=False):
     decompiled: int
     skipped: int
     structs: Required[list[RecoveredStruct]]
+    skipped_records: SkippedRecords
 
 
 class ImportEntry(TypedDict):
@@ -1101,6 +1120,7 @@ class FlagSearchReply(TypedDict, total=False):
     sweep: str
     best: str | None
     not_installed: list[str]
+    skipped_records: SkippedRecords
 
 
 class LibraryOwner(TypedDict, total=False):
@@ -1173,6 +1193,7 @@ class DataListReply(TypedDict):
     type_conflicts: list[TypeConflict]
     summary: DataSummary
     sections: dict[str, DataSection]
+    skipped_records: NotRequired[SkippedRecords]
 
 
 class DataSetRow(TypedDict, total=False):
@@ -1242,6 +1263,7 @@ class ReportReply(TypedDict, total=False):
     kinds: dict[str, list[SiteDataKind]]
     # a retained report: each file the site holds
     manifest: list[ManifestEntry]
+    skipped_records: SkippedRecords
 
 
 class AppliedFile(TypedDict):
@@ -1292,6 +1314,7 @@ class ApplyCandidateReply(TypedDict):
     metadata: PublishedMetadata
     attested_registry_digest: str
     remote_compile: RemoteCompile
+    skipped_records: NotRequired[SkippedRecords]
 
 
 class RenameEdit(TypedDict):
@@ -1480,6 +1503,7 @@ class RetainedSourceOperationReply(TypedDict, total=False):
     # data-set, rename, split and merge: the proposed snapshot's files
     files: list[ProposalFile]
     remote_compile: Required[RemoteCompile]
+    skipped_records: SkippedRecords
 
 
 #: Members the command an op runs prints that its reply withholds, by op: each is a

@@ -1214,10 +1214,11 @@ def run_cli(app: Callable[[], Any]) -> None:
     _error_written = False
 
     def entry() -> None:
-        from rebrew.metadata.bindings import binding_conflicts
+        from rebrew.metadata.bindings import binding_conflicts, report_skipped_records
 
-        # One command is one call: a record its source disagrees with is logged once.
-        with binding_conflicts():
+        # One command is one call: a record its source disagrees with is logged once,
+        # and, under an op, the skipped records go to the file the op names.
+        with report_skipped_records(), binding_conflicts():
             if isinstance(app, typer.Typer):
                 add_global_options(exit_130_on_interrupt(typer.main.get_command(app)))()
             else:

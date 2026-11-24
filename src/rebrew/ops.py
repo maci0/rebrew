@@ -293,10 +293,33 @@ IMPORT_TIMEOUT_SECONDS = 600
 #: analysis and its 120 s decompile command (``rebrew.decompiler``).
 IN_PROCESS_TIMEOUT_SECONDS = 600
 
+#: The ops whose project reads skip a function record whose source's anchor names another
+#: function, and whose reply then names them in ``skipped_records``: each reads the
+#: project's source bindings, in process or in the command it runs.
+SKIPPED_RECORD_OPS = frozenset(
+    {
+        "rebrew.data_list",
+        "rebrew.identify_library",
+        "rebrew.coverage_report",
+        "rebrew.report",
+        "rebrew.describe",
+        "rebrew.structs",
+        "rebrew.verify_function",
+        "rebrew.verify_target",
+        "rebrew.build",
+        "rebrew.apply_candidate",
+        "rebrew.flag_search",
+        "rebrew.retained_source_operation",
+    }
+)
+
+#: Keys a reply's ``skipped_records`` lists; past it ``count`` stays exact and ``truncated`` is set.
+MAX_SKIPPED_RECORD_KEYS = 256
+
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "277f4854ffe512224b07914eb60a56e2b3996324b604e5cf4fba62676454c9ef"
+DISPATCH_SCHEMA_SHA256 = "c8a99b718c1f8def6b44b0910a0d57e2dd767e65022bd4c79219a40b668f5dd4"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -2910,8 +2933,41 @@ def run_rebrew(
     the command's JSON error message.  The child gets the call's deadline (or
     *timeout*, when sooner) less :data:`CHILD_REPORT_SECONDS` in
     ``REBREW_CALL_DEADLINE``, so its remote compiles stop retrying in time.
+    The function records the child's reads skipped (their source's anchor names
+    another function) join the call's ones (:func:`_skipped_records`).
     """
+    from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
+    from rebrew.metadata.bindings import note_skipped_records
+
+    directory = writable_temp_dir("rebrew-skipped-records-")
+    skipped_file = directory / "skipped.json"
+    try:
+        return _run_rebrew_child(
+            arguments, project, timeout, outcome_exit=outcome_exit, skipped_file=skipped_file
+        )
+    finally:
+        if skipped_file.is_file():
+            # A child killed while writing leaves an unreadable file: it skipped what it
+            # logged, and the reply names none of it rather than failing the call.
+            with contextlib.suppress(ValueError, TypeError):
+                note_skipped_records(
+                    (str(module), int(va))
+                    for module, va in json.loads(skipped_file.read_text(encoding="utf-8"))
+                )
+        remove_temp_dir(directory)
+
+
+def _run_rebrew_child(
+    arguments: list[str],
+    project: Path,
+    timeout: int,
+    *,
+    outcome_exit: bool,
+    skipped_file: Path,
+) -> dict[str, Any]:
+    """:func:`run_rebrew` with the file the child writes its skipped records to."""
     from rebrew.compiler.compile import CALL_DEADLINE_ENV
+    from rebrew.metadata.bindings import SKIPPED_RECORDS_ENV
 
     name = " ".join(word for word in arguments[:2] if not word.startswith("-"))
     cancellation = _CANCELLATION.get()
@@ -2942,6 +2998,8 @@ def run_rebrew(
                     # The child counts its remote compiles into the op call's ledger.
                     **({} if remote is None else remote.environment()),
                     **({} if pipe is None else {PROGRESS_FD_ENV: str(pipe.write_fd)}),
+                    # The child writes the records its reads skipped there (see _noted_skips).
+                    SKIPPED_RECORDS_ENV: str(skipped_file),
                 },
                 pass_fds=() if pipe is None else (pipe.write_fd,),
                 stdin=subprocess.DEVNULL,
@@ -5357,7 +5415,7 @@ def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mappin
     from rebrew.ops_replies import DECLARED
 
     try:
-        with binding_conflicts():
+        with binding_conflicts() as skipped:
             reply = op.run(config, request)
     except OpsError:
         raise
@@ -5378,7 +5436,20 @@ def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mappin
     except BaseException:  # a native panic (pyo3) escapes ``except Exception``
         logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
         raise _refused(f"{name} failed: the engine raised an unexpected error") from None
+    if skipped and name in SKIPPED_RECORD_OPS:
+        reply = {**reply, "skipped_records": _skipped_records(skipped)}
     return _declared_reply(name, reply) if name in DECLARED else reply
+
+
+def _skipped_records(skipped: set[tuple[str, int]]) -> dict[str, Any]:
+    """The reply member naming the records a read skipped, by key, at most
+    :data:`MAX_SKIPPED_RECORD_KEYS` of them."""
+    keys = sorted(f"{module}.0x{va:08x}" for module, va in skipped)
+    return {
+        "count": len(keys),
+        "keys": keys[:MAX_SKIPPED_RECORD_KEYS],
+        "truncated": len(keys) > MAX_SKIPPED_RECORD_KEYS,
+    }
 
 
 #: Headers the HTTP transport adds to the reply of the call in flight
