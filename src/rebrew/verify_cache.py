@@ -11,6 +11,7 @@ the same shape the report writes.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import re
 import threading
@@ -408,6 +409,17 @@ def _decode_nulls(document: dict[str, Any]) -> dict[str, Any]:
 _VERIFY_CACHE_MEMO: dict[tuple[str, int, int, int, int], dict[str, Any] | None] = {}
 _VERIFY_CACHE_MEMO_MAX = 8
 _VERIFY_CACHE_MEMO_LOCK = threading.Lock()
+
+
+@atexit.register
+def _release_verify_cache_memo() -> None:
+    """Release parsed cache rows by refcount before final GC traverses them."""
+    if not _VERIFY_CACHE_MEMO_LOCK.acquire(blocking=False):
+        return  # A daemon reader may hold the lock during shutdown.
+    try:
+        _VERIFY_CACHE_MEMO.clear()
+    finally:
+        _VERIFY_CACHE_MEMO_LOCK.release()
 
 
 def _memo_path_key(cache_path: Path) -> str:

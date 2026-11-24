@@ -1,8 +1,10 @@
-"""The CLI entry point freezes its import-time graph once and raises the young GC threshold."""
+"""Garbage collection at CLI startup and interpreter shutdown."""
 
 from __future__ import annotations
 
 import gc
+import sys
+lazy from pathlib import Path
 
 import pytest
 
@@ -56,3 +58,43 @@ def test_cli_run_collects_young_objects_less_often(monkeypatch: pytest.MonkeyPat
     finally:
         gc.set_threshold(*original)
     assert seen == [(cli_main._GC_YOUNG_THRESHOLD, *original[1:])]
+
+
+@pytest.mark.parametrize("locked", [False, True])
+def test_verify_cache_is_released_before_final_gc(tmp_path: Path, locked: bool) -> None:
+    import subprocess
+    from textwrap import dedent
+
+    cache_dir = tmp_path / ".rebrew"
+    cache_dir.mkdir()
+    (cache_dir / "verify_cache.toml").write_text("version = 2\n", encoding="utf-8")
+    script = tmp_path / "check_shutdown.py"
+    script.write_text(
+        dedent("""\
+            import gc
+            import sys
+            from pathlib import Path
+            from types import SimpleNamespace
+
+            from rebrew import verify_cache
+
+            cfg = SimpleNamespace(root=Path(__file__).parent)
+            assert verify_cache.load_verify_cache_raw(cfg) == {"version": 2}
+            assert verify_cache._VERIFY_CACHE_MEMO
+            if sys.argv[1] == "True":
+                verify_cache._VERIFY_CACHE_MEMO_LOCK.acquire()
+
+            def observe_final_gc(phase, info):
+                if phase == "start" and sys.is_finalizing():
+                    print(len(verify_cache._VERIFY_CACHE_MEMO))
+                    gc.callbacks.remove(observe_final_gc)
+
+            gc.callbacks.append(observe_final_gc)
+            """),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [sys.executable, str(script), str(locked)], capture_output=True, timeout=30, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (b"1\n" if locked else b"0\n"), result.stderr
