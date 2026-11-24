@@ -683,6 +683,13 @@ for inspection. Sync health reports stale measurement evidence independently.
    Inline state and old block formats fail lint E024; `--fix` does not migrate
    them. `rebrew source register` validates current anchors and preserves
    existing stored fields. No compatibility reader is shipped.
+   A function's `name` is its definition name, the identifier its ADDRESS anchor
+   binds (optionally `::`- or `.`-qualified); `symbol` is the linker symbol derived
+   from it. The identity writers refuse any other `name`. Intake's stub defines the
+   record's name, or `fcn_<va>` when the stored name is no C identifier, and then
+   writes that placeholder into the record with the old text kept in `note` as
+   `earlier name: <text>`; it repairs a source-bound record whose stored name is no
+   identifier the same way, from the anchor's name.
 2. **STATUS display precedence**: metadata `PROVEN`/`SKIP` (and `STUB` over
    the cache's `SIZE_MISMATCH`/`MISSING_SIZE`/`STUB`) > the selected verify cache's
    measured result (the cache holds byte verdicts only, never PROVEN)

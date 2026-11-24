@@ -159,7 +159,17 @@ class TestSourceBindings:
         source = tmp_path / "f.c"
         source.write_text("// ADDRESS: S 0x1000\nint wrong(void) { return 0; }\n")
         _record(tmp_path, "S", 0x1000, "f.c", "right")
-        with pytest.raises(ValueError, match="metadata names"):
+        # A read skips the record and keeps the rest of the tree readable; a writer refuses.
+        from rebrew.metadata.bindings import (
+            BindingConflictError,
+            binding_conflicts,
+            strict_bindings,
+        )
+
+        with binding_conflicts() as skipped:
+            assert read_source_bindings(source, metadata_dir=tmp_path) == []
+        assert skipped == {("S", 0x1000)}
+        with strict_bindings(), pytest.raises(BindingConflictError, match="metadata names"):
             read_source_bindings(source, metadata_dir=tmp_path)
 
     def test_old_store_schema_has_no_reader(self, tmp_path: Path) -> None:

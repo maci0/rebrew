@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Fixed
+
+- A re-analysis no longer leaves a project its own reads refuse. Production (rebrew 6.71.0, 2026-11-23) re-ran intake over an imported SQLite project of about 36,000 function records; eight records without a source carried a `name` that is no C identifier (free text an earlier tool wrote, such as `lib_cont (split from a merged entry; round 1)`). Intake wrote each a stub defining `fcn_<va>` and the record's `file`, `symbol`, `kind` and `status`, but kept the stored `name`, because the identity writer never replaces an existing name. From then on the binding check refused the record, `rebrew data list` exited 2, and `rebrew.data_list` and `rebrew.identify_library` answered 500 `engine-error` for the whole project. Now:
+  - intake's stub defines the record's name when it is a C identifier, else `fcn_<va>`, which it also writes into the record, keeping the old text in `note` as `earlier name: <text>`; the next intake repairs a source-bound record already in that state from its anchor's name, once (a second run changes nothing);
+  - a read skips a record whose source's anchor names another function, logs its `MODULE.0xVA` key once per command or op call (never the names), and answers for the rest of the project; addresses so skipped stay covered, so `rebrew.identify_library` writes nothing over them;
+  - `rebrew.apply_candidate`, `rebrew.rename_identifier` and `rebrew.retained_source_operation`, and the child commands they run, refuse such a record `400 invalid-project-config` with a fixed sentence (the key goes to the worker log); a child command reports it under the JSON error kind `binding_conflict`;
+  - `rebrew doctor`'s new **Function bindings** check lists such records by key;
+  - the identity writers refuse a function `name` that is no identifier (optionally `::`- or `.`-qualified).
+- `rebrew.metadata_carry` carries a target whose config selects SQLite but whose published set holds no store. The same production re-analysis sent the imported target's `rebrew-project.toml` (`[metadata] backend = "sqlite"`) alone and was refused `400 invalid-request` (`sqlite metadata requires rebrew-metadata.sqlite3`), so no target was carried. Such a set is read as TOML: with no metadata file the target reads the capture's metadata, and the loose TOML registry an engine before the SQLite store published is merged and removed as for a TOML target.
+
 ## [6.72.0] - 2026-11-23
 
 ### Changed
