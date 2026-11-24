@@ -625,22 +625,19 @@ def _read_cache_document(cache_path: Path) -> dict[str, Any]:
     return raw
 
 
-def _verify_json_path(cache_path: Path) -> Path:
-    return cache_path.with_suffix(".json")
-
-
 def _read_verify_json(cache_path: Path, st: os.stat_result) -> dict[str, Any] | None:
     """Decoded document when the sidecar matches *st*, else None."""
     token = [st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns]
+    path = cache_path.with_suffix(".json")
     try:
-        payload = json.loads(_verify_json_path(cache_path).read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError) as exc:
         # A missing sidecar is the normal cold path (no log); a present-but-
         # unreadable/corrupt one is logged so it is not mistaken for cold.
-        if _verify_json_path(cache_path).exists():
+        if path.exists():
             logging.getLogger(__name__).warning(
                 "Ignoring unreadable verify-cache sidecar %s: %s",
-                _verify_json_path(cache_path),
+                path,
                 exc,
             )
         return None
@@ -658,7 +655,7 @@ def _read_verify_json(cache_path: Path, st: os.stat_result) -> dict[str, Any] | 
 
 def _write_verify_json(cache_path: Path, st: os.stat_result, document: dict[str, Any]) -> None:
     """Store *document* for the next process. A failure leaves the TOML path working."""
-    path = _verify_json_path(cache_path)
+    path = cache_path.with_suffix(".json")
     payload = {
         "version": _VERIFY_JSON_VERSION,
         "fingerprint": [st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns],
@@ -692,13 +689,13 @@ def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     with _VERIFY_CACHE_MEMO_LOCK:
         _drop_memo_for(_memo_path_key(cache_path))
     try:
-        _verify_json_path(cache_path).unlink(missing_ok=True)
+        cache_path.with_suffix(".json").unlink(missing_ok=True)
     except OSError as exc:
         # A stale sidecar is harmless (fingerprint check rejects it), but a
         # read-only dir means every write leaves a stale file behind.
         logging.getLogger(__name__).debug(
             "verify-cache memo invalidation could not unlink %s: %s",
-            _verify_json_path(cache_path),
+            cache_path.with_suffix(".json"),
             exc,
             exc_info=True,
         )

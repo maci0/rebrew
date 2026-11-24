@@ -322,18 +322,6 @@ def test_find_c_function_definitions_contains_name(data: tuple[str, str]) -> Non
 # SourceBinding parser robustness on malformed input (fuzz)
 # ---------------------------------------------------------------------------
 
-# Characters that ``str.splitlines`` treats as line boundaries beyond ``\n``.
-# They are excluded from the generated alphabet so the join/splitlines
-# round-trip stays exact and the partition invariant below is a true
-# statement about the generated input text.
-_SPLITLINES_BOUNDARY_CHARS = "\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"
-
-_annotation_line = st.text(
-    alphabet=st.characters(blacklist_characters=_SPLITLINES_BOUNDARY_CHARS),
-    max_size=80,
-)
-
-
 # ---------------------------------------------------------------------------
 # round_trip._rel32_target — REL32 displacement decoding
 # ---------------------------------------------------------------------------
@@ -712,12 +700,6 @@ def test_find_ghidra_data_label_matches_reference(
         assert result[0] == expected  # the containing label's start VA
 
 
-_STATUS_GROUP_PRIORITY = (
-    ("EXACT",),
-    ("RELOC",),
-    ("NEAR_MATCHING", "NEAR_MATCH"),
-    ("STUB",),
-)
 _STATUSES = ("STUB", "EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCH", "PROVEN", "SKIP")
 _STATUS_LIST = st.lists(st.sampled_from(_STATUSES), min_size=1, max_size=3)
 _MARKER = st.sampled_from(["FUNCTION", "GLOBAL", "DATA"])

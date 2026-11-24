@@ -2722,6 +2722,16 @@ class TestEffectiveCompileFlags:
         flags = effective_compile_flags(cfg, spec, "-O2", tmp_path)
         assert "-DDEBUG" in flags
 
+    def test_repeated_option_flags_keep_last_occurrence(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.compiler.compile import effective_compile_flags
+
+        cfg = SimpleNamespace(root=tmp_path, base_cflags="/O1 /O2", defines=[])
+        spec = SimpleNamespace(flags_style="msvc")
+        flags = effective_compile_flags(cfg, spec, "/O1", tmp_path)
+        assert flags == ["/O1", "/O2", "/O1"]
+
 
 class TestSharedIncludeFlags:
     """Shared sources see the shared root for sibling headers."""

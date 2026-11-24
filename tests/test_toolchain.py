@@ -2187,10 +2187,10 @@ class TestTrustedToolchainDownload:
         assert calls == 2
         assert dest.read_bytes() == b"payload"
 
-    def test_retry_backoff_goes_through_the_injected_sleep(
+    def test_retry_backoff_uses_sleep(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A flaky fetch replays from virtual time, so the retry costs no wall clock."""
+        """A flaky fetch records its backoff without waiting on the wall clock."""
         import httpx
 
         from rebrew.toolchain_cli import _HTTP_RETRY_BACKOFF_S, _download_pinned_url
@@ -2206,10 +2206,9 @@ class TestTrustedToolchainDownload:
 
         monkeypatch.setattr(httpx, "stream", _stream)
         naps: list[float] = []
+        monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", naps.append)
         dest = tmp_path / "out.bin"
-        _download_pinned_url(
-            "https://github.com/o/r/releases/download/v1/m.7z", dest, sleep=naps.append
-        )
+        _download_pinned_url("https://github.com/o/r/releases/download/v1/m.7z", dest)
         assert naps == [_HTTP_RETRY_BACKOFF_S]
 
 

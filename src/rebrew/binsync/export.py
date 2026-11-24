@@ -93,38 +93,34 @@ class _CatalogFunction:
 # ---------------------------------------------------------------------------
 
 
-def _as_int(value: object, default: int = 0, *, field: str = "") -> int:
+def _as_int(value: object, *, field: str = "") -> int:
     """Best-effort int from a metadata value (accepts decimal/hex strings).
 
     Finite integral floats (``16.0``) are accepted; non-integral floats and
     bools are rejected (``int(True)`` would invent size 1; ``int(12.9)``
-    would truncate).  An unparseable value falls back to *default* and is
+    would truncate).  An unparseable value falls back to zero and is
     logged: a silently zero size/offset exports a wrong artifact that
     looks valid downstream (silent data loss).
     """
     if value is None:
-        return default
+        return 0
     if isinstance(value, bool):
-        logger.warning(
-            "binsync export: %s=%r is not an int; using default %d", field, value, default
-        )
-        return default
+        logger.warning("binsync export: %s=%r is not an int; using default %d", field, value, 0)
+        return 0
     if isinstance(value, int):
         return value
     if isinstance(value, float):
         if value.is_integer() and abs(value) < 1e15:
             return int(value)
         logger.warning(
-            "binsync export: %s=%r is not an integral int; using default %d", field, value, default
+            "binsync export: %s=%r is not an integral int; using default %d", field, value, 0
         )
-        return default
+        return 0
     try:
         return parse_int_literal(str(value))
     except ValueError:
-        logger.warning(
-            "binsync export: %s=%r is not an int; using default %d", field, value, default
-        )
-        return default
+        logger.warning("binsync export: %s=%r is not an int; using default %d", field, value, 0)
+        return 0
 
 
 def _write_function_toml(

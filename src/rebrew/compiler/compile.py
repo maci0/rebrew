@@ -1051,16 +1051,6 @@ def resolve_compiler_env(
 # ---------------------------------------------------------------------------
 
 
-def _dedupe_flags(flags: list[str]) -> list[str]:
-    """Drop duplicate flags, keeping first occurrence (identical flags are
-    interchangeable, so this is semantics-preserving).
-
-    Base + per-function cflags often repeat (``/O2 /Gd /O2 /Gd /Oy-``) -
-    dedup keeps compile lines readable without changing the result.
-    """
-    return list(dict.fromkeys(flags))
-
-
 #: An MSVC switch such as ``/nologo``, ``/c``, or ``/MT``. A posix compiler
 #: opens that token as an input file. A path with another slash
 #: (``/usr/include``) is not a switch.
@@ -1099,10 +1089,10 @@ def effective_compile_flags(
         cfg.root,
     )
     resolved = resolve_include_flags(own, src_parent, cfg.root)
-    all_flags = _dedupe_flags(base_flags + resolved)
+    flags = base_flags + resolved
     for define in getattr(cfg, "defines", None) or []:
         prefix = "-D" if (spec is not None and spec.flags_style == "posix") else "/D"
-        all_flags.append(f"{prefix}{define}")
+        flags.append(f"{prefix}{define}")
     # A shared source (`src/shared/...`) includes sibling shared headers by
     # bare name (`#include "game_structs.h"`); its own directory covers
     # same-dir headers, but a nested shared file including a ROOT-level shared
@@ -1116,8 +1106,7 @@ def effective_compile_flags(
             is_shared = False
         if is_shared:
             prefix = "-I" if (spec is not None and spec.flags_style == "posix") else "/I"
-            all_flags.append(f"{prefix}{Path(shared).resolve()}")
-    flags = _dedupe_flags(all_flags)
+            flags.append(f"{prefix}{Path(shared).resolve()}")
     if spec is not None and getattr(spec, "flags_style", None) == "posix":
         flags = _without_msvc_switches(flags)
     return flags

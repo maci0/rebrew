@@ -45,7 +45,6 @@ _AR_MIN_BODY = 200
 _AR_MAX_BODY = 3000
 _AR_LONG_EVERY = 3
 _AR_COFF_LONG_EVERY = 7
-_AR_HEADER = 60
 _AR_INNER = 3
 
 # omf16 workload dimensions

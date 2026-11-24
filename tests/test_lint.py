@@ -984,18 +984,6 @@ class TestLintFix:
             origins=["GAME", "SERVER"],
         )
 
-    def _write_inline(self, tmp_path: Path) -> Path:
-        src = tmp_path / "src"
-        src.mkdir(exist_ok=True)
-        f = src / "f.c"
-        write_source(
-            f,
-            "/* ADDRESS: SERVER 0x1000 */\n\n\nint f(void) { return 0; }\n",
-            encoding="utf-8",
-            metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 42, "status": "EXACT"}},
-        )
-        return f
-
 
 class TestW020AsmDump:
     """Asm-dump placeholders (__emit / __asm blocks) must be flagged as W020."""

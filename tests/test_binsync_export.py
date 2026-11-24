@@ -527,16 +527,16 @@ class TestAsIntLogging:
         from rebrew.binsync.export import _as_int
 
         with caplog.at_level(logging.WARNING, logger="rebrew.binsync.export"):
-            assert _as_int("not-a-size", 0, field="function k size") == 0
+            assert _as_int("not-a-size", field="function k size") == 0
         assert "not-a-size" in caplog.text and "function k size" in caplog.text
 
-    def test_missing_value_is_silent_default(self, caplog: Any) -> None:
+    def test_missing_value_is_silent_zero(self, caplog: Any) -> None:
         import logging
 
         from rebrew.binsync.export import _as_int
 
         with caplog.at_level(logging.WARNING, logger="rebrew.binsync.export"):
-            assert _as_int(None, 7, field="function k size") == 7
+            assert _as_int(None, field="function k size") == 0
         assert caplog.text == ""
 
 
