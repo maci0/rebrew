@@ -319,7 +319,7 @@ MAX_SKIPPED_RECORD_KEYS = 256
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "c8a99b718c1f8def6b44b0910a0d57e2dd767e65022bd4c79219a40b668f5dd4"
+DISPATCH_SCHEMA_SHA256 = "fd06275610c15ce95703875720689f632e16b4d0334f9746e08222097730b92e"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -765,7 +765,7 @@ _COVERAGE_PROBLEMS = _RETAINED_PROBLEMS | {COVERAGE_INPUT_UNVERIFIED}
 #: ``errors``; a test holds every refusal an op's code reaches to its entry.
 OP_PROBLEMS: dict[str, frozenset[str]] = {
     "rebrew.analyse": frozenset({ANALYSIS_CAPTURE_FAILED, COMPILER_NOT_OFFERED, READSET_TOO_LARGE}),
-    "rebrew.apply_candidate": _CANDIDATE_PROBLEMS | {INVALID_PROJECT_CONFIG},
+    "rebrew.apply_candidate": _CANDIDATE_PROBLEMS,
     "rebrew.verify_function": _CANDIDATE_PROBLEMS,
     "rebrew.build": _COMPILE_PROBLEMS | {INVALID_PROJECT_CONFIG},
     "rebrew.verify_target": _COMPILE_PROBLEMS | {INVALID_PROJECT_CONFIG},
@@ -3072,7 +3072,7 @@ def _run_rebrew_child(
         )
 
         if kind == BINDING_CONFLICT_KIND:
-            # The child names the record by its key; _run_parsed answers the refusal.
+            # The child names the record by its key; _refusing_disagreeing_records answers it.
             raise BindingConflictError(_bounded(message))
         if kind == TOOLCHAIN_REJECTED_KIND:
             raise _toolchain_rejected(message, [project])
@@ -4245,8 +4245,7 @@ def apply_candidate(config: WorkerConfig, req: ApplyCandidateRequest) -> dict[st
     refused: nothing is published from a candidate that no longer matches. A SQLite project returns a
     closed, verified copy of its store in place of ``rebrew-functions.toml``.
     """
-    with _refusing_disagreeing_records("rebrew.apply_candidate"):
-        return _run_candidate(config, req, apply=True)
+    return _run_candidate(config, req, apply=True)
 
 
 def _candidate_with_anchor(candidate: str, module: str, va: int) -> str:

@@ -984,8 +984,9 @@ files, and shared-source setup (multi-target projects warn when
 `src/shared` is missing or disabled; skipped on single-target projects).
 The **Function bindings** check warns about function records whose source's
 `ADDRESS` anchor names another function, by `MODULE.0xVA` key: every read skips
-such a record (logging its key once per command or op call), and an op that writes
-a function record refuses `400 invalid-project-config`. Re-running `rebrew intake`
+such a record (logging its key once per command or op call), and
+`rebrew.retained_source_operation` refuses `400 invalid-project-config` when its
+operation reads one. Re-running `rebrew intake`
 repairs a generated stub whose record holds a name that is no identifier.
 Otherwise `rebrew doctor` is environment health only; source-corpus checks
 (source bindings, VA-vs-function-list consistency) live in
@@ -7009,9 +7010,8 @@ malformed; the detail names the file, not its path), `malformed-signatures` (422
 `rebrew.reference_flirt`: the uploaded `.sig` or `.pat` is not one python-flirt
 reads), `remote-compile-headers` (422, see below), `toolchain-rejected` (422: the toolchain
 ran and rejected the source; the detail is `COMPILE_ERROR: ` and its diagnostics,
-one per line, and there is no verdict), `invalid-project-config` (400: also a
-record-writing op (`rebrew.apply_candidate`,
-`rebrew.retained_source_operation`) over a function record its source's anchor disagrees with, see
+one per line, and there is no verdict), `invalid-project-config` (400: also
+`rebrew.retained_source_operation` over a function record its source's anchor disagrees with, see
 `rebrew doctor`; and see
 `rebrew.project_targets`), `project-import-refused` (422, see
 `rebrew.import_archive` below), `compile-not-run` (503, `rebrew.apply_candidate`:
