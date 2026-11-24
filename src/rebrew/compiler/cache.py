@@ -847,7 +847,7 @@ def _include_path(spelling: str) -> Path:
 
 
 def _find_in_dirs(
-    name: Path, dirs: list[Path], *, lexical: list[tuple[Path, Path]] | None = None
+    name: Path, dirs: list[Path], *, lexical: list[tuple[str, str]] | None = None
 ) -> Path | None:
     """Locate *name* in the first of *dirs* that contains it.
 
@@ -866,7 +866,7 @@ def _find_in_dirs(
 
 
 def _walk_include_path(
-    directory: Path, parts: Sequence[str], *, lexical: list[tuple[Path, Path]] | None
+    directory: Path, parts: Sequence[str], *, lexical: list[tuple[str, str]] | None
 ) -> Path | None:
     try:
         return _walk_include_path_checked(directory, parts, lexical=lexical)
@@ -877,10 +877,10 @@ def _walk_include_path(
 #: Folded child names per include directory: ``path -> (identity, folded -> paths)``.
 #: Each lookup used to list the directory and fold every entry name, so a
 #: header tree of a few hundred entries cost hundreds of normalizations per
-#: include.  The identity is the directory's ``(st_dev, st_ino, st_mtime_ns)``:
-#: creating, removing or renaming a child changes the mtime and retires the
-#: index.  Bounded by retained child names; shared by verify -j workers.
-_DIR_INDEX: dict[str, tuple[tuple[int, int, int], dict[str, tuple[str, ...]]]] = {}
+#: include. Directory identity includes ctime so restoring mtime after a
+#: membership change still retires the index. Bounded by retained child names;
+#: shared by verify -j workers.
+_DIR_INDEX: dict[str, tuple[tuple[int, int, int, int], dict[str, tuple[str, ...]]]] = {}
 _DIR_INDEX_MAX_NAMES = 1_000_000
 _dir_index_names = 0
 _DIR_INDEX_LOCK = threading.Lock()
@@ -905,7 +905,7 @@ def _folded_children(
     global _dir_index_names
     if st is None:
         st = os.stat(directory)  # noqa: PTH116 -- include-walk hot path, no Path per stat
-    identity = (st.st_dev, st.st_ino, st.st_mtime_ns)
+    identity = (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns)
     key = directory
     with _DIR_INDEX_LOCK:
         cached = _DIR_INDEX.get(key)
@@ -931,7 +931,7 @@ def _folded_children(
 
 
 def _walk_include_path_checked(
-    directory: Path, parts: Sequence[str], *, lexical: list[tuple[Path, Path]] | None
+    directory: Path, parts: Sequence[str], *, lexical: list[tuple[str, str]] | None
 ) -> Path | None:
     if not parts or parts[-1] == "..":
         return None
@@ -964,10 +964,17 @@ def _walk_include_path_checked(
         if not (stat.S_ISREG(mode) if index == last else stat.S_ISDIR(mode)):
             return None
         candidate = child
-    found = Path(os.path.realpath(candidate, strict=True))
+    resolved = os.path.realpath(candidate, strict=True)
     if lexical is not None:
-        lexical.append((Path(candidate).absolute(), found))
-    return found
+        if not os.path.isabs(candidate):  # noqa: PTH117 -- include-walk hot path
+            candidate = str(Path(candidate).absolute())
+        lexical.append((candidate, resolved))
+    return Path(resolved)
+
+
+def _include_spelling_parent(spelling: str) -> str:
+    """Resolve an alias's parent, which can change without changing the header target."""
+    return os.path.realpath(os.path.dirname(spelling))
 
 
 # Shadow probe for the include-closure memo.  ``_find_in_dirs`` resolves one
@@ -975,7 +982,8 @@ def _walk_include_path_checked(
 # by a header created in an earlier dir; that creation bumps only the earlier
 # *subdirectory's* mtime, which no key or reached-header stat records.  Each
 # probe keeps the resolver mode, the include spelling, and either earlier
-# directories or the selected path followed by its ordered search roots.
+# directories or the selected target, spelling and alias parent followed by
+# its ordered search roots.
 _ShadowProbe = tuple[str, str, tuple[str, ...]]
 
 # Include-closure memo for :func:`_resolve_include_paths`:
@@ -1005,7 +1013,7 @@ _INCLUDE_CLOSURE_LOCK = threading.Lock()
 
 
 def _resolve_escaping_include(
-    name: Path, dirs: Sequence[Path], *, lexical: list[tuple[Path, Path]] | None = None
+    name: Path, dirs: Sequence[Path], *, lexical: list[tuple[str, str]] | None = None
 ) -> Path | None:
     """Resolve an include that carries ``..`` or is absolute.
 
@@ -1100,25 +1108,28 @@ def unresolved_still_missing(
 
 
 def shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
-    """True while earlier roots still miss and every selected path stays unique.
+    """Check that misses and each winner's target and quoted-include base stay valid.
 
     A header created in an earlier dir (at any depth) shadows the one the
     closure recorded, but only that subdirectory's mtime moves, so neither the
-    memo key nor a reached-header stat sees it.  Re-running just the earlier
-    probes is cheap: a header found in the first search dir (the common case)
-    records none.
+    memo key nor a reached-header stat sees it. Nested quoted includes use
+    the winning spelling and can also search its canonical parent.
     """
     for mode, name, dirs in dict.fromkeys(shadows):
         if mode in {"winner", "escape-winner"}:
-            expected, *search = dirs
+            spelling, expected, parent, *search = dirs
             roots = [_include_path(d) for d in search]
             path = _include_path(name)
-            found = (
-                _resolve_escaping_include(path, roots)
-                if mode == "escape-winner"
-                else _find_in_dirs(path, roots)
-            )
-            if found != _include_path(expected):
+            lexical: list[tuple[str, str]] = []
+            if mode == "escape-winner":
+                _resolve_escaping_include(path, roots, lexical=lexical)
+            else:
+                _find_in_dirs(path, roots, lexical=lexical)
+            if (
+                not lexical
+                or lexical[0] != (spelling, expected)
+                or (parent and _include_spelling_parent(spelling) != parent)
+            ):
                 return False
             continue
         roots = [_include_path(d) for d in dirs]
@@ -1330,8 +1341,8 @@ def scan_include_closure(
     *unresolved* as ``(name, directories searched)``, so the caller can
     revalidate the memo when one of those headers is created later. Optional
     *probes* also records absent candidates for include-next invalidation.
-    *shadow* records both earlier missing search dirs and selected paths, so
-    new shadowing or case-colliding entries invalidate the closure.
+    *shadow* records earlier misses and the selected targets and spellings,
+    so a changed lookup or nested quote base invalidates the closure.
     *contents* captures the exact bytes parsed for each reached header; callers
     needing content proof must use these bytes rather than the stat-only memo.
     *lexical* records each found spelling and resolved target before deduplication.
@@ -1400,7 +1411,7 @@ def scan_include_closure(
             path = _include_path(name)
             for index, dirs in enumerate(searches):
                 escaped = False
-                spelling: list[tuple[Path, Path]] = []
+                spelling: list[tuple[str, str]] = []
                 found = _find_in_dirs(path, dirs, lexical=spelling)
                 if found is None and (path.is_absolute() or ".." in path.parts):
                     # `#include "../../game_types.h"`: _find_in_dirs refuses the
@@ -1413,6 +1424,8 @@ def scan_include_closure(
                         # or the tree moved): nothing can pin it, so take the
                         # conservative per-directory fingerprint rather than
                         # cache an entry whose closure is unknown.
+                        if shadow is not None:
+                            shadow.append(("escape", name, tuple(str(d) for d in dirs)))
                         fallback = True
                         return True
                 if found is None:
@@ -1427,12 +1440,14 @@ def scan_include_closure(
                     elif probes is not None:
                         probes.append((name, tuple(str(d) for d in dirs)))
                     continue
+                spelled, resolved = spelling[0]
+                spelled_path = found if spelled == resolved else Path(spelled)
                 if lexical is not None:
-                    lexical.extend(spelling)
+                    lexical.append((spelled_path, found))
                 current_identity = None
                 observed_path = None
                 if identities is not None:
-                    observed_path = spelling[0][0]
+                    observed_path = spelled_path
                     current_identity = path_identity(observed_path)
                     if current_identity["resolved"] != str(found):
                         raise ValueError(
@@ -1453,16 +1468,23 @@ def scan_include_closure(
                     )
                     if prefix:
                         shadow.append(("escape" if escaped else "find", name, prefix))
+                found_str = str(found)
+                alias_parent = None
                 if shadow is not None:
+                    alias_parent = _include_spelling_parent(spelled) if spelled != resolved else ""
                     shadow.append(
                         (
                             "escape-winner" if escaped else "winner",
                             name,
-                            (str(found), *(str(directory) for directory in dirs)),
+                            (
+                                spelled,
+                                resolved,
+                                alias_parent,
+                                *(str(directory) for directory in dirs),
+                            ),
                         )
                     )
-                found_str = str(found)
-                lexical_parent = spelling[0][0].parent
+                lexical_parent = spelled_path.parent
                 next_parents = parents
                 if msvc_include_parents and base_dir is not None:
                     next_parents = (base_dir, *(p for p in parents if p != base_dir))
@@ -1515,10 +1537,11 @@ def scan_include_closure(
                         kind in {"quote", "next"} for kind, _ in _iter_include_specs(header_text)
                     )
                 ):
-                    raise ValueError(f"{spelling[0][0]}: ambiguous symlinked include parent")
-                if (
-                    _scan(header_text, lexical_parent, found, next_parents)
-                    and lexical_parent.resolve() != found.parent
+                    raise ValueError(f"{spelled_path}: ambiguous symlinked include parent")
+                if _scan(header_text, lexical_parent, found, next_parents) and (
+                    lexical_parent.resolve() != found.parent
+                    if alias_parent is None
+                    else alias_parent and _include_path(alias_parent) != found.parent
                 ):
                     _scan(header_text, found.parent, found, next_parents)
                 if fallback:

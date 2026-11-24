@@ -1702,10 +1702,67 @@ class TestHeaderDependencyHash:
 
         with monkeypatch.context() as patch:
             patch.setattr(cache_module, "scan_include_closure", scan)
-            paths, _ = cache_module._resolve_include_paths(source, None, roots)
+            paths, fallback = cache_module._resolve_include_paths(source, None, roots)
 
+        assert fallback
         assert set(paths) == {str(target), str(child)}
-        assert cache_module._resolve_include_paths(source, None, roots)[0] == paths
+        assert not any(key[2] == roots for key in cache_module._INCLUDE_CLOSURE_MEMO)
+        assert cache_module._resolve_include_paths(source, None, roots) == (paths, False)
+
+    @pytest.mark.skipif(os.name != "posix", reason="Uses symlinks")
+    @pytest.mark.parametrize("change", ["rename", "rename-restored-mtime", "retarget"])
+    def test_changed_symlink_parent_invalidates_cached_closure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+    ) -> None:
+        root = tmp_path / "include"
+        old = root / "deep" / "nested"
+        old.parent.mkdir(parents=True)
+        backing = tmp_path / "backing"
+        backing.mkdir()
+        target = tmp_path / "api.h"
+        target.write_text('#include "child.h"\n')
+        (backing / "api.h").symlink_to(target)
+        old.symlink_to(tmp_path if change == "retarget" else backing, target_is_directory=True)
+        if change == "rename-restored-mtime":
+            os.utime(old.parent, ns=(1_000_000_000, 1_000_000_000))
+        parent_stat = old.parent.stat()
+        source = "#include <deep/nested/api.h>\n"
+        roots = (str(root),)
+        assert cache_module._resolve_include_paths(source, None, roots) == ((str(target),), False)
+
+        if change == "retarget":
+            old.unlink()
+            old.symlink_to(backing, target_is_directory=True)
+            child = target.with_name("child.h")
+        else:
+            new = old.rename(old.with_name("NESTED"))
+            if old.exists():
+                pytest.skip("case-sensitive paths required")
+            child = backing / "child.h"
+            if change == "rename-restored-mtime":
+                os.utime(new.parent, ns=(parent_stat.st_atime_ns, parent_stat.st_mtime_ns))
+        child.write_text("int child;\n")
+        reused = cache_module._resolve_include_paths(source, None, roots)
+        with monkeypatch.context() as patch:
+            patch.setattr(cache_module, "_INCLUDE_CLOSURE_MEMO", {})
+            patch.setattr(cache_module, "_include_closure_memo_chars", 0)
+            patch.setattr(cache_module, "_DIR_INDEX", {})
+            patch.setattr(cache_module, "_dir_index_names", 0)
+            fresh = cache_module._resolve_include_paths(source, None, roots)
+
+        assert fresh == ((str(target), str(child)), False)
+        assert reused == fresh
+
+    def test_new_escaping_header_invalidates_cached_fallback(self, tmp_path: Path) -> None:
+        root = tmp_path / "include"
+        root.mkdir()
+        source = '#include "../child.h"\n'
+        roots = (str(root),)
+        assert cache_module._resolve_include_paths(source, None, roots) == ((), True)
+
+        child = tmp_path / "child.h"
+        child.write_text("int child;\n")
+        assert cache_module._resolve_include_paths(source, None, roots) == ((str(child),), False)
 
     def test_raced_scan_is_not_memoized(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
