@@ -409,6 +409,40 @@ class TestReplicationHotPaths:
         with pytest.raises(MetadataStorageError, match="content hash mismatch"):
             replication._load(TomlStore(tmp_path / "state.toml", tmp_path))
 
+    def test_identical_replica_contents_share_hash_but_verify_each_record(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.metadata.replication as replication
+        from rebrew.metadata.files import TomlStore
+
+        key = "rebrew-functions.toml"
+        journal = TomlStore(tmp_path / "journal.toml", tmp_path)
+        replica = TomlStore(tmp_path / "replica.toml", tmp_path)
+        content = 'note = "same"\n'
+        record = replication._Record({"node:x": 1}, 7, content, False)
+        replica_record = replication._Record({"node:y": 2}, 8, content, False)
+        replication._save(journal, {key: record}, "journal")
+        rendered = replication._render_state({key: replica_record}, "")
+        replica.write_text(rendered, "test replica")
+        seen: list[str] = []
+        raw_hash = replication._content_sha256
+
+        def counted(text: str) -> str:
+            seen.append(text)
+            return raw_hash(text)
+
+        monkeypatch.setattr(replication, "_content_sha256", counted)
+        known, _ = replication._load(journal)
+        loaded, _ = replication._load(replica, known)
+        assert loaded == {key: replica_record}
+        assert loaded[key].content is known[key].content
+        assert seen == [content]
+
+        replica.write_text(rendered.replace('content_sha256 = "', 'content_sha256 = "0'), "test")
+        with pytest.raises(MetadataStorageError, match="content hash mismatch"):
+            replication._load(replica, known)
+        assert seen == [content]
+
     def test_store_text_and_write_text(self, tmp_path: Path) -> None:
         _project(tmp_path)
         content = tomlkit.dumps({"format": 3, "x": {"s": _AWKWARD}})

@@ -42,6 +42,20 @@ class TestResolveClCommand:
         assert cmd == ["wine", str(tmp_path / "tools" / "CL.EXE"), "/nologo", "/c"]
 
 
+class TestVendoredToolchainTree:
+    def test_requires_directory_boundary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler import toolchain_paths
+        from rebrew.compiler.compile import _is_vendored_toolchain_tree
+
+        checkout = tmp_path / "toolchains"
+        monkeypatch.setattr(toolchain_paths, "toolchains_repo", lambda: checkout)
+        assert _is_vendored_toolchain_tree(checkout)
+        assert _is_vendored_toolchain_tree(checkout / "include")
+        assert not _is_vendored_toolchain_tree(tmp_path / "toolchains-other" / "include")
+
+
 class TestResolveIncludeFlags:
     def test_relative_from_src(self, tmp_path: Path) -> None:
         src_parent = tmp_path / "src"

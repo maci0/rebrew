@@ -269,12 +269,12 @@ def _package_source_fingerprint() -> tuple[tuple[str, int, int, int, int], ...]:
     import rebrew
 
     global _PACKAGE_FP_MEMO
-    pkg_root = Path(rebrew.__file__).resolve().parent
     now = time.monotonic()
     with _PACKAGE_FP_LOCK:
         cached_fp, cached_at = _PACKAGE_FP_MEMO
         if cached_fp is not None and now - cached_at < _PACKAGE_FP_TTL_SECONDS:
             return cached_fp
+    pkg_root = Path(rebrew.__file__).resolve().parent
     entries: list[tuple[str, int, int, int, int]] = []
     for path in pkg_root.rglob("*.py"):
         try:

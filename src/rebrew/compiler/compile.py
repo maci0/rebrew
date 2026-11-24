@@ -126,6 +126,7 @@ lazy from rebrew.utils import (
     container_runtime,
     fold_ident,
     interruptible_pool,
+    path_is_relative_to,
     read_source_text,
     resolved_path,
     run_process_group,
@@ -1211,10 +1212,13 @@ def _is_vendored_toolchain_tree(p: Path) -> bool:
     try:
         # The lstat-checked memo: status asks this once per compiled entry,
         # always about the same configured includes directory.
-        resolved_path(p).relative_to(resolved_path(root))
-        return True
+        resolved = resolved_path(p)
+        root = resolved_path(root)
     except ValueError:
         return False
+    if os.name == "posix":
+        return path_is_relative_to(resolved, root)
+    return resolved.is_relative_to(root)
 
 
 def _docker_include_rewrite(

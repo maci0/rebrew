@@ -2250,6 +2250,34 @@ class TestCompareLogicHashMembership:
         h = _compare_logic_hash()
         assert isinstance(h, str) and len(h) == 64
 
+    def test_resolves_package_root_when_fingerprint_expires(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew
+        from rebrew import verify_hash
+
+        package = tmp_path / "__init__.py"
+        package.write_text("# old\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew, "__file__", str(package))
+        monkeypatch.setattr(verify_hash, "_PACKAGE_FP_MEMO", (None, 0.0))
+        monkeypatch.setattr(verify_hash, "_COMPARE_LOGIC_MEMO", None)
+        clock = iter((1.0, 1.0, 3.0))
+        monkeypatch.setattr(verify_hash, "time", SimpleNamespace(monotonic=clock.__next__))
+        resolve = Path.resolve
+        resolved: list[Path] = []
+
+        def record(path: Path, *, strict: bool = False) -> Path:
+            if path == package:
+                resolved.append(path)
+            return resolve(path, strict=strict)
+
+        monkeypatch.setattr(Path, "resolve", record)
+        old = verify_hash._compare_logic_hash()
+        package.write_text("# new\n", encoding="utf-8")
+        assert verify_hash._compare_logic_hash() == old
+        assert verify_hash._compare_logic_hash() != old
+        assert resolved == [package, package]
+
 
 class TestNonUtf8PathText:
     """Path text that is not valid UTF-8 still has to hash.

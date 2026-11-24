@@ -1178,6 +1178,26 @@ class TestHeaderDependencyHash:
         assert unreadable == [(0, "a.h", "unreadable")]
         assert unreadable != good
 
+    def test_header_key_uses_first_matching_anchor(self, tmp_path: Path) -> None:
+        from rebrew.compiler.cache import _header_key_entries
+
+        root = tmp_path.resolve()
+        source = root / "src"
+        include = root / "src-other"
+        source.mkdir()
+        include.mkdir()
+        header = include / "a.h"
+        outside = root / "b.h"
+        header.write_bytes(b"a")
+        outside.write_bytes(b"b")
+
+        assert _header_key_entries(
+            (str(header), str(outside)), str(source), [str(include), str(include)]
+        ) == [
+            (0, "b.h", hashlib.sha256(b"b").hexdigest()),
+            (1, "a.h", hashlib.sha256(b"a").hexdigest()),
+        ]
+
     def test_unreached_header_edit_keeps_key(self, tmp_path: Path) -> None:
         """THE precision win: only reached headers shape the key."""
         inc = tmp_path / "inc"

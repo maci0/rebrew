@@ -217,6 +217,10 @@ class _Record:
     deleted: bool
 
     @functools.cached_property
+    def content_sha256(self) -> str:
+        return _content_sha256(self.content)
+
+    @functools.cached_property
     def digest(self) -> str:
         return _digest(self.content, self.deleted)
 
@@ -235,7 +239,9 @@ _VIEWS_LOCK = threading.Lock()
 _VIEWS: OrderedDict[tuple[object, ...], _Record | None] = OrderedDict()
 
 
-def _load(store: MetadataStore) -> tuple[dict[str, _Record], str]:
+def _load(
+    store: MetadataStore, known_records: dict[str, _Record] | None = None
+) -> tuple[dict[str, _Record], str]:
     fingerprint = store.fingerprint()
     if not fingerprint:
         return {}, ""
@@ -245,7 +251,7 @@ def _load(store: MetadataStore) -> tuple[dict[str, _Record], str]:
         if cached is not None:
             _LOADED.move_to_end(key)
             return dict(cached[0]), cached[1]
-    records, node = _parse_state(store)
+    records, node = _parse_state(store, known_records)
     if store.fingerprint() == fingerprint:
         with _LOADED_LOCK:
             _LOADED[key] = (records, node)
@@ -254,7 +260,9 @@ def _load(store: MetadataStore) -> tuple[dict[str, _Record], str]:
     return dict(records), node
 
 
-def _parse_state(store: MetadataStore) -> tuple[dict[str, _Record], str]:
+def _parse_state(
+    store: MetadataStore, known_records: dict[str, _Record] | None
+) -> tuple[dict[str, _Record], str]:
     text = store.text()
     if text is None:
         return {}, ""
@@ -304,11 +312,20 @@ def _parse_state(store: MetadataStore) -> tuple[dict[str, _Record], str]:
             or type(row["deleted"]) is not bool
         ):
             raise MetadataStorageError("invalid metadata replication record")
-        record = _Record(row["clock"], row["updated_at_ns"], row["content"], row["deleted"])
+        content = row["content"]
+        known = known_records.get(key) if known_records is not None else None
+        # The journal may carry an identical copy of this replica's text.
+        if known is not None and type(content) is str and known.content == content:
+            content = known.content
+        else:
+            known = None
+        record = _Record(row["clock"], row["updated_at_ns"], content, row["deleted"])
         if "content_sha256" in row:
             # The raw hash proves the content is what the digest was computed
             # from, so the stored digest stands without parsing the document.
-            if _content_sha256(row["content"]) != row["content_sha256"]:
+            if known is not None:
+                record.__dict__["content_sha256"] = known.content_sha256
+            if record.content_sha256 != row["content_sha256"]:
                 raise MetadataStorageError("metadata replication content hash mismatch")
             record.__dict__["digest"] = row["digest"]
         elif record.digest != row["digest"]:
@@ -561,7 +578,9 @@ class RoutedStore:
     def state(self, name: str) -> MetadataStore:
         return self.store(name, STATE_PATH)
 
-    def _read_from[T](self, operation: Callable[[MetadataStore, dict[str, _Record]], T]) -> T:
+    def _read_from[T](
+        self, operation: Callable[[MetadataStore, dict[str, _Record]], T], local: dict[str, _Record]
+    ) -> T:
         errors: list[str] = []
         for position, name in enumerate(self.read_backends):
             try:
@@ -572,7 +591,7 @@ class RoutedStore:
                     # would answer every read with nothing and the next write would
                     # publish a document holding only that write.
                     raise MetadataUnavailableError(f"{name} storage not created yet")
-                records, _ = _load(self.state(name))
+                records, _ = _load(self.state(name), local)
                 return operation(store, records)
             except (OSError, MetadataUnavailableError) as exc:
                 errors.append(f"{name}: {exc}")
@@ -620,7 +639,7 @@ class RoutedStore:
                 candidates.append(observed)
             return _winner(self.key, candidates)
 
-        record = self._read_from(view)
+        record = self._read_from(view, local)
         if token is not None and self._inputs_token() == token:
             with _VIEWS_LOCK:
                 _VIEWS[token] = record
@@ -701,7 +720,7 @@ class RoutedStore:
                     paths.append(path)
             return tuple(paths)
 
-        return self._read_from(discover)
+        return self._read_from(discover, local)
 
     def reconcile(
         self,

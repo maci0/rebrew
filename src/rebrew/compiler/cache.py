@@ -75,7 +75,13 @@ lazy from pathlib import Path
 
 import diskcache
 
-from rebrew.utils import BYTES_PER_MIB, path_identity, resolved_path, split_source_lines
+from rebrew.utils import (
+    BYTES_PER_MIB,
+    path_identity,
+    path_is_relative_to,
+    resolved_path,
+    split_source_lines,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1577,18 +1583,17 @@ def _header_key_entries(
         anchors.append(resolved_path(Path(source_dir)))
     anchors += [resolved_path(Path(d)) for d in include_dirs]
 
+    is_relative_to = path_is_relative_to if os.name == "posix" else Path.is_relative_to
     entries: list[tuple[int, str, str]] = []
     for p_str in paths:
         p = resolved_path(Path(p_str))
         rel = p.name
         anchor_idx = 0
         for idx, anchor in enumerate(anchors):
-            try:
+            if is_relative_to(p, anchor):
                 rel = p.relative_to(anchor).as_posix()
                 anchor_idx = idx
                 break
-            except ValueError:
-                continue
         try:
             digest = hashlib.sha256(p.read_bytes()).hexdigest()
         except OSError:
