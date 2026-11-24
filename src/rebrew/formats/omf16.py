@@ -5,7 +5,7 @@ overflow) and LIEF cannot parse.  Empirically mapped (docs/OMF_NOTES.md):
 
 - **Unoptimized dialect** (no /O flags):
   - ``0xA0`` records carry the code: ``[seg:1][offset:2 LE][code...]``
-  - ``0x90`` MODEND carries the public symbols: ``[len][name][offset:2 LE]``
+  - ``0x90`` PUBDEF carries the public symbols: ``[len][name][offset:2 LE]``
     (verified: `_main` @ 0x1a lands exactly at the second function in the
     concatenated code stream of a real compile_c object).
 - **Optimized dialect** (/O1 etc. — the GA flag sweep's default):

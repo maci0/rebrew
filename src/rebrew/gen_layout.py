@@ -3,10 +3,11 @@
 Onboarding a new binary leaves the byte-identity build machinery (object
 order, .def exports, IAT forcing, .data restore, PE-normalization params)
 to be hand-built per project.  This command derives that scaffolding
-directly from the original binary, so the layout template ships with the
-intake instead of being reverse-engineered later.
+directly from the original binary, so a project can generate the layout
+template when needed instead of reverse-engineering it later.
 
-What it emits (into the target's ``reversed_dir`` unless overridden):
+What it emits (source scaffolding in the target's ``reversed_dir`` unless
+overridden; the layout package in ``layout/<target>/`` under the project root):
 
   ``<target>.def``
       EXPORTS table with the original's ordinals (``name @ ordinal``).

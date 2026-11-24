@@ -777,9 +777,11 @@ class ProjectConfig:
     """Per-module compiler flag overrides (``rebrew cfg module set-cflags``).
 
     ``[compiler.cflags_presets]`` (global) merged with
-    ``[targets.X.compiler.cflags_presets]`` (per-key, target wins).  Used by
-    ``rebrew match run``/``diff`` as the CFLAGS fallback for functions whose
-    module has a preset and whose per-function metadata has no CFLAGS.
+    ``[targets.X.compiler.cflags_presets]`` (per-key, target wins). Used by
+    every compile path (``compile``, ``verify``, ``test``, ``match``, ``diff``,
+    ``prove``, ``probe`` and ``diagnose``) as the CFLAGS fallback when neither
+    per-function metadata nor the nearest library override supplies non-empty
+    CFLAGS.
     """
     base_cflags: str = "/nologo /c /MT"  # Always-on flags prepended to every compile
     compile_timeout: int = DEFAULT_COMPILE_TIMEOUT  # see DEFAULT_COMPILE_TIMEOUT
@@ -808,12 +810,11 @@ class ProjectConfig:
     a ``Retry-After`` one reply names holds them all back.
     """
     recompile_retries: int = DEFAULT_RECOMPILE_RETRIES
-    """Re-attempts of a retryable remote-compile failure (``0`` disables).
+    """Re-attempts of failures the remote answer table marks retryable (``0`` means one attempt).
 
-    Only transport blips and the transient HTTP statuses
-    (``rebrew.utils.RETRYABLE_HTTP_STATUS``) are retried, with the backoff
-    ``rebrew.utils.retry_backoff_delay``; a compile the service ran and
-    rejected is never re-POSTed.  ``0`` means one attempt.
+    This includes transport failures, transient HTTP statuses and service
+    outcomes such as ``publish_failed``. Capacity/throttle waits do not spend
+    this budget, and a compiler rejection is never re-POSTed.
     """
 
     # --- per-target version defines ---

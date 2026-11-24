@@ -241,6 +241,41 @@ def test_architecture_diagram_format_pointer_resolves() -> None:
     assert missing == [], f"architecture.drawio points at missing docs: {missing}"
 
 
+def test_architecture_diagram_cli_routes_resolve() -> None:
+    """Every ``rebrew`` command path drawn in the architecture resolves."""
+    import html
+    import re
+
+    import typer
+    from typer._click.core import Command
+    from typer.core import TyperGroup
+
+    from rebrew.app.main import app
+
+    root = typer.main.get_command(app)
+    diagram = (ROOT / "docs" / "architecture.drawio").read_text(encoding="utf-8")
+    labels = re.findall(r'<mxCell\b[^>]*\bvalue="([^"]*)"', diagram)
+    segments: list[str] = []
+    for label in labels:
+        text = html.unescape(re.sub(r"<[^>]+>", "\n", label))
+        segments.extend(part.strip() for part in re.split(r"\n+|(?<=[.:;])\s+", text))
+    unresolved: list[str] = []
+    for segment in segments:
+        match = re.match(r"rebrew ([a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*)", segment)
+        if match is None:
+            continue
+        command: Command = root
+        depth = 0
+        for token in match.group(1).split():
+            if not isinstance(command, TyperGroup) or token not in command.commands:
+                break
+            command = command.commands[token]
+            depth += 1
+        if depth == 0:
+            unresolved.append(match.group(0))
+    assert not unresolved, f"architecture diagram names unknown CLI routes: {unresolved}"
+
+
 def test_performance_doc_command_counts_match_the_sweeps() -> None:
     """``docs/PERFORMANCE.md`` quotes the size of the two idempotency sweeps.
 

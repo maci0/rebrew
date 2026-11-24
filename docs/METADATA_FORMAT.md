@@ -53,10 +53,12 @@ is never a source comment. The authoritative field shapes are
 `rebrew source register` records current declaration-bound identities and leaves
 existing fields and verdicts intact. `record_function_identity` and
 `record_function_rows` are the Python identity writers. `update_field`,
-`remove_field` and batch forms edit ordinary state. STATUS is written only by
-`update_source_status` / `update_statuses_batch` after comparison. EXACT and RELOC
-are byte matches; PROVEN is semantic evidence and is overwritten by the next byte
-comparison. Parked SKIP and unfinished STUB retain their documented writer rules.
+`remove_field` and batch forms edit ordinary state. STATUS writes go only through
+`update_source_status` / `update_statuses_batch`. Byte-match STATUS is earned
+only by comparison; `prove` writes semantic `PROVEN`, while intake, BinSync
+`--create-missing`, and splat import scaffold `STUB`. EXACT and RELOC are byte
+matches; PROVEN is overwritten by the next byte comparison. Parked SKIP and
+unfinished STUB retain their documented writer rules.
 
 `similarity` is an optional numeric percentage in `[0, 100]`, including zero.
 Only the locked test/verify verdict writer sets it, copying

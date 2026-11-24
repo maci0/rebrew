@@ -68,10 +68,9 @@ def _parse_annotations(
 ) -> list[StubInfo]:
     """Parse annotations with configurable status and delta filters.
 
-    *metadata_dir* defaults to ``filepath.parent`` (the legacy inline-layout
-    assumption); batch callers pass ``cfg.metadata_dir`` so functions whose
-    SIZE/STATUS live in ``rebrew-functions.toml`` at the reversed_dir parent
-    are found.
+    *metadata_dir* defaults to ``filepath.parent``; batch callers pass
+    ``cfg.metadata_dir`` so rows stored at the project's metadata root are
+    found.
 
     *min_size* is the caller's explicit size floor (``--min-size``); when it
     is 0 the default :data:`_MIN_STUB_SIZE_FLOOR` (10) applies.  A smaller

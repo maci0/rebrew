@@ -1,10 +1,10 @@
 """data_verify.py - Byte-compare built data sections against the reference.
 
-Track 1 of the gap-analysis goal: rebrew can place data (data_layout fill /
-own / converge) but cannot confirm it.  This module compares per-symbol
-bytes of a built binary's ``.data`` / ``.rdata`` sections against the
-reference bytes, attributed per metadata symbol (right bytes at the right
-address vs wrong bytes vs missing symbol).
+Compare per-symbol bytes of a built binary's ``.data`` / ``.rdata`` sections
+against the reference, attributed per metadata symbol. When a link map is
+available, placement is also checked: matching bytes at the reference VA are
+``EXACT``, a symbol linked elsewhere is ``DISPLACED``, and a symbol absent
+from the map remains byte-``VERIFIED`` with placement unchecked.
 
 Pure logic here (dicts in, report out) so it is unit-testable without a
 link; the binary-reading thin layer lives in ``verify --data``.

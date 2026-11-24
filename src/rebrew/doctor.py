@@ -1,14 +1,12 @@
 """doctor.py – Diagnostic command for rebrew project health.
 
-Environment/setup health only (does not inspect the decompiled corpus):
-config file, target binary, arch/format, toolchain alignment, compiler
+Environment/setup health plus source/record binding conflicts. It does not
+run lint's full corpus audit; metadata placement, VA-vs-function-list
+consistency and per-function settings remain in ``rebrew lint``. Doctor
+checks config, target binary, arch/format, toolchain alignment, compiler
 image/executable, runner, include/lib paths, function-list existence,
-source-dir existence, metadata-file existence, and integration tooling
-(angr, FLIRT, Ghidra).  Source-corpus checks — metadata bindings,
-metadata placement, VA-vs-function-list consistency, and per-function
-settings like cflags redundancy — live in ``rebrew lint``.  Doctor answers
-"can this project work?", not "is the decompiled corpus internally
-consistent?".
+source-dir existence, metadata-file existence, integration tooling, and
+whether source bindings disagree with stored function identities.
 
 Usage::
 

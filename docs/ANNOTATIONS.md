@@ -69,8 +69,9 @@ Configured source directories must remain inside the metadata root; see the
 [configuration rule](CONFIG.md#what-the-config-loader-provides).
 
 Never hand-edit these stores. Writers use their owning metadata APIs, locks,
-and backend persistence. See [metadata storage](METADATA.md#storage-api-and-backend-selection) for backend and permission rules. STATUS is earned only by comparison through
+and backend persistence. See [metadata storage](METADATA.md#storage-api-and-backend-selection) for backend and permission rules. Byte-match STATUS is earned only by comparison through
 `rebrew test` / `rebrew verify`; an address or registration is no match evidence.
+`prove` writes semantic `PROVEN`, and scaffold writers may create `STUB`.
 `PROVEN` is not a byte match. Library origin and actual linked provider remain
 separate; a signature candidate is not a verified provider.
 

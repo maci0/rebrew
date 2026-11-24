@@ -272,7 +272,7 @@ rebrew library scan-signatures /path/to/my/signatures/
 # Scan a different target binary
 rebrew library scan-signatures --binary original/MyGame/mygame.exe
 
-# Only report functions larger than 32 bytes
+# Only report functions at least 32 bytes
 rebrew library scan-signatures --min-size 32
 ```
 

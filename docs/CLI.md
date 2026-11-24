@@ -478,9 +478,10 @@ build the recomp binary with `-DREBREW_ALLOW_NAKED=1`); the mismatch is the
 build matrix, not the decompilation.
 
 Status promotion is always-on: after verification, STATUS is promoted/demoted in
-`rebrew-functions.toml` metadata. Every write tags `updated_by`
-(test/verify/prove/match/lint/binsync-import/intake) with a UTC `updated_at`
-timestamp. PROVEN is not protected: verify records the byte result over it
+`rebrew-functions.toml` metadata. Every write tags `updated_by` with a UTC
+`updated_at` timestamp. STATUS writers include test/verify/prove/match, intake,
+BinSync stub creation, splat import, and diagnose near; lint does not write STATUS.
+PROVEN is not protected: verify records the byte result over it
 like over any other status. Compile, extraction, missing-file and invalid-VA
 failures are reported without replacing earned EXACT/RELOC/PROVEN. Parked SKIP
 stays parked, and a STUB is not replaced by a placeholder
@@ -1891,8 +1892,9 @@ reported by name with a reason:
   nothing in rebrew reads it.
 - The PSX/MIPS/N64 segment and asset vocabulary (`Vtx`/`Gfx`/`Yay0`/`Ci4`-style
   subsegments, `c`/`hasm` split ranges).  A `platform` other than `win32` is
-  refused outright (exit 2), since rebrew has no compiler profile for those
-  targets and no asset pipeline.
+  refused outright (exit 2): this importer supports only Win32/PE seeding,
+  not the other platforms' segment vocabulary and assets. Rebrew does have
+  compiler profiles for several non-Win32 targets.
 
 The YAML is read by a strict reader for the subset splat's own `create_config`
 emits: block mappings and sequences, inline `{...}`/`[...]`, quoted and plain
@@ -1919,7 +1921,7 @@ Set a function row's `file` to PATH after a definition moved by hand between mul
 
 `0xVA=PATH:NAME` binds the row to the definition NAME in PATH instead: the row's `name` becomes NAME and its `symbol` keeps its decoration around NAME (`_fcn_x@8` becomes `_NAME@8`). A client row whose code a shared file already defines joins that definition this way; its old placeholder definition is left for the caller to delete. `--json` adds `old_name` and `symbol` to such a row.
 
-`--from OLD --to NEW` follows a renamed or moved file (`git mv`): every function row and data row, in every module, whose stored `file` is OLD or a trailing part of it (the match `merge` uses) moves to NEW. OLD may already be gone. NEW must exist and define every moved function by name; data rows need only NEW to exist. Nothing is written unless every row passes. Each store takes one locked write, functions first; a failed data write leaves the function rows moved, and re-running the same command moves the rest. A path no row names is an error. `--json` prints `rows` (function rows) and `data` (data rows), each with `module`, `va`, `name`, `old_file`, `file`.
+`--from OLD --to NEW` follows a renamed or moved file (`git mv`): every function row and data row, in every module, whose stored `file` equals OLD after slash and Unicode normalization moves to NEW. OLD may already be gone. NEW must exist and define every moved function by name; data rows need only NEW to exist. Nothing is written unless every row passes. Each store takes one locked write, functions first; a failed data write leaves the function rows moved, and re-running the same command moves the rest. A path no row names is an error. `--json` prints `rows` (function rows) and `data` (data rows), each with `module`, `va`, `name`, `old_file`, `file`.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -5266,8 +5268,8 @@ rebrew sync pull --dry-run --json
 | `--state-dir` | path | none | BinSync state directory (default: configured binsync_state_dir) |
 | `--accept-binsync` | flag | `False` | Accept BinSync names on pull conflicts |
 | `--accept-local` | flag | `False` | Keep local names on pull conflicts (records provenance) |
-| `--create-missing` | flag | `False` | Create STUB files for BinSync functions not in the catalog |
-| `--create-functions` | flag | `False` | Create the imported functions in Ghidra through MCP |
+| `--create-missing` | flag | `False` | Create STUB files for catalog-known BinSync functions with no local source |
+| `--create-functions` | flag | `False` | Create the imported functions in Ghidra through the configured `ghidra_backend` (ReVa MCP or ghidra-cli); a clean MCP setup failure falls back to ghidra-cli |
 | `--endpoint` | str | `http://localhost:8080/mcp/message` | ReVa MCP endpoint URL |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
@@ -7287,7 +7289,7 @@ Op details the contract leaves open:
   `state` one of `available`, `not-installed` and `unreachable`, plus a `reason`
   when it is not available: `no-rizin` (neither rizin nor radare2 on PATH),
   `no-plugin` (rizin loads no plugin serving the backend's `pdg` or `pdd`),
-  `no-kuna`, `no-m2c`, `no-endpoint` (no `REBREW_GHIDRA_MCP_ENDPOINT`; the engine
+  `no-kuna`, `no-endpoint` (no `REBREW_GHIDRA_MCP_ENDPOINT`; the engine
   has no default Ghidra) or `endpoint-unreachable` (the configured endpoint opened
   no MCP session). Each state is checked again at most every 30 s
   (`rebrew.decompiler.STATE_WINDOW_SECONDS`), so an installed plugin or a Ghidra

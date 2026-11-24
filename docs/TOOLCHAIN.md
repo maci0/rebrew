@@ -181,8 +181,8 @@ resolve a header name in the compile's own search order, so the header they hash
 is the one the compiler opens and the one an include bundle ships, identified by
 the SHA-256 of the same bytes.
 
-Every shipped profile is **image-backed**: `gcc-14.2.0`/`gcc-12.3.0`, `mingw-16.2.0`/`mingw-14.2.0`,
-`clang-18.1.8`/`clang-16.0.4` and `watcom-2.0-win16` hold the compiler inside their image like the
+Every shipped profile is **image-backed**: `gcc-16.2.0`/`gcc-14.2.0`/`gcc-12.3.0`, `mingw-16.2.0`/`mingw-14.2.0`,
+`clang-23.1.4`/`clang-18.1.8`/`clang-16.0.4` and `watcom-2.0-win16` hold the compiler inside their image like the
 rest of the matrix (GCC built from the GNU source tarball, Clang from LLVM's
 prebuilt release, MinGW-w64 from the mingw-builds release, Watcom from its
 snapshot), so a compile needs no host toolchain. Only a plugin toolchain
@@ -678,7 +678,7 @@ profiles and other object formats are not checked. A withdrawn profile is skippe
 Every COFF object's TimeDateStamp (build time) is masked, plus the Turbo C
 2.0 / 3.1 per-run COMENT ticks.  The table covers every image-backed profile
 (the MSVC line from `msvc-1.0` to `msvc-11.0`, borland-5.5, watcom-2.0-win32, watcom-2.0-win16,
-borland-3.1, borland-2.0, delphi-1.0, the IDO images, and `gcc-14.2.0`/`gcc-12.3.0`/`clang-18.1.8`/`clang-16.0.4`/
+borland-3.1, borland-2.0, delphi-1.0, the IDO images, and `gcc-16.2.0`/`gcc-14.2.0`/`gcc-12.3.0`/`clang-23.1.4`/`clang-18.1.8`/`clang-16.0.4`/
 `mingw-16.2.0`/`mingw-14.2.0`); `borland-2.0` is the one known mismatch (its recorded golden
 predates the image built here; regenerate it with `--print-goldens` after
 confirming which tree is canonical).  When a pinned source is bumped (new
@@ -1070,7 +1070,7 @@ Two consequences:
 
 - **A missing `INCLUDE`/`LIB` export made five of the seven builds
   uncompilable.**  Only the base and SP6 wrappers set them; every SP1/SP2/SP3/
-  SP5 compile died with `C1083`, which `rebrew match toolchains SOURCE` reported as a compile failure (`score: Infinity`,
+  SP4/SP5 compile died with `C1083`, which `rebrew match toolchains SOURCE` reported as a compile failure (`score: Infinity`,
   `0/0`) rather than a toolchain result.  Each of those specs now declares its
   container `tool_root`, and `run_toolchain` exports `INCLUDE`/`LIB` from it
   (`rebrew.compiler.toolchain.image_msvc_env`), the derivation the CMake bridge already

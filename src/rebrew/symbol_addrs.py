@@ -2,9 +2,10 @@
 
 The decomp-scene's splat ecosystem uses ``symbol_addrs`` as the interchange
 format between the binary splitter, m2c, and the diff tooling.  Rebrew keeps
-the same information in per-directory ``rebrew-functions.toml`` +
-annotations, but there is no portable export: Ghidra imports, splat-style
-tooling, and third-party viewers all expect it.  This command writes it.
+the same information in the canonical ``rebrew-functions.toml`` store plus
+optional ``ADDRESS`` source annotations, but there is no portable export:
+Ghidra imports, splat-style tooling, and third-party viewers all expect it.
+This command writes it.
 
 Output modes (one per run, all sorted by VA):
 

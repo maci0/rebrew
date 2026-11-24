@@ -112,10 +112,11 @@ class StatusReport:
     #: Function extents per verdict, including LIBRARY and NO_SOURCE.
     status_bytes: dict[str, int] = field(default_factory=dict)
     total_text_bytes: int = 0
-    #: Bytes of functions not byte-matched (annotated or not yet started).
+    #: Bytes of non-matching function extents, unstarted functions, and
+    #: unverified native tails.
     unmatched_bytes: int = 0
-    #: .text bytes in no function: alignment fill (CC/90/00) and the rest.
-    #: None when the binary could not be read (not measured, not zero).
+    #: Alignment-fill bytes in .text gaps and native tails; non-fill gaps are
+    #: listed in unattributed_ranges. None when the binary could not be read.
     padding_bytes: int | None = None
     unattributed_ranges: list[tuple[int, int]] = field(default_factory=list)
     # Alignment fill found inside those tails; counted as padding.
@@ -237,17 +238,17 @@ class StatusReport:
 
     @property
     def accounted_text_bytes(self) -> int:
-        """Matched function bytes plus the alignment fill between them."""
+        """Matched function bytes, library bytes credited by the active coverage mode, and alignment fill."""
         return self.matched_bytes + (self.padding_bytes or 0)
 
     @property
     def byte_coverage_pct(self) -> float:
         """Share of ``.text`` that is a matched function or alignment fill.
 
-        Library attributions count with the matched functions. ``CC``,
-        ``NOP``, and zero bytes sitting between those functions are alignment,
-        so they count too. Bytes that belong to no function stay outside the
-        percentage.
+        Library bytes credited by the active coverage mode count with the
+        matched functions. ``CC``, ``NOP``, and zero bytes sitting between
+        those functions are alignment, so they count too. Bytes that belong to
+        no function stay outside the percentage.
         """
         if self.total_text_bytes == 0:
             return 0.0

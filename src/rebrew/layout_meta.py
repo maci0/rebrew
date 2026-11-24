@@ -58,11 +58,11 @@ everything else reconstructed from structured metadata:
     Sparse map of ``.text``-relative offset → (rel32, 2-byte prefix, 2-byte
     suffix, opcode) for every E8/E9 relative call/jump in the reference.  The
     fixer rewrites only where the built differs and the instruction
-    context matches, exactly like the old byte-scan did.
+    context matches.
 
 All files are plain text (``#`` comment lines allowed in the hex dumps);
 ``extract_layout`` derives the package from a binary, ``write_package`` /
-``load_package`` serialize it.  ``rebrew build layout`` emits it during intake;
+``load_package`` serialize it.  ``rebrew build layout`` emits it;
 ``rebrew build postlink --layout <dir>`` consumes it, so the original DLL never needs
 to be present at build time.
 """

@@ -34,9 +34,10 @@ Public outputs include:
 - comparison results, matching history and generated signatures;
 - BinSync state-directory exports for collaboration.
 
-Compiler execution uses configured container images. See
-[TOOLCHAIN.md](TOOLCHAIN.md) for setup and image requirements; availability of
-a build source or image is separate from Rebrew's source license.
+Packaged compiler profiles execute through configured container images.
+Image-less native plugin or overlay toolchains execute directly on the host.
+See [TOOLCHAIN.md](TOOLCHAIN.md) for setup and image requirements; availability
+of a build source or image is separate from Rebrew's source license.
 
 ### resembl: assembly similarity search
 
@@ -47,14 +48,12 @@ Jaccard + Levenshtein (rapidfuzz) score, plus CFG similarity in `compare`.
 Backends: SQLite (default), PostgreSQL, MySQL, DuckDB.
 
 Integration with rebrew is at the package level: the `similarity` dependency
-group selects the `resembl` checkout, and rebrew reuses
-`resembl/scoring.py` (importable without resembl's DB stack) for the
-`verify_results.similarity` column. Verify attempts this best-effort score for
-matched and unmatched functions with compiled bytes; a missing optional scorer
-or scoring failure leaves it unscored (`None` in the result, `""` in portable
-TOML). Identical bytes can still return 100% before importing the scorer.
-The neighbouring `diff_lines` is unmatched-only. resembl itself has no rebrew
-dependency and keeps its own database.
+group selects the `resembl` checkout and its optional `code_similarity` helper.
+Rebrew's `test` / `verify` do not call that helper; they populate
+`CompareResult.similarity` through normalized instruction alignment. Missing
+Resembl therefore does not leave verification unscored. The neighbouring
+`diff_lines` is unmatched-only. resembl itself has no rebrew dependency and
+keeps its own database.
 
 Boundary with rebrew's own matchers: `resembl` owns the *persisted corpus and
 approximate search* case (a snippet library built across projects, near
@@ -83,7 +82,7 @@ reccmp marker blocks; a reccmp checkout needs its own compatible identities.
 | Tool equivalents | rebrew reimplements reccmp's toolset natively: `rebrew build check-exports` = `verexp`, `rebrew diagnose stack` = `stackcmp` (adapted; frames derived from disassembly on both sides instead of a recomp PDB, so it works for MSVC 6.0 whose PDBs `llvm-pdbutil` cannot read), `rebrew lint` = `decomplint`-inspired, `rebrew verify --skip-libraries` = reccmp `--nolib` |
 | Match semantics | Verify's *effective match* parity: a delta that is pure register allocation counts as 100%, matching reccmp's effective-match rule (`rebrew diagnose near` reports it as `EFFECTIVE`) |
 | Adapted modules | Beyond the tool equivalents, four adaptations from reccmp's source (MIT) remain: pinned-sequence diffing, the jump-swap instruction-equivalence check (in `near_analysis`), and vtordisp/float-const detection; see [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) |
-| Recomp build | rebrew sources build into a reccmp-style recomp binary: `rebrew build round-trip` splices matched functions back into the PE and reports the naked-fenced sources so the reccmp build can compile them with `-DREBREW_ALLOW_NAKED=1` |
+| Recomp build | rebrew sources build into a reccmp-style recomp binary: `rebrew build round-trip` splices matched functions back into the PE. With `--allow-naked`, its `fenced_naked` report lists the sources the reccmp build must compile with `-DREBREW_ALLOW_NAKED=1` |
 
 ### BinSync
 
@@ -111,8 +110,9 @@ locals, and comments between analysts and tools. rebrew bridges to it at the
   `--create-missing`).
 - `rebrew binsync overlay <state-dir>` maps a related target's BinSync data
   onto structurally matched functions of this target (the same code at
-  different VAs): names, prototypes, notes, globals by content, and shifted
-  stack vars/comments.
+  different VAs): names, prototypes, notes and types by default. Add `global`
+  to `--fields` to include globals. Stack-variable frame offsets stay unchanged;
+  only comment addresses shift with the function.
 - `rebrew binsync diff <state-dir>` is a read-only divergence report (exit
   1 on any divergence, JSON output) for previewing imports and guarding
   sync drift in CI.

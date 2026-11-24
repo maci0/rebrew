@@ -575,13 +575,15 @@ def classify_compare_result(
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
     Centralises the EXACT / RELOC / NEAR_MATCHING / STUB / SIZE_MISMATCH /
-    COMPILE_ERROR / MISSING_SIZE / MISSING_FILE classification
-    and the ``match_percent`` / ``delta`` calculations that were previously
-    duplicated in ``test.py`` and ``verify.py``.
+    COMPILE_ERROR / NOT_RUN / EXTRACT_ERROR / MISSING_SIZE / MISSING_FILE
+    classification and the ``match_percent`` / ``delta`` calculations that were
+    previously duplicated in ``test.py`` and ``verify.py``.
 
     Classification precedence:
     - ``matched=True`` → EXACT (no relocs) or RELOC (with relocs).
     - ``"EXTRACT_ERROR"`` in *msg* → EXTRACT_ERROR.
+    - ``service_unavailable(error)`` or ``isinstance(error, ToolchainError)``
+      → NOT_RUN.
     - ``obj_bytes is None`` or ``"COMPILE_ERROR"`` in *msg* → COMPILE_ERROR.
     - ``"MISSING"`` in *msg* → MISSING_SIZE or MISSING_FILE (by substring).
     - ``size_mismatch=True`` or ``"SIZE_MISMATCH"`` in *msg* → SIZE_MISMATCH
@@ -607,8 +609,8 @@ def classify_compare_result(
             truncated ``target_bytes`` for comparison — the STUB "minimal body
             against a much larger target" test measures against this, not the
             truncated slice.
-        error: The structured backend failure behind a ``COMPILE_ERROR`` /
-            ``EXTRACT_ERROR`` verdict, carried on the result so a consumer
+        error: The structured backend failure behind a ``NOT_RUN`` /
+            ``COMPILE_ERROR`` / ``EXTRACT_ERROR`` verdict, carried on the result so a consumer
             branches on ``error.kind`` / ``error.retryable`` instead of
             matching ``msg`` substrings.
 

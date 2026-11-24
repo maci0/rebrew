@@ -207,11 +207,12 @@ rebrew lint              # check for source bindings, metadata, and project conv
 rebrew coverage catalog --summary # view overall RE progress and stats
 ```
 
-**Data identity:** each global has one `rebrew-data.toml` row (`file` plus
-`kind`). Assigning conflicting owners or addresses across
-files fires lint **E013** (duplicate VA) and **W021** (duplicate name). Keep
-the row on the symbol's home (for example `globals.c`) and leave plain
-`extern` declarations elsewhere.
+**Data identity:** each global allocation has one qualified `MODULE.0xVA` row
+in `rebrew-data.toml`; its source-binding identity is `file` plus `kind` plus
+`name`. Assigning conflicting owners or addresses across files fires lint
+**E013** (duplicate VA) and **W021** (duplicate name). Keep the row on the
+symbol's home (for example `globals.c`) and leave plain `extern` declarations
+elsewhere.
 
 ---
 

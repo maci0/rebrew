@@ -1471,7 +1471,7 @@ def update_source_status(
         force: If ``True``, bypass :func:`should_promote_status` (unpark
             SKIP, override a STUB).  Default ``False``.
         updated_by: Provenance tag for the write (``test``/``verify``/``prove``/
-            ``lint``/``binsync-import``/``intake``/``match``).  Recorded as
+            ``binsync-import``/``intake``/``match``/``import-splat``).  Recorded as
             ``updated_by`` with a UTC ``updated_at`` timestamp.
         verification: Comparison evidence retained independently of ordinary edits.
         now: Instant that timestamp records, for a run replaying its own

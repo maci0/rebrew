@@ -16,10 +16,11 @@ already exports the symbol side).
 
 What it delegates to (no second mechanism):
 
-- YAML: :func:`parse_splat_config`, a strict reader for the config subset
-  splat's own ``create_config`` emits (see "Config subset" below).  rebrew
-  does not depend on PyYAML, so the subset is parsed here and anything
-  outside it is a hard error, never a silent misread.
+- YAML: :func:`parse_splat_config`, a strict PyYAML ``SafeLoader``-based
+  reader for the config subset splat's own ``create_config`` emits (see
+  "Config subset" below). The loader restricts scalar coercion and refuses
+  duplicate keys; anything outside the subset is a hard error, never a
+  silent misread.
 - Symbols: :func:`rebrew.symbol_addrs.parse_symbol_addrs` reads every
   ``symbol_addrs_path`` file, including the rich ``// type:``/``// size:``
   trailing comments the ``rebrew export symbols`` writer emits.

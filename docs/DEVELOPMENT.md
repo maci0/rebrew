@@ -66,8 +66,9 @@ must never replace the Git dependency.
 - **STATUS writes/deletes are gated.**  `update_field`/`remove_field` refuse
   STATUS; use `update_source_status`.  Inline state in a `.c` file is not a
   source: lint reports the tag (E024), and every writer goes to the store.
-- VA formatting is `0x%08x` (8 digits) everywhere in output; test
-  expectations must match.
+- Canonical metadata and report VA keys use `0x%08x` (8 digits). Diagnostics
+  and some JSON outputs use minimal-width `0x%x`; assert the format each
+  command actually emits.
 - **`set_binding_field` / `remove_binding_field` default `metadata_dir` to
   `filepath.parent`**: for library headers that lives next to the .c/.h,
   NOT the real metadata root (`cfg.metadata_dir`).  Always pass
@@ -75,10 +76,11 @@ must never replace the Git dependency.
   --fix-source`, which created a stray rebrew-functions.toml next to the
   header).  Same trap in `match_batch._parse_annotations`: pass cfg.metadata_dir
   through.
-- **Compile paths need the source directory as an extra include dir.**  A
-  `.c` using relative includes (`#include "../../Units/..."`) fails to
-  compile from a temp dir unless `extra_include_dirs=[source.parent]` is
-  passed. Both the GA and `flag_sweep` pass it.
+- **Compile paths search the actual source file's directory first.**
+  `compile_to_obj` adds `source.parent` automatically, so relative includes
+  such as `#include "../../Units/..."` resolve when compiling the real file.
+  When compiling a staged or temporary copy, pass
+  `extra_include_dirs=[original_source_parent]` explicitly.
 
 ## Import patterns
 

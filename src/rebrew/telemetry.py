@@ -317,10 +317,16 @@ def export_stats() -> dict[str, int]:
 def configure(endpoint: str, service: str, version: str) -> Callable[[], None]:
     """Start exporting to the OTLP/HTTP collector at ``endpoint``; returns the shutdown.
 
-    Raises :class:`ValueError` for an endpoint that is not an ``http(s)`` URL with a host.
+    Raises :class:`ValueError` for an endpoint that is not an ``http(s)`` URL
+    with a host, or that carries userinfo credentials.
     """
     parts = urlsplit(endpoint)
-    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username:
+    if (
+        parts.scheme not in ("http", "https")
+        or not parts.hostname
+        or parts.username
+        or parts.password
+    ):
         raise ValueError(f"{ENDPOINT_ENV} must be an http(s) URL without credentials")
     exporter = _Exporter(endpoint.rstrip("/"), service, version)
     old: _Exporter | None

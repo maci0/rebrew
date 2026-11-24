@@ -330,7 +330,7 @@ profile = "msvc-7.0"
 | `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles**: the image IS the compiler (that is what `rebrew init` writes for every shipped profile); only a plugin toolchain registered without an image sets a real command. The `wine CL.EXE` fallback default is inert under docker-only execution |
 | `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`): see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
 | `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid; the compile-only mirrors ship no `Lib/`) |
-| `cflags` | `string` | `""` | Default compiler flags |
+| `cflags` | `string` | `""` | Default compiler flags. When the key is absent, resolution falls back to `/O2 /Gd` for MSVC-style profiles and no flags for POSIX-style profiles; an explicit `cflags = ""` disables that fallback |
 | `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Every profile whose spec has `flags_style = "posix"` (gcc, clang, mingw, ido, watcom, borland and more; `rebrew toolchain list --json` shows each profile's style) omits the MSVC glue, and the loader default is `""` for them. `rebrew init` writes `base_cflags = "-c"` for the Borland and 16-bit Watcom profiles, which need it spelled out; that spelling is the project file's own value, not the loader's |
 | `execution_backend` | `string` | `"docker"` | Local compiler execution: `docker`, `podman`, or experimental `unshare`. Explicit project/target values override `REBREW_CONTAINER_RUNTIME`; when omitted that environment variable selects the runtime, defaulting to Docker. `unshare` supports 32-bit MSVC/Wine on unprivileged Linux x86_64, requires namespace/overlayfs support and native build prerequisites, and refuses remote recompile. See [experimental execution](TOOLCHAIN.md#experimental-unshare-backend) |
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles: it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
@@ -523,9 +523,9 @@ the shell (or let direnv load a private, gitignored ``.env``).
 | `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
 | `[llm] api_key` / `REBREW_LLM_API_KEY` | env **when present** (even if empty; clears a committed TOML key for the run); else TOML: prefer the env var; do not commit keys |
 | `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini-2024-07-18`; `latest`/`auto`/`default` and malformed ids raise an error). A response reporting a different `model` than the pin warns, since a substituted model changes both cost and the seeds the GA receives |
-| `[llm] max_requests` / `REBREW_LLM_MAX_REQUESTS` | env **when present** (empty keeps the default); else TOML, else default |
-| `[llm] max_tokens` / `REBREW_LLM_MAX_TOKENS` | env **when present**; else TOML, else default |
-| `[llm] timeout` / `REBREW_LLM_TIMEOUT` | env **when present**; else TOML, else default |
+| `[llm] max_requests` / `REBREW_LLM_MAX_REQUESTS` | env **when present** (empty restores the built-in default `32`, not the TOML value); else TOML, else default |
+| `[llm] max_tokens` / `REBREW_LLM_MAX_TOKENS` | env **when present** (empty restores the built-in default `500000`, not the TOML value); else TOML, else default |
+| `[llm] timeout` / `REBREW_LLM_TIMEOUT` | env **when present** (empty restores the built-in default `90`, not the TOML value); else TOML, else default |
 
 Unset vs empty: for the env-wins settings above, an unset variable falls through to TOML; an empty value is intentional and overrides TOML. `rebrew cfg set` refuses non-empty secret keys (they would appear in argv/history); clear with `rebrew cfg set llm.api_key ''` or set `REBREW_LLM_API_KEY`.
 
@@ -912,9 +912,8 @@ under is visible in the same dump.
 reads until the moment of use, which a mistyped value would otherwise report
 as a spawn failure from inside a compile,
 or (for the knobs whose consumers skip an unusable value) as silently reduced
-output: a `REBREW_FLIRT_SIGS_DIR` that is not a directory drops every
-standard-library signature, a `REBREW_PROJECTS_ROOT` that is not a directory
-audits nothing, and a `REBREW_XVFB_DISPLAY` that is not a local `:N` display
+output: a `REBREW_PROJECTS_ROOT` that is not a directory audits nothing, and a
+`REBREW_XVFB_DISPLAY` that is not a local `:N` display
 never matches the running server, so a fresh one is spawned instead, and a
 `REBREW_TOOLCHAIN` that names no registered profile would fail the cmake
 bridge from inside a CMake build. The message is the one the code that reads

@@ -447,7 +447,9 @@ def mutate_code(
 
     When *mutation_weights* is provided, it maps mutation function names
     (e.g. ``"mut_swap_if_else"``) to relative weights.  Mutations not
-    listed default to weight 1.0.
+    listed default to weight 1.0.  With ``track_mutation=True``, a
+    successful call returns ``(mutated_source, mutation_name)``; otherwise
+    it returns the source string.
     """
     preamble, body = split_preamble_body(source)
 

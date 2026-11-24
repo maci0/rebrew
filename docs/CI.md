@@ -139,8 +139,9 @@ Lint, pre-commit, package, and cli-contract use the exact Python patch from
 nightly workflow `.github/workflows/toolchain-sync.yml` uses the same pin. Jobs run on pinned `ubuntu-24.04` (not
 `ubuntu-latest`). Both workflows also take `workflow_dispatch`: the apt
 install and resembl clone helpers retry three times, so a network that stays
-down past that needs a manual re-run, and re-running a failed job alone
-cannot pick up a fixed mirror or a new runner image. `setup-uv` runs with
+down past that needs a manual re-run. Re-run the workflow or failed job to
+invoke those helpers again; a job-only re-run does not guarantee a fresh
+runner image. `setup-uv` runs with
 `enable-cache` and `cache-python`, so the pinned managed CPython is cached
 alongside the uv cache. Workflow `permissions` are `contents: read` only:
 `setup-uv`'s `enable-cache` saves through the runner's cache token, not

@@ -131,7 +131,8 @@ def resolve_compile_overrides(
     1. per-function metadata (rebrew-functions.toml TOOLCHAIN / CFLAGS),
     2. the nearest per-library ``rebrew-libraries.toml`` (walk-up from
        *source_dir*; its known-library presets fill missing fields),
-    3. project defaults (``[compiler]`` profile/cflags via ``resolve_cflags``).
+    3. the matching per-module ``cflags_presets`` entry (CFLAGS only),
+    4. project defaults (``[compiler]`` profile/cflags via ``resolve_cflags``).
 
     This is the single source of truth so verify / test / match / prove all
     compile every function of a library with the same compiler + flags.

@@ -4,12 +4,12 @@ Watcom `wcc386` emits **OMF** ("8086 relocatable (Microsoft)") by default.
 Every `-bt=` / `-fo=` / `owcc` combination tested produced OMF, not COFF.
 LIEF cannot parse OMF. `rebrew.matcher.parsers.parse_obj_symbol_and_relocs`
 handles it: a 16-bit MSVC object goes to `rebrew.formats.omf16`, and every
-other OMF object is converted with the vendored objconv
-(`tools/objconv/objconv`) before the COFF path. The vendored binary is the
-fixed build (16-bit relocation methods and COMDAT-to-COFF sections). Stock
+other OMF object is converted with objconv before the COFF path. When
+`tools/objconv/objconv` is present, Rebrew prefers that fixed build (16-bit
+relocation methods and COMDAT-to-COFF sections); the directory is gitignored
+and not shipped, so a wheel install falls back to a PATH `objconv`. Stock
 objconv 2.52 crashes with "buffer overflow detected: terminated" on MSVC
-1.52 objects and on the `/O` dialect below. Rebrew prefers the vendored
-binary over a PATH objconv.
+1.52 objects and on the `/O` dialect below.
 
 ## Current parser contract
 

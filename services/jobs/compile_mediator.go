@@ -93,14 +93,14 @@ type compileOriginal struct {
 }
 
 // maxCompileReplyBytes bounds one upstream compile answer. Recompile caps a
-// result's log at 4 MiB of UTF-8 (docs/API.md, CompileResult) and retains a
+// result's log at 4 MiB of UTF-8 (recompile's docs/API.md, CompileResult) and retains a
 // managed result of at most 16 MiB of JSON, so the log with its JSON escaping
 // and the envelope fits.
 const maxCompileReplyBytes = 16 << 20
 
 // notRunCodes are the error_code values of a 200 answer that is no verdict on
 // the source. Recompile retains that refusal under its Idempotency-Key, so a
-// new attempt needs a new key (docs/API.md, "Reading a failed compile").
+// new attempt needs a new key (recompile's docs/API.md, "Reading a failed compile").
 var notRunCodes = map[string]bool{
 	"capacity": true, "timeout": true, "runner_unavailable": true, "publish_failed": true, "provenance_unavailable": true,
 }

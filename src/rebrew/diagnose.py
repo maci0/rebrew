@@ -5,6 +5,7 @@ that determined its toolchain + CFLAGS:
 
     per-function metadata (rebrew-functions.toml / annotations)
       → nearest rebrew-libraries.toml (walk-up, presets applied)
+      → per-module cflags_presets (CFLAGS only)
       → project defaults ([compiler] profile + cflags fallbacks)
 
 and validates the declarations along the chain — an unknown toolchain name,
@@ -51,7 +52,7 @@ app = typer.Typer(
         "  rebrew diagnose config src/f.c --json\n\n"
         "  # Trace a specific target's resolution\n"
         "  rebrew diagnose config src/f.c -t mygame\n\n"
-        "[dim]The trace names every step in order: project default, per-function TOOLCHAIN/CFLAGS, the nearest rebrew-libraries.toml, then the preset that filled the gaps.[/dim]"
+        "[dim]The trace names every step in order: per-function TOOLCHAIN/CFLAGS, the nearest rebrew-libraries.toml, the matching per-module cflags_presets, then project defaults and fallbacks.[/dim]"
     ),
 )
 

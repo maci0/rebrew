@@ -233,8 +233,9 @@ def load_metadata_doc(
     """Parse a qualified-key metadata TOML (``rebrew-functions.toml`` /
     ``rebrew-data.toml``) into ``{(module, va): fields}``.
 
-    Shared by ``metadata.load_metadata`` and ``data_metadata.load_data_metadata``,
-    so one load→parse→mtime-cache path and one parser choice serve both.  Reads
+    Shared by ``rebrew.metadata.functions.load_metadata`` and
+    ``rebrew.metadata.data.load_data_metadata``, so one load→parse→mtime-cache
+    path and one parser choice serve both.  Reads
     use tomllib (strict, ~10x faster than tomlkit); round-trip preservation is
     only needed for WRITES, which still use tomlkit.
 

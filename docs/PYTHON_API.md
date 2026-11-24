@@ -84,13 +84,13 @@ reads it back as the same exception class, so `result.error.retryable` and
 `result.error.kind` still work on a result loaded from JSON. `RebrewError`
 gains the same `to_dict()` / `from_dict()` pair for any other error you store.
 
-Every rebrew error type inherits `RebrewError` alongside one of the
-built-in bases its defining module chose (`RuntimeError`, `ValueError`,
-`FileNotFoundError`, `KeyError`, …), so a new error type in a later release
-lands in that handler instead of escaping it. The structured fields `kind`,
-`name`, `status_code` and `group` are declared on that base too, so one `except
-RebrewError` can read them without `getattr`; a field the arriving error does
-not fill is `None`, and a serialized error leaves it out.
+Every public rebrew error type inherits `RebrewError`. Many also inherit a
+built-in exception such as `RuntimeError`, `ValueError`, `FileNotFoundError`,
+or `KeyError`; some, including `OpsError` and `WorkspaceConfigError`, inherit
+only `RebrewError`. The structured fields `kind`, `name`, `status_code` and
+`group` are declared on that base too, so one `except RebrewError` can read
+them without `getattr`; a field the arriving error does not fill is `None`,
+and a serialized error leaves it out.
 
 The clients that talk to a service take the HTTP client as an argument, so
 your tests never need a live one. `HttpClient` (from `rebrew.compiler.recompile_client`
@@ -102,10 +102,11 @@ that signature. What it returns is a reply, and that is typed too:
 `HttpResponse` names the members each transport reads.
 `rebrew.compiler.recompile_client` needs `status_code`, `text`, `json()`,
 `content` (the artifact bytes) and `headers` (the Content-Length bound);
-`rebrew.decompme` needs the same minus `content` plus `close()`, because the
-module-level `httpx.post` / `httpx.get` reply owns a connection. An
-`httpx.Response` satisfies both, and a stand-in missing a member is a type
-error rather than a wrong value at the far end:
+`rebrew.decompme` needs `status_code`, `text`, `json()` and `close()`,
+because the module-level `httpx.post` / `httpx.get` reply owns a connection.
+It does not require `content` or `headers`. An `httpx.Response` satisfies both,
+and a stand-in missing a required member is a type error rather than a wrong
+value at the far end:
 
 ```python
 from rebrew.compiler.recompile_client import compile_source
@@ -144,16 +145,15 @@ result = compile_source(
 )
 print(result.ok, result.obj_bytes, result.log, result.compiler_version)
 
-# No client means rebrew builds an httpx.Client(timeout=...) for the call and
-# closes it after. `retries=N` re-attempts a retryable RecompileError with
-# exponential backoff, waiting at least a reply's `Retry-After`
-# (`RecompileError.retry_after`); `deadline=` (a `time.monotonic()` value)
-# ends the retries before it, and `gate=ServiceGate(n)`, shared by a process's
-# compiles, runs at most n attempts at once and holds them all back for a
-# `Retry-After`. `RecompileError.kind` is "network" / "http" / "validation" /
-# "protocol" / "service" / "deadline" (not sent: no time before the deadline)
-# and `status_code` is set for the "http" ones. A failed compile reply is
-# read by its `error_code`:
+# No client means rebrew creates and closes one httpx.Client per attempt.
+# `retries=N` re-attempts failures the answer table marks retryable, with
+# exponential backoff and at least a reply's `Retry-After`; `retries=0` still
+# allows capacity/throttle waits until `deadline=`, or 300 seconds without one.
+# `RecompileError.kind` is "network" / "http" / "validation" / "protocol" /
+# "service" / "deadline" (not sent: no time before the deadline), and
+# `status_code` is set for the "http" ones. `gate=ServiceGate(n)` bounds
+# concurrent attempts and applies a shared `Retry-After` hold-off.
+# A failed compile reply is read by its `error_code`:
 # "toolchain_failure" is `result.ok == False` with the compiler log; the
 # service's own failures raise kind "service" carrying that `error_code`
 # (retryable for capacity, runner_unavailable and publish_failed; timeout and
@@ -244,8 +244,10 @@ is rebrew's op server (a `ThreadingHTTPServer`: bearer *token*, Host allow-list,
 the caller leaves). *answer* answers every `POST /<name>`: called with *config*,
 the name and the body, it returns `(status, reply bytes)`. *ops* is the names it
 serves: they bound the per-op metrics (`op="/<name>"`, any other name
-`/unknown`) and the server span names, and a GET or other non-POST method on one
-answers 405 `Allow: POST`, on any other path 404 `unknown-op`. Both default to
+`/unknown`) and the server span names. An authenticated `GET` or `HEAD` on
+`/health` and `/metrics` returns 200; other methods on those paths return 405.
+A non-POST request to a served op returns 405 `Allow: POST`; any other path
+returns 404 `unknown-op`. Both default to
 rebrew's own op table and dispatcher:
 
 ```python
