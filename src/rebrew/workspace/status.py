@@ -33,6 +33,7 @@ class TrustedCoverage:
 
     records: tuple[TrustedVerification, ...]
     _by_va: Mapping[int, TrustedVerification] = field(init=False, repr=False, compare=False)
+    _roots: dict[Path, Path] = field(init=False, repr=False, compare=False, default_factory=dict)
 
     def __post_init__(self) -> None:
         records = {record.va: record for record in self.records}
@@ -41,13 +42,18 @@ class TrustedCoverage:
         object.__setattr__(self, "_by_va", MappingProxyType(records))
 
     def verdict(self, root: Path, source: Path, va: int) -> TrustedVerification | None:
-        root = root.resolve()
-        source = source.resolve()
-        if not source.is_relative_to(root):
-            return None
-        name = source.relative_to(root).as_posix()
         record = self._by_va.get(va)
-        return record if record is not None and record.source == name else None
+        if record is None:
+            return None
+        # One resolution per root for this invocation: a report asks per binding.
+        resolved_root = self._roots.get(root)
+        if resolved_root is None:
+            resolved_root = self._roots.setdefault(root, root.resolve())
+        source = source.resolve()
+        if not source.is_relative_to(resolved_root):
+            return None
+        name = source.relative_to(resolved_root).as_posix()
+        return record if record.source == name else None
 
     def bind(self, cfg: Any, entries: list[Any], funcs: list[dict[str, Any]]) -> list[Any]:
         inventory = {int(item["va"]): int(item["size"]) for item in funcs}

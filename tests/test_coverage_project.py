@@ -37,6 +37,36 @@ def _project(root: Path, *, extra: str = "") -> None:
     )
 
 
+class TestTrustedVerdict:
+    def test_a_verdict_binds_its_source_and_resolves_the_root_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.workspace.status import TrustedCoverage, TrustedVerification
+
+        project = tmp_path / "project"
+        (project / "src").mkdir(parents=True)
+        (project / "src/function.c").write_text("int foo(void) { return 0; }\n")
+        (tmp_path / "link").symlink_to(project)
+        root = tmp_path / "link"
+        record = TrustedVerification("src/function.c", 0x401000, 1, "EXACT", 1)
+        trusted = TrustedCoverage((record,))
+        resolved: list[Path] = []
+        resolve = Path.resolve
+
+        def counted(self: Path, strict: bool = False) -> Path:
+            resolved.append(self)
+            return resolve(self, strict=strict)
+
+        monkeypatch.setattr(Path, "resolve", counted)
+        for _ in range(3):
+            assert trusted.verdict(root, root / "src/function.c", 0x401000) is record
+            assert trusted.verdict(root, project / "src/function.c", 0x401000) is record
+        assert trusted.verdict(root, root / "src/other.c", 0x401000) is None
+        assert trusted.verdict(root, tmp_path / "function.c", 0x401000) is None
+        assert trusted.verdict(root, root / "src/function.c", 0x402000) is None
+        assert resolved.count(root) == 1
+
+
 class TestLiveProjectCoverage:
     def test_trusted_near_match_uses_verified_byte_count(self, tmp_path: Path) -> None:
         from rebrew.config import load_config
