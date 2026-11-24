@@ -263,9 +263,10 @@ def disasm_insns(
     return, or a bare numeric string ("3") — both config styles must work.
     """
     md = capstone_handle(resolve_capstone(cs_arch), resolve_capstone(cs_mode))
+    # disasm_lite: the fields of disasm with detail off, without a CsInsn each.
     return [
-        Insn(va=i.address, size=i.size, mnemonic=i.mnemonic, op_str=i.op_str, raw=bytes(i.bytes))
-        for i in md.disasm(code, va)
+        Insn(address, size, mnemonic, op_str, code[address - va : address - va + size])
+        for address, size, mnemonic, op_str in md.disasm_lite(code, va)
     ]
 
 

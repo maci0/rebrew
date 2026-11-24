@@ -32,12 +32,13 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.analysis import capstone_handle
+from rebrew.analysis import Insn, capstone_handle, disasm_insns
 from rebrew.cfg_ged import (
     MAX_CFG_BLOCKS_PER_FUNCTION,
     build_cfg,
     build_cfg_view,
     cfg_similarity,
+    decode,
 )
 
 #: Mnemonics that terminate a basic block, restated from the x86 ISA and
@@ -321,3 +322,17 @@ def test_self_jump_chain_segments_one_block_per_jump(count: int) -> None:
     # linear one stays under this band, with room for shared-cache pressure
     # on a loaded runner.
     assert cpu < 0.5, f"segmenting {count} self-jumps used {cpu:.3f} CPU-seconds"
+
+
+@settings(max_examples=300, deadline=None)
+@given(st.one_of(_CONTROL_FLOW_CODE, st.binary(min_size=0, max_size=512)), _modes, _bases)
+def test_the_lite_decode_answers_what_the_full_decode_answers(
+    code: bytes, cs_mode: int, va: int
+) -> None:
+    """``decode`` and ``disasm_insns`` read ``disasm_lite``; the twin is ``disasm``'s ``CsInsn``."""
+    md = capstone_handle(capstone.CS_ARCH_X86, cs_mode)
+    full = list(md.disasm(code, va))
+    assert decode(md, code, va) == [(i.address, i.size, i.mnemonic, i.op_str) for i in full]
+    assert disasm_insns(code, va, capstone.CS_ARCH_X86, cs_mode) == [
+        Insn(i.address, i.size, i.mnemonic, i.op_str, bytes(i.bytes)) for i in full
+    ]

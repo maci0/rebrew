@@ -256,11 +256,12 @@ def _segment_blocks(
         layout = jump_table_layout(code, va, cs_mode, read_image)
         insns, tables = layout.insns, layout.tables
     else:
-        insns = list(capstone_handle(capstone.CS_ARCH_X86, cs_mode).disasm(code, va))
+        insns = decode(capstone_handle(capstone.CS_ARCH_X86, cs_mode), code, va)
         tables = {}
     if not insns:
         return [], []
-    index_of_offset = {insn.address - va: i for i, insn in enumerate(insns)}
+    # Keyed by int; probed with a direct jump's target offset, None for an indirect one.
+    index_of_offset: dict[int | None, int] = {insn.address - va: i for i, insn in enumerate(insns)}
 
     # Leaders: the first instruction, the one after each terminator or
     # conditional jump or a skipped table, and each direct jump or case
@@ -331,7 +332,7 @@ class TableEntry:
 class TableLayout:
     """One function's code split into instructions and jump-table data.
 
-    ``insns`` are capstone instructions in address order, decoded around the
+    ``insns`` are :class:`Decoded` instructions in address order, decoded around the
     table bytes; ``tables`` maps each resolved dispatch ``jmp`` VA to its
     distinct case target VAs in table order; ``entries`` are the table
     entries inside the code, in address order, never overlapping an
@@ -339,7 +340,7 @@ class TableLayout:
     stretch) belong to no instruction and no entry.
     """
 
-    insns: list[Any]
+    insns: list[Decoded]
     tables: dict[int, list[int]]
     entries: list[TableEntry]
 
@@ -355,7 +356,7 @@ def jump_table_layout(
     modes resolve no table: ``insns`` is the linear decode.
     """
     md = capstone_handle(capstone.CS_ARCH_X86, cs_mode)
-    insns = list(md.disasm(code, va))
+    insns = decode(md, code, va)
     if cs_mode != capstone.CS_MODE_32:
         return TableLayout(insns, {}, [])
     # Re-decode around the tables found so far until the set settles:
@@ -478,17 +479,35 @@ def apply_self_relocations(code: bytes, va: int, self_relocations: Mapping[int, 
     return bytes(out)
 
 
-def _decode_around(md: Any, code: bytes, va: int, skip: list[tuple[int, int]]) -> list[Any]:
+class Decoded(NamedTuple):
+    """One instruction as the table rules, the blocks and the listings read it."""
+
+    address: int
+    size: int
+    mnemonic: str
+    op_str: str
+
+
+def decode(md: Any, code: bytes, va: int) -> list[Decoded]:
+    """*code* decoded at *va* up to its first undecodable byte.
+
+    ``disasm_lite`` yields the fields of ``disasm`` with detail off without
+    building a ``CsInsn`` per instruction.
+    """
+    return list(map(Decoded._make, md.disasm_lite(code, va)))
+
+
+def _decode_around(md: Any, code: bytes, va: int, skip: list[tuple[int, int]]) -> list[Decoded]:
     """Decode *code* except the sorted, disjoint byte-offset ranges in *skip*.
 
     Each stretch between two ranges decodes on its own, up to its first
     undecodable byte.
     """
-    insns: list[Any] = []
+    insns: list[Decoded] = []
     pos = 0
     for start, end in [*skip, (len(code), len(code))]:
         if start > pos:
-            insns.extend(md.disasm(code[pos:start], va + pos))
+            insns.extend(decode(md, code[pos:start], va + pos))
         pos = max(pos, end)
     return insns
 
