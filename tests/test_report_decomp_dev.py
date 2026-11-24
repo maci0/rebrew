@@ -46,7 +46,7 @@ class TestDecompDevReport:
         src = cfg.reversed_dir
         src.mkdir(exist_ok=True)
         src_file = src / "funcs.c"
-        monkeypatch.setattr(report, "iter_sources", lambda d, cfg=None: [src_file])
+        monkeypatch.setattr(report, "iter_sources", lambda d, cfg=None, scanned=None: [src_file])
         monkeypatch.setattr(
             report,
             "iter_source_bindings",
@@ -272,7 +272,7 @@ class TestDecompDevDataMeasure:
         src = cfg.reversed_dir
         src.mkdir(exist_ok=True)
         src_file = src / "funcs.c"
-        monkeypatch.setattr(report, "iter_sources", lambda d, cfg=None: [src_file])
+        monkeypatch.setattr(report, "iter_sources", lambda d, cfg=None, scanned=None: [src_file])
         monkeypatch.setattr(
             report,
             "iter_source_bindings",
