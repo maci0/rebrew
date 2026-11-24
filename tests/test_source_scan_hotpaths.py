@@ -280,6 +280,31 @@ class TestMetadataInventory:
             (source_only, [(0x3000, "own")]),
         ]
 
+    def test_inventory_keeps_library_paths_project_relative(self, tmp_path: Path) -> None:
+        from rebrew.metadata.bindings import iter_source_bindings
+
+        store = tmp_path / "store"
+        store.mkdir()
+        source = store / "shared.c"
+        source.write_text("/* registered source */\n")
+        save_metadata(
+            store,
+            {
+                ("S", 0x1000): {"file": "shared.c", "name": "local"},
+                ("S", 0x2000): {"file": "store/shared.c", "kind": "LIBRARY", "name": "lib"},
+                ("S", 0x3000): {"file": "shared.c", "kind": "LIBRARY", "name": "outside"},
+                ("S", 0x4000): {"file": "store/shared.c", "name": "other"},
+            },
+        )
+        ((_, entries),) = iter_source_bindings(
+            [source],
+            target="S",
+            metadata_dir=store,
+            project_root=tmp_path,
+            inventory_only=True,
+        )
+        assert [(row.va, row.name) for row in entries] == [(0x1000, "local"), (0x2000, "lib")]
+
     def test_default_batch_still_reads_prototypes_and_rejects_bad_anchors(
         self, tmp_path: Path
     ) -> None:

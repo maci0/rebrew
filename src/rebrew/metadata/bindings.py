@@ -796,9 +796,19 @@ def function_rows_for_file(
 
     metadata_dir = resolve_metadata_dir(metadata_dir)
     project_root = project_root or _binding_project_root(metadata_dir)
+    return _indexed_function_rows(
+        filepath, metadata_dir, project_root, _metadata_file_index(function_entries)
+    )
+
+
+def _indexed_function_rows(
+    filepath: Path,
+    metadata_dir: Path,
+    project_root: Path,
+    index: dict[str, list[tuple[str, int, dict[str, Any]]]],
+) -> list[tuple[str, int, dict[str, Any]]]:
     rel = _relative_posix(filepath, metadata_dir)
-    project_rel = _relative_posix(filepath, project_root)
-    index = _metadata_file_index(function_entries)
+    project_rel = rel if project_root == metadata_dir else _relative_posix(filepath, project_root)
     return [row for row in index.get(rel, ()) if row[2].get("kind") != "LIBRARY"] + [
         row for row in index.get(project_rel, ()) if row[2].get("kind") == "LIBRARY"
     ]
@@ -1074,7 +1084,10 @@ def iter_source_bindings(
     :param inventory_only: Read stored identities without source prototypes or
         anchor validation. Only files absent from both stores are parsed.
     """
+    from rebrew.metadata.functions import resolve_metadata_dir
+
     data_index: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
+    function_index: dict[str, list[tuple[str, int, dict[str, Any]]]] | None = None
     # The store root does not move while the batch runs, so resolve it once.
     # A walked source path is already under that root; spelling it relative is
     # pure string work, while ``relpath`` would realpath both sides per file.
@@ -1092,7 +1105,7 @@ def iter_source_bindings(
             # skip-and-warn behaviour.
             if metadata_dir is not None and not metadata_ready:
                 from rebrew.metadata.data import data_file_index
-                from rebrew.metadata.functions import load_metadata, resolve_metadata_dir
+                from rebrew.metadata.functions import load_metadata
 
                 metadata_dir = resolve_metadata_dir(metadata_dir)
                 project_root = project_root or _binding_project_root(metadata_dir)
@@ -1104,18 +1117,25 @@ def iter_source_bindings(
             if metadata_root is not None and src.is_absolute() and ".." not in src.parts:
                 from rebrew.utils import posix_child
 
-                if posix_child(str(src), str(metadata_root)) is not None:
-                    store_rel = _relative_posix(src, metadata_root)
+                child = posix_child(str(src), str(metadata_root))
+                if child is not None:
+                    store_rel = child or "."
                 else:
                     store_rel = os.path.relpath(src.resolve(), metadata_root).replace(os.sep, "/")
             elif metadata_root is not None:
                 store_rel = os.path.relpath(src.resolve(), metadata_root).replace(os.sep, "/")
             else:
                 store_rel = ""
-            if inventory_only and metadata_dir is not None and function_entries is not None:
-                rows = function_rows_for_file(
-                    src, metadata_dir, function_entries, project_root=project_root
-                )
+            if (
+                inventory_only
+                and metadata_dir is not None
+                and project_root is not None
+                and function_entries is not None
+            ):
+                if function_index is None:
+                    function_index = _metadata_file_index(function_entries)
+                row_root = resolve_metadata_dir(metadata_dir)
+                rows = _indexed_function_rows(src, row_root, project_root, function_index)
                 data_rows = data_index.get(store_rel, [])
                 if rows or data_rows:
                     annos = _function_annotations_from_metadata(
