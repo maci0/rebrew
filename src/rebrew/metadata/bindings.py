@@ -116,8 +116,9 @@ def report_skipped_records() -> Iterator[None]:
 
 def note_skipped_records(keys: Iterable[tuple[str, int]]) -> None:
     """Add records a child command skipped (and logged) to the open collectors."""
+    items = tuple(keys)
     for collected in _BINDING_CONFLICTS.get():
-        collected.update(keys)
+        collected.update(items)
 
 
 def _record_conflict(module: str, va: int) -> None:

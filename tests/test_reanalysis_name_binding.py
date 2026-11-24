@@ -169,11 +169,10 @@ def test_doctor_reports_a_disagreeing_record(tmp_path: Path) -> None:
     assert KEY in result.message and FREE_TEXT not in result.message
 
 
-def test_a_write_touching_a_disagreeing_record_refuses_as_invalid_project(tmp_path: Path) -> None:
-    from test_ops import KEY as BINARY_KEY
-    from test_ops import SHA256, _store
+def _retained_files(config: WorkerConfig, project: Path) -> list[dict[str, Any]]:
+    """*project*'s files stored in the worker's filestore, as a retained op's ``files``."""
+    from test_ops import _store
 
-    config, project = _disagreeing_stub(tmp_path)
     assert config.filestore is not None
     files = []
     for path in sorted(project.rglob("*")):
@@ -184,8 +183,16 @@ def test_a_write_touching_a_disagreeing_record_refuses_as_invalid_project(tmp_pa
             continue  # the TOML documents the migration to SQLite retained
         digest, key = _store(config.filestore, path.read_bytes())
         files.append({"path": relative, "digest": digest, "size": path.stat().st_size, "key": key})
+    return files
+
+
+def test_a_write_touching_a_disagreeing_record_refuses_as_invalid_project(tmp_path: Path) -> None:
+    from test_ops import KEY as BINARY_KEY
+    from test_ops import SHA256
+
+    config, project = _disagreeing_stub(tmp_path)
     request = {
-        "files": files,
+        "files": _retained_files(config, project),
         "rebrew_target": "mini",
         "sha256": SHA256,
         "binary_key": BINARY_KEY,
@@ -225,3 +232,20 @@ def test_skipped_records_past_the_bound_keep_their_count() -> None:
         == sorted(f"{MODULE}.0x{va:08x}" for _m, va in skipped)[:MAX_SKIPPED_RECORD_KEYS]
     )
     assert _skipped_records({(MODULE, VA)}) == {"count": 1, "keys": [KEY], "truncated": False}
+
+
+def test_note_skipped_records_fills_every_open_collector_from_a_generator(tmp_path: Path) -> None:
+    from rebrew.metadata.bindings import binding_conflicts, note_skipped_records
+
+    with binding_conflicts() as outer, binding_conflicts() as inner:
+        note_skipped_records(item for item in [(MODULE, VA)])
+    assert outer == inner == {(MODULE, VA)}
+
+    config, project = _disagreeing_stub(tmp_path)
+    with binding_conflicts() as caller:
+        status, raw = dispatch(
+            config, "rebrew.data_list", json.dumps({"project_dir": str(project)}).encode()
+        )
+    assert status == 200
+    assert caller == {(MODULE, VA)}
+    assert json.loads(raw)["skipped_records"] == {"count": 1, "keys": [KEY], "truncated": False}
