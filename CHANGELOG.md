@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.72.1] - 2026-11-24
+
 ### Fixed
 
 - A re-analysis no longer leaves a project its own reads refuse. Production (rebrew 6.71.0, 2026-11-23) re-ran intake over an imported SQLite project of about 36,000 function records; eight records without a source carried a `name` that is no C identifier (free text an earlier tool wrote, such as `lib_cont (split from a merged entry; round 1)`). Intake wrote each a stub defining `fcn_<va>` and the record's `file`, `symbol`, `kind` and `status`, but kept the stored `name`, because the identity writer never replaces an existing name. From then on the binding check refused the record, `rebrew data list` exited 2, and `rebrew.data_list` and `rebrew.identify_library` answered 500 `engine-error` for the whole project. Now:
