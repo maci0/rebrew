@@ -15,6 +15,7 @@
 
 - The coverage dashboard applies a status card clicked from another view instead of clearing the hidden Functions filter, cancels abandoned view requests before they can overwrite the active view, and explains each displayed status with the report's shared reference.
 - Retained decomp.me exports keep their upload ledger in the worker workspace instead of a deleted source snapshot, and scope replay keys by project, user, target and source snapshot. Retrying the same export now reuses its first scratch rather than creating another public scratch.
+- The retained decomp.me ledger path and scope variables are documented as internal child-command settings in `docs/CONFIG.md` and `.env.example`.
 - Invalid byte sizes and negative count, limit, or offset options report the declared `usage` error kind. `rebrew binary functions` validates pagination and field selectors before resolving or scanning a binary.
 - Independent local compiles re-inspect the toolchain image tag before admission, so an external retag cannot leave a long-lived process running or caching the previous image. Batch compiles keep one admitted image id for the whole batch.
 - Verification drops a measured row if the target binary was replaced before the cache write, instead of stamping the old bytes' verdict with the replacement image's identity.

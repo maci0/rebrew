@@ -767,6 +767,14 @@ rebrew receives.
   rather than in a retyped flag. A set-but-empty value reads as unset; a
   non-empty one must be an http(s) URL with a host, and
   `rebrew cfg effective` reports a malformed value.
+- `REBREW_DECOMPME_UPLOADS_PATH`: internal child-command override for the
+  decomp.me upload ledger. Retained `rebrew ops` runs point it at a durable
+  worker-workspace file instead of the snapshot's
+  `.rebrew/decompme-uploads.json`. Do not export it.
+- `REBREW_DECOMPME_UPLOADS_SCOPE`: internal namespace mixed into an upload's
+  dedup digest. Retained ops scope it by project, user, target, and source
+  snapshot so a shared worker ledger cannot return another project's claim
+  token. Do not export it.
 - `REBREW_PROJECTS_ROOT`: root directory scanned by `tools/audit_projects.py`  (default: parent of this install).
 - `REBREW_LOG_LEVEL`: base log level for a run that passes no `-v` / `-q`:
   `debug`, `info`, `warning`, `error`, or `critical` (default: `warning`).  An
