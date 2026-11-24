@@ -166,6 +166,8 @@ tooling failure, not a byte verdict: `rebrew verify` keeps the earned STATUS.
 For Docker execution, the local compile cache keys an object on the inspected
 image id (`sha256:` plus 64 hex), and `docker run` uses that same id with
 `--pull=never`, so a missing image is an error rather than a daemon pull.
+Independent compiles re-inspect the tag before admission, making an external
+retag visible in a long-lived process; a batch keeps one admitted id throughout.
 `--network=none` stays. Toolchain build and pull are separate commands.
 The image tag is display metadata. When that id cannot be read, the
 compile still runs against the tag and the cache is not used. The recompile response has no

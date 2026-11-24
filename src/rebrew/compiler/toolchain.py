@@ -770,6 +770,9 @@ _IMAGE_PRESENCE_MAX = 64
 #: Mutated under :data:`_DOCKER_MEMO_LOCK` (verify/GA workers share it).
 _toolchain_digest_cache: dict[tuple[str, str], str] = {}
 _TOOLCHAIN_DIGEST_CACHE_MAX = 64
+#: One live inspection per image. Parallel compile boundaries share the fresh
+#: admission instead of all sending `docker image inspect` at once.
+_toolchain_digest_inflight: dict[tuple[str, str], threading.Event] = {}
 #: Bumped by :func:`invalidate_toolchain_digest`.  An inspect that started
 #: before an invalidation must not store its (pre-swap) digest afterwards.
 _toolchain_digest_generation = 0
@@ -836,69 +839,99 @@ def image_content_id(raw: str) -> str:
     return ""
 
 
-def cached_image_digest(image: str, *, runtime: str | None = None) -> str:
-    """Full docker image id for *image* (cached per process), or ``""``.
+def cached_image_digest(image: str, *, runtime: str | None = None, refresh: bool = False) -> str:
+    """Full docker image id for *image*, or ``""`` when it cannot be admitted.
 
     The id is ``sha256:`` plus 64 lowercase hex (:func:`image_content_id`).
     Empty means docker is unavailable, inspect failed, or the reported id
     is not a full content digest.  The image tag is not a substitute.
     Failures and malformed ids are not memoized: the next call retries.
+
+    Independent compile boundaries pass ``refresh=True`` so an external
+    retag cannot leave them running the previous image for the process
+    lifetime.  A batch admits once and reuses that id for every compile.
     """
     selected_runtime = container_runtime() if runtime is None else container_runtime(runtime)
     key = (selected_runtime, image)
-    with _DOCKER_MEMO_LOCK:
-        cached = _toolchain_digest_cache.get(key)
-        if cached is not None:
-            valid = image_content_id(cached)
-            if valid:
-                return valid
-            _toolchain_digest_cache.pop(key, None)
-        generation = _toolchain_digest_generation
-    digest = ""
-    try:
-        r = run_process_group(
-            [
-                selected_runtime,
-                "image",
-                "inspect",
-                "--format",
-                "{{.Id}}",
-                image,
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-        if r.returncode == 0:
-            digest = image_content_id(r.stdout)
-    except OSError, subprocess.TimeoutExpired:
-        digest = ""
-    if digest:
+    generation = 0
+    while True:
         with _DOCKER_MEMO_LOCK:
-            if generation != _toolchain_digest_generation:
-                # Invalidated mid-inspect: this id predates the swap.  Do not
-                # store it and do not return it.  A worker that re-inspected
-                # after the swap may already have refilled the cache; prefer
-                # that when it is a full id, and otherwise return empty.
-                refilled = image_content_id(_toolchain_digest_cache.get(key, ""))
-                if not refilled:
+            if not refresh:
+                cached = _toolchain_digest_cache.get(key)
+                if cached is not None:
+                    valid = image_content_id(cached)
+                    if valid:
+                        return valid
                     _toolchain_digest_cache.pop(key, None)
-                return refilled
-            # Another worker may have filled it while we inspected.
-            if key not in _toolchain_digest_cache:
-                if len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX:
-                    oldest = next(iter(_toolchain_digest_cache))
-                    _toolchain_digest_cache.pop(oldest, None)
-                _toolchain_digest_cache[key] = digest
-            else:
-                stored = image_content_id(_toolchain_digest_cache[key])
-                if stored:
-                    digest = stored
-                else:
+            event = _toolchain_digest_inflight.get(key)
+            if event is None:
+                event = threading.Event()
+                _toolchain_digest_inflight[key] = event
+                generation = _toolchain_digest_generation
+                break
+        event.wait()
+        with _DOCKER_MEMO_LOCK:
+            cached = image_content_id(_toolchain_digest_cache.get(key, ""))
+        if cached:
+            return cached
+        # The leader failed or was invalidated. One waiter retries; the others
+        # share that inspection too.
+    try:
+        digest = ""
+        try:
+            r = run_process_group(
+                [
+                    selected_runtime,
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{.Id}}",
+                    image,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=15,
+            )
+            if r.returncode == 0:
+                digest = image_content_id(r.stdout)
+        except OSError, subprocess.TimeoutExpired:
+            digest = ""
+        if digest:
+            with _DOCKER_MEMO_LOCK:
+                if generation != _toolchain_digest_generation:
+                    # Invalidated mid-inspect: this id predates the swap. Do not
+                    # store it and do not return it. A worker that re-inspected
+                    # after the swap may already have refilled the cache; prefer
+                    # that when it is a full id, and otherwise return empty.
+                    refilled = image_content_id(_toolchain_digest_cache.get(key, ""))
+                    if not refilled:
+                        _toolchain_digest_cache.pop(key, None)
+                    return refilled
+                # A refreshed inspect is authoritative: an entry filled while it
+                # ran may describe the tag before an external retag. Ordinary
+                # cached callers still share the first successful inspection.
+                if refresh or key not in _toolchain_digest_cache:
+                    if (
+                        key not in _toolchain_digest_cache
+                        and len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX
+                    ):
+                        oldest = next(iter(_toolchain_digest_cache))
+                        _toolchain_digest_cache.pop(oldest, None)
                     _toolchain_digest_cache[key] = digest
-    return digest
+                else:
+                    stored = image_content_id(_toolchain_digest_cache[key])
+                    if stored:
+                        digest = stored
+                    else:
+                        _toolchain_digest_cache[key] = digest
+        return digest
+    finally:
+        with _DOCKER_MEMO_LOCK:
+            if _toolchain_digest_inflight.get(key) is event:
+                del _toolchain_digest_inflight[key]
+        event.set()
 
 
 #: ``docker kill`` reports an already-gone container this way.  Losing that
@@ -1774,7 +1807,7 @@ def check_experimental_unshare(spec: ToolchainSpec) -> None:
     """Admit the image and probe namespaces before verify can write verdicts."""
     from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
 
-    image_id = cached_image_digest(spec.image) if spec.image else None
+    image_id = cached_image_digest(spec.image, refresh=True) if spec.image else None
     workdir = writable_temp_dir("rebrew_unshare_probe_")
     try:
         result = run_toolchain(

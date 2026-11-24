@@ -221,7 +221,7 @@ class TestCompileToObj:
 
         monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: "sha256:" + "ab" * 32
         )
         monkeypatch.setattr(
             "rebrew.compiler.compile.get_project_cache", lambda *a, **k: _FakeCache()
@@ -285,7 +285,7 @@ class TestCompileToObj:
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(C, "cached_image_digest", lambda _image: "sha256:" + "ab" * 32)
+        monkeypatch.setattr(C, "cached_image_digest", lambda *_a, **_k: "sha256:" + "ab" * 32)
         monkeypatch.setattr(C, "_cache_key_for", _key_then_rewrite)
         monkeypatch.setattr(C, "run_toolchain", _fake_run)
         cfg: Any = SimpleNamespace(
@@ -341,7 +341,7 @@ class TestCompileToObj:
 
         monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: "sha256:" + "ab" * 32
         )
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -1106,7 +1106,7 @@ class TestCompileToObjMsvc152Image:
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda image: "")
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: "")
         monkeypatch.setattr("rebrew.compiler.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
@@ -2053,7 +2053,7 @@ class TestPinnedImageExecution:
             return result
 
         monkeypatch.setattr("rebrew.compiler.compile.shutil.copyfile", copy_then_edit)
-        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_: _ID_A)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: _ID_A)
         monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda _: None)
         monkeypatch.setattr(
             "rebrew.compiler.compile.compile_batch_objs",
@@ -2093,11 +2093,13 @@ class TestPinnedImageExecution:
         """A tag moved after admission must not retarget the run or the publish."""
         current = {"id": _ID_A}
         digest_calls = {"n": 0}
+        refreshed: list[bool] = []
         ran: dict[str, str | None] = {}
         stored: dict[str, bytes] = {}
 
-        def _digest(_image: str) -> str:
+        def _digest(_image: str, **_kwargs: object) -> str:
             digest_calls["n"] += 1
+            refreshed.append(_kwargs.get("refresh") is True)
             return current["id"]
 
         def _run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
@@ -2126,6 +2128,7 @@ class TestPinnedImageExecution:
         assert err == "" and obj is not None
         assert ran["image_id"] == _ID_A
         assert digest_calls["n"] == 1
+        assert refreshed == [True]
         assert list(stored.values()) == [b"from-" + _ID_A.encode()]
         key_a = next(iter(stored))
 
@@ -2155,7 +2158,7 @@ class TestPinnedImageExecution:
         puts: list[str] = []
         ran: dict[str, str | None] = {}
 
-        def _digest(_image: str) -> str:
+        def _digest(_image: str, **_kwargs: object) -> str:
             return ""
 
         def _run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
@@ -2200,7 +2203,7 @@ class TestPinnedImageExecution:
         state = {"n": 0, "run": None, "ids": []}
         stored: dict[str, bytes] = {}
 
-        def _digest(_image: str) -> str:
+        def _digest(_image: str, **_kwargs: object) -> str:
             state["n"] += 1
             return _ID_A if state["n"] == 1 else _ID_B
 
@@ -2319,7 +2322,7 @@ class TestPinnedImageExecution:
         tag = TOOLCHAINS["msvc-6.0"].image
         assert tag is not None
 
-        def _digest(_image: str) -> str:
+        def _digest(_image: str, **_kwargs: object) -> str:
             return _ID_A
 
         def _run(cmd: list[str], **kwargs: object) -> SimpleNamespace:
@@ -2386,7 +2389,7 @@ class TestBatchGroupKey:
             name="test", image="test", effective_arg_style="posix", flags_style="posix"
         )
         monkeypatch.setattr("rebrew.compiler.compile.recompile_url", lambda _: None)
-        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_: _ID_A)
+        monkeypatch.setattr("rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: _ID_A)
         monkeypatch.setattr(
             "rebrew.compiler.compile.toolchain_registry", SimpleNamespace(TOOLCHAINS={"test": spec})
         )

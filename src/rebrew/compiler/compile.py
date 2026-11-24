@@ -2512,7 +2512,7 @@ def compile_to_obj(
     if spec is not None and spec.image is not None and recompile_url(cfg) is None:
         runtime = getattr(cfg, "execution_backend", "")
         options = {"runtime": runtime} if runtime and runtime != "unshare" else {}
-        admitted_image_id = cached_image_digest(spec.image, **options) or None
+        admitted_image_id = cached_image_digest(spec.image, **options, refresh=True) or None
 
     def cache_key_now() -> str | None:
         """The key for the current on-disk state of the compile unit."""
@@ -3048,7 +3048,7 @@ def precompile_batch(
                 return pins[image]
         runtime = getattr(cfg, "execution_backend", "")
         options = {"runtime": runtime} if runtime and runtime != "unshare" else {}
-        admitted = cached_image_digest(image, **options) or None
+        admitted = cached_image_digest(image, **options, refresh=True) or None
         with pins_lock:
             return pins.setdefault(image, admitted)
 

@@ -85,8 +85,10 @@ _MAX_FEATURES_BYTES = 64 * 1024
 
 #: Base URLs whose features listed :data:`INCLUDE_BUNDLES_FEATURE` in this
 #: process.  Only support is remembered, so an upgraded service is seen
-#: without a restart.
+#: without a restart.  A long-lived process can be handed many service URLs;
+#: keep the positive memo bounded like the compiler-listing cache.
 _bundle_services: set[str] = set()
+_BUNDLE_SERVICES_MAX = 8
 _bundle_services_lock = threading.Lock()
 
 #: Where the service lists its compilers and whether this deployment can run
@@ -898,6 +900,8 @@ def accepts_include_bundles(base_url: str, *, client: HttpClient) -> bool:
     if INCLUDE_BUNDLES_FEATURE not in features:
         return False
     with _bundle_services_lock:
+        if len(_bundle_services) >= _BUNDLE_SERVICES_MAX:
+            _bundle_services.clear()
         _bundle_services.add(url)
     return True
 

@@ -164,6 +164,7 @@ def link_xtensa_function(
         image_id = cached_image_digest(
             spec.image,
             runtime=cfg.execution_backend if cfg.execution_backend not in ("", "unshare") else None,
+            refresh=True,
         )
         if assembly:
             (directory / "anchors.S").write_text("\n".join(assembly) + "\n", encoding="utf-8")
@@ -287,6 +288,7 @@ def disassemble_xtensa(
                 runtime=cfg.execution_backend
                 if cfg.execution_backend not in ("", "unshare")
                 else None,
+                refresh=True,
             ),
             execution_backend=cfg.execution_backend,
         )

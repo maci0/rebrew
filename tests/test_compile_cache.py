@@ -2096,7 +2096,7 @@ class TestCompileToObjCacheIntegration:
 
         monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: "sha256:" + "ab" * 32
         )
 
         cfg: Any = _compile_cfg(tmp_path)
@@ -2152,7 +2152,7 @@ class TestCompileToObjCacheIntegration:
 
         monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: "sha256:" + "ab" * 32
         )
 
         cfg: Any = _compile_cfg(tmp_path)
@@ -2185,7 +2185,7 @@ class TestCompileToObjCacheIntegration:
 
         monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: "sha256:" + "ab" * 32
         )
 
         cfg: Any = _compile_cfg(tmp_path)
@@ -2243,7 +2243,7 @@ class TestCompileToObjCacheIntegration:
 
         monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", _fake_run)
         monkeypatch.setattr(
-            "rebrew.compiler.compile.cached_image_digest", lambda _image: "sha256:" + "ab" * 32
+            "rebrew.compiler.compile.cached_image_digest", lambda *_a, **_k: "sha256:" + "ab" * 32
         )
 
         cfg: Any = _compile_cfg(tmp_path)

@@ -2061,6 +2061,23 @@ class TestCountedOnlyWhenStored:
         assert (totals["count"], totals["billed_undelivered"], totals["unsettled"]) == (0, 1, 0)
 
 
+class TestBundleServiceCache:
+    def test_positive_feature_memo_is_bounded(self) -> None:
+        import rebrew.compiler.recompile_client as rc
+
+        class Client:
+            def get(self, url: str, **_kwargs: Any) -> _Resp:
+                return _Resp(200, json_body={"features": [rc.INCLUDE_BUNDLES_FEATURE]})
+
+        rc._bundle_services.clear()
+        for index in range(rc._BUNDLE_SERVICES_MAX + 2):
+            assert rc.accepts_include_bundles(f"http://service-{index}", client=Client())
+        assert len(rc._bundle_services) <= rc._BUNDLE_SERVICES_MAX
+        assert "http://service-0" not in rc._bundle_services
+        assert f"http://service-{rc._BUNDLE_SERVICES_MAX + 1}" in rc._bundle_services
+        rc._bundle_services.clear()
+
+
 class TestCompilerListing:
     """``installed_compilers`` reads recompile 13's ``execution_status`` per listed compiler."""
 

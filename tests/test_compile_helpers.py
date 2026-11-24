@@ -513,6 +513,86 @@ class TestInvalidateToolchainDigest:
         assert cached_image_digest("rebrew/msvc:6.0-win32") == image_id
         assert calls["n"] == 1
 
+    def test_refresh_observes_an_external_retag(self, monkeypatch) -> None:
+        """A new compile must not reuse the previous process-lifetime image id."""
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+        tag = "rebrew/msvc:6.0-win32"
+        first = "sha256:" + "ab" * 32
+        second = "sha256:" + "cd" * 32
+        replies = iter([first, second])
+        calls = {"n": 0}
+
+        def _inspect(*_a, **_k):
+            calls["n"] += 1
+            return SimpleNamespace(returncode=0, stdout=next(replies) + "\n", stderr="")
+
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _inspect)
+        assert cached_image_digest(tag) == first
+        assert cached_image_digest(tag) == first
+        assert calls["n"] == 1
+        assert cached_image_digest(tag, refresh=True) == second
+        assert cached_image_digest(tag) == second
+        assert calls["n"] == 2
+
+    def test_concurrent_refresh_shares_one_inspect(self, monkeypatch) -> None:
+        """Parallel compile admissions must not stampede the runtime daemon."""
+        import threading
+
+        import rebrew.compiler.toolchain as toolchain_mod
+        from rebrew.compiler.toolchain import cached_image_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+        toolchain_mod._toolchain_digest_inflight.clear()
+        real_event = threading.Event
+        release = real_event()
+        started = real_event()
+        all_waiting = real_event()
+        wait_lock = threading.Lock()
+        waits = 0
+        calls = 0
+        workers = 8
+        image_id = "sha256:" + "ab" * 32
+
+        class CountingEvent(real_event):
+            def wait(self, *args: object, **kwargs: object) -> bool:
+                nonlocal waits
+                with wait_lock:
+                    waits += 1
+                    if waits == workers - 1:
+                        all_waiting.set()
+                return super().wait(*args, **kwargs)
+
+        def _inspect(*_a: object, **_k: object) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            started.set()
+            assert release.wait(10.0), "test never released the image inspect"
+            return SimpleNamespace(returncode=0, stdout=image_id + "\n", stderr="")
+
+        monkeypatch.setattr(toolchain_mod.threading, "Event", CountingEvent)
+        monkeypatch.setattr(toolchain_mod, "run_process_group", _inspect)
+        threads = [
+            threading.Thread(
+                target=lambda: cached_image_digest("rebrew/msvc:6.0-win32", refresh=True)
+            )
+            for _ in range(workers)
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            assert started.wait(10.0), "no image inspect started"
+            assert all_waiting.wait(10.0), "refresh waiters never reached the event"
+        finally:
+            release.set()
+        for thread in threads:
+            thread.join(10.0)
+        assert all(not thread.is_alive() for thread in threads)
+        assert calls == 1
+        assert not toolchain_mod._toolchain_digest_inflight
+
     def test_invalidate_during_inspect_does_not_store_old_digest(self, monkeypatch) -> None:
         """A swap landing mid-inspect must not let the pre-swap id be used.
 

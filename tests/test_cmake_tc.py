@@ -792,7 +792,7 @@ def test_unshare_bridge_keeps_paths_and_tool(
     else:
         monkeypatch.setenv("SOURCE_DATE_EPOCH", epoch)
     (build / "inputs.rsp").write_text(f'"{tmp_path}/source file.c"')
-    monkeypatch.setattr(toolchain, "cached_image_digest", lambda *_: "sha256:" + "a" * 64)
+    monkeypatch.setattr(toolchain, "cached_image_digest", lambda *_a, **_k: "sha256:" + "a" * 64)
     calls = []
 
     def run(spec, args, **kwargs):
@@ -890,7 +890,7 @@ def test_driver_reuses_object_and_exact_diagnostics(
     (tmp_path / "original.exe").write_bytes(b"fixture")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SOURCE_DATE_EPOCH", "1071482016")
-    monkeypatch.setattr(toolchain, "cached_image_digest", lambda *_: "sha256:" + "a" * 64)
+    monkeypatch.setattr(toolchain, "cached_image_digest", lambda *_a, **_k: "sha256:" + "a" * 64)
     monkeypatch.setattr(toolchain, "image_environment", lambda *_: {})
     calls = []
 
@@ -937,7 +937,9 @@ def test_unshare_bridge_uses_the_cache_admitted_image_without_readmission(
     monkeypatch.chdir(tmp_path)
     image = "sha256:" + "a" * 64
     monkeypatch.setattr(
-        toolchain, "cached_image_digest", lambda *_: pytest.fail("must retain admitted identity")
+        toolchain,
+        "cached_image_digest",
+        lambda *_a, **_k: pytest.fail("must retain admitted identity"),
     )
     calls = []
 

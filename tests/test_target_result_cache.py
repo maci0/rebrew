@@ -287,6 +287,35 @@ def test_same_target_identity_changes_do_not_evict_sibling(
     assert load_verify_cache(cache_path_for(tl), tl) is not None
 
 
+def test_save_drops_a_verdict_measured_against_a_replaced_target(tmp_path: Path) -> None:
+    from rebrew.verify_cache import binary_id
+    from rebrew.verify_hash import entry_fingerprint
+
+    cfg = _cfg(tmp_path, "Gold")
+    cfg.target_binary.write_bytes(b"old target")
+    entries, rows = _rows(cfg, 0x1000)
+    fp = entry_fingerprint(cfg, entries[0])
+    assert fp is not None
+    measured_binary = binary_id(cfg)
+    entries[0].verify_snapshot = {
+        "source_hash": fp.source_hash,
+        "headers_hash": fp.headers_fp,
+        "toolchain": fp.toolchain,
+        "cflags": fp.cflags,
+        "size": entries[0].size,
+        "module": getattr(entries[0], "module", ""),
+        "binary_id": measured_binary,
+    }
+    cfg.target_binary.write_bytes(b"replacement target")
+    assert binary_id(cfg) != measured_binary
+
+    save_verify_cache(cache_path_for(cfg), cfg, rows, entries)
+
+    cached = load_verify_cache(cache_path_for(cfg), cfg)
+    assert cached is not None
+    assert cached.entries == {}
+
+
 def test_one_target_cache_refresh_invalidates_only_its_coverage_inputs(tmp_path: Path) -> None:
     from rebrew.coverage_project import _inputs
 

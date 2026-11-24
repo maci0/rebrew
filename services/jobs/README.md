@@ -10,7 +10,8 @@ missing or mismatched pin is refused before dispatch. Symlinks and non-regular
 files are refused. Admission accepts `generations` from 1 to 10,000 and
 `population` from 2 to 4,096; omitted values retain the CLI defaults of 100
 and 64. Both are retained as part of the original request and checked on
-replay. The owner retains up to 4 MiB of combined stdout and stderr with byte
+replay, together with the selected provider and pinned image. The owner retains
+up to 4 MiB of combined stdout and stderr with byte
 count, truncation status and a digest, and publishes coalesced progress
 snapshots over an authenticated loopback API. It does not replace the
 existing Rebrew CLI or library.

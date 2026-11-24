@@ -1348,12 +1348,12 @@ def load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | Non
     return data
 
 
-def _measurement_matches_snapshot(entry: Any, fp: Any) -> bool:
+def _measurement_matches_snapshot(entry: Any, fp: Any, binary_id: str) -> bool:
     """True while *fp* still describes the state *entry*'s verdict measured.
 
     ``verify_entry`` stamps ``verify_snapshot`` before compiling and the cache
     hit path stamps it when the row is validated.  A source, header, flag,
-    toolchain, size or module edit after that point makes the fingerprint move,
+    toolchain, target binary, size or module edit after that point makes the fingerprint move,
     and the measured verdict no longer belongs under the new fingerprint.  An
     entry without a stamp (a direct writer/test caller) keeps the old
     behaviour: store what the caller supplied.
@@ -1368,6 +1368,7 @@ def _measurement_matches_snapshot(entry: Any, fp: Any) -> bool:
         and snapshot.get("cflags") == fp.cflags
         and snapshot.get("size") == (getattr(entry, "size", 0) or 0)
         and snapshot.get("module", "") == (getattr(entry, "module", "") or "")
+        and snapshot.get("binary_id", binary_id) == binary_id
     )
 
 
@@ -1395,13 +1396,14 @@ def save_verify_cache(
     """
     filepath_info: dict[str, tuple[int, str]] = {}
     fp_by_va: dict[str, Any] = {}
+    current_binary_id = binary_id(cfg)
     for entry in entries:
         va_key = f"0x{entry.va:08x}"
         # One shared computation of every identity input (resolved flags,
         # toolchain, defines, size, header closure, source hash) — the hit
         # check in prepare_entries compares against these same values.
         fp = fresh_entry_fingerprint(cfg, entry, require_same_stat=True)
-        if fp is None or not _measurement_matches_snapshot(entry, fp):
+        if fp is None or not _measurement_matches_snapshot(entry, fp, current_binary_id):
             continue
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:

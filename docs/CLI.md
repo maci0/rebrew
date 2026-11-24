@@ -468,7 +468,9 @@ rebrew recorded them, and `source`, the compiled file relative to the project ro
 the source roots or the project root. `compile` is what the row's remote
 compile ran with in this run (`flags`, the service's `execution` provenance,
 and the shipped headers), the object `rebrew test --json` reports; null for a
-local compile and for a row served from the verify cache.
+local compile and for a row served from the verify cache. A cache write retains
+the target binary identity measured by the comparison; replacing the target
+before the write drops that row rather than blessing it under the new image.
 
 A function that fails to byte-match whose source is fenced behind
 `#ifdef REBREW_ALLOW_NAKED` is reported with an explanatory note: the

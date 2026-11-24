@@ -558,7 +558,7 @@ def _unshare_run(
             command,
             workdir=root,
             project_cwd=Path.cwd(),
-            image_id=image_id or cached_image_digest(spec.image),
+            image_id=image_id or cached_image_digest(spec.image, refresh=True),
             execution_backend="unshare",
             timeout=3600,
         )

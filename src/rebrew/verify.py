@@ -97,6 +97,7 @@ lazy from rebrew.utils import (
 lazy from rebrew.verify_cache import (
     COUNT_FIELDS,
     VerifyCacheEntry,
+    binary_id,
     cache_path_for,
     load_verify_cache,
     order_result_row,
@@ -362,6 +363,7 @@ def verify_entry(
                 "cflags": measured_inputs["cflags"],
                 "size": entry.size,
                 "module": getattr(entry, "module", ""),
+                "binary_id": binary_id(cfg),
             }
             if measured_inputs
             else {}
@@ -375,6 +377,7 @@ def verify_entry(
                 "cflags": entry.comparison_inputs["cflags"],
                 "size": entry.size,
                 "module": getattr(entry, "module", ""),
+                "binary_id": binary_id(cfg),
             }
             if entry.comparison_inputs is not None
             else None
@@ -410,7 +413,10 @@ def verify_entry(
     )
     from rebrew.verify_hash import comparison_inputs_current
 
-    if not comparison_inputs_current(cfg, cfile, entry.comparison_inputs):
+    if not comparison_inputs_current(cfg, cfile, entry.comparison_inputs) or (
+        isinstance(entry.verify_snapshot, dict)
+        and entry.verify_snapshot.get("binary_id") != binary_id(cfg)
+    ):
         entry.comparison_inputs = None
     if result.status == "RELOC":
         from rebrew.linked_exact import LINKED_MESSAGE, linked_exact_holds
@@ -2896,6 +2902,7 @@ def prepare_entries(
             "cflags": fp.cflags,
             "size": entry.size,
             "module": getattr(entry, "module", ""),
+            "binary_id": binary_id(cfg),
         }
         # A cached row ran no compile in this run: no compile record.
         results.append(

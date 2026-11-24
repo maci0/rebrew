@@ -116,6 +116,39 @@ func TestRealMatchInvocationAndIdempotentRecovery(t *testing.T) {
 	}
 }
 
+func TestIdempotentReplayRejectsChangedProvider(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "seed.c"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stage, digest, err := snapshot(root, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(stage)
+	seed, err := readSeed(filepath.Join(root, "seed.c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedSum := sha256.Sum256(seed)
+	keySum := sha256.Sum256([]byte("provider-key"))
+	dir := testJobDir(t)
+	owner, err := OpenDocker(root, dir, DockerProvider{Binary: "/bin/false", Image: "sha256:" + strings.Repeat("a", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := Receipt{ID: hex.EncodeToString(keySum[:]), Kind: "", Seed: "seed.c", SeedSHA256: hex.EncodeToString(seedSum[:]), WorkspaceSHA256: digest, Generations: defaultMatchOptions.Generations, Population: defaultMatchOptions.Population, State: "finished", Provider: "docker", Image: "sha256:" + strings.Repeat("b", 64)}
+	if err = owner.save(r); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = testAdmit(owner, "provider-key", "seed.c"); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("changed image replay: %v", err)
+	}
+	if err = owner.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSnapshotRefusesSymlink(t *testing.T) {
 	root, dir := t.TempDir(), testJobDir(t)
 	if err := os.WriteFile(filepath.Join(root, "seed.c"), []byte("x"), 0600); err != nil {

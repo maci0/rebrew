@@ -353,7 +353,11 @@ func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, c
 	}
 	r, err := o.read(id)
 	if err == nil {
-		if r.Kind != kind || r.Seed != rel || r.SeedSHA256 != seedDigest || r.WorkspaceSHA256 != workspaceDigest || r.ManagedCompile != (credential != "") || r.CredentialSHA256 != credentialDigest || r.Generations != options.Generations || r.Population != options.Population {
+		provider, image := "local", ""
+		if o.docker != nil {
+			provider, image = "docker", o.docker.Image
+		}
+		if r.Kind != kind || r.Seed != rel || r.SeedSHA256 != seedDigest || r.WorkspaceSHA256 != workspaceDigest || r.ManagedCompile != (credential != "") || r.CredentialSHA256 != credentialDigest || r.Generations != options.Generations || r.Population != options.Population || r.Provider != provider || r.Image != image {
 			return Receipt{}, false, ErrIdempotencyConflict
 		}
 		return r, false, nil

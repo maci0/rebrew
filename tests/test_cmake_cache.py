@@ -56,7 +56,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("SOURCE_DATE_EPOCH", "1071482016")
     state = SimpleNamespace(image="sha256:" + "a" * 64, environment={}, calls=[], rc=0, write=True)
-    monkeypatch.setattr(cmake_cache.toolchain, "cached_image_digest", lambda *_: state.image)
+    monkeypatch.setattr(cmake_cache.toolchain, "cached_image_digest", lambda *_a, **_k: state.image)
     monkeypatch.setattr(cmake_cache.toolchain, "image_environment", lambda *_: state.environment)
     spec = TOOLCHAINS["msvc-6.0-sp5-pp"]
     args = ["/c", "/O2", "/ML", "/Fdunused/", "/Fo" + str(output), str(source)]
