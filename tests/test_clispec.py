@@ -51,6 +51,20 @@ def test_schema_is_json_without_config(tmp_path: Path, monkeypatch: pytest.Monke
     assert document["outcomes"][0]["code"] == 1
 
 
+def test_schema_declares_passthrough_output_kinds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands = _commands(_schema(tmp_path, monkeypatch))
+    assert commands["build driver"]["output_kind"] == "opaque"
+    assert commands["build driver"]["media_type"] == "text/plain"
+    assert commands["ops call"]["output_kind"] == "opaque"
+    assert commands["ops call"]["media_type"] == "application/json"
+    for path in ("build driver", "ops call"):
+        assert "cardinality" not in commands[path]
+        assert "stdout_schema" not in commands[path]
+        assert "output_fields" not in commands[path]
+
+
 def test_schema_declares_every_runtime_error_kind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

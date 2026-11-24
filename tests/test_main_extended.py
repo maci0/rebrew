@@ -1,5 +1,7 @@
 """Tests for rebrew app/main.py — umbrella CLI registration, logging levels, error paths."""
 
+import json
+
 import pytest
 import typer
 from rich.console import Console
@@ -121,6 +123,46 @@ class TestMainEntryExitPaths:
         with pytest.raises(SystemExit) as exc:
             main_mod.main()
         assert exc.value.code == EXIT_MISMATCH
+
+
+class TestArgvFormatChoice:
+    """Eager callbacks see the same last-root-option rule as normal parsing."""
+
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            (["-o", "text", "-o", "json", "--version"], "json"),
+            (["-o", "json", "--output=text", "--version"], "text"),
+            (["-ojson", "-otext", "--version"], "text"),
+            (["-otext", "-ojson", "--version"], "json"),
+            (["-o", "text", "--json", "--version"], "text"),
+            (["-o", "json", "-o", "auto", "--json", "--version"], "auto"),
+            (["--output", "json", "status", "-o", "text"], "json"),
+            (["--", "--output", "json"], None),
+        ],
+    )
+    def test_root_format_choice(self, argv: list[str], expected: str | None) -> None:
+        from rebrew.cli import _argv_format_choice
+
+        assert _argv_format_choice(argv) == expected
+
+    @pytest.mark.parametrize(
+        ("argv", "json_output"),
+        [
+            (["-o", "text", "-o", "json", "--version"], True),
+            (["-o", "json", "-o", "text", "--version"], False),
+        ],
+    )
+    def test_version_honors_the_last_root_format(
+        self, monkeypatch: pytest.MonkeyPatch, argv: list[str], json_output: bool
+    ) -> None:
+        monkeypatch.setattr("sys.argv", ["rebrew", *argv])
+        result = CliRunner().invoke(main_mod.app, argv)
+        assert result.exit_code == 0, result.output
+        if json_output:
+            assert json.loads(result.stdout)["name"] == "rebrew"
+        else:
+            assert result.stdout.startswith("rebrew ")
 
 
 class TestJsonRequested:

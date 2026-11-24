@@ -218,6 +218,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             epilog=(
                 "[bold]Examples:[/bold]\n\n"
                 "  rebrew build objdiff-driver server src/SERVER/f.obj\n\n"
+                "  rebrew build objdiff-driver server src/SERVER/f.obj --json\n\n"
                 "Invoked by generated objdiff configuration; rebuilds the base object."
             ),
         ),

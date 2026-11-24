@@ -174,6 +174,14 @@ _REQUIRES_TTY = frozenset({"sync watch"})
 # that this command does not make, so the extension describes the exception.
 _TTY_PROMPTS = {"init": "--no-wizard"}
 
+# Established build/wire protocols pass another program's bytes through stdout.
+# They cannot be re-encoded as a report without breaking their consumer; the
+# global format flag still controls CLI-level error envelopes on stderr.
+_OPAQUE_PATHS = {
+    "build driver": "text/plain",
+    "ops call": "application/json",
+}
+
 _RETRY_NOTE = (
     " No idempotency key is accepted, so a retry is not a safe substitute for"
     " knowing whether the first run finished."
@@ -362,7 +370,11 @@ def _command(path: str, cmd: Any) -> dict[str, Any]:
         "description": description,
         "effects": effects,
     }
-    if path == "skills list":
+    media_type = _OPAQUE_PATHS.get(path)
+    if media_type is not None:
+        entry["output_kind"] = "opaque"
+        entry["media_type"] = media_type
+    elif path == "skills list":
         entry["cardinality"] = "bounded"
         entry["output_fields"] = [
             {"name": "name", "type": "string"},

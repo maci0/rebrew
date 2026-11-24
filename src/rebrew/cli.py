@@ -441,15 +441,16 @@ def _output_choice_from(ctx: TyperContext | None) -> str:
     return "auto"
 
 
-def _argv_format_choice() -> str | None:
+def _argv_format_choice(argv: list[str] | None = None) -> str | None:
     """Format selected before the subcommand, from argv when click has no context.
 
     ``-o`` / ``--output`` counts only before the first positional and only when
     the value is ``auto``, ``text``, or ``json``. A later ``-o`` is a path.
-    ``--output text`` wins over ``--json``.
+    Repeated root options keep the last value, like click. ``--output text``
+    wins over ``--json``; a final ``auto`` leaves that flag in control.
     """
-    args = list(sys.argv[1:])
-    saw_text = False
+    args = list(argv if argv is not None else sys.argv[1:])
+    choice: str | None = None
     saw_json = False
     saw_command = False
     index = 0
@@ -457,38 +458,27 @@ def _argv_format_choice() -> str | None:
         arg = args[index]
         if arg == "--":
             break
-        if arg in ("--json", "--json=true") and not saw_text:
+        if arg in ("--json", "--json=true"):
             saw_json = True
         elif arg.startswith("--output="):
             value = arg.split("=", 1)[1]
-            if not saw_command and value == "text":
-                saw_text = True
-            elif not saw_command and value == "json":
-                saw_json = True
+            if not saw_command and value in {"auto", "text", "json"}:
+                choice = value
         elif arg in ("-o", "--output") and index + 1 < len(args):
             value = args[index + 1]
             if not saw_command and value in {"auto", "text", "json"}:
-                if value == "text":
-                    saw_text = True
-                elif value == "json":
-                    saw_json = True
+                choice = value
                 index += 1
         elif arg in ("-otext", "-ojson", "-oauto"):
             # Click accepts attached short-option values: -otext / -ojson.
-            value = arg[2:]
             if not saw_command:
-                if value == "text":
-                    saw_text = True
-                elif value == "json":
-                    saw_json = True
+                choice = arg[2:]
         elif not arg.startswith("-"):
             saw_command = True
         index += 1
-    if saw_text:
-        return "text"
-    if saw_json:
-        return "json"
-    return None
+    if choice is not None:
+        return choice
+    return "json" if saw_json else None
 
 
 def json_mode_active() -> bool:

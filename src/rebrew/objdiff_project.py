@@ -31,7 +31,7 @@ lazy from typing import Any
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 lazy from rebrew.config import target_module
 lazy from rebrew.metadata.bindings import iter_source_bindings
 lazy from rebrew.sources import contained_path, iter_sources, source_exts, source_roots
@@ -208,7 +208,7 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
     return units
 
 
-def _build_one_object(cfg: Any, base_object: Path) -> None:
+def _build_one_object(cfg: Any, base_object: Path, *, json_mode: bool = False) -> None:
     """Compile the source file behind *base_object* and write the object.
 
     The object path is ``build/objdiff/current/<filepath>.o``; the source is
@@ -224,13 +224,22 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
         # passes the configured base_path verbatim, which may be either.
         rel = rel[idx + len(target_module_name) :]
     if not rel.endswith(".o"):
-        error_exit(f"rebrew build objdiff-driver: unexpected object path {base_object}")
+        error_exit(
+            f"rebrew build objdiff-driver: unexpected object path {base_object}",
+            json_mode=json_mode,
+        )
     source_rel = rel[: -len(".o")]
     source = contained_path(source_roots(cfg), source_rel)
     if source is None:
-        error_exit(f"rebrew build objdiff-driver: source path escapes the project: {source_rel}")
+        error_exit(
+            f"rebrew build objdiff-driver: source path escapes the project: {source_rel}",
+            json_mode=json_mode,
+        )
     if not source.exists():
-        error_exit(f"rebrew build objdiff-driver: no source file for {source_rel} ({source})")
+        error_exit(
+            f"rebrew build objdiff-driver: no source file for {source_rel} ({source})",
+            json_mode=json_mode,
+        )
 
     # Per-file override resolution — the same inputs test/verify use, from the
     # file's own annotation.  Passing empty strings dropped a persisted
@@ -265,8 +274,11 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
         use_cache=False,
     )
     if obj_path is None:
-        error_exit(f"rebrew build objdiff-driver: compile failed: {err}")
-    console.print(f"[green]Built {base_object}[/green]")
+        error_exit(f"rebrew build objdiff-driver: compile failed: {err}", json_mode=json_mode)
+    if json_mode:
+        json_print({"output": str(base_object)})
+    else:
+        console.print(f"[green]Built {base_object}[/green]")
 
 
 def _watch_patterns(cfg: Any) -> list[str]:
@@ -336,10 +348,11 @@ def main(
 def build_main(
     target_name: str = typer.Argument(..., help="Project target to compile"),
     base_object: Path = typer.Argument(..., help="Base object path supplied by objdiff"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Rebuild an objdiff base object using its source's toolchain and flags."""
-    cfg = require_config(target=target_name)
-    _build_one_object(cfg, base_object)
+    cfg = require_config(target=target_name, json_mode=json_output)
+    _build_one_object(cfg, base_object, json_mode=json_output)
 
 
 def main_entry() -> None:

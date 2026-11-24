@@ -295,6 +295,59 @@ class TestObjdiffProject:
         assert result.exit_code == 2, result.output
         assert calls == []
 
+    def test_build_entry_json_reports_the_object_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
+        (cfg.reversed_dir / "funcs" / "a.c").write_text(
+            "int a(void){return 0;}\n", encoding="utf-8"
+        )
+        monkeypatch.setattr(
+            objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr(
+            "rebrew.compiler.overrides.resolve_compile_overrides",
+            lambda cfg, d, a, b, c: (None, ""),
+        )
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.compile_to_obj",
+            lambda cfg_, source, cflags, workdir, **kw: (str(workdir / kw["obj_name"]), ""),
+        )
+        from rebrew.app.main import app
+
+        base = tmp_path / "build" / "objdiff" / "current" / "funcs" / "a.c.o"
+        result = runner.invoke(app, ["build", "objdiff-driver", "T", str(base), "--json"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout) == {"output": str(base)}
+        assert result.stderr == ""
+
+    def test_build_entry_json_error_names_the_escaping_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
+        monkeypatch.setattr(
+            objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
+        )
+        from rebrew.app.main import app
+
+        result = runner.invoke(
+            app,
+            [
+                "build",
+                "objdiff-driver",
+                "T",
+                "build/objdiff/current/../../outside.c.o",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 2, result.output
+        assert result.stdout == ""
+        error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
+        assert error["kind"] == "failure"
+        assert "source path escapes the project" in error["message"]
+
     def test_build_entry_help_prints_usage(self) -> None:
         """Help succeeds through the installed umbrella command."""
         from rebrew.app.main import app
