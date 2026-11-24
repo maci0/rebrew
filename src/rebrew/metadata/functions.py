@@ -1235,7 +1235,7 @@ def _mutate_entry_doc(
     module: str,
     mutate: Callable[[dict[str, Any], str], bool],
 ) -> bool:
-    """Apply *mutate*(doc_dict, toml_key) to the entry for *(module, va)*.
+    """Apply *mutate* to the entry for *(module, va)*.
 
     Opens ``directory / rebrew-functions.toml`` under the metadata write lock,
     hands the parsed document and the qualified key to *mutate*, and writes

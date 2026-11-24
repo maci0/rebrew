@@ -1836,8 +1836,6 @@ def parse_yaml_subset(text: str) -> Any:
     loader = _StrictLoader(text)
     try:
         return loader.construct_document(document)
-    except ValueError:
-        raise
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None)
         line = mark.line + 1 if mark is not None else 1

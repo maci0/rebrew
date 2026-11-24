@@ -1360,8 +1360,6 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             count = check.execute("SELECT COUNT(*) FROM metadata_documents").fetchone()[0]
         except sqlite3.Error as exc:
             raise MetadataStorageError(f"{backup}: corrupt backup: {exc}") from exc
-    except MetadataStorageError:
-        raise
     except sqlite3.Error as exc:
         raise MetadataStorageError(f"{backup}: corrupt backup: {exc}") from exc
     finally:

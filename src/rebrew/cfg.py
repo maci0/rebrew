@@ -1088,18 +1088,17 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
         except ValueError as exc:
             error_exit(str(exc), code=EXIT_ERROR, json_mode=json_mode)
 
-    leaf = final_key
-    if leaf == "marker":
+    if final_key == "marker":
         error_exit("marker was replaced by module; retain its existing value", json_mode=json_mode)
     if (
-        leaf == "execution_backend"
+        final_key == "execution_backend"
         and "compiler" in parts
         and parsed_value not in ("docker", "podman", "unshare")
     ):
         error_exit(
             "compiler.execution_backend must be docker, podman, or unshare", json_mode=json_mode
         )
-    if (key == "llm.model" or (leaf == "model" and "llm" in parts)) and parsed_value:
+    if (key == "llm.model" or (final_key == "model" and "llm" in parts)) and parsed_value:
         try:
             from rebrew.config import validate_llm_model
 
@@ -1107,7 +1106,7 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
         except ValueError as exc:
             error_exit(str(exc), code=EXIT_ERROR, json_mode=json_mode)
 
-    llm_budget_parser = _llm_budget_parser(leaf, parts)
+    llm_budget_parser = _llm_budget_parser(final_key, parts)
     if llm_budget_parser is not None and parsed_value != "":
         try:
             llm_budget_parser(str(parsed_value))
@@ -1115,7 +1114,7 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
             # The parser names its env var; the value was typed as a key.
             error_exit(f"{key} = {value!r}: {exc}", code=EXIT_ERROR, json_mode=json_mode)
 
-    if (leaf == "format" or key == "format") and parsed_value:
+    if (final_key == "format" or key == "format") and parsed_value:
         from rebrew.config import KNOWN_FORMATS
 
         if parsed_value not in KNOWN_FORMATS:
@@ -1125,14 +1124,14 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
                 json_mode=json_mode,
             )
 
-    if (leaf == "arch" or key == "arch") and parsed_value and parsed_value not in ARCH_PRESETS:
+    if (final_key == "arch" or key == "arch") and parsed_value and parsed_value not in ARCH_PRESETS:
         error_exit(
             f"unknown arch {parsed_value!r} (known: {', '.join(sorted(ARCH_PRESETS))})",
             code=EXIT_ERROR,
             json_mode=json_mode,
         )
 
-    if leaf in _BOOL_CONFIG_KEYS and not isinstance(parsed_value, bool):
+    if final_key in _BOOL_CONFIG_KEYS and not isinstance(parsed_value, bool):
         error_exit(
             f"{key} = {value!r} is not a boolean; use 'true' or 'false'",
             code=EXIT_ERROR,
@@ -1140,7 +1139,7 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
         )
 
     if (
-        (leaf == "ghidra_backend" or key == "ghidra_backend")
+        (final_key == "ghidra_backend" or key == "ghidra_backend")
         and parsed_value
         and parsed_value not in ("reva", "cli")
     ):
@@ -1150,7 +1149,7 @@ def _set_value_locked(key: str, value: str, *, dry_run: bool, json_mode: bool) -
             json_mode=json_mode,
         )
 
-    if (leaf == "backend" and "cache" in parts) and parsed_value:
+    if (final_key == "backend" and "cache" in parts) and parsed_value:
         from rebrew.compiler.cache import available_cache_backends
 
         known_backends = available_cache_backends()

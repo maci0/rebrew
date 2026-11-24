@@ -870,21 +870,17 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
 
     stmt_text = b_source[next_stmt.start_byte : next_stmt.end_byte]
 
-    # Insert into if branch (before closing brace)
     if_close = if_body.end_byte - 1
     result = b_source[:if_close] + b"    " + stmt_text + b"\n    " + b_source[if_close:]
 
-    # Offset for the insertion
     inserted_len = 4 + len(stmt_text) + 5  # "    " + text + "\n    "
 
-    # Insert into else branch (before closing brace, adjusted for previous insert)
     else_close = else_body.end_byte - 1 + inserted_len
     result = result[:else_close] + b"    " + stmt_text + b"\n    " + result[else_close:]
 
     total_inserted = inserted_len * 2
     orig_start = next_stmt.start_byte + total_inserted
     orig_end = next_stmt.end_byte + total_inserted
-    # Remove leading whitespace too
     rm_start = orig_start
     while rm_start > 0 and result[rm_start - 1 : rm_start] in (b" ", b"\t", b"\n", b"\r"):
         rm_start -= 1

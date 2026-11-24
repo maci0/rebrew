@@ -400,11 +400,9 @@ class CompareResult:
                 status="INTERNAL_ERROR",
             )
         raw_error = kwargs.get("error")
-        if raw_error is None:
-            kwargs["error"] = None
-        elif isinstance(raw_error, Mapping):
+        if isinstance(raw_error, Mapping):
             kwargs["error"] = RebrewError.from_dict(raw_error)
-        else:
+        elif raw_error is not None:
             raise CompareResultError(
                 f"CompareResult.from_dict got error {raw_error!r}, "
                 "expected None or a serialized error mapping",

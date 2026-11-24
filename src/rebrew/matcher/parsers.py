@@ -545,7 +545,6 @@ def _parse_macho_symbol_bytes(
     if binary is None:
         return None, None
 
-    # Find the target symbol (Mach-O may prefix with '_')
     target_sym = None
     for sym in binary.symbols:
         if sym.name in (symbol, f"_{symbol}"):
@@ -555,7 +554,6 @@ def _parse_macho_symbol_bytes(
     if target_sym is None:
         return None, None
 
-    # Find the section
     section = None
     if hasattr(target_sym, "section") and target_sym.section is not None:
         section = target_sym.section
