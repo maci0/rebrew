@@ -602,7 +602,9 @@ def promote_to_shared(
     path are retargeted at the shared path, in both metadata stores.
 
     Returns a result dict with ``action`` ``promoted`` / ``would-promote`` /
-    ``error`` and the shared-relative ``filepath``.
+    ``already-shared`` / ``error`` and the shared-relative ``filepath``. A source
+    already under the shared root is a successful no-op, so replaying the
+    promotion cannot move it into a nested shared tree or overwrite itself.
     """
     shared_root = getattr(cfg_src, "shared_dir", None)
     if shared_root is None:
@@ -613,8 +615,7 @@ def promote_to_shared(
             "message": "shared_dir is disabled — set project.shared_dir first",
         }
     src_path = contained_path(source_roots(cfg_src), src_file)
-    dst_path = contained_path(shared_root, src_file)
-    if src_path is None or dst_path is None:
+    if src_path is None:
         return {
             "action": "error",
             "status": "READ_ERROR",
@@ -627,6 +628,21 @@ def promote_to_shared(
             "status": "READ_ERROR",
             "filepath": src_file,
             "message": f"source not found: {src_path}",
+        }
+    if src_path.is_relative_to(Path(shared_root).resolve()):
+        return {
+            "action": "already-shared",
+            "status": "",
+            "filepath": src_file,
+            "message": f"source is already in the shared tree: {src_path}",
+        }
+    dst_path = contained_path(shared_root, src_file)
+    if dst_path is None:
+        return {
+            "action": "error",
+            "status": "READ_ERROR",
+            "filepath": src_file,
+            "message": f"file escapes its tree: {src_file!r}",
         }
     if dst_path.exists():
         return {

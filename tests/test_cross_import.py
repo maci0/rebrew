@@ -1431,6 +1431,40 @@ class TestPromoteToShared:
         data = load_data_metadata(tmp_path)[("SRC", 0x402000)]
         assert data["file"] == new_file
 
+    def test_promote_twice_converges_on_the_shared_source(self, tmp_path: Path) -> None:
+        """A retry after the move leaves the file and its metadata where they landed."""
+        cfg = self._cfg(tmp_path)
+        cfg.metadata_dir = tmp_path
+        src = cfg.reversed_dir / "f1.c"
+        src.write_text("int f1(void){ return 1; }\n", encoding="utf-8")
+        from tree_snapshot import digest as tree_digest
+
+        from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
+
+        record_function_identity(
+            tmp_path,
+            module="SRC",
+            va=0x401000,
+            file=identity_file(src, tmp_path),
+            kind="FUNCTION",
+            name="f1",
+            symbol="_f1",
+        )
+        first = ci.promote_to_shared(cfg, "f1.c")
+        assert first["action"] == "promoted"
+        moved = cfg.shared_dir / "f1.c"
+        before = tree_digest(tmp_path)
+        stored = get_entry(tmp_path, 0x401000, "SRC")["file"]
+        source_relative = os.path.relpath(moved, cfg.reversed_dir)
+
+        second = ci.promote_to_shared(cfg, source_relative)
+
+        assert second["action"] == "already-shared"
+        assert moved.read_text(encoding="utf-8") == "int f1(void){ return 1; }\n"
+        assert get_entry(tmp_path, 0x401000, "SRC")["file"] == stored
+        assert tree_digest(tmp_path) == before
+        assert not (cfg.shared_dir / "src").exists()
+
     def test_promote_moves_across_filesystems(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
