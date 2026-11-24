@@ -44,7 +44,7 @@ Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
 served client drops its full-line comments (they stay in the source). The
-entry checkpoint measured 11193 B zstd / 11743 B gzip against a 13600 B budget;
+entry checkpoint measured 11235 B zstd / 11802 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -348,6 +348,7 @@ let globalsSearchTimer = null;
 let functionsSeq = 0;
 let summarySeq = 0;
 let viewSeq = 0;
+let initSeq = 0;
 let functionsController = null;
 let summaryController = null;
 let viewController = null;
@@ -584,7 +585,7 @@ function syncViewChrome() {
   syncError();
 }
 function syncCardActive() {
-  const current = currentView === "functions" ? $("status").value || "UNKNOWN" : "";
+  const current = currentView === "functions" ? $("status").value : "";
   document.querySelectorAll("#cards button[data-status]").forEach(btn => {
     const on = btn.getAttribute("data-status") === current;
     btn.classList.toggle("active", on);
@@ -774,9 +775,9 @@ function renderSummary(s) {
   const cards = [
     ["Functions", s.function_stats.total, null,
       "Total functions for this target"],
-    ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null,
+    ["Matched bytes", (s.coverage_pct ?? 0).toFixed(1) + "%", null,
       "Share of .text bytes in byte-matched functions and identified libraries. Alignment padding is not included."],
-    ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null,
+    ["Identified bytes", (s.identified_pct ?? 0).toFixed(1) + "%", null,
       "Share of .text bytes covered by any known function, including stubs"],
   ];
   // Same order as the Status select.
@@ -791,7 +792,7 @@ function renderSummary(s) {
     const inner = "<span class=value>" + esc(v) + "</span> " + label + esc(k) + "</span>";
     const hintId = "card-desc-" + i;
     if (status) {
-      const pressed = currentView === "functions" && ($("status").value || "UNKNOWN") === status;
+      const pressed = currentView === "functions" && $("status").value === status;
       const active = pressed ? " active" : "";
       return "<button type=button class='card" + active + "' data-status='" + esc(status)
         + "' aria-describedby='" + hintId + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
@@ -1270,7 +1271,26 @@ function bindControls() {
   };
 }
 async function init() {
-  const boot = await get("/api/bootstrap");
+  // A reload or Back navigation can arrive while a page append is still in
+  // flight.  Invalidate those responses before awaiting the new bootstrap so
+  // an old offset cannot append to the freshly rendered first page.
+  const seq = ++initSeq;
+  functionsSeq++;
+  summarySeq++;
+  viewSeq++;
+  if (functionsController) functionsController.abort();
+  if (summaryController) summaryController.abort();
+  if (viewController) viewController.abort();
+  clearTimeout(searchTimer);
+  clearTimeout(globalsSearchTimer);
+  let boot;
+  try {
+    boot = await get("/api/bootstrap");
+  } catch (error) {
+    if (seq !== initSeq) return;
+    throw error;
+  }
+  if (seq !== initSeq) return;
   $("boot-status").hidden = true;
   VIEWS.forEach((name) => (viewLoaded[name] = false));
   $("reload").hidden = false;
@@ -1314,6 +1334,7 @@ async function init() {
     // renders; without them, functions and the view load alongside it.
     if (pendingStatus || pendingModule || pendingModuleBlank) await summaryLoad;
   }
+  if (seq !== initSeq) return;
   // The restored state is where this session already is, so the first write
   // replaces the entry the reader arrived on rather than stacking a copy of it.
   lastNav = $("target").value + "|" + currentView;

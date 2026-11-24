@@ -1035,7 +1035,7 @@ gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
 Shell HTML (zstd-19): 3678 bytes on the wire (was ~8.2 KB with inlined JS).
-`/app.js` is served without its full-line comments (they stay in the source the bun harness runs). At this checkpoint, both entry assets totaled 11193 bytes zstd / 11743 gzip, inside the RFC 6928
+`/app.js` is served without its full-line comments (they stay in the source the bun harness runs). At this checkpoint, both entry assets totaled 11235 bytes zstd / 11802 gzip, inside the RFC 6928
 14600-byte initial window less a 500-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 13600), so the loading chrome paints before
 `/app.js` finishes. Gate:
@@ -1044,9 +1044,9 @@ Shell HTML (zstd-19): 3678 bytes on the wire (was ~8.2 KB with inlined JS).
 Gzip size also depends on the host's zlib version. These byte counts are a
 measurement checkpoint; tests enforce the 13600-byte budget on every host.
 
-The gzip path is the binding one: 11743 of 13600 budgeted bytes, 1857 to spare
-(zstd has 2407). With the measured response headers (560 shell, 592 `/app.js`)
-the two entry responses total 12896 bytes, 1704 under the 14600-byte window,
+The gzip path is the binding one: 11802 of 13600 budgeted bytes, 1798 to spare
+(zstd has 2365). With the measured response headers (560 shell, 592 `/app.js`)
+the two entry responses total 12954 bytes, 1646 under the 14600-byte window,
 the preloaded bootstrap rides past it, as below. Any shell or client growth
 has to come out of that remaining space, so trim copy before adding an asset.
 `test_cold_flight_fits_the_window_against_measured_headers` is the check that
@@ -1103,8 +1103,8 @@ inside the one document that has to fit RFC 6928's initial window, and it cost
 178 gzip bytes of the shell; linked, it is fetched off the critical path (a tab
 icon is not first paint). Hashing the linked URL cost 16 gzip bytes of the
 shell and buys the whole icon request back on every load after the first. The
-entry assets are now 11193 zstd / 11743 gzip against the 13600 B budget, so
-gzip has 1857 B of room. One shell-trimming idea is a negative result worth
+entry assets are now 11235 zstd / 11802 gzip against the 13600 B budget, so
+gzip has 1798 B of room. One shell-trimming idea is a negative result worth
 recording: deduplicating near-identical JavaScript *raised* the compressed
 size by 340 B even though it removed 262 raw ones, because the copies were
 what gzip matched.

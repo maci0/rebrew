@@ -817,6 +817,9 @@ class TestReload:
     def test_reload_rereads_the_coverage_documents(self) -> None:
         _run_script("dashboard_reload.mjs")
 
+    def test_reload_discards_a_page_append_started_before_it(self) -> None:
+        _run_script("dashboard_reload_race.mjs")
+
     def test_empty_state_reload_is_reachable(self) -> None:
         _run_script("dashboard_no_targets.mjs")
 
@@ -2555,7 +2558,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 11193), ("gzip", None)],
+        [("zstd", 11235), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None

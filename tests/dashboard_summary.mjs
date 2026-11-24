@@ -96,6 +96,8 @@ for (const staleFailure of [false, true]) {
 	assert.match(element("status").innerHTML, /EXACT/);
 	assert.equal(element("status").disabled, false);
 	assert.match(element("cards").innerHTML, /EXACT/);
+	assert.match(element("cards").innerHTML, /<span class=label>Matched bytes<\/span>/);
+	assert.match(element("cards").innerHTML, /<span class=label>Identified bytes<\/span>/);
 	// Button cards: hint in a visually-hidden description span, never repeated
 	// in the accessible name.
 	assert.match(
@@ -415,3 +417,20 @@ assert.match(element("cards").innerHTML, /aria-pressed='false'/);
 setView("functions");
 renderSummary(summary("EXACT"));
 assert.match(element("cards").innerHTML, /aria-pressed='true'/);
+
+// "any" means no status filter.  UNKNOWN is a real filter value, not the
+// selected state for an empty Status select; highlighting it here would claim
+// the table is filtered when every status is still visible.
+const withUnknown = {
+	function_stats: { total: 2, by_status: { EXACT: 1, UNKNOWN: 1 } },
+	coverage_pct: 50,
+	identified_pct: 100,
+};
+element("status").value = "";
+renderSummary(withUnknown);
+assert.doesNotMatch(element("cards").innerHTML, /class='card active'/);
+assert.doesNotMatch(element("cards").innerHTML, /aria-pressed='true'/);
+element("status").value = "UNKNOWN";
+renderSummary(withUnknown);
+assert.match(element("cards").innerHTML, /class='card active'[^>]*data-status='UNKNOWN'/);
+assert.match(element("cards").innerHTML, /data-status='UNKNOWN'[^>]*aria-pressed='true'/);
