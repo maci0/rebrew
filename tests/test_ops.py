@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, override
 
@@ -621,6 +622,59 @@ def _slot_calls(reply: dict[str, Any], slot: int) -> list[tuple[str, int]]:
 
 
 class TestCallReferences:
+    def test_concurrent_cold_scans_share_one_scan(
+        self,
+        world: tuple[WorkerConfig, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import rebrew.analysis
+        import rebrew.ops
+
+        config, project = world
+
+        class ObservedLock:
+            def __init__(self) -> None:
+                self._inner = threading.Lock()
+                self._count_lock = threading.Lock()
+                self._lookups = 0
+                self.all_looked_up = threading.Event()
+
+            def __enter__(self) -> ObservedLock:
+                with self._count_lock:
+                    self._lookups += 1
+                    if self._lookups == 4:
+                        self.all_looked_up.set()
+                self._inner.acquire()
+                return self
+
+            def __exit__(self, *_args: Any) -> None:
+                self._inner.release()
+
+        lock = ObservedLock()
+        release = threading.Event()
+        calls = 0
+        scan = rebrew.analysis.scan_references
+
+        def counted(info: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            assert release.wait(timeout=2)
+            return scan(info)
+
+        monkeypatch.setattr(rebrew.ops, "_call_scans", {})
+        monkeypatch.setattr(rebrew.ops, "_call_scan_inflight", {})
+        monkeypatch.setattr(rebrew.ops, "_call_scans_lock", lock)
+        monkeypatch.setattr(rebrew.analysis, "scan_references", counted)
+        body = json.dumps({"project_dir": str(project)}).encode()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [
+                pool.submit(dispatch, config, "rebrew.call_references", body) for _ in range(4)
+            ]
+            assert lock.all_looked_up.wait(timeout=2)
+            release.set()
+            assert all(future.result(timeout=2)[0] == 200 for future in futures)
+        assert calls == 1
+
     def test_binary_call_scan(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         reply = _call(config, "rebrew.call_references", {"project_dir": str(project)})

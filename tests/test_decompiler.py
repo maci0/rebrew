@@ -1938,6 +1938,52 @@ class TestReProjectDatabasePath:
 class TestBackendState:
     """Which packaged backends can run here, as the engine and the CLI read it."""
 
+    def test_concurrent_expired_checks_share_one_probe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import decompiler
+
+        class ObservedLock:
+            def __init__(self) -> None:
+                self._inner = threading.Lock()
+                self._count_lock = threading.Lock()
+                self._lookups = 0
+                self.all_looked_up = threading.Event()
+
+            def __enter__(self) -> ObservedLock:
+                with self._count_lock:
+                    self._lookups += 1
+                    if self._lookups == 4:
+                        self.all_looked_up.set()
+                self._inner.acquire()
+                return self
+
+            def __exit__(self, *_args: Any) -> None:
+                self._inner.release()
+
+        lock = ObservedLock()
+        release = threading.Event()
+        calls: list[str] = []
+
+        def check(name: str, endpoint: str | None) -> decompiler.BackendState:
+            calls.append(name)
+            assert release.wait(timeout=2)
+            return decompiler.BackendState(name, "available")
+
+        monkeypatch.setattr(decompiler, "_states", {})
+        monkeypatch.setattr(decompiler, "_state_inflight", {})
+        monkeypatch.setattr(decompiler, "_states_lock", lock)
+        monkeypatch.setattr(decompiler, "_check", check)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = [
+                pool.submit(decompiler.backend_state, "ghidra", endpoint="http://ghidra/mcp")
+                for _ in range(4)
+            ]
+            assert lock.all_looked_up.wait(timeout=2)
+            release.set()
+            assert all(future.result(timeout=2).state == "available" for future in futures)
+        assert calls == ["ghidra"]
+
     @pytest.mark.parametrize(
         ("stdout", "state"),
         [

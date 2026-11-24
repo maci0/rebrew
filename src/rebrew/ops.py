@@ -2362,6 +2362,11 @@ def xrefs(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
 _CALL_SCANS_MAX = 8
 _call_scans: dict[str, dict[str, Any]] = {}
 _call_scans_lock = threading.Lock()
+#: One live scan per binary digest.  Concurrent cold requests otherwise each
+#: repeat the full disassembly and import parse before any can publish a row.
+_call_scan_inflight: dict[str, threading.Event] = {}
+#: Bounds one wait, not the scan: a slow leader keeps owning the work.
+_CALL_SCAN_WAIT_TIMEOUT_S = 30.0
 
 
 def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]:
@@ -2378,31 +2383,44 @@ def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]
     cfg = target_config(project_root(config, req.project_dir), "")
     binary = Path(cfg.target_binary)
     digest = sha256_file(binary)
-    with _call_scans_lock:
-        kept = _call_scans.pop(digest, None)
-        if kept is not None:
-            _call_scans[digest] = kept
-            return kept
-    references = scan_references(load_binary(binary))
-    calls = sorted(
-        (
-            {"kind": ref.kind, "from_va": ref.from_va, "to_va": ref.to_va}
-            for ref in references
-            if ref.kind in {"call", "jmp", "iat_call", "iat_jmp"}
-        ),
-        key=lambda ref: (ref["from_va"], ref["to_va"], ref["kind"]),
-    )
-    imports = parse_import_table(binary)
-    answer = {
-        "references": calls,
-        "import_slots": [{"va": va, "name": imports[va]} for va in sorted(imports)],
-    }
-    if sha256_file(binary) == digest:
+    while True:
         with _call_scans_lock:
-            _call_scans[digest] = answer
-            if len(_call_scans) > _CALL_SCANS_MAX:
-                _call_scans.pop(next(iter(_call_scans)))
-    return answer
+            kept = _call_scans.pop(digest, None)
+            if kept is not None:
+                _call_scans[digest] = kept
+                return kept
+            event = _call_scan_inflight.get(digest)
+            if event is None:
+                event = threading.Event()
+                _call_scan_inflight[digest] = event
+                break
+        event.wait(timeout=_CALL_SCAN_WAIT_TIMEOUT_S)
+    try:
+        references = scan_references(load_binary(binary))
+        calls = sorted(
+            (
+                {"kind": ref.kind, "from_va": ref.from_va, "to_va": ref.to_va}
+                for ref in references
+                if ref.kind in {"call", "jmp", "iat_call", "iat_jmp"}
+            ),
+            key=lambda ref: (ref["from_va"], ref["to_va"], ref["kind"]),
+        )
+        imports = parse_import_table(binary)
+        answer = {
+            "references": calls,
+            "import_slots": [{"va": va, "name": imports[va]} for va in sorted(imports)],
+        }
+        if sha256_file(binary) == digest:
+            with _call_scans_lock:
+                _call_scans[digest] = answer
+                if len(_call_scans) > _CALL_SCANS_MAX:
+                    _call_scans.pop(next(iter(_call_scans)))
+        return answer
+    finally:
+        with _call_scans_lock:
+            if _call_scan_inflight.get(digest) is event:
+                del _call_scan_inflight[digest]
+        event.set()
 
 
 def describe(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:

@@ -1291,6 +1291,12 @@ _PLUGIN_COMMANDS = {"r2ghidra": "pdg", "r2dec": "pdd"}
 #: (name, endpoint) -> (monotonic time checked, state).
 _states: dict[tuple[str, str | None], tuple[float, BackendState]] = {}
 _states_lock = threading.Lock()
+#: One live refresh per backend key.  The ops server is threaded, so an expired
+#: availability row otherwise sends every concurrent request through the same
+#: subprocess or Ghidra session probe.
+_state_inflight: dict[tuple[str, str | None], threading.Event] = {}
+#: Bounds one wait, not the refresh: a slow leader keeps owning the probe.
+_STATE_WAIT_TIMEOUT_S = 2 * _PROBE_TIMEOUT_S
 
 
 def cli_backend_state(name: str) -> BackendState:
@@ -1389,14 +1395,29 @@ def backend_state(name: str, *, endpoint: str | None) -> BackendState:
     import time
 
     key = (name, endpoint)
-    with _states_lock:
-        cached = _states.get(key)
-    if cached is not None and time.monotonic() - cached[0] < STATE_WINDOW_SECONDS:
-        return cached[1]
-    state = _check(name, endpoint)
-    with _states_lock:
-        _states[key] = (time.monotonic(), state)
-    return state
+    while True:
+        with _states_lock:
+            cached = _states.get(key)
+            if cached is not None and time.monotonic() - cached[0] < STATE_WINDOW_SECONDS:
+                return cached[1]
+            event = _state_inflight.get(key)
+            if event is None:
+                event = threading.Event()
+                _state_inflight[key] = event
+                break
+        # Re-check after every bounded wait.  A timeout must not start a second
+        # probe while the leader is still alive.
+        event.wait(timeout=_STATE_WAIT_TIMEOUT_S)
+    try:
+        state = _check(name, endpoint)
+        with _states_lock:
+            _states[key] = (time.monotonic(), state)
+        return state
+    finally:
+        with _states_lock:
+            if _state_inflight.get(key) is event:
+                del _state_inflight[key]
+        event.set()
 
 
 def fetch_decompilation(
