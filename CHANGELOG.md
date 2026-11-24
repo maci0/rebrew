@@ -2,6 +2,7 @@
 
 ### Changed
 
+- `rebrew.coverage_report` builds the decomp.dev report in memory (`rebrew.report.decomp_dev_report`) instead of writing it with two fsyncs to a temporary file, reading it back and deleting it; the reply is byte-identical. `generate_decomp_dev_report` still writes the file for `rebrew coverage report --decomp-dev`. A coverage report without retained inputs no longer needs a configured workspace.
 - A FLIRT signature load from a checkout that ships `sigs/index.json` (recondb 3.0.0) takes the files from the index instead of walking the tree: the files, their order and the architecture selection are the same, and loading recondb 3.0.0 (174,947 indexed files, 43,008 selected for x86) costs 4.5 G user-space instructions before parsing instead of 74.2 G. A file under such a checkout that its index does not list is not loaded, as before, but is no longer counted in a console note (finding it took the walk); a file the index lists that the checkout lacks is reported unreadable by the parse.
 
 ## [6.75.0] - 2026-11-24

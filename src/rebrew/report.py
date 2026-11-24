@@ -1570,7 +1570,20 @@ def generate_report(cfg: ProjectConfig, out: Path, *, trusted: Any = None) -> di
 def generate_decomp_dev_report(
     cfg: ProjectConfig, out_path: Path, *, trusted: Any = None
 ) -> dict[str, Any]:
-    """Write an objdiff-format ``report.json`` for decomp.dev ingestion.
+    """Write the objdiff-format ``report.json`` of :func:`decomp_dev_report` to *out_path*.
+
+    Returns its summary with ``out``, the path written.
+    """
+    report_doc, summary = decomp_dev_report(cfg, trusted=trusted)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(out_path, json.dumps(report_doc, indent=2), encoding="utf-8")
+    return {"out": str(out_path), **summary}
+
+
+def decomp_dev_report(
+    cfg: ProjectConfig, *, trusted: Any = None
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The objdiff-format report document for decomp.dev ingestion, and its summary.
 
     decomp.dev (the decomp-scene progress hub) polls a GitHub Actions
     artifact named ``<version>_report`` containing a ``report.json`` in the
@@ -1591,7 +1604,7 @@ def generate_decomp_dev_report(
     the binary's ``.text`` size), so progress is measured against the whole
     binary and matches what ``rebrew status`` reports.
 
-    Returns the machine-readable summary dict.
+    Returns the document and the machine-readable summary dict.
     """
     from rebrew.sections import get_text_section_size
     from rebrew.workspace.status import FUZZY_STATUSES, MATCHED_STATUSES
@@ -1796,11 +1809,7 @@ def generate_decomp_dev_report(
     }
 
     report_doc = {"version": 2, "measures": measures, "units": units}
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out_path, json.dumps(report_doc, indent=2), encoding="utf-8")
-
-    return {
-        "out": str(out_path),
+    return report_doc, {
         "total_functions": registry_total,
         "matched_functions": matched_functions,
         "total_code": text_size,

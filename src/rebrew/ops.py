@@ -4734,7 +4734,7 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
     writes; ``summary`` its totals (functions, code bytes, fuzzy match).
     """
     from rebrew.config import load_config
-    from rebrew.report import generate_decomp_dev_report
+    from rebrew.report import decomp_dev_report
 
     if req.files:
         if req.coverage_input.version != 1 or not req.coverage_input_digest:
@@ -4749,31 +4749,19 @@ def coverage_report(config: WorkerConfig, req: CoverageReportRequest) -> dict[st
         ) as snapshot:
             cfg = load_config(snapshot, target=req.rebrew_target)
             trusted = checked_coverage_input(snapshot, req)
-            scratch = config.require_workspace() / SCRATCH_DIR
-            with tempfile.TemporaryDirectory(prefix="coverage-report-", dir=scratch) as directory:
-                out = Path(directory) / "report.json"
-                try:
-                    summary = generate_decomp_dev_report(cfg, out, trusted=trusted)
-                except ValueError as exc:
-                    raise OpsError(
-                        _bounded(str(exc)), code=COVERAGE_INPUT_UNVERIFIED, status=409
-                    ) from None
-                checked_coverage_input(snapshot, req)
-                report = json.loads(out.read_text(encoding="utf-8"))
-                return {
-                    "summary": {k: v for k, v in summary.items() if k != "out"},
-                    "report": report,
-                }
+            try:
+                report, summary = decomp_dev_report(cfg, trusted=trusted)
+            except ValueError as exc:
+                raise OpsError(
+                    _bounded(str(exc)), code=COVERAGE_INPUT_UNVERIFIED, status=409
+                ) from None
+            checked_coverage_input(snapshot, req)
+            return {"summary": summary, "report": report}
     if req.coverage_input.version or req.coverage_input_digest or req.verification_records:
         raise _invalid("coverage input requires a retained snapshot")
     cfg = target_config(project_root(config, req.project_dir), req.sha256)
-    scratch = config.require_workspace() / SCRATCH_DIR
-    scratch.mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="report-", dir=scratch) as directory:
-        out = Path(directory) / "report.json"
-        summary = generate_decomp_dev_report(cfg, out)
-        report = json.loads(out.read_text(encoding="utf-8"))
-    return {"summary": {k: v for k, v in summary.items() if k != "out"}, "report": report}
+    report, summary = decomp_dev_report(cfg)
+    return {"summary": summary, "report": report}
 
 
 def flag_search(config: WorkerConfig, req: FlagSearchRequest) -> dict[str, Any]:

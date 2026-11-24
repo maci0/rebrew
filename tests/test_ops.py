@@ -1902,7 +1902,10 @@ def thunk_analysis(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict
 
 class TestReconstructionOps:
     def test_retained_reports_require_and_use_verified_readset(
-        self, fresh_analysis: tuple[Path, dict[str, Any]], tmp_path: Path
+        self,
+        fresh_analysis: tuple[Path, dict[str, Any]],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         from rebrew.coverage_input_contract import (
             coverage_input_digest,
@@ -1962,9 +1965,15 @@ class TestReconstructionOps:
         envelope["verification_digest"] = verification_records_digest([record])
         request["coverage_input_digest"] = coverage_input_digest(envelope)
         request["verification_records"] = [record]
+        # The report is answered, never written: a durable write of a discarded copy is waste.
+        syncs: list[int] = []
+        real_fsync = os.fsync
+        monkeypatch.setattr(os, "fsync", lambda fd: (syncs.append(fd), real_fsync(fd))[1])
         status, body = dispatch(config, "rebrew.coverage_report", json.dumps(request).encode())
+        monkeypatch.setattr(os, "fsync", real_fsync)
         assert status == 200, body
         assert json.loads(body)["report"]["measures"]["matched_functions"] == 1
+        assert syncs == []
         record.update(
             status="SIZE_MISMATCH",
             match_count=0,
