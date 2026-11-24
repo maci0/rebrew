@@ -2,6 +2,7 @@
 
 lazy import base64
 lazy import hashlib
+lazy import json
 lazy import os
 lazy import shutil
 lazy import tempfile
@@ -61,6 +62,48 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
     def digest_file(path: Path) -> str:
         with path.open("rb") as handle:
             return hashlib.file_digest(handle, "sha256").hexdigest()
+
+    def decompme_environment() -> dict[str, str]:
+        """Keep scratch dedup outside the temporary snapshot.
+
+        The ordinary CLI's ledger lives under its project root.  A retained
+        operation's root is deleted when the request ends, so using it would
+        make every replay upload a second scratch.  One worker-local ledger is
+        bounded by decompme's existing retention/size limits; the digest scope
+        prevents a replay from returning another project's claim token.
+        """
+        from rebrew.config import DECOMPME_UPLOADS_PATH_ENV, DECOMPME_UPLOADS_SCOPE_ENV
+
+        workspace = config.require_workspace()
+        ledger = workspace / ".rebrew" / "decompme-uploads.json"
+        if ledger.is_symlink() or not ledger.resolve().is_relative_to(workspace):
+            raise invalid("decomp.me ledger path escapes the worker workspace")
+        scope: dict[str, str] = {
+            "kind": "retained",
+            "target": req.rebrew_target,
+            "binary_sha256": req.sha256,
+        }
+        snapshot = hashlib.sha256()
+        for entry in sorted(req.files, key=lambda item: item.path):
+            snapshot.update(entry.path.encode("utf-8"))
+            snapshot.update(b"\0")
+            snapshot.update(entry.digest.encode("ascii"))
+            snapshot.update(b"\0")
+            snapshot.update(str(entry.size).encode("ascii"))
+            snapshot.update(b"\0")
+        scope["source_snapshot_sha256"] = snapshot.hexdigest()
+        if req.attribution is not None:
+            # A retry can carry a new job id.  Org/project/user are the stable
+            # ownership boundary; target and binary narrow it further.
+            scope.update(
+                org=req.attribution.org,
+                project=req.attribution.project,
+                user=req.attribution.user,
+            )
+        return {
+            DECOMPME_UPLOADS_PATH_ENV: str(ledger),
+            DECOMPME_UPLOADS_SCOPE_ENV: json.dumps(scope, sort_keys=True, separators=(",", ":")),
+        }
 
     def checked_path(root: Path, value: str, *, existing: bool = True) -> Path:
         from rebrew.utils import portable_path_parts
@@ -162,6 +205,7 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
                     ],
                     root,
                     ops.COMMAND_TIMEOUT_SECONDS,
+                    environment=None if req.dry_run else decompme_environment(),
                 )
             if (
                 source.is_symlink()

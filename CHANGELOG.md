@@ -7,6 +7,7 @@
 ### Fixed
 
 - The coverage dashboard applies a status card clicked from another view instead of clearing the hidden Functions filter, cancels abandoned view requests before they can overwrite the active view, and explains each displayed status with the report's shared reference.
+- Retained decomp.me exports keep their upload ledger in the worker workspace instead of a deleted source snapshot, and scope replay keys by project, user, target and source snapshot. Retrying the same export now reuses its first scratch rather than creating another public scratch.
 - The jobs service keeps one managed compile's idempotency key after `delivery_denied`, `result_unavailable` and other refusals that may follow billing, so a worker retry cannot compile and bill the same intent again.
 - The jobs service caps event streams across the owner, removes unreceipted custody after failed managed admission, and runs owner cleanup after graceful HTTP shutdown.
 - LLM-assisted GA seeding reuses terminal billed outcomes from its bounded in-process cache, including empty responses and lost replies. A concurrent waiter that times out returns no seeds instead of becoming a second sender, while connect-stage failures remain retryable and release their unused token reservation.

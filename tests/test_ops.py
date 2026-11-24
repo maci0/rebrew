@@ -3050,6 +3050,40 @@ def _rebrew(*args: str) -> list[str]:
     return [sys.executable, "-m", "rebrew.app.main", *args]
 
 
+def test_run_rebrew_passes_environment_only_to_the_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Retained uploads can pin ledger variables without racing the worker env."""
+    from rebrew import ops
+
+    captured: dict[str, Any] = {}
+
+    def child(
+        arguments: list[str],
+        project: Path,
+        timeout: int,
+        *,
+        outcome_exit: bool,
+        skipped_file: Path,
+        environment: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        captured.update(
+            arguments=arguments,
+            project=project,
+            timeout=timeout,
+            outcome_exit=outcome_exit,
+            skipped_file=skipped_file,
+            environment=environment,
+        )
+        return {}
+
+    monkeypatch.setattr(ops, "_run_rebrew_child", child)
+    environment = {"REBREW_TEST_CHILD_ONLY": "yes"}
+    assert ops.run_rebrew(["schema"], tmp_path, 5, environment=environment) == {}
+    assert captured["environment"] == environment
+    assert "REBREW_TEST_CHILD_ONLY" not in os.environ
+
+
 class TestExecTransport:
     def _exec(self, argv: list[str], op: str, request: dict[str, Any]) -> tuple[int, Any]:
         """Run the worker the way the backend's exec transport does: argv, then the op."""

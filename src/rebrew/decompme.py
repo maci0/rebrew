@@ -65,7 +65,12 @@ from rebrew.cli import (
     select_annotation,
 )
 from rebrew.errors import RebrewError
-lazy from rebrew.config import DECOMPME_API_ENV, validate_http_url
+lazy from rebrew.config import (
+    DECOMPME_API_ENV,
+    DECOMPME_UPLOADS_PATH_ENV,
+    DECOMPME_UPLOADS_SCOPE_ENV,
+    validate_http_url,
+)
 lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import (
     atomic_write_text,
@@ -549,13 +554,15 @@ def _uploads_transaction(root: Path) -> Iterator[None]:
             _UPLOADS_LOCK_DEPTH.pop(key, None)
 
 
-def scratch_digest(payload: dict[str, Any], api: str) -> str:
+def scratch_digest(payload: dict[str, Any], api: str, *, scope: str = "") -> str:
     """Content digest of a scratch payload, the ledger's idempotency key.
 
     Covers every field the service receives (form data plus each uploaded
     file's name and bytes) and the service it goes to, so two runs of
     ``rebrew export decompme`` share a digest exactly when decomp.me would receive
-    the identical request.
+    the identical request.  *scope* names the durable ledger's project/user
+    namespace without changing the request; retained ops set it so a shared
+    worker ledger cannot replay another project's claim token.
 
     ``surrogateescape`` on the text fields, as everywhere else a path or a
     name off disk is hashed (``rebrew.compiler.cache``,
@@ -564,6 +571,9 @@ def scratch_digest(payload: dict[str, Any], api: str) -> str:
     idempotency check.
     """
     h = hashlib.sha256()
+    if scope:
+        h.update(scope.encode("utf-8", errors="surrogateescape"))
+        h.update(b"\0")
     h.update(api.encode("utf-8"))
     for key in sorted(payload.get("data", {})):
         h.update(key.encode("utf-8"))
@@ -583,7 +593,8 @@ def scratch_digest(payload: dict[str, Any], api: str) -> str:
 
 
 def _uploads_path(root: Path) -> Path:
-    return root / _UPLOADS_REL_PATH
+    override = os.environ.get(DECOMPME_UPLOADS_PATH_ENV, "").strip()
+    return Path(override) if override else root / _UPLOADS_REL_PATH
 
 
 def read_uploads(root: Path) -> dict[str, dict[str, str]]:
@@ -991,7 +1002,11 @@ def main(
         error_exit(str(exc), json_mode=json_output)
 
     root = Path(getattr(cfg, "root", ".") or ".")
-    digest = scratch_digest(payload, api)
+    digest = scratch_digest(
+        payload,
+        api,
+        scope=os.environ.get(DECOMPME_UPLOADS_SCOPE_ENV, ""),
+    )
     # Hold the ledger lock across check-upload-record: ``record_upload``
     # locks only its own write, so without this a concurrent duplicate
     # (double-click, two terminals, a retried worker) passes the

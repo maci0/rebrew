@@ -2931,7 +2931,12 @@ def _run_intake(binary: Path, project: Path, target: str) -> dict[str, Any]:
 
 
 def run_rebrew(
-    arguments: list[str], project: Path, timeout: int, *, outcome_exit: bool = False
+    arguments: list[str],
+    project: Path,
+    timeout: int,
+    *,
+    outcome_exit: bool = False,
+    environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run ``rebrew <arguments>`` in *project* and answer the JSON object it prints.
 
@@ -2942,7 +2947,9 @@ def run_rebrew(
     in its own session; a timeout kills the whole group.  With
     *outcome_exit*, exit 1 (rebrew's mismatch or failed-check outcome) also
     answers the printed report; any other non-zero exit is a refusal carrying
-    the command's JSON error message.  The child gets the call's deadline (or
+    the command's JSON error message.  *environment* adds child-only variables
+    without mutating the worker process's environment (which concurrent calls
+    share).  The child gets the call's deadline (or
     *timeout*, when sooner) less :data:`CHILD_REPORT_SECONDS` in
     ``REBREW_CALL_DEADLINE``, so its remote compiles stop retrying in time.
     The function records the child's reads skipped (their source's anchor names
@@ -2955,7 +2962,12 @@ def run_rebrew(
     skipped_file = directory / "skipped.json"
     try:
         return _run_rebrew_child(
-            arguments, project, timeout, outcome_exit=outcome_exit, skipped_file=skipped_file
+            arguments,
+            project,
+            timeout,
+            outcome_exit=outcome_exit,
+            skipped_file=skipped_file,
+            environment=environment,
         )
     finally:
         if skipped_file.is_file():
@@ -2976,6 +2988,7 @@ def _run_rebrew_child(
     *,
     outcome_exit: bool,
     skipped_file: Path,
+    environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """:func:`run_rebrew` with the file the child writes its skipped records to."""
     from rebrew.compiler.compile import CALL_DEADLINE_ENV
@@ -3005,6 +3018,7 @@ def _run_rebrew_child(
                 # The child exports its own spans (the remote compile's client span) under this one.
                 env={
                     **os.environ,
+                    **(environment or {}),
                     **telemetry.child_environment(),
                     CALL_DEADLINE_ENV: repr(child_deadline),
                     # The child counts its remote compiles into the op call's ledger.

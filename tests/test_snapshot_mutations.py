@@ -307,6 +307,71 @@ def test_a_decompme_export_of_a_renamed_candidate_runs(tmp_path: Path, monkeypat
     } == stored
 
 
+def test_retained_decompme_uses_a_durable_scoped_ledger(tmp_path: Path, monkeypatch: Any) -> None:
+    """A replay under a new job id still addresses the first scratch's ledger entry."""
+    config, request = _renamed_candidate_request(tmp_path, "decompme")
+    request["dry_run"] = False
+    request["attribution"] = {
+        "org": "org-one",
+        "project": "project-one",
+        "user": "user-one",
+        "job": "job-one",
+    }
+    environments: list[dict[str, str]] = []
+
+    def run(args: Any, root: Path, *_unused: Any, **kwargs: Any) -> dict[str, Any]:
+        assert args[:2] == ["export", "decompme"]
+        assert "--dry-run" not in args
+        environments.append(kwargs["environment"])
+        return {
+            "slug": "abc",
+            "claim_token": "tok",
+            "url": "https://decomp.me/scratch/abc/claim?token=tok",
+            "compiler": "msvc6.0",
+            "platform": "win32",
+            "reused": False,
+        }
+
+    monkeypatch.setattr(ops, "run_rebrew", run)
+    first_status, first_body = ops.dispatch(
+        config, "rebrew.retained_source_operation", json.dumps(request).encode()
+    )
+    assert first_status == 200, first_body
+    request["attribution"]["job"] = "job-two"
+    second_status, second_body = ops.dispatch(
+        config, "rebrew.retained_source_operation", json.dumps(request).encode()
+    )
+    assert second_status == 200, second_body
+    assert len(environments) == 2
+    assert environments[0] == environments[1]
+
+    from rebrew.config import DECOMPME_UPLOADS_PATH_ENV, DECOMPME_UPLOADS_SCOPE_ENV
+
+    environment = environments[0]
+    assert config.workspace is not None
+    assert Path(environment[DECOMPME_UPLOADS_PATH_ENV]) == (
+        config.workspace / ".rebrew" / "decompme-uploads.json"
+    )
+    scope = json.loads(environment[DECOMPME_UPLOADS_SCOPE_ENV])
+    snapshot = hashlib.sha256()
+    for entry in sorted(request["files"], key=lambda item: item["path"]):
+        snapshot.update(entry["path"].encode())
+        snapshot.update(b"\0")
+        snapshot.update(entry["digest"].encode())
+        snapshot.update(b"\0")
+        snapshot.update(str(entry["size"]).encode())
+        snapshot.update(b"\0")
+    assert scope == {
+        "kind": "retained",
+        "target": "mini",
+        "binary_sha256": request["sha256"],
+        "source_snapshot_sha256": snapshot.hexdigest(),
+        "org": "org-one",
+        "project": "project-one",
+        "user": "user-one",
+    }
+
+
 def test_a_variant_search_of_a_renamed_candidate_scans_and_keeps_the_renamed_registry(
     tmp_path: Path, monkeypatch: Any
 ) -> None:

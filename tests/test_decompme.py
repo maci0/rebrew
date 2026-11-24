@@ -13,6 +13,7 @@ from source_util import write_source
 from typer.testing import CliRunner
 
 import rebrew.decompme as decompme
+from rebrew.config import DECOMPME_UPLOADS_PATH_ENV, DECOMPME_UPLOADS_SCOPE_ENV
 from rebrew.utils import retry_backoff_delay
 
 runner = CliRunner()
@@ -859,6 +860,48 @@ class TestCli:
         assert data["slug"] == "abc1"
         assert calls == ["https://decomp.me/api/scratch"]
 
+    def test_worker_ledger_override_survives_temporary_project_roots(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Retained ops share a durable ledger even though each snapshot root is deleted."""
+        cfg, src = self._patch(tmp_path, monkeypatch)
+        ledger = tmp_path / "worker" / ".rebrew" / "decompme-uploads.json"
+        monkeypatch.setenv(DECOMPME_UPLOADS_PATH_ENV, str(ledger))
+        monkeypatch.setenv(DECOMPME_UPLOADS_SCOPE_ENV, '{"project":"one"}')
+        calls: list[str] = []
+
+        def fake_post(url: str, **kw: object) -> SimpleNamespace:
+            calls.append(url)
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"slug": f"abc{len(calls)}", "claim_token": "tok"},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr("httpx.post", fake_post)
+        cfg.root = tmp_path / "snapshot-one"
+        cfg.root.mkdir()
+        first = runner.invoke(decompme.app, ["--json", str(src)])
+        assert first.exit_code == 0
+        assert cli_payload(first)["reused"] is False
+
+        cfg.root = tmp_path / "snapshot-two"
+        cfg.root.mkdir()
+        second = runner.invoke(decompme.app, ["--json", str(src)])
+        assert second.exit_code == 0
+        assert cli_payload(second)["reused"] is True
+        assert cli_payload(second)["slug"] == "abc1"
+        assert calls == ["https://decomp.me/api/scratch"]
+        assert ledger.is_file()
+        assert not (cfg.root / ".rebrew" / "decompme-uploads.json").exists()
+
+        monkeypatch.setenv(DECOMPME_UPLOADS_SCOPE_ENV, '{"project":"two"}')
+        third = runner.invoke(decompme.app, ["--json", str(src)])
+        assert third.exit_code == 0
+        assert cli_payload(third)["reused"] is False
+        assert cli_payload(third)["slug"] == "abc2"
+        assert len(calls) == 2
+
     def test_reupload_forces_a_new_scratch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -926,6 +969,9 @@ class TestUploadLedger:
         )
         assert base != decompme.scratch_digest(self._payload(blob=b"\x02"), "https://decomp.me")
         assert base != decompme.scratch_digest(self._payload(), "https://staging.decomp.me")
+        assert base != decompme.scratch_digest(
+            self._payload(), "https://decomp.me", scope='{"project":"other"}'
+        )
 
     def test_recorded_upload_round_trip(self, tmp_path: Path) -> None:
         payload = self._payload()

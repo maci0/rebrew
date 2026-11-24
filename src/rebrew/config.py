@@ -161,6 +161,20 @@ instead of retyping ``--api`` per invocation.  A set-but-empty value is read as
 unset (the flag's own value then applies), so a leftover blank export does not
 break every upload."""
 
+DECOMPME_UPLOADS_PATH_ENV = "REBREW_DECOMPME_UPLOADS_PATH"
+"""Internal child-command override for the decomp.me upload ledger path.
+
+Retained ops stage a temporary project root, so their child points this at a
+durable worker-workspace ledger instead of a file deleted with the snapshot.
+Unset keeps the ordinary project-local ledger."""
+
+DECOMPME_UPLOADS_SCOPE_ENV = "REBREW_DECOMPME_UPLOADS_SCOPE"
+"""Internal namespace mixed into a decomp.me upload's dedup digest.
+
+Retained ops scope keys by project/user/target/source snapshot so a shared
+worker ledger cannot return another project's claim token.  The job id is not
+part of the scope: a retry may arrive under a new job."""
+
 KUNA_SPECS_ENV = "KUNA_SPECS"
 """Env var naming a SLEIGH specs root the host ``kuna`` binary reads in place of its own.
 
@@ -3564,6 +3578,8 @@ __all__ = [
     "ALLOW_PRIVATE_DOWNLOAD_ENV",
     "ARCH_PRESETS",
     "DECOMPME_API_ENV",
+    "DECOMPME_UPLOADS_PATH_ENV",
+    "DECOMPME_UPLOADS_SCOPE_ENV",
     "DEFAULT_ADDRESS_COMMENTS",
     "DEFAULT_ADDRESS_COMMENT_REGEX",
     "DEFAULT_COMPILE_TIMEOUT",
