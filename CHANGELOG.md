@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.76.0] - 2026-11-24
+
 ### Added
 
 - `rebrew.release` (`{}`) answers this engine's `release` (its rebrew version) and `schema_sha256`, the SHA-256 of the dispatch schema it serves (`rebrew.ops.DISPATCH_SCHEMA_SHA256`, held to the checked-in schema by a test), so a caller can refuse at start an engine that serves another schema than the one it reads.
