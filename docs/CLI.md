@@ -7112,7 +7112,9 @@ malformed; the detail names the file, not its path), `malformed-signatures` (422
 `rebrew.reference_flirt`: the uploaded `.sig` or `.pat` is not one python-flirt
 reads), `remote-compile-headers` (422, see below), `toolchain-rejected` (422: the toolchain
 ran and rejected the source; the detail is `COMPILE_ERROR: ` and its diagnostics,
-one per line, and there is no verdict), `invalid-project-config` (400, see
+one per line, and there is no verdict), `invalid-project-config` (400: also a
+record-writing op over a function record its source's anchor disagrees with, see
+`rebrew doctor`; and see
 `rebrew.project_targets`), `project-import-refused` (422, see
 `rebrew.import_archive` below), `compile-not-run` (503, `rebrew.apply_candidate`:
 the remote compile service never ran the compile, so nothing was applied; `serve`
