@@ -1717,6 +1717,29 @@ def _decode(value: Any, hint: Any, where: str) -> Any:
     return parse_request(hint, value, where)
 
 
+#: Field type hints and fields per request dataclass, one entry per class.
+_REQUEST_FIELDS: dict[type, tuple[dict[str, object], dict[str, dataclasses.Field[object]]]] = {}
+
+
+def _request_fields(
+    cls: type,
+) -> tuple[dict[str, object], dict[str, dataclasses.Field[object]]]:
+    """The field type hints and the fields of the request dataclass *cls*.
+
+    Both are fixed when the class is defined, so they are resolved on its first
+    parse: a nested request type (one per retained file or readset row)
+    resolved its hints once per value. Two threads racing a first parse store
+    equal entries.
+    """
+    found = _REQUEST_FIELDS.get(cls)
+    if found is None:
+        found = _REQUEST_FIELDS.setdefault(
+            cls,
+            (typing.get_type_hints(cls), {spec.name: spec for spec in fields(cls)}),
+        )
+    return found
+
+
 def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
     """Build *cls* from a decoded JSON object, refusing unknown and missing fields."""
     if type(raw) is not dict:
@@ -1737,8 +1760,7 @@ def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
             code=COVERAGE_INPUT_UNVERIFIED,
             status=409,
         )
-    hints = typing.get_type_hints(cls)
-    known = {spec.name: spec for spec in fields(cls)}  # type: ignore[arg-type]
+    hints, known = _request_fields(cls)
     unknown = sorted(set(raw) - set(known))
     if unknown:
         raise _invalid(f"{where} has unknown fields: {', '.join(unknown)}")
