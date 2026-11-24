@@ -556,25 +556,6 @@ def _append_definition(
     pieces.append(_make_piece(span, raw, spans, rows))
 
 
-def _missing_rows(
-    candidates: list[tuple[str, int, dict[str, Any]]],
-    seen: set[tuple[str, int]],
-    filename: str,
-    rel: str,
-    *,
-    data: bool,
-) -> list[str]:
-    """Rows for this file that no copied definition claimed."""
-    noun = "Data row" if data else "Row"
-    gap = "object" if data else "C definition"
-    return [
-        f"{noun} {module}.0x{va:08x} names {entry.get('file') or rel} "
-        f"and no {gap} in {filename} matches"
-        for module, va, entry in candidates
-        if (module, va) not in seen
-    ]
-
-
 def _function_rows(
     entries: dict[tuple[str, int], dict[str, Any]], rel: str
 ) -> list[tuple[str, int, dict[str, Any]]]:
@@ -644,7 +625,12 @@ def _layout_one(
             problems,
             function=True,
         )
-    problems.extend(_missing_rows(file_rows, seen_funcs, file_path.name, rel, data=False))
+    problems.extend(
+        f"Row {module}.0x{va:08x} names {entry.get('file') or rel} "
+        f"and no C definition in {file_path.name} matches"
+        for module, va, entry in file_rows
+        if (module, va) not in seen_funcs
+    )
     store_pieces: list[_Piece] = []
     seen_data: set[tuple[str, int]] = set()
     for span in stores:
@@ -1281,7 +1267,7 @@ def _destination(cfg: Any, output_path: Path, json_output: bool) -> tuple[Any, s
     return meta, new_file
 
 
-def _validate_accepted_include(name: str) -> tuple[str, ...]:
+def _validate_accepted_include(name: str) -> None:
     """Reject absolute, drive-qualified or traversing accepted include names."""
     if not name or name != name.strip() or name.startswith(("/", "\\")) or ":" in name:
         raise ValueError(
@@ -1294,7 +1280,6 @@ def _validate_accepted_include(name: str) -> tuple[str, ...]:
             f"invalid --accept-include name {name!r}: use a bare header "
             "name or relative include path"
         )
-    return tuple(parts)
 
 
 def _merge_include_inputs(

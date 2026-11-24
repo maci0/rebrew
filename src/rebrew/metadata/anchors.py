@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import functools
 import re
 import threading
 from collections import OrderedDict
@@ -30,12 +29,6 @@ lazy from rebrew.utils import split_source_lines
 _COMMENT_MASK = bytes(byte if byte in (10, 13) else 32 for byte in range(256))
 
 _VA_RE = re.compile(r"0x[0-9a-fA-F]+")
-
-
-@functools.lru_cache(maxsize=64)
-def _syntax_re(regex: str) -> re.Pattern[str]:
-    """Compiled ADDRESS pattern for *regex*; cached per format, not per file."""
-    return re.compile(regex)
 
 
 #: Metadata tags that may not appear as ``KEY: value`` comments.  Module scope
@@ -195,7 +188,7 @@ def _parse_address_anchors(source: str, syntax: AddressCommentFormat) -> list[Ad
         comments = [(node.start_byte, node.end_byte) for node in comment_nodes(tree)]
         masked = bytearray(src)
         declarations = None
-    pattern = _syntax_re(syntax.regex)
+    pattern = re.compile(syntax.regex)
     pending: list[tuple[str, int, int]] = []
     # Comment spans come back in source order (sorted query, or the Delphi
     # scan). Advance the line on every span, skipped ones included, so a later

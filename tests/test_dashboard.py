@@ -1979,15 +1979,15 @@ class TestOffsetParam:
     def test_missing_invalid_and_large(self) -> None:
         from rebrew.dashboard import _MAX_LIMIT, _offset_param
 
-        assert _offset_param({}, "offset") == 0
-        assert _offset_param({"offset": [""]}, "offset") == 0
-        assert _offset_param({"offset": ["abc"]}, "offset") == 0
-        assert _offset_param({"offset": ["-1"]}, "offset") == 0
-        assert _offset_param({"offset": ["0"]}, "offset") == 0
-        assert _offset_param({"offset": ["50"]}, "offset") == 50
+        assert _offset_param({}) == 0
+        assert _offset_param({"offset": [""]}) == 0
+        assert _offset_param({"offset": ["abc"]}) == 0
+        assert _offset_param({"offset": ["-1"]}) == 0
+        assert _offset_param({"offset": ["0"]}) == 0
+        assert _offset_param({"offset": ["50"]}) == 50
         # Page-size cap must not apply: otherwise rows past _MAX_LIMIT are unreachable.
         past_cap = _MAX_LIMIT + 1
-        assert _offset_param({"offset": [str(past_cap)]}, "offset") == past_cap
+        assert _offset_param({"offset": [str(past_cap)]}) == past_cap
 
     def test_only_ascii_digits_name_a_skip(self) -> None:
         """The same rule ``limit`` follows, for the same reason.
@@ -2000,16 +2000,16 @@ class TestOffsetParam:
         from rebrew.workspace.va import VA_MAX
 
         for raw in ("1_0", "1_000_000", "+5", "٥", "1e3", "0x10"):
-            assert _offset_param({"offset": [raw]}, "offset") == 0, raw
-        assert _offset_param({"offset": [" 5 "]}, "offset") == 5
+            assert _offset_param({"offset": [raw]}) == 0, raw
+        assert _offset_param({"offset": [" 5 "]}) == 5
         # A plain run of digits is a number however long: past the ceiling it
         # clamps, which is an empty page rather than a 500.
-        assert _offset_param({"offset": ["9" * 40]}, "offset") == VA_MAX
+        assert _offset_param({"offset": ["9" * 40]}) == VA_MAX
         # The same run of digits under a minus sign is not a skip at all, and
         # the clamp that answers a positive one is the wrong answer here: it
         # sent the page past the end of the table, an empty page that reads as
         # "this target has no rows", where the contract says 0.
-        assert _offset_param({"offset": ["-" + "9" * 40]}, "offset") == 0
+        assert _offset_param({"offset": ["-" + "9" * 40]}) == 0
 
 
 class TestLiteralSearch:

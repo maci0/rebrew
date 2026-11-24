@@ -1036,14 +1036,13 @@ def _log_usage(
     seeds: int = 0,
     rejected: int = 0,
     billed_ceiling: int,
-) -> SeedUsage | None:
+) -> None:
     """Log token counts and latency, and record them for the run summary.
 
     A request is billed whether or not the provider returns a ``usage``
     object, so *duration_s* (given only for a completed HTTP call) is what
-    makes the record: without it there is no cost worth reporting and None is
-    returned.  Non-integer provider fields become None rather than being
-    formatted into the record.
+    makes the record: without it there is no cost worth reporting. Non-integer
+    provider fields become None rather than being formatted into the record.
 
     *seeds* / *rejected* are what the billed tokens bought, and the caller
     knows them only after the C gate has run, so the record is made once, at
@@ -1051,7 +1050,7 @@ def _log_usage(
     process token budget when the provider reported no count.
     """
     if duration_s is None:
-        return None
+        return
     raw = data.get("usage") if isinstance(data, dict) else None
     usage: dict[str, Any] = raw if isinstance(raw, dict) else {}
     total = _count(usage, "total_tokens")
@@ -1091,7 +1090,6 @@ def _log_usage(
             seeds,
             rejected,
         )
-    return record
 
 
 def _count(usage: dict[str, Any], field: str) -> int | None:

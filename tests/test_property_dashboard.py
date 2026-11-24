@@ -232,7 +232,7 @@ class TestNumericQueryParams:
     @given(params=_QUERY)
     @settings(max_examples=200)
     def test_offset_param_stays_in_range(self, params: dict[str, list[str]]) -> None:
-        value = _offset_param(params, "offset", 0)
+        value = _offset_param(params)
         assert 0 <= value <= VA_MAX
         assert isinstance(value, int)
 
@@ -252,18 +252,18 @@ class TestNumericQueryParams:
         digits = raw.strip(" \t\n\r\f\v").removeprefix("-")
         if not digits.isascii() or not digits.isdecimal():
             assert _int_param(params, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
-            assert _offset_param(params, "offset", 0) == 0
+            assert _offset_param(params) == 0
             return
         try:
             number = int(raw)
         except ValueError:
             assert _int_param(params, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
-            assert _offset_param(params, "offset", 0) == 0
+            assert _offset_param(params) == 0
             return
         assert _int_param(params, "limit", _DEFAULT_LIMIT) == (
             min(number, _MAX_LIMIT) if number > 0 else _DEFAULT_LIMIT
         )
-        assert _offset_param(params, "offset", 0) == (min(number, VA_MAX) if number >= 0 else 0)
+        assert _offset_param(params) == (min(number, VA_MAX) if number >= 0 else 0)
 
     @given(value=st.integers(min_value=1, max_value=10**12))
     @settings(max_examples=100)
@@ -276,7 +276,7 @@ class TestNumericQueryParams:
     @settings(max_examples=100)
     def test_oversized_offset_is_clamped_to_va_max(self, value: int) -> None:
         """Clamping skip to the page-size cap would make rows past it unreachable."""
-        assert _offset_param({"offset": [str(value)]}, "offset", 0) == min(value, VA_MAX)
+        assert _offset_param({"offset": [str(value)]}) == min(value, VA_MAX)
 
 
 class TestSearchTerm:

@@ -844,10 +844,6 @@ def _capture_failed(detail: str) -> OpsError:
     return OpsError(detail, code=ANALYSIS_CAPTURE_FAILED, status=500)
 
 
-def _refused(detail: str) -> OpsError:
-    return OpsError(detail)
-
-
 #: The detail of a :data:`COMPILER_NOT_OFFERED` refusal for a compiler not installed.
 _NOT_INSTALLED_DETAIL = (
     "the recompile service has not installed the compiler this compile names: "
@@ -1199,12 +1195,12 @@ class WorkerConfig:
 
     def require_filestore(self) -> Path:
         if self.filestore is None:
-            raise _refused("the rebrew worker has no filestore configured (--filestore)")
+            raise OpsError("the rebrew worker has no filestore configured (--filestore)")
         return self.filestore
 
     def require_workspace(self) -> Path:
         if self.workspace is None:
-            raise _refused("the rebrew worker has no workspace configured (--workspace)")
+            raise OpsError("the rebrew worker has no workspace configured (--workspace)")
         return self.workspace
 
 
@@ -1856,11 +1852,11 @@ def stored_file(config: WorkerConfig, key: str, sha256: str) -> Path:
     try:
         path = root.joinpath(*parts).resolve(strict=True)
     except FileNotFoundError:
-        raise _refused("no stored file for the key") from None
+        raise OpsError("no stored file for the key") from None
     if not path_is_relative_to(path, root) or not path.is_file():
-        raise _refused("the key does not name a stored file")
+        raise OpsError("the key does not name a stored file")
     if sha256_file(path) != wanted:
-        raise _refused("the stored file does not match its sha256")
+        raise OpsError("the stored file does not match its sha256")
     return path
 
 
@@ -1885,8 +1881,9 @@ def _check_download_host(hostname: str) -> str:
     # request thread (and its worker slot) for the kernel timeout. A timed-out
     # resolver cannot be cancelled, so retain at most DNS_RESOLUTION_LIMIT of
     # them and refuse further URL lookups until one finishes.
-    if not _DNS_SLOTS.acquire(blocking=False):
-        raise _refused("url host cannot be resolved")
+    slots = _DNS_SLOTS
+    if not slots.acquire(blocking=False):
+        raise OpsError("url host cannot be resolved")
     _result: list[Any] = []
     _error: list[BaseException] = []
 
@@ -1896,31 +1893,31 @@ def _check_download_host(hostname: str) -> str:
         except BaseException as exc:  # propagated below; resolve runs on a thread
             _error.append(exc)
         finally:
-            _DNS_SLOTS.release()
+            slots.release()
 
     _thread = threading.Thread(target=_resolve, daemon=True)
     try:
         _thread.start()
     except BaseException:
-        _DNS_SLOTS.release()
+        slots.release()
         raise
     _thread.join(DNS_TIMEOUT_SECONDS)
     if _thread.is_alive():
-        raise _refused("url host cannot be resolved")
+        raise OpsError("url host cannot be resolved")
     if _error:
         if isinstance(_error[0], OSError):
-            raise _refused("url host cannot be resolved") from None
+            raise OpsError("url host cannot be resolved") from None
         raise _error[0]
     infos = _result[0]
     if not infos:
-        raise _refused("url host cannot be resolved")
+        raise OpsError("url host cannot be resolved")
     pinned = ""
     for info in infos:
         address = info[4][0]
         try:
             ip = ipaddress.ip_address(address)
         except ValueError:
-            raise _refused("url host cannot be resolved") from None
+            raise OpsError("url host cannot be resolved") from None
         if not ip.is_global:
             raise _invalid("url host must be a public address")
         if not pinned:
@@ -2002,7 +1999,7 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
                 # Upstream 5xx is a server failure the caller cannot fix by
                 # changing the request (retry later), not a 400 client error.
                 if response.status_code >= 500:
-                    raise _refused(f"url answered HTTP {response.status_code}")
+                    raise OpsError(f"url answered HTTP {response.status_code}")
                 raise _invalid(f"url answered HTTP {response.status_code}")
             declared = response.headers.get("Content-Length", "")
             if declared.isdigit() and int(declared) > limit:
@@ -2019,7 +2016,7 @@ def _download(config: WorkerConfig, url: str, wanted: str, into: Path) -> None:
         # refusal with the cause, not escape as an unhandled OSError that
         # the caller reports as an internal error.  The partial file is
         # left for binary_file's finally to unlink.
-        raise _refused(f"url download failed: {exc}") from exc
+        raise OpsError(f"url download failed: {exc}") from exc
     if digest.hexdigest() != wanted:
         raise _invalid("the downloaded file does not match its sha256")
 
@@ -2867,7 +2864,7 @@ def report(config: WorkerConfig, req: ReportRequest) -> dict[str, Any]:
                         if relative not in kinds:
                             # Every file states what it carries; one that does not
                             # would be served to a reader the data is withheld from.
-                            raise _refused(f"report file {relative} declares no kinds")
+                            raise OpsError(f"report file {relative} declares no kinds")
                         entries.append(
                             {
                                 "path": relative,
@@ -3067,7 +3064,7 @@ def _run_rebrew_child(
             release_captured_pipes(process)
         if isinstance(stopped, OpsError):  # the call was cancelled
             raise
-        raise _refused(f"rebrew {name} did not finish within {timeout} s") from None
+        raise OpsError(f"rebrew {name} did not finish within {timeout} s") from None
     except BaseException:
         # KeyboardInterrupt / SystemExit during communicate(): without this
         # the child (and its whole process group) outlives the serve thread
@@ -3111,16 +3108,16 @@ def _run_rebrew_child(
         logger.error(
             "rebrew %s exited %d: %s", name, process.returncode, _escape_log_text(stderr.strip())
         )
-        raise _refused(_bounded(f"rebrew {name} failed: {_without_host_paths(message, [project])}"))
+        raise OpsError(_bounded(f"rebrew {name} failed: {_without_host_paths(message, [project])}"))
     try:
         report = json.loads(stdout)
     except json.JSONDecodeError:
         logger.exception(
             "rebrew %s printed no JSON report: %s", name, _escape_log_text(stderr.strip())
         )
-        raise _refused(f"rebrew {name} printed no JSON report") from None
+        raise OpsError(f"rebrew {name} printed no JSON report") from None
     if not isinstance(report, dict):
-        raise _refused(f"rebrew {name} answered a report that is not an object")
+        raise OpsError(f"rebrew {name} answered a report that is not an object")
     return report
 
 
@@ -3992,7 +3989,7 @@ def project_report(
         view = load_project_coverage(root, refresh=True)
         failures = {name for name in view.failures if only is None or name == only}
         if failures:
-            raise _refused(f"coverage failed for targets: {', '.join(sorted(failures))}")
+            raise OpsError(f"coverage failed for targets: {', '.join(sorted(failures))}")
         coverage = dict(view.snapshots)
     else:
         names = sorted(p.stem.removeprefix("coverage-") for p in snapshots.glob("coverage-*.toml"))
@@ -4176,7 +4173,7 @@ def retained_compile_refusal(cfg: Any, sources: Iterable[Path]) -> None:
 
     approved = os.environ.get("REBREW_RECOMPILE_URL", "").strip()
     if not approved or cfg.recompile_url != approved:
-        raise _refused("retained compilation requires the configured private recompile service")
+        raise OpsError("retained compilation requires the configured private recompile service")
     source_list = list(sources)
     for source in source_list:
         for flags in (cfg.cflags, *cfg.cflags_presets.values()):
@@ -4469,12 +4466,12 @@ def _compile_inputs(
     ]
     shipped = remote.get("includes", []) if isinstance(remote, dict) else []
     if not isinstance(shipped, list):
-        raise _refused("the compile reported a malformed include bundle")
+        raise OpsError("the compile reported a malformed include bundle")
     for header in shipped:
         if not isinstance(header, dict) or not all(
             isinstance(header.get(key), str) for key in ("path", "sha256")
         ):
-            raise _refused("the compile reported a malformed include bundle")
+            raise OpsError("the compile reported a malformed include bundle")
         path = _project_file(root, header["path"], "include")
         if sha256_file(path) != header["sha256"]:
             raise _invalid("snapshot source changed during verification")
@@ -5112,7 +5109,7 @@ def retained_source_operation(config: WorkerConfig, req: SnapshotMutationRequest
     """Run an operation against an isolated retained target."""
     from rebrew.snapshot_mutations import snapshot_mutation
 
-    with _refusing_disagreeing_records("rebrew.retained_source_operation"):
+    with _refusing_disagreeing_records():
         return snapshot_mutation(config, req)
 
 
@@ -5411,8 +5408,8 @@ def _binding_conflict() -> OpsError:
 
 
 @contextlib.contextmanager
-def _refusing_disagreeing_records(what: str) -> Iterator[None]:
-    """Refuse the record-writing op *what* over a record whose source's anchor names another function.
+def _refusing_disagreeing_records() -> Iterator[None]:
+    """Refuse a record-writing op over a record whose source's anchor names another function.
 
     Every other op skips such a record and answers for the rest of the project; a write
     the caller aimed at the project answers 400 :data:`INVALID_PROJECT_CONFIG` on purpose.
@@ -5420,6 +5417,7 @@ def _refusing_disagreeing_records(what: str) -> Iterator[None]:
     from rebrew.cli import BINDING_CONFLICT_KIND, CommandExit
     from rebrew.metadata.bindings import strict_bindings
 
+    operation = "rebrew.retained_source_operation"
     try:
         with strict_bindings():
             yield
@@ -5430,7 +5428,7 @@ def _refusing_disagreeing_records(what: str) -> Iterator[None]:
             "%s %s refused a function record whose source's anchor names another function: "
             "%s trace_id=%s",
             _request_id(),
-            what,
+            operation,
             record,
             _trace_id(),
         )
@@ -5438,7 +5436,7 @@ def _refusing_disagreeing_records(what: str) -> Iterator[None]:
     except CommandExit as exc:
         if exc.kind != BINDING_CONFLICT_KIND:
             raise
-        logger.warning("%s %s refused a function record: %s", _request_id(), what, exc.message)
+        logger.warning("%s %s refused a function record: %s", _request_id(), operation, exc.message)
         raise _binding_conflict() from None
 
 
@@ -5476,17 +5474,17 @@ def _run_parsed(config: WorkerConfig, name: str, op: Op, request: Any) -> Mappin
             if isinstance(exc, CommandExit) and exc.kind == TOOLCHAIN_REJECTED_KIND:
                 roots = [path for path in (config.workspace, config.filestore) if path is not None]
                 raise _toolchain_rejected(exc.message, roots) from None
-            raise _refused(f"rebrew refused {name} (exit {exc.exit_code})") from None
+            raise OpsError(f"rebrew refused {name} (exit {exc.exit_code})") from None
         except UnsupportedBinaryFormat as exc:
             raise OpsError(str(exc), code=UNSUPPORTED_BINARY_FORMAT, status=422) from None
         except Exception as exc:  # the engine is a trust boundary: log it, answer it sanitized
             logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
-            raise _refused(_failure_detail(config, name, exc)) from None
+            raise OpsError(_failure_detail(config, name, exc)) from None
         except _EXITS:
             raise
         except BaseException:  # a native panic (pyo3) escapes ``except Exception``
             logger.exception("%s %s failed trace_id=%s", _request_id(), name, _trace_id())
-            raise _refused(f"{name} failed: the engine raised an unexpected error") from None
+            raise OpsError(f"{name} failed: the engine raised an unexpected error") from None
         if skipped:
             if name in SKIPPED_RECORD_OPS:
                 reply = {**reply, "skipped_records": _skipped_records(skipped)}

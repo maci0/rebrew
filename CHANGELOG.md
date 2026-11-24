@@ -7,6 +7,10 @@
 - The jobs service computes workspace digests without copying and syncing the tree, and streams retained-output hashing instead of allocating the full log. Remote compiles no longer stage source bytes that the local compiler never reads. Library-header verification loads function metadata once for the whole header set.
 - Project reports resolve each function source once per capture. SQLite metadata description and document reads reuse one bulk document pass instead of querying and parsing each document again.
 
+### Breaking
+
+- **Breaking:** `rebrew.link_anchors` no longer exports `console`; use the shared console from `rebrew.utils` for normal CLI output.
+
 ### Fixed
 
 - The coverage dashboard applies a status card clicked from another view instead of clearing the hidden Functions filter, cancels abandoned view requests before they can overwrite the active view, and explains each displayed status with the report's shared reference.

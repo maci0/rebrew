@@ -228,21 +228,20 @@ def migrate_metadata(
 
 def _snapshot_destination(
     root: Path, backend: str, destinations: tuple[MetadataStore, ...]
-) -> Path | None:
+) -> None:
     """Copy the inactive destination's bytes beside it before a transfer.
 
     For the SQLite backend the copy is a consistent backup-API snapshot of
     the whole database (a file copy can be torn mid-transaction); for TOML
-    it is the store's own snapshot bytes.  Returns the snapshot path, or
-    ``None`` when the destination holds nothing.  Raises on a failed copy
-    so the caller aborts before any destination write.
+    it is the store's own snapshot bytes. Raises on a failed copy so the
+    caller aborts before any destination write.
     """
     if backend == "sqlite":
         from rebrew.metadata.sqlite import DATABASE_FILENAME, backup_metadata_database
 
         location = root / DATABASE_FILENAME
         if not location.is_file():
-            return None
+            return
         sqlite_snapshot = root / ".rebrew" / (DATABASE_FILENAME + DESTINATION_SNAPSHOT_SUFFIX)
         # The copy goes outside the project first.  The snapshot dir is
         # inside it, so a copy taken there would record the snapshot it is
@@ -268,7 +267,7 @@ def _snapshot_destination(
             recorded = _rows(sqlite_snapshot) if sqlite_snapshot.is_file() else None
             copied = _rows(dest)
             if recorded is not None and copied is not None and recorded == copied:
-                return sqlite_snapshot
+                return
             if sqlite_snapshot.is_file():
                 _rotate_snapshot(sqlite_snapshot, sqlite_snapshot.read_bytes())
             atomic_write_bytes(sqlite_snapshot, payload, mode=0o444)
@@ -276,8 +275,6 @@ def _snapshot_destination(
                 raise ValueError(
                     f"metadata destination snapshot verification failed for {sqlite_snapshot}"
                 )
-        return sqlite_snapshot
-    snapshot: Path | None = None
     for store in destinations:
         data = store.snapshot()
         if data is None:
@@ -294,15 +291,12 @@ def _snapshot_destination(
         # sidecar is the only copy of what a transfer replaced, and
         # overwriting it discards that copy (see restore_ga_runs).
         if target.is_file() and target.read_bytes() == data:
-            snapshot = target
             continue
         if target.exists():
             _rotate_snapshot(target, target.read_bytes())
         atomic_write_bytes(target, data, mode=0o444)
         if target.read_bytes() != data:
             raise ValueError(f"metadata destination snapshot verification failed for {target}")
-        snapshot = target
-    return snapshot
 
 
 def _rotate_snapshot(target: Path, held: bytes) -> None:

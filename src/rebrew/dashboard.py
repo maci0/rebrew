@@ -1913,18 +1913,18 @@ def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
     return value
 
 
-def _offset_param(params: dict[str, list[str]], name: str, default: int = 0) -> int:
-    """Parse a non-negative int skip query param (e.g. ``offset``).
+def _offset_param(params: dict[str, list[str]]) -> int:
+    """Parse a non-negative int ``offset`` query param.
 
-    Missing, empty, non-numeric, or negative values fall back to *default*.
+    Missing, empty, non-numeric, or negative values fall back to zero.
     Zero is valid.  Values are **not** capped at ``_MAX_LIMIT`` — that bound
     is for page size only; clamping skip would make rows past the cap
     unreachable via ``limit``+``offset`` pagination.  They are clamped to
     ``VA_MAX`` so an oversized skip is an empty page, not a 500.
     """
-    value = _paging_int(_raw_param(params, name) or "", VA_MAX)
+    value = _paging_int(_raw_param(params, "offset") or "", VA_MAX)
     if value is None or value < 0:
-        return default
+        return 0
     return value
 
 
@@ -2674,7 +2674,7 @@ class Dashboard:
                         module=_module_query(query),
                         q=_opt_query(query, "q"),
                         limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                        offset=_offset_param(query, "offset", 0),
+                        offset=_offset_param(query),
                     ),
                 )
             if parsed.path == "/api/sections":
@@ -2687,7 +2687,7 @@ class Dashboard:
                         module=_module_query(query),
                         q=_opt_query(query, "q"),
                         limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                        offset=_offset_param(query, "offset", 0),
+                        offset=_offset_param(query),
                     ),
                 )
             # Named, not a fall-through: a path that reaches here is in
@@ -2702,7 +2702,7 @@ class Dashboard:
                     self.history(
                         target,
                         limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                        offset=_offset_param(query, "offset", 0),
+                        offset=_offset_param(query),
                     ),
                 )
             # Unreachable while ``_KNOWN_ROUTES`` and these branches agree.

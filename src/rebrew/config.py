@@ -2275,9 +2275,6 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], Any]], ...]:
     from rebrew.compiler.toolchain_paths import TOOLCHAINS_DIR_ENV
     from rebrew.utils import container_runtime
 
-    def _container_runtime(raw: str) -> None:
-        container_runtime(raw)
-
     def _wine_headless(raw: str) -> None:
         parse_env_bool("REBREW_WINE_HEADLESS", raw, default=True)
 
@@ -2313,7 +2310,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], Any]], ...]:
     return (
         (ALLOW_PRIVATE_DOWNLOAD_ENV, _allow_private_download),
         (OTLP_ENDPOINT_ENV, _otlp_endpoint),
-        ("REBREW_CONTAINER_RUNTIME", _container_runtime),
+        ("REBREW_CONTAINER_RUNTIME", container_runtime),
         (DECOMPME_API_ENV, _decompme_api),
         (REBREW_FLIRT_SIGS_DIR_ENV, partial(check_env_dir, REBREW_FLIRT_SIGS_DIR_ENV)),
         (KUNA_SPECS_ENV, partial(check_env_dir, KUNA_SPECS_ENV)),
