@@ -901,6 +901,7 @@ def collect_status(
     tree: list[Path] | None = None,
     data: SourceData | None = None,
     trusted: Any = None,
+    bound_inventory: list[dict[str, Any]] | None = None,
 ) -> StatusReport:
     """Collect all project health data into a StatusReport.
 
@@ -917,6 +918,10 @@ def collect_status(
     matching :func:`rebrew.naming.load_data` result for this config.  A caller
     that already loaded them (``todo`` does) passes both so the scan and
     source-binding pass are not repeated.
+
+    *bound_inventory* is the retained inventory (``trusted_function_list``) a
+    caller has already bound *trusted* against for this config and *tree*
+    (``trusted.bind``); the source scan and the bind are not repeated.
     """
     from rebrew.naming import load_data
     from rebrew.sources import iter_sources, scan_files
@@ -949,8 +954,12 @@ def collect_status(
         if trusted is not None:
             from rebrew.catalog.loaders import scan_reversed_dir, trusted_function_list
 
-            inventory = trusted_function_list(cfg)
-            trusted.bind(cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg), inventory)
+            inventory = bound_inventory
+            if inventory is None:
+                inventory = trusted_function_list(cfg)
+                trusted.bind(
+                    cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg, scanned=tree), inventory
+                )
             sizes = {int(item["va"]): int(item["size"]) for item in inventory}
             existing = {
                 va: {

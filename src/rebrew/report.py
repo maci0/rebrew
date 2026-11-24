@@ -1610,13 +1610,17 @@ def decomp_dev_report(
     from rebrew.workspace.status import FUZZY_STATUSES, MATCHED_STATUSES
 
     sizes: dict[int, int] = {}
+    # One walk of the reversed tree and one trusted bind serve the units below
+    # and the shared progress model (collect_status).
+    tree = scan_files(cfg.reversed_dir)
+    inventory: list[dict[str, Any]] | None = None
     if trusted is not None:
         from rebrew.catalog.loaders import scan_reversed_dir, trusted_function_list
 
         inventory = trusted_function_list(cfg)
-        trusted.bind(cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg), inventory)
+        trusted.bind(cfg, scan_reversed_dir(cfg.reversed_dir, cfg=cfg, scanned=tree), inventory)
         sizes = {int(item["va"]): int(item["size"]) for item in inventory}
-    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    sources = list(iter_sources(cfg.reversed_dir, cfg, scanned=tree))
     target_module_name = target_module(cfg)
     annos_by_file: list[tuple[str, list[Any]]] = []
     for path, annos in iter_source_bindings(
@@ -1741,7 +1745,7 @@ def decomp_dev_report(
     # status counts are verify-overlaid (a verify cache that demoted a
     # metadata EXACT is reflected here) and the denominator is the
     # ghidra-functions ∪ annotated set.
-    status = collect_status(cfg, trusted=trusted) if trusted is not None else collect_status(cfg)
+    status = collect_status(cfg, tree=tree, trusted=trusted, bound_inventory=inventory)
     registry_total = status.total_functions or 0
     matched_functions = status.matched_functions
     # Trusted coverage keeps library code apart: matched_code is the original
