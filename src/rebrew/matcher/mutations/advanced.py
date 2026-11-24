@@ -823,12 +823,7 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
     if_body = caps["if_body"]
     else_body = caps["else_body"]
 
-    # Remove last statement from else branch first (higher offsets first)
     result = b_source[:]
-    # Calculate what the if/else looks like after removing the tails
-    # Work from the end of the source backwards to keep offsets valid
-
-    # Remove from else branch (comes after if branch in source)
     else_rm_start = last_else.start_byte
     while else_rm_start > else_body.start_byte and b_source[else_rm_start - 1 : else_rm_start] in (
         b" ",
@@ -839,7 +834,6 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
         else_rm_start -= 1
     result = result[:else_rm_start] + result[last_else.end_byte :]
 
-    # Offset adjustments for the removal
     else_removed = last_else.end_byte - else_rm_start
 
     # Remove from if branch.  It precedes the else branch in the source, so the
@@ -854,7 +848,6 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
         if_rm_start -= 1
 
     result = result[:if_rm_start] + result[last_if.end_byte :]
-    # The stmt end also shifts.
     adj_stmt_end = stmt.end_byte - else_removed - (last_if.end_byte - if_rm_start)
 
     result = result[:adj_stmt_end] + b"\n    " + common_text + result[adj_stmt_end:]

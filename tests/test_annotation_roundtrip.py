@@ -1,4 +1,4 @@
-"""Tests for annotation round-trip fidelity (Idea 19).
+"""Tests for annotation round-trip fidelity.
 
 After the metadata migration, volatile fields (STATUS, CFLAGS, BLOCKER, NOTE,
 GLOBALS, SIZE) are stored in rebrew-functions.toml rather than in the .c file. Round-trip
@@ -8,7 +8,7 @@ reads must pass ``metadata_dir`` to ``read_source_bindings`` to see them.
 from pathlib import Path
 
 import pytest
-from source_util import SourceFixture, write_source
+from source_util import write_source
 
 from rebrew.metadata.bindings import (
     read_source_bindings,
@@ -29,28 +29,25 @@ def base_file(tmp_path: Path) -> Path:
 
 
 @pytest.mark.parametrize(
-    "key, initial_val, new_val",
+    "key, new_val",
     [
-        ("STATUS", "STUB", "EXACT"),
-        ("SIZE", "10", "42"),
-        ("CFLAGS", "/O2", "/O2 /Oy- /Ob1"),
-        ("BLOCKER", "", "register allocation (eax/ecx swap)"),
-        ("NOTE", "", "This has spaces and // fake slashes"),
-        ("GLOBALS", "", "g_var1, g_var2, g_var3"),
+        ("STATUS", "EXACT"),
+        ("SIZE", "42"),
+        ("CFLAGS", "/O2 /Oy- /Ob1"),
+        ("BLOCKER", "register allocation (eax/ecx swap)"),
+        ("NOTE", "This has spaces and // fake slashes"),
+        ("GLOBALS", "g_var1, g_var2, g_var3"),
     ],
 )
-def test_roundtrip_single_value(base_file: Path, key: str, initial_val: str, new_val: str) -> None:
+def test_roundtrip_single_value(base_file: Path, key: str, new_val: str) -> None:
     """Writing a metadata field and reading it back preserves the exact string."""
-    # Write — goes to metadata for metadata-owned keys
     modified = set_binding_field(base_file, 0x1000, key, new_val)
     assert modified
 
-    # Read — must pass metadata_dir to pick up the metadata entries
     anns = read_source_bindings(base_file, metadata_dir=base_file.parent)
     assert len(anns) == 1
     ann = anns[0]
 
-    # Verify
     if key == "SIZE":
         assert ann.size == int(new_val)
     elif key == "GLOBALS":
@@ -72,17 +69,14 @@ def test_roundtrip_multi_target(tmp_path: Path) -> None:
         metadata_dir=f.parent,
     )
 
-    # Update TARGET1 status → goes to metadata
     set_binding_field(f, 0x1000, "STATUS", "RELOC")
 
     anns = read_source_bindings(f, metadata_dir=f.parent)
     assert len(anns) == 2
 
-    # Verify TARGET1
     assert anns[0].va == 0x1000
     assert anns[0].status == "RELOC"
 
-    # Verify TARGET2 — name derived from C function def
     assert anns[1].va == 0x2000
     assert anns[1].name == "func"
 
@@ -146,12 +140,6 @@ def test_block_comment_marker_parses(tmp_path: Path) -> None:
     treat them identically to the ``//`` form."""
     from rebrew.metadata.bindings import read_source_bindings
 
-    (
-        SourceFixture(
-            "/* ADDRESS: MAIN 0x0000042e */\nint fcn_042e(void)\n{\n    /* TODO: Implement */\n    return 0;\n}\n",
-            {"MAIN.0x0000042e": {"kind": "FUNCTION"}},
-        )
-    )
     tmp = Path(tmp_path)
     f = tmp / "fcn_042e.c"
     write_source(

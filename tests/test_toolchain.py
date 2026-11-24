@@ -472,11 +472,23 @@ class TestRunToolchain:
         assert run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path).ok
         assert calls[0].index("TZ=UTC0") < calls[0].index(spec.image)
 
-    def test_native_runtime_strips_tz_without_epoch(self, tmp_path: Path, monkeypatch) -> None:
-        """An epoch-less native compile must not inherit a host TZ: the
-        cache key is TZ-blind, so an ambient TZ would let one run serve
-        the other's __DATE__-bearing .obj."""
-        monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+    @pytest.mark.parametrize(
+        ("epoch", "expected_tz"),
+        [(None, None), ("1071482016", "UTC0")],
+        ids=["without-epoch", "with-epoch"],
+    )
+    def test_native_runtime_uses_cache_consistent_timezone(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        epoch: str | None,
+        expected_tz: str | None,
+    ) -> None:
+        """Native compiles use the timezone their cache key describes."""
+        if epoch is None:
+            monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)
+        else:
+            monkeypatch.setenv("SOURCE_DATE_EPOCH", epoch)
         monkeypatch.setenv("TZ", "Pacific/Kiritimati")
         cl = tmp_path / "vc" / "bin" / "cl.exe"
         cl.parent.mkdir(parents=True)
@@ -497,33 +509,8 @@ class TestRunToolchain:
 
         monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
         assert run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path).ok
-        assert seen[0] is not None and "TZ" not in seen[0]
-
-    def test_native_runtime_pins_tz_with_epoch(self, tmp_path: Path, monkeypatch) -> None:
-        """With an epoch set, the native compiler's clock is pinned to UTC
-        so its __DATE__ expansion matches the epoch the key hashes."""
-        monkeypatch.setenv("SOURCE_DATE_EPOCH", "1071482016")
-        monkeypatch.setenv("TZ", "Pacific/Kiritimati")
-        cl = tmp_path / "vc" / "bin" / "cl.exe"
-        cl.parent.mkdir(parents=True)
-        cl.write_bytes(b"MZ")
-        spec = ToolchainSpec(
-            name="t",
-            image=None,
-            binary="cl",
-            runtime="native",
-            host_path=tmp_path / "vc",
-            host_bin="Bin",
-        )
-        seen: list[dict[str, str] | None] = []
-
-        def _run(cmd, **kwargs):
-            seen.append(kwargs.get("env"))
-            return _FakeProc(0, "", "")
-
-        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
-        assert run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path).ok
-        assert seen[0] is not None and seen[0].get("TZ") == "UTC0"
+        assert seen[0] is not None
+        assert seen[0].get("TZ") == expected_tz
 
     def test_docker_compile_runs_as_the_image_user(self, tmp_path: Path, monkeypatch) -> None:
         # The toolchain images run as their own unprivileged user (rebrew, uid 1000), which owns the baked

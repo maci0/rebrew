@@ -125,79 +125,38 @@ class TestPrintStructuralSimilarity:
 
 
 class TestDiffSourceResolution:
-    def test_va_resolves_to_source_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("source_arg", "resolved"),
+        [("0x1000", True), ("no_such_thing_anywhere", False)],
+        ids=["va-resolves-to-source-file", "unresolvable-passthrough"],
+    )
+    def test_source_argument_resolution(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        source_arg: str,
+        resolved: bool,
     ) -> None:
-        """`rebrew diff 0x1000` resolves the VA to the matching .c seed."""
-        from types import SimpleNamespace
-
+        """A VA resolves to its source file; other seed arguments pass through."""
         from typer.testing import CliRunner
 
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            module="GAME",
+            source_ext=".c",
+            compile_timeout=30,
+        )
         src = tmp_path / "target_func.c"
-        write_source(
-            src,
-            "/* ADDRESS: GAME 0x1000 */\n\nint f(void) { return 0; }\n",
-            encoding="utf-8",
-            metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
-            metadata_dir=tmp_path,
-        )
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=tmp_path,
-            metadata_dir=tmp_path,
-            module="GAME",
-            source_ext=".c",
-            compile_timeout=30,
-        )
-        monkeypatch.setattr("rebrew.diff.require_config", lambda target=None, json_mode=False: cfg)
-
-        captured: dict[str, object] = {}
-
-        def fake_resolve_build_params(*args: object, **kwargs: object) -> object:
-            captured["seed_c"] = args[1]
-            return SimpleNamespace(
-                seed_src=args[1],
-                cl="cl",
-                inc="inc",
-                cflags="/O2",
-                symbol="_f",
-                msvc_env={},
-                cc=None,
-                cfg=cfg,
-                seed_c=src,
-                target_bytes=b"\x00" * 8,
-                va_int=0x1000,
+        if resolved:
+            write_source(
+                src,
+                "/* ADDRESS: GAME 0x1000 */\n\nint f(void) { return 0; }\n",
+                encoding="utf-8",
+                metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
+                metadata_dir=tmp_path,
             )
-
-        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", fake_resolve_build_params)
-        monkeypatch.setattr(
-            "rebrew.diff.run_diff", lambda *a, **k: None
-        )  # skip compile/diff pipeline
-
-        from rebrew.diff import app
-
-        result = CliRunner().invoke(app, ["0x1000"])
-        assert result.exit_code == 0
-        assert captured["seed_c"] == str(src), (
-            f"expected VA→{src} resolution, got {captured['seed_c']}"
-        )
-
-    def test_unresolvable_passthrough_preserves_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """An unresolvable seed reaches resolve_build_params unchanged."""
-        from types import SimpleNamespace
-
-        from typer.testing import CliRunner
-
-        cfg = SimpleNamespace(
-            root=tmp_path,
-            reversed_dir=tmp_path,
-            metadata_dir=tmp_path,
-            module="GAME",
-            source_ext=".c",
-            compile_timeout=30,
-        )
         monkeypatch.setattr("rebrew.diff.require_config", lambda target=None, json_mode=False: cfg)
         captured: dict[str, object] = {}
 
@@ -213,8 +172,8 @@ class TestDiffSourceResolution:
                 cc=None,
                 cfg=cfg,
                 seed_c=args[1],
-                target_bytes=b"\x00",
-                va_int=0,
+                target_bytes=b"\x00" * 8,
+                va_int=0x1000 if resolved else 0,
             )
 
         monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", fake_resolve_build_params)
@@ -222,9 +181,10 @@ class TestDiffSourceResolution:
 
         from rebrew.diff import app
 
-        result = CliRunner().invoke(app, ["no_such_thing_anywhere"])
+        result = CliRunner().invoke(app, [source_arg])
         assert result.exit_code == 0
-        assert captured["seed_c"] == "no_such_thing_anywhere"
+        expected = str(src) if resolved else source_arg
+        assert captured["seed_c"] == expected
 
 
 def test_cs_mode_for_16bit_target() -> None:
