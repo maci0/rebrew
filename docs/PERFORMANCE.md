@@ -2,6 +2,51 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## `rebrew status` on guild-rebrew (2026-11-24)
+
+guild-rebrew has 2,631 compiled sources and a replicated SQLite metadata store
+whose functions document is 25 MB (803,420 lines, about 36,000 records).
+`perf stat -e instructions:u` on `rebrew status`. "Warm" is the second of two
+runs. "Cold" bypasses the parsed-document cache (`document._read_doc_cache`
+and `_write_doc_cache` stubbed), as the first command after a metadata edit
+pays. Output was byte-identical at every step.
+
+| stage | warm | cold |
+|---|---:|---:|
+| base (`b7451389`) | 48 G | 71.5 G |
+| one SQLite reader per command, cached routed store, string include walk, line TOML reader | 38 G | 46.5 G |
+| reused parsed rows, field-name and include-spelling caches, one masking pass, indexed inventory | 29.0 G | 35.4 G |
+| stale-closure fix, containment without exceptions, journal hash reuse | 27.11 G | 33.19 G |
+| shadow probes from the first search, scalar reuse, routed library tokens | 25.39 G | 29.58 G |
+| decoded journal content reuse | 24.65 G | 28.70 G |
+| persistent include closures | 20.10 G | 24.36 G |
+| live config and SQLite stats for library tokens | 19.50 G | 23.71 G |
+| verify-cache release before final GC | 19.4 G | not measured |
+| persistent PE layouts (no LIEF import) | 17.6 G | 21.7 G |
+
+Two persistent caches are keyed by the source of the code that produces
+their entries as well as the release, because a development install keeps
+one release number across commits: `.rebrew/include-closures.json` (compiler
+`cache.py` and `utils.py`) and the PE layouts (`formats/binary_loader.py` and
+`formats/binary_model.py`). The first run after such a change rebuilds them.
+
+What remains on a warm run: closure validation (header re-reads, shadow probes and missing-include probes,
+about 1.8 G by subtraction), per-source override keys, interpreter shutdown
+(about 0.42 G in the final collections and 0.31 G in module and object
+teardown), and the cold-only pure-Python TOML line parse (about 1.1 s).
+
+Rejected:
+
+- a per-call header lookup memo, stale after a case-only rename between calls;
+- deferring the LIEF import alone (status reached it), and a hand-written PE
+  parser (not equivalent to LIEF);
+- `os._exit` after the command, which skips exit handlers;
+- `gc.freeze()` at exit, which reproduced a nanobind leak report;
+- releasing the include scanner's closure through `del`, within run-to-run
+  variation;
+- `access()` in place of marker stats (a different permission question) and
+  stat-only header reuse (weaker than the content check).
+
 ## CLI startup mounts one command (2026-11-23)
 
 `rebrew --version` cost 2.01 G user-space instructions, against 0.06 G for

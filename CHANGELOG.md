@@ -2,11 +2,13 @@
 
 ### Changed
 
+- `rebrew status` on guild-rebrew (2,631 compiled sources, a replicated SQLite store holding a 25 MB functions document) costs 17.6 G user-space instructions instead of 48 G with unchanged metadata, and 21.7 G instead of 71.5 G after a metadata edit, with byte-identical output. The entries below are the individual changes, each measured against the head it was made on; `docs/PERFORMANCE.md` has the breakdown.
 - Replication state reuses the journal's decoded content when a replica has the same encoded content line, while verifying the replica's own hash. On guild-rebrew, `rebrew status` used 24.78 G instead of 25.79 G user-space instructions warm and 28.84 G instead of 29.84 G with the parsed-document cache bypassed.
-- `rebrew status` reuses include closures across processes after rechecking the headers and search paths. On guild-rebrew, user-space instructions fell from 25.72 G to 21.38 G warm and from 29.79 G to 25.62 G with the parsed-document cache bypassed.
+- `rebrew status` reuses include closures across processes (`.rebrew/include-closures.json`) after rechecking the headers and search paths, as an in-memory hit does. Entries are keyed by the rebrew release and the source of the include resolver, so a changed resolver rescans. On guild-rebrew, user-space instructions fell from 25.72 G to 21.38 G warm and from 29.79 G to 25.62 G with the parsed-document cache bypassed.
 - Library override checks reuse the project config and SQLite file stats from routing. On guild-rebrew, `rebrew status` went from 25.87 G to 25.23 G user-space instructions warm and from 29.83 G to 29.22 G with the parsed-document cache bypassed.
 - Release the decoded verification cache before the final garbage collection. On guild-rebrew, `rebrew status` used 25.63 G → 25.40 G user-space instructions warm, and the normal-exit overhead with similarity stubbed fell from 0.788 G to 0.678 G.
-- `rebrew status` reuses LIEF's PE layout facts across processes. On guild-rebrew, it used 25.59 G → 23.73 G user-space instructions warm and 29.50 G → 27.83 G with the parsed-document cache disabled.
+- `rebrew status` reuses LIEF's PE layout facts across processes (`$XDG_CACHE_HOME/rebrew/pe-layout/`), keyed by the binary's SHA-256, the LIEF and rebrew versions, the source of the PE extractor and the format hint, so a warm run does not import LIEF. On guild-rebrew, it used 25.59 G → 23.73 G user-space instructions warm and 29.50 G → 27.83 G with the parsed-document cache disabled.
+- Include-key anchors and the vendored-toolchain check test containment without raising and catching `ValueError` per miss, the package-source fingerprint resolves the package root only when its memo expires, and a replica whose text equals the journal's reuses the journal's content hash. On guild-rebrew, `rebrew status` went from 28.50 G to 27.11 G user-space instructions warm and from 34.53 G to 33.19 G cold.
 - Include scans record earlier search misses on the first walk. On guild-rebrew, `rebrew status` used 27.26 G user-space instructions warm and 33.33 G cold, down from 28.50 G and 34.63 G.
 - The rendered metadata parser reuses decoded scalars and repeated header keys within each document. On guild-rebrew, `rebrew status` used 34.76 G → 32.75 G user-space instructions with the parsed-document cache bypassed and 28.65 G → 28.60 G on a cache hit.
 - Library override fingerprinting reuses the SQLite route already selected for the source directory. On guild-rebrew, `rebrew status` went from 28.73 G to 28.03 G user-space instructions warm and from 34.70 G to 34.14 G with the parsed-document cache bypassed.
@@ -23,6 +25,10 @@
 - Header dependency scans and probe checks reuse parsed include path spellings. On guild-rebrew, `rebrew status` used 41.72 G instead of 46.72 G user-space instructions cold and 33.31 G instead of 38.03 G warm. Status output and header fingerprints were byte-identical.
 - The header dependency scanner masks comments across ordinary source lines in one pass. On guild-rebrew, `rebrew status` used 40.54 G instead of 42.11 G user-space instructions cold and 32.28 G instead of 33.71 G warm. Status output and header fingerprints were byte-identical.
 - **Breaking:** `rebrew.metadata.files` no longer imports `load_tomllib`; import it from `rebrew.utils`, where it is defined.
+
+### Fixed
+
+- The include-closure memo no longer returns a stale closure when a header reached through a directory symlink and a file symlink changes under a case-only rename of a path component (`nested` to `NESTED`) and a new nested header appears. A memo hit now rechecks each winning include's spelling and the canonical parent of an aliased spelling, the per-directory index includes the directory's ctime, and an escaping include that falls back records its earlier misses. Unchanged trees keep the same `headers_hash` values.
 
 ## [6.76.0] - 2026-11-24
 
