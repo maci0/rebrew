@@ -325,8 +325,9 @@ Regenerable files include compile caches, `.rebrew/include-closures.json`,
 The include-closure sidecar lets `rebrew status` reuse header search results
 across processes for absolute search paths. It checks the source and search
 configuration, re-reads reached headers, and rechecks missing includes and
-earlier search directories before using an entry. A missing, incompatible, or
-damaged sidecar costs a rescan.
+earlier search directories before using an entry. Entries are versioned by the
+rebrew release and the source of its include resolver, so a changed resolver
+rescans. A missing, incompatible, or damaged sidecar costs a rescan.
 
 The target binary named by each `[targets.*].binary` is the
 non-regenerable reference the whole project verifies against. TOML and SQLite

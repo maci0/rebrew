@@ -1035,19 +1035,34 @@ _INCLUDE_CLOSURE_MEMO_MAX_BYTES = 32 * BYTES_PER_MIB
 _include_closure_memo_chars = 0
 _INCLUDE_CLOSURE_LOCK = threading.Lock()
 
-# Bump when include resolution or proof semantics change.
-_INCLUDE_CLOSURE_DISK_VERSION = 1
 _INCLUDE_CLOSURE_DISK: ContextVar[tuple[dict[str, Any], dict[str, _Closure]] | None] = ContextVar(
     "_INCLUDE_CLOSURE_DISK", default=None
 )
 
 
+def _include_closure_disk_version() -> bytes:
+    """Release, platform and the source of the modules that resolve and prove closures.
+
+    A development install keeps one release number across commits, so the
+    source bytes retire entries written by different resolution code.
+    """
+    from rebrew import __version__, utils
+
+    digest = hashlib.sha256()
+    for module_file in (__file__, utils.__file__):
+        digest.update(Path(module_file).read_bytes())
+    return f"{__version__}:{os.name}:{digest.hexdigest()}".encode()
+
+
 @contextmanager
 def include_closure_cache(path: Path) -> Iterator[None]:
     """Reuse validated include closures across runs through a bounded JSON sidecar."""
-    from rebrew import __version__
-
-    version = f"{__version__}:{_INCLUDE_CLOSURE_DISK_VERSION}:{os.name}".encode()
+    try:
+        version = _include_closure_disk_version()
+    except OSError:
+        # Unreadable resolver source leaves nothing to version entries by: scan as before.
+        yield
+        return
     entries: dict[str, Any] = {}
     try:
         with path.open("rb") as stream:

@@ -72,7 +72,7 @@ class TestIncludeShadowProbes:
 
 
 class TestPersistentIncludeClosures:
-    @pytest.mark.parametrize("change", ["version", "truncated", "corrupt", "config"])
+    @pytest.mark.parametrize("change", ["version", "resolver", "truncated", "corrupt", "config"])
     def test_cache_misses_for_foreign_inputs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
     ) -> None:
@@ -92,6 +92,11 @@ class TestPersistentIncludeClosures:
 
         if change == "version":
             path.write_bytes(b"old-version\n" + raw.split(b"\n", 1)[1])
+        elif change == "resolver":
+            # A development install keeps its release number when the resolver changes.
+            edited = tmp_path / "cache.py"
+            edited.write_bytes(Path(cache.__file__).read_bytes() + b"\n# edited\n")
+            monkeypatch.setattr(cache, "__file__", str(edited))
         elif change == "truncated":
             path.write_bytes(raw[:-1])
         elif change == "corrupt":
