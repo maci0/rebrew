@@ -19,7 +19,7 @@ lazy import hashlib
 lazy from rebrew.metadata.files import METADATA_FILENAMES, TomlStore
 lazy from rebrew.metadata.locking import project_transaction
 lazy from rebrew.metadata.pgsql import PgsqlStore, validate_pgsql_settings
-lazy from rebrew.metadata.replication import RoutedStore
+lazy from rebrew.metadata.replication import JOURNAL_PATH, RoutedStore
 lazy from rebrew.metadata.sqlite import SqliteStore
 lazy from rebrew.registry import iter_optional_provider_dicts
 lazy from rebrew.utils import load_tomllib
@@ -423,15 +423,15 @@ def named_documents_token(root: Path, name: str) -> tuple[object, ...] | None:
     plus the replication journal's stat.  Other backends, and an unprovisioned
     replica whose reads fall back to TOML, return None.
     """
-    from rebrew.metadata.files import TomlStore
-    from rebrew.metadata.replication import JOURNAL_PATH, RoutedStore
-    from rebrew.metadata.sqlite import SqliteStore
-
     store = metadata_store(root / name, root=root)
     journal: tuple[object, ...] = ()
     if isinstance(store, RoutedStore):
-        journal = tuple(TomlStore(root / JOURNAL_PATH, root).fingerprint())
-        store = store.store(store.read_backends[0], store.key)
+        journal = TomlStore(root / JOURNAL_PATH, root).fingerprint()
+        primary = store.read_backends[0]
+        if type(store) is RoutedStore and store.factories[primary] is SqliteStore:
+            store = _builtin_store(store.path, "sqlite", store.root)
+        else:
+            store = store.store(primary, store.key)
     if not isinstance(store, SqliteStore):
         return None
     documents = store.provisioned_documents_named(name)

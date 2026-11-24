@@ -475,6 +475,36 @@ class TestReplicationHotPaths:
         update_field(tmp_path, 0x1000, "NOTE", "second", "GAME")
         assert store.fingerprint() != first
 
+    def test_named_document_token_reuses_the_builtin_store_and_checks_routing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata.files import TomlStore
+        from rebrew.metadata.functions import LIBRARY_METADATA_FILE
+        from rebrew.metadata.sqlite import reading
+        from rebrew.metadata.storage import named_documents_token
+
+        _project(tmp_path)
+        library = _raw(tmp_path, "sqlite", LIBRARY_METADATA_FILE)
+        library.write({"cflags": "/O1"}, "test")
+        constructions: list[Path] = []
+        init = SqliteStore.__init__
+
+        def counted(self: SqliteStore, path: Path, root: Path) -> None:
+            constructions.append(path)
+            init(self, path, root)
+
+        with reading():
+            before = named_documents_token(tmp_path, LIBRARY_METADATA_FILE)
+            assert before is not None
+            monkeypatch.setattr(SqliteStore, "__init__", counted)
+            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) == before
+            assert not constructions
+
+            TomlStore(tmp_path / JOURNAL_PATH, tmp_path).write_text("# changed\n", "test")
+            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) != before
+            _project(tmp_path, reads=["toml", "sqlite"])
+            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) is None
+
     def test_library_override_lookup_walks_once_until_a_library_document_changes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
