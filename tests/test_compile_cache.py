@@ -630,6 +630,43 @@ class TestIncludeFingerprint:
 
 
 class TestIncludePathResolution:
+    def test_lexical_paths_expose_fresh_file_type_info(self, tmp_path: Path) -> None:
+        header = tmp_path / "api.h"
+        header.write_text("int api;\n")
+        source = "#include <api.h>\n"
+        roots = (str(tmp_path),)
+        first: list[tuple[Path, Path]] = []
+        cache_module.scan_include_closure(source, None, roots, lexical=first)
+        assert not first[0][0].info.is_symlink()
+
+        target = header.rename(tmp_path / "target.h")
+        header.symlink_to(target)
+        second: list[tuple[Path, Path]] = []
+        cache_module.scan_include_closure(source, None, roots, lexical=second)
+        assert second[0] == (header, target)
+        assert second[0][0].info.is_symlink()
+
+    def test_relative_search_roots_follow_working_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        first, second = tmp_path / "first", tmp_path / "second"
+        for directory in (first, second):
+            (directory / "Include").mkdir(parents=True)
+        header = second / "Include" / "Api.h"
+        header.write_text("int api;\n")
+        source = "#include <./api.h>\n"
+        roots = ("./Include",)
+        misses: list[tuple[str, tuple[str, ...]]] = []
+
+        monkeypatch.chdir(first)
+        paths, _, _, _ = cache_module.scan_include_closure(source, None, roots, unresolved=misses)
+        assert not paths and cache_module.unresolved_still_missing(misses)
+
+        monkeypatch.chdir(second)
+        assert not cache_module.unresolved_still_missing(misses)
+        paths, fallback, _, consistent = cache_module.scan_include_closure(source, None, roots)
+        assert paths == (str(header),) and not fallback and consistent
+
     @pytest.mark.parametrize("name", ["dir/api.h", "dir/deep/api.h"])
     def test_first_directory_casefold_path_precedes_later_exact(
         self, tmp_path: Path, name: str

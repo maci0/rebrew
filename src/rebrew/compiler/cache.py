@@ -835,6 +835,16 @@ def include_specs(text: str) -> Iterator[tuple[str, str]]:
     yield from _iter_include_specs(text)
 
 
+@lru_cache(maxsize=512)
+def _short_include_path(spelling: str) -> Path:
+    """Reuse only pathlib's lexical parsing; each lookup still hits the filesystem."""
+    return Path(spelling)
+
+
+def _include_path(spelling: str) -> Path:
+    return _short_include_path(spelling) if len(spelling) <= 1024 else Path(spelling)
+
+
 def _find_in_dirs(
     name: Path, dirs: list[Path], *, lexical: list[tuple[Path, Path]] | None = None
 ) -> Path | None:
@@ -844,10 +854,11 @@ def _find_in_dirs(
     Rejects path-traversal components (``..`` / absolute paths).
     """
     # Reject traversal — otherwise ``#include "../../etc/passwd"`` would escape.
-    if name.is_absolute() or ".." in name.parts:
+    parts = name.parts
+    if name.is_absolute() or ".." in parts:
         return None
     for directory in dirs:
-        found = _walk_include_path(directory, name.parts, lexical=lexical)
+        found = _walk_include_path(directory, parts, lexical=lexical)
         if found is not None:
             return found
     return None
@@ -1023,8 +1034,9 @@ def _find_shadow_prefix(name: str, dirs: Sequence[Path], found: Path) -> tuple[s
     it (an ancestor) is not the winner and its own candidate is still missing.
     """
     prefix: list[str] = []
+    path = _include_path(name)
     for directory in dirs:
-        if _find_in_dirs(Path(name), [directory]) == found:
+        if _find_in_dirs(path, [directory]) == found:
             return tuple(prefix)
         prefix.append(str(directory))
     return tuple(prefix)
@@ -1033,8 +1045,9 @@ def _find_shadow_prefix(name: str, dirs: Sequence[Path], found: Path) -> tuple[s
 def _escape_shadow_prefix(name: str, dirs: Sequence[Path], found: Path) -> tuple[str, ...]:
     """Search dirs before the one that supplied an escaping *found*."""
     prefix: list[str] = []
+    path = _include_path(name)
     for directory in dirs:
-        if _resolve_escaping_include(Path(name), [directory]) == found:
+        if _resolve_escaping_include(path, [directory]) == found:
             return tuple(prefix)
         prefix.append(str(directory))
     return tuple(prefix)
@@ -1080,7 +1093,7 @@ def unresolved_still_missing(
     # Each distinct probe once, in order: a header both modes and several
     # includers miss is recorded once per miss (63% repeats on guild-rebrew).
     for name, dirs in dict.fromkeys(unresolved):
-        if _find_in_dirs(Path(name), [Path(d) for d in dirs]) is not None:
+        if _find_in_dirs(_include_path(name), [_include_path(d) for d in dirs]) is not None:
             return False
     return True
 
@@ -1097,20 +1110,22 @@ def shadow_unchanged(shadows: Sequence[_ShadowProbe]) -> bool:
     for mode, name, dirs in dict.fromkeys(shadows):
         if mode in {"winner", "escape-winner"}:
             expected, *search = dirs
-            roots = [Path(d) for d in search]
+            roots = [_include_path(d) for d in search]
+            path = _include_path(name)
             found = (
-                _resolve_escaping_include(Path(name), roots)
+                _resolve_escaping_include(path, roots)
                 if mode == "escape-winner"
-                else _find_in_dirs(Path(name), roots)
+                else _find_in_dirs(path, roots)
             )
-            if found != Path(expected):
+            if found != _include_path(expected):
                 return False
             continue
-        roots = [Path(d) for d in dirs]
+        roots = [_include_path(d) for d in dirs]
+        path = _include_path(name)
         if mode == "escape":
-            found = _resolve_escaping_include(Path(name), roots)
+            found = _resolve_escaping_include(path, roots)
         elif mode == "find":
-            found = _find_in_dirs(Path(name), roots)
+            found = _find_in_dirs(path, roots)
         else:
             raise ValueError("unknown include lookup proof")
         if found is not None:
@@ -1322,10 +1337,9 @@ def scan_include_closure(
     *identities* pins each symlink chain around its read; differing lexical
     and resolved parents with nested quoted includes are refused for review.
     """
-    search_dirs: list[Path] = []
-    if source_dir:
-        search_dirs.append(Path(source_dir))
-    search_dirs += [Path(d) for d in include_dirs]
+    source_path = _include_path(source_dir) if source_dir else None
+    include_paths = [_include_path(d) for d in include_dirs]
+    search_dirs = include_paths if source_path is None else [source_path, *include_paths]
     # Angle includes (and #include_next) never see the including file's own
     # directory, matching the compiler: pinning the source-dir copy of a
     # header the compiler ignores tracks the wrong file, so an edit to the
@@ -1354,18 +1368,18 @@ def scan_include_closure(
                     raise ValueError("unsupported rooted or drive-qualified MSVC include")
                 if "\\" in name:
                     name = name.replace("\\", "/")
-                    if ".." in Path(name).parts:
+                    if ".." in _include_path(name).parts:
                         raise ValueError("ambiguous MSVC include path traversal")
             # Quote includes search the including file's directory first,
             # then the /I dirs; angle includes search the /I dirs only.
             if kind == "quote" and base_dir is not None:
                 dirs = (
-                    [base_dir, *parents, *(Path(d) for d in include_dirs)]
+                    [base_dir, *parents, *include_paths]
                     if msvc_include_parents
                     else [base_dir, *search_dirs]
                 )
             else:
-                dirs = [Path(d) for d in include_dirs]
+                dirs = include_paths
             # Include-next may select any later search root; track them all.
             searches = [[d] for d in dirs] if kind == "next" else [dirs]
             next_found = False
@@ -1377,15 +1391,16 @@ def scan_include_closure(
                 ),
                 -1,
             )
+            path = _include_path(name)
             for index, dirs in enumerate(searches):
                 escaped = False
                 spelling: list[tuple[Path, Path]] = []
-                found = _find_in_dirs(Path(name), dirs, lexical=spelling)
-                if found is None and (Path(name).is_absolute() or ".." in Path(name).parts):
+                found = _find_in_dirs(path, dirs, lexical=spelling)
+                if found is None and (path.is_absolute() or ".." in path.parts):
                     # `#include "../../game_types.h"`: _find_in_dirs refuses the
                     # traversal, so resolve it here or the header joins nothing
                     # and its edit never invalidates the entry.
-                    found = _resolve_escaping_include(Path(name), dirs, lexical=spelling)
+                    found = _resolve_escaping_include(path, dirs, lexical=spelling)
                     escaped = found is not None
                     if found is None:
                         # Unresolvable on the host (lives in the toolchain image,
@@ -1503,7 +1518,7 @@ def scan_include_closure(
             if kind == "next" and not next_found:
                 misses.append((name, include_dirs[current_root + 1 :]))
 
-    _scan(source_content, Path(source_dir) if source_dir else None)
+    _scan(source_content, source_path)
     paths = tuple(sorted(reached))
     stats = tuple(observed.get(p, (-1, -1, -1, -1, "unreadable")) for p in paths)
     return paths, fallback, stats, consistent

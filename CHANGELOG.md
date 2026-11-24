@@ -10,6 +10,7 @@
 - Project-root cache hits reuse the ancestor marker paths and check each one for changes. Guild-rebrew's `rebrew status` used 45.24 G user-space instructions cold and 36.69 G warm, with byte-identical output.
 - Metadata documents are read a line at a time when they have the layout rebrew writes (`rebrew.metadata.rendered_toml.loads`), with `tomllib` for any other text, so the result and any parse error are the same. guild-rebrew's 25 MB functions document took 0.52 s instead of 1.64 s, and `rebrew status` after a metadata edit went from 71.5 G to 46.5 G user-space instructions.
 - A CLI command keeps one read connection per SQLite metadata database instead of opening one per read (11,322 in one `rebrew status` on guild-rebrew), and a replicated metadata store is reused across lookups like a single-backend one. The include-path walk works on strings instead of `Path` objects. Together: `rebrew status` on guild-rebrew with unchanged metadata went from 48 G to 38 G instructions.
+- Header dependency scans and probe checks reuse parsed include path spellings. On guild-rebrew, `rebrew status` used 41.72 G instead of 46.72 G user-space instructions cold and 33.31 G instead of 38.03 G warm. Status output and header fingerprints were byte-identical.
 - **Breaking:** `rebrew.metadata.files` no longer imports `load_tomllib`; import it from `rebrew.utils`, where it is defined.
 
 ## [6.76.0] - 2026-11-24
