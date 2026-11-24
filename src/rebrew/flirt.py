@@ -8,6 +8,7 @@ lazy import json
 lazy import logging
 lazy import os
 lazy import warnings
+lazy from collections.abc import Mapping
 lazy from typing import Any
 
 try:
@@ -102,8 +103,13 @@ def _sig_key(path: Path, base: Path) -> str:
     return path.relative_to(base).as_posix()
 
 
-def _sig_entries(dirs: list[Path]) -> list[tuple[Path, Path]]:
-    """``(file, base)`` for the signature files of *dirs* a scan loads.
+def _sig_entries(
+    dirs: list[Path], listed: Mapping[Path, list[str]] | None = None
+) -> list[tuple[Path, str]]:
+    """``(base, key)`` for the signature files of *dirs* a scan loads; the file is ``base / key``.
+
+    A base in *listed* is not walked: its files are the keys its ``index.json``
+    lists (:func:`_arch_index`), in the order a walk would find them.
 
     One file per stem in each directory, the ``.sig`` preferred (it carries the
     patterns of the ``.pat`` it was built from, and python-flirt parses it
@@ -115,21 +121,28 @@ def _sig_entries(dirs: list[Path]) -> list[tuple[Path, Path]]:
     for the same directory and stem, so a project's own copy under
     ``flirt_sigs/<family>/<toolchain>/`` overrides the shared checkout's.
     """
-    seen: dict[tuple[str, str], tuple[Path, Path]] = {}
+    seen: dict[tuple[str, str], tuple[Path, str]] = {}
     for root in dirs:
         if not root.is_dir():
             continue
         base = _sig_base(root)
+        keys = (listed or {}).get(base)
         for suffix in (".sig", ".pat"):
-            for path in sorted(base.rglob(f"*{suffix}")):
-                parent = path.parent.relative_to(base).as_posix()
-                seen.setdefault((parent, path.stem), (path, base))
+            found = (
+                [_sig_key(path, base) for path in base.rglob(f"*{suffix}")]
+                if keys is None
+                else [key for key in keys if key.endswith(suffix)]
+            )
+            # Sorted by path components, as sorting the paths themselves orders them.
+            for key in sorted(found, key=lambda k: k.split("/")):
+                parent, _, name = key.rpartition("/")
+                seen.setdefault((parent, name[: -len(suffix)]), (base, key))
     return list(seen.values())
 
 
 def signature_files(dirs: list[Path]) -> list[Path]:
     """The signature files of *dirs* a scan loads (:func:`_sig_entries`)."""
-    return [path for path, _base in _sig_entries(dirs)]
+    return [base / key for base, key in _sig_entries(dirs)]
 
 
 def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) -> None:
@@ -167,8 +180,8 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
     dest.mkdir(parents=True, exist_ok=True)
     renamed = _follow_renames(repo, dest)
     copied = 0
-    for src, base in _sig_entries([repo]):
-        key = _sig_key(src, base)
+    for base, key in _sig_entries([repo]):
+        src = base / key
         if wanted is not None and key not in wanted:
             continue
         # The copy keeps the file's key, so the checkout's index still names it
@@ -260,8 +273,8 @@ def _matched_sig_names(linkage: str) -> set[str]:
         return names
     if not repo.is_dir():
         return names
-    for src, base in _sig_entries([repo]):
-        stem = src.name.lower()
+    for _base, key in _sig_entries([repo]):
+        stem = key.rpartition("/")[2].lower()
         is_crt = stem.startswith(_CRT_STATIC_STEMS + _CRT_DYNAMIC_STEMS)
         if (
             not is_crt
@@ -269,7 +282,7 @@ def _matched_sig_names(linkage: str) -> set[str]:
             or (linkage == "static" and stem.startswith(_CRT_STATIC_STEMS))
             or (linkage == "dynamic" and stem.startswith(_CRT_DYNAMIC_STEMS))
         ):
-            names.add(_sig_key(src, base))  # WinAPI + misc always; CRT iff linkage matches
+            names.add(key)  # WinAPI + misc always; CRT iff linkage matches
     return names
 
 
@@ -347,8 +360,8 @@ ARCH_FAMILIES: dict[str, str] = {
 }
 
 
-def _arch_index(dirs: list[Path]) -> tuple[dict[str, str], set[Path]]:
-    """``key -> arch`` from the ``index.json`` beside the signatures, and the bases that ship one.
+def _arch_index(dirs: list[Path]) -> tuple[dict[str, str], dict[Path, list[str]]]:
+    """``key -> arch`` from the ``index.json`` beside the signatures, and each base that ships one with its keys.
 
     recondb publishes the architecture of every file it loads (its own
     ``tools/index_sigs.py``) in ``sigs/index.json``, keyed by the file's path
@@ -360,7 +373,7 @@ def _arch_index(dirs: list[Path]) -> tuple[dict[str, str], set[Path]]:
     (a recondb before :data:`RECONDB_INDEX_RELEASE`).
     """
     index: dict[str, str] = {}
-    indexed: set[Path] = set()
+    indexed: dict[Path, list[str]] = {}
     for root in dirs:
         if not root.is_dir():
             continue
@@ -382,7 +395,7 @@ def _arch_index(dirs: list[Path]) -> tuple[dict[str, str], set[Path]]:
         files = data.get("files")
         if not isinstance(files, dict):
             raise ConfigError(f"signature index {candidate} has no object of files")
-        indexed.add(base)
+        indexed[base] = list(files)
         for key, meta in files.items():
             index.setdefault(key, str(meta.get("arch", "") if isinstance(meta, dict) else ""))
     return index, indexed
@@ -394,34 +407,24 @@ def load_signatures_for(dirs: list[Path], arch: str = "") -> list[Any]:
     The whole library is ~12 M patterns and python-flirt builds one matcher
     for everything loaded, which does not fit in memory.  A file the index
     lists under another architecture is skipped when *arch* is known; one it
-    lists with an unknown architecture (``""``) loads.  A file under a root
-    whose index does not list it is not loaded, and the scan says how many:
-    the index is that checkout's list of what it ships.  A file under a root
+    lists with an unknown architecture (``""``) loads.  A root with an index is
+    not walked: the index is that checkout's list of what it ships, so a file
+    it does not list is not loaded and one it lists but the checkout lacks is
+    reported unreadable by the parse.  A file under a root
     without an index loads unless another root's index lists its key under
     another architecture (a project's copy of a checkout file).  Raises
     :class:`ConfigError` for an index :func:`_arch_index` refuses.
     """
-    entries = _sig_entries(dirs)
     index, indexed = _arch_index(dirs)
+    entries = _sig_entries(dirs, indexed)
     files: list[Path] = []
     other_arch = 0
-    unlisted: dict[Path, list[str]] = {}
-    for path, base in entries:
-        key = _sig_key(path, base)
-        if key not in index:
-            if base in indexed:
-                unlisted.setdefault(base, []).append(key)
-            else:
-                files.append(path)
-        elif not arch or index[key] in ("", arch):
-            files.append(path)
+    for base, key in entries:
+        if key not in index or not arch or index[key] in ("", arch):
+            # A key no index lists is under a root without one: every key an index lists is in index.
+            files.append(base / key)
         else:
             other_arch += 1
-    for base, keys in unlisted.items():
-        console.print(
-            f"{len(keys)} signature file(s) under {base} are not in its index.json and were "
-            f"not loaded (first: {keys[0]})"
-        )
     if other_arch:
         console.print(
             f"Architecture {arch}: skipped {other_arch} signature file(s) that cannot match"

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+from typing import Any
 lazy from pathlib import Path
 
 import pytest
@@ -142,15 +144,57 @@ def test_an_index_of_another_format_is_refused_with_the_release_it_needs(
         flirt.load_signatures_for([repo], "x86")
 
 
-def test_a_file_its_checkouts_index_does_not_list_is_not_loaded(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_file_its_checkouts_index_does_not_list_is_not_loaded(tmp_path: Path) -> None:
     repo = _checkout(tmp_path, {"gcc/x86/lib.pat": "x86"})
     assert flirt.load_signatures_for([repo], "arm") == []
-    assert "not in its index.json and were not loaded (first: gcc/arm/lib.pat)" in " ".join(
-        capsys.readouterr().err.split()
-    )
     assert len(flirt.load_signatures_for([repo], "x86")) == 1
+
+
+def test_a_file_the_index_lists_but_the_checkout_lacks_is_reported_unreadable(
+    tmp_path: Path,
+) -> None:
+    repo = _checkout(tmp_path, {**_BOTH, "gcc/x86/gone.pat": "x86"})
+    with pytest.warns(UserWarning, match="Error loading .*gone.pat"):
+        assert len(flirt.load_signatures_for([repo], "x86")) == 1
+
+
+#: Files the walk-guard checkout lists: a load answered from its index costs the same few stats at any count.
+_LISTED = 40
+
+
+def test_a_load_from_an_index_walks_no_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The index is the checkout's list of what it ships: a load reads it once and walks nothing."""
+    import os
+
+    repo = _checkout(tmp_path, _BOTH)
+    listed = dict(_BOTH)
+    for i in range(_LISTED):
+        key = f"gcc/x86/extra{i}.pat"
+        _pat(repo / "sigs" / key, 1)
+        listed[key] = "x86"
+    (repo / "sigs" / "index.json").write_text(
+        json.dumps({"schema_version": 3, "files": {k: {"arch": a} for k, a in listed.items()}}),
+        encoding="utf-8",
+    )
+    walks: list[str] = []
+    stats: list[str] = []
+    real_scandir, real_stat = os.scandir, os.stat
+
+    def scandir(*args: Any) -> Any:
+        walks.append(str(args))
+        return real_scandir(*args)
+
+    def stat(*args: Any, **kwargs: Any) -> os.stat_result:
+        stats.append(str(args[0]))
+        return real_stat(*args, **kwargs)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    monkeypatch.setattr(os, "stat", stat)
+    assert len(flirt.load_signatures_for([repo], "x86")) == 1 + _LISTED
+    assert walks == []
+    assert len(stats) < _LISTED, stats
 
 
 def test_a_directory_without_an_index_loads_every_file(tmp_path: Path) -> None:
