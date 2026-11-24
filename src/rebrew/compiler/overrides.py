@@ -185,7 +185,7 @@ def _override_memo_key(
         bool(getattr(cfg, "cflags_explicit", False)),
         bool(getattr(cfg, "posix_style", False)),
         str(getattr(cfg, "cflags_presets", {}).get(preset_module_key(module), "")),
-        library_override_fingerprint(Path(source_dir), getattr(cfg, "root", None)),
+        library_override_fingerprint(source_dir, getattr(cfg, "root", None)),
         library_presets_generation(),
     )
 

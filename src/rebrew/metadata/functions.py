@@ -44,7 +44,12 @@ lazy from rebrew.metadata.document import (
     stamp_now,
 )
 lazy from rebrew.metadata.source_schema import validate_identity_file
-lazy from rebrew.metadata.storage import MetadataStore, metadata_store, metadata_write_lock
+lazy from rebrew.metadata.storage import (
+    MetadataStore,
+    metadata_store,
+    metadata_stores_pinned,
+    metadata_write_lock,
+)
 lazy from rebrew.utils import (
     parse_int_literal,
     resolved_path,
@@ -2157,6 +2162,10 @@ def nearest_library_metadata_path(
     return None
 
 
+_LibraryStat = tuple[int, int, int, int]
+_LibraryWatch = tuple[str, _LibraryStat]
+
+
 #: ``(start spelling, root spelling)`` -> watched directory stats, the
 #: caller's own lstat, and the fingerprint.  SourceBinding is not the key:
 #: every function under one directory asks the same question, and the walk
@@ -2167,16 +2176,16 @@ def nearest_library_metadata_path(
 _LIBRARY_FP_MEMO: OrderedDict[
     tuple[str, str],
     tuple[
-        tuple[tuple[str, int, int], ...],
-        tuple[str, int, int],
+        tuple[_LibraryWatch, ...],
+        _LibraryWatch,
         tuple[str, MetadataDocFingerprint] | None,
     ],
 ] = OrderedDict()
 _LIBRARY_FP_MEMO_MAX = 256
 
 
-def _library_stat_id(path: str, *, follow: bool) -> tuple[int, int] | None:
-    """``(mtime_ns, ino)`` for *path*, or None when it cannot be stat'ed.
+def _library_stat_id(path: str, *, follow: bool) -> _LibraryStat | None:
+    """Stat identity for *path*, or None when it cannot be stat'ed.
 
     ``os.stat`` rather than ``Path.stat``: this re-check runs once per
     function, and building a ``Path`` for it was the walk's cost.
@@ -2185,12 +2194,12 @@ def _library_stat_id(path: str, *, follow: bool) -> tuple[int, int] | None:
         st = os.stat(path, follow_symlinks=follow)  # noqa: PTH116
     except OSError:
         return None
-    return (st.st_mtime_ns, st.st_ino)
+    return (st.st_mtime_ns, st.st_ctime_ns, st.st_ino, st.st_dev)
 
 
 def _library_watch_ids(
     start_dir: str | Path, root: str | Path | None
-) -> tuple[tuple[tuple[str, int, int], ...], tuple[str, int, int]] | None:
+) -> tuple[tuple[_LibraryWatch, ...], _LibraryWatch] | None:
     """Directory chain a later call re-stats instead of resolving again.
 
     The first row is the caller's path via ``lstat``, so a symlink retarget
@@ -2206,35 +2215,35 @@ def _library_watch_ids(
         root_p = resolved_path(Path(root)) if root is not None else None
     except OSError:
         return None
-    dirs: list[tuple[str, int, int]] = []
+    dirs: list[_LibraryWatch] = []
     walk = cur
     while True:
         ident = _library_stat_id(str(walk), follow=True)
         if ident is None:
             return None
-        dirs.append((str(walk), ident[0], ident[1]))
+        dirs.append((str(walk), ident))
         dropins = walk / Path(LIBRARY_METADATA_FILE).with_suffix(".d")
         dropin_id = _library_stat_id(str(dropins), follow=True)
         if dropin_id is not None:
-            dirs.append((str(dropins), dropin_id[0], dropin_id[1]))
+            dirs.append((str(dropins), dropin_id))
         if root_p is not None and walk == root_p:
             break
         if walk.parent == walk:
             break
         walk = walk.parent
-    return tuple(dirs), (start_spelling, link[0], link[1])
+    return tuple(dirs), (start_spelling, link)
 
 
 def _library_watch_unchanged(
-    dirs: tuple[tuple[str, int, int], ...],
-    link: tuple[str, int, int],
+    dirs: tuple[_LibraryWatch, ...],
+    link: _LibraryWatch,
     found: tuple[str, MetadataDocFingerprint] | None,
 ) -> bool:
     """True while the watched directories, the start path, and the file match."""
-    if _library_stat_id(link[0], follow=False) != (link[1], link[2]):
+    if _library_stat_id(link[0], follow=False) != link[1]:
         return False
-    for path, mtime_ns, ino in dirs:
-        if _library_stat_id(path, follow=True) != (mtime_ns, ino):
+    for path, identity in dirs:
+        if _library_stat_id(path, follow=True) != identity:
             return False
     if found is None:
         return True
@@ -2261,15 +2270,22 @@ def _database_library_fingerprint(
     """:func:`library_override_fingerprint` for database-backed stores, memoized by token."""
     from rebrew.metadata.storage import named_documents_token
 
-    def current_token(selected: MetadataStore | None = None) -> tuple[object, ...] | None:
-        if root is None:
+    start = os.fspath(start_dir)
+    root_path = Path(root) if isinstance(root, str) else root
+
+    def current_token(selected: MetadataStore) -> tuple[object, ...] | None:
+        if root_path is None or selected.root != root_path:
+            # The walk can cross two projects, and one database cannot watch both.
             return None
-        documents = named_documents_token(Path(root), LIBRARY_METADATA_FILE, selected=selected)
-        link = _library_stat_id(os.fspath(start_dir), follow=False)
-        return None if documents is None else (documents, link)
+        documents = named_documents_token(root_path, LIBRARY_METADATA_FILE, selected=selected)
+        return (
+            None
+            if documents is None
+            else (selected, documents, _library_stat_id(start, follow=False))
+        )
 
     token = current_token(store)
-    key = (os.fspath(start_dir), "" if root is None else os.fspath(root))
+    key = (start, "" if root_path is None else os.fspath(root_path))
     if token is not None:
         with _LIBRARY_CACHE_LOCK:
             cached = _LIBRARY_DB_MEMO.get(key)
@@ -2278,7 +2294,7 @@ def _database_library_fingerprint(
                 return cached[1]
     found = nearest_library_metadata_path(start_dir, root)
     result = (str(found), metadata_store(found).fingerprint()) if found else None
-    if token is not None and current_token() == token:
+    if token is not None and current_token(metadata_store(store.path)) == token:
         with _LIBRARY_CACHE_LOCK:
             _LIBRARY_DB_MEMO[key] = (token, result)
             _LIBRARY_DB_MEMO.move_to_end(key)
@@ -2301,7 +2317,11 @@ def library_override_fingerprint(
     file instead of resolving the walk again.  A new file, a removed file,
     or an in-place edit still returns the fresh fingerprint.
     """
-    store = metadata_store(Path(start_dir) / LIBRARY_METADATA_FILE)
+    if metadata_stores_pinned():
+        found = nearest_library_metadata_path(start_dir, root)
+        return (str(found), metadata_store(found).fingerprint()) if found else None
+    directory = start_dir if isinstance(start_dir, Path) else Path(start_dir)
+    store = metadata_store(directory / LIBRARY_METADATA_FILE)
     if store.name != "toml":
         return _database_library_fingerprint(start_dir, root, store)
     key = (os.fspath(start_dir), "" if root is None else os.fspath(root))

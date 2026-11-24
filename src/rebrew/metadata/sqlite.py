@@ -155,11 +155,12 @@ def _connections() -> dict[Path, sqlite3.Connection]:
 
 _NamedDocuments = tuple[tuple[str, str], ...]
 _DatabaseVersion = tuple[int, int, int, int]
+_NamedCache = dict[str, tuple[_DatabaseVersion, _NamedDocuments | None]]
 #: The connection, the ``(st_dev, st_ino)`` it opened, and its named-document digests.
 _Reader = tuple[
     sqlite3.Connection,
     tuple[int, int],
-    dict[str, tuple[_DatabaseVersion, _NamedDocuments | None]],
+    _NamedCache,
 ]
 
 
@@ -207,11 +208,13 @@ class SqliteStore:
         _check_database_schema(connection, self.location)
 
     @contextlib.contextmanager
-    def _reader(self) -> Iterator[sqlite3.Connection | None]:
+    def _reader(
+        self,
+    ) -> Iterator[tuple[sqlite3.Connection | None, os.stat_result | None, _NamedCache | None]]:
         active = _connections().get(self.location)
         if active is not None:
             try:
-                yield active
+                yield active, None, None
             except sqlite3.OperationalError as exc:
                 raise MetadataUnavailableError(f"{self.location}: {exc}") from exc
             except sqlite3.Error as exc:
@@ -223,13 +226,13 @@ class SqliteStore:
         except FileNotFoundError:
             if readers is not None and (kept := readers.pop(self.location, None)) is not None:
                 kept[0].close()
-            yield None
+            yield None, None, None
             return
         identity = (stat.st_dev, stat.st_ino)
         try:
             if readers is None:
                 with contextlib.closing(self._open_reader()) as connection:
-                    yield connection
+                    yield connection, None, None
                 return
             kept = readers.get(self.location)
             if kept is not None and kept[1] != identity:
@@ -240,7 +243,7 @@ class SqliteStore:
             if kept is None:
                 kept = (self._open_reader(), identity, {})
                 readers[self.location] = kept
-            yield kept[0]
+            yield kept[0], stat, kept[2]
         except sqlite3.OperationalError as exc:
             raise MetadataUnavailableError(f"{self.location}: {exc}") from exc
         except sqlite3.Error as exc:
@@ -270,7 +273,7 @@ class SqliteStore:
         return connection
 
     def _row(self) -> tuple[str, int] | None:
-        with self._reader() as connection:
+        with self._reader() as (connection, _, _):
             if connection is None:
                 return None
             row = connection.execute(
@@ -311,7 +314,7 @@ class SqliteStore:
         A clone carries the TOML replica but not this file, and a write transaction
         creates the file before its first document lands; neither is a populated store.
         """
-        with self._reader() as connection:
+        with self._reader() as (connection, _, _):
             return connection is not None and self._provisioned(connection)
 
     @staticmethod
@@ -323,7 +326,7 @@ class SqliteStore:
 
     def documents_named(self, name: str) -> tuple[tuple[str, str], ...] | None:
         """Return each matching document's path and digest, or None without a database."""
-        with self._reader() as connection:
+        with self._reader() as (connection, _, _):
             return None if connection is None else self._read_named_digests(connection, name)
 
     def provisioned_documents_named(self, name: str) -> _NamedDocuments | None:
@@ -332,16 +335,10 @@ class SqliteStore:
         A kept reader reuses these exact digests until another connection commits
         or the file changes. Active transactions read their own pending writes.
         """
-        with self._reader() as connection:
+        with self._reader() as (connection, stat, cache):
             if connection is None:
                 return None
-            readers: dict[Path, _Reader] | None = getattr(_CONNECTIONS, "readers", None)
-            kept = readers.get(self.location) if readers is not None else None
-            if kept is None or kept[0] is not connection:
-                return self._read_provisioned_named_digests(connection, name)
-            try:
-                stat = self.location.stat()
-            except FileNotFoundError:
+            if cache is None or stat is None:
                 return self._read_provisioned_named_digests(connection, name)
             version = (
                 int(connection.execute("PRAGMA data_version").fetchone()[0]),
@@ -349,7 +346,6 @@ class SqliteStore:
                 stat.st_ctime_ns,
                 stat.st_size,
             )
-            cache = kept[2]
             cached = cache.get(name)
             if cached is not None and cached[0] == version:
                 return cached[1]
@@ -392,7 +388,7 @@ class SqliteStore:
 
     def exists(self) -> bool:
         """Whether this logical document exists, independently of other stores."""
-        with self._reader() as connection:
+        with self._reader() as (connection, _, _):
             return (
                 connection is not None
                 and connection.execute(
@@ -424,7 +420,7 @@ class SqliteStore:
             # until a read recovers the database.
             row = (0,)
         else:
-            with self._reader() as connection:
+            with self._reader() as (connection, _, _):
                 if connection is None:
                     return ()
                 row = connection.execute(
@@ -548,7 +544,7 @@ class SqliteStore:
 
     def documents(self, *, recursive: bool = False) -> tuple[Path, ...]:
         """List logical metadata paths persisted in this database."""
-        with self._reader() as connection:
+        with self._reader() as (connection, _, _):
             if connection is None:
                 return ()
             result = []

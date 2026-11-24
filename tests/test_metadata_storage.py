@@ -349,7 +349,19 @@ class TestReadingSession:
         with reading():
             before = named_documents_token(tmp_path, LIBRARY_METADATA_FILE)
             assert before is not None
-            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) == before
+            stat = Path.stat
+            checks = 0
+
+            def counted(path: Path, **kwargs: Any) -> Any:
+                nonlocal checks
+                if path == store.location:
+                    checks += 1
+                return stat(path, **kwargs)
+
+            with monkeypatch.context() as cached:
+                cached.setattr(Path, "stat", counted)
+                assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) == before
+                assert checks == 1
             assert len(scans) == 1
 
             with pytest.raises(RuntimeError, match="rollback"), store.transaction():
@@ -366,6 +378,34 @@ class TestReadingSession:
             store.remove()
             assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) is None
             assert store.documents_named(LIBRARY_METADATA_FILE) == ()
+
+    def test_named_document_token_sees_wal_commits_without_a_database_stat_change(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.metadata.functions import LIBRARY_METADATA_FILE
+        from rebrew.metadata.storage import named_documents_token
+
+        _project(tmp_path, "sqlite")
+        store = metadata_store(tmp_path / LIBRARY_METADATA_FILE)
+        store.write({"cflags": "/O1"}, "test")
+        store.location.chmod(0o644)
+        with closing(sqlite3.connect(store.location)) as writer, reading():
+            assert writer.execute("PRAGMA journal_mode=WAL").fetchone() == ("wal",)
+            before = named_documents_token(tmp_path, LIBRARY_METADATA_FILE)
+            assert before is not None
+            stat = store.location.stat()
+            writer.execute(
+                "UPDATE metadata_documents SET content = ? WHERE path = ?",
+                ('cflags = "/O2"\n', LIBRARY_METADATA_FILE),
+            )
+            writer.commit()
+            after = store.location.stat()
+            assert (after.st_mtime_ns, after.st_ctime_ns, after.st_size) == (
+                stat.st_mtime_ns,
+                stat.st_ctime_ns,
+                stat.st_size,
+            )
+            assert named_documents_token(tmp_path, LIBRARY_METADATA_FILE) != before
 
     def test_the_reader_closes_at_the_end_and_on_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -748,20 +788,19 @@ def test_project_root_cache_survives_scan_and_rechecks_backend(
     config.write_text('[metadata]\nbackend = "sqlite"\n')
     assert all(storage.metadata_store(path).name == "sqlite" for path in paths)
     calls = 0
-    real = storage.walk_up_to_root
 
     def counting(start: Path) -> Path | None:
         nonlocal calls
         calls += 1
-        return real(start)
+        return walk_up_to_root(start)
 
     monkeypatch.setattr(storage, "walk_up_to_root", counting)
     with monkeypatch.context() as cached:
 
-        def unexpected_rebuild(directory: str) -> None:
+        def unexpected_rebuild(directory: str, project: str) -> None:
             pytest.fail(f"rebuilding marker paths for a cached directory: {directory}")
 
-        cached.setattr(storage, "_ancestor_identities", unexpected_rebuild)
+        cached.setattr(storage, "_nearer_markers", unexpected_rebuild)
         assert all(storage.metadata_store(path).name == "sqlite" for path in paths)
     assert calls == 0
 
@@ -788,6 +827,7 @@ def test_project_root_cache_evicts_only_least_recently_used(
 
     import rebrew.metadata.storage as storage
 
+    (tmp_path / "rebrew-project.toml").write_text("[metadata]\n")
     monkeypatch.setattr(storage, "_PROJECT_ROOTS", OrderedDict())
     monkeypatch.setattr(storage, "walk_up_to_root", lambda _: tmp_path)
     dirs = [tmp_path / str(i) for i in range(storage._PROJECT_ROOTS_MAX + 1)]
@@ -832,16 +872,16 @@ class TestMigrateReadsOnce:
         """Every format-preserving read of a store costs a full parse, so a migration that writes
         reads its sources once, under the locks it writes them with; a preview reads them once too."""
         import rebrew.metadata.files as files
+        from rebrew.utils import load_toml_for_write_strict
 
         cfg = _project(tmp_path)
         update_source_status(tmp_path, "EXACT", "GAME", 0x1000, force=True)
         reads: list[str] = []
-        load = files.load_toml_for_write_strict
         load_single = files._load_roundtrip
 
         def counted(path: Path, description: str) -> Any:
             reads.append(Path(path).name)
-            return load(path, description)
+            return load_toml_for_write_strict(path, description)
 
         def counted_single(path: Path, description: str, validate: Any) -> Any:
             reads.append(Path(path).name)

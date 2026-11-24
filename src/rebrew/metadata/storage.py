@@ -27,6 +27,9 @@ lazy from rebrew.workspace.config import CONFIG_NAME, walk_up_to_root
 
 Fingerprint = tuple[tuple[str, int, int, int, int], ...]
 Validator = Callable[[Any], Any]
+_ConfigIdentity = tuple[int, int, int, int, int]
+_ProjectRoute = tuple[Path, Path, _ConfigIdentity | None]
+_MarkerProbe = tuple[str, str]
 
 
 @runtime_checkable
@@ -176,70 +179,83 @@ def validate_backend_settings(raw: Any) -> str:
 
 @lru_cache(maxsize=64)
 def _configured_routes(
-    path: Path, fingerprint: tuple[int, int, int, int]
+    path: Path, fingerprint: _ConfigIdentity
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     return backend_routes(load_tomllib(path).get("metadata", {}))
 
 
-#: ``directory spelling -> (project root, marker paths and identities)``.  The walk stats every
-#: ancestor; a whole-tree scan calls ``metadata_store`` once per source file.
-#: Misses are not cached: a config created later must still be found.  A hit is
-#: only reused while every ancestor's identity is unchanged, so creating or
-#: removing a ``rebrew-project.toml`` marker above a cached directory — or
-#: replacing an ancestor with a lookalike — invalidates the memo instead of
-#: keeping the old root for the life of the process.
-_PROJECT_ROOTS: OrderedDict[str, tuple[Path, tuple[tuple[str, tuple[int, ...] | None], ...]]] = (
+#: Watch nearer markers and the selected config. Markers above a live project
+#: cannot take precedence. A directory without a project is never cached.
+_PROJECT_ROOTS: OrderedDict[str, tuple[_ProjectRoute, str, tuple[_MarkerProbe, ...]]] = (
     OrderedDict()
 )
 _PROJECT_ROOTS_LOCK = threading.Lock()
 _PROJECT_ROOTS_MAX = 256
 
 
-def _marker_identity(marker: str) -> tuple[int, int, int, int, int] | None:
-    """Stat identity of the project marker, ``None`` when absent."""
+def _config_identity(
+    path: str | Path, missing: type[OSError] = FileNotFoundError
+) -> _ConfigIdentity | None:
+    """Stat identity for routing, including rewrites that preserve mtime."""
     try:
-        st = os.stat(marker)  # noqa: PTH116 -- marker paths are already strings
-    except OSError:
+        st = os.stat(path)  # noqa: PTH116 -- cached marker paths are strings
+    except missing:
         return None
-    return (st.st_mtime_ns, st.st_ctime_ns, st.st_ino, st.st_size, 1)
+    return (st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_ino, st.st_dev)
 
 
-def _ancestor_identities(directory: str) -> tuple[tuple[str, tuple[int, ...] | None], ...]:
-    """Marker paths and identities for *directory* and every ancestor."""
-    identities: list[tuple[str, tuple[int, ...] | None]] = []
+def _nearer_markers(directory: str, project: str) -> tuple[_MarkerProbe, ...] | None:
+    """Watch missing markers between the source directory and its project."""
+    markers: list[_MarkerProbe] = []
     current = directory
-    while True:
+    while current != project:
         marker = os.path.join(current, CONFIG_NAME)  # noqa: PTH118 -- the marker cache uses strings
-        identities.append((marker, _marker_identity(marker)))
         parent = os.path.dirname(current)
-        if parent == current:
-            break
+        if (
+            parent == current
+            or os.path.islink(current)  # noqa: PTH114 -- the marker cache uses strings
+            or _config_identity(marker, OSError) is not None
+        ):
+            return None
+        markers.append((current, marker))
         current = parent
-    return tuple(identities)
+    return tuple(markers)
 
 
-def _project_root(directory: Path) -> Path:
-    """Find and memoize the project root for *directory*, if one exists."""
+def _project_root(directory: Path) -> _ProjectRoute:
+    """Find the project and reuse the config identity checked by the marker walk."""
     spelling = str(directory)
     with _PROJECT_ROOTS_LOCK:
         cached = _PROJECT_ROOTS.get(spelling)
-    if cached is not None and all(
-        _marker_identity(marker) == identity for marker, identity in cached[1]
+    if (
+        cached is not None
+        and all(
+            not os.path.islink(directory)  # noqa: PTH114 -- the marker cache uses strings
+            and _config_identity(marker, OSError) is None
+            for directory, marker in cached[2]
+        )
+        and _config_identity(cached[1], OSError) == cached[0][2]
     ):
         with _PROJECT_ROOTS_LOCK:
             if spelling in _PROJECT_ROOTS:
                 _PROJECT_ROOTS.move_to_end(spelling)
         return cached[0]
     walked = walk_up_to_root(directory)
-    if walked is None:
-        return directory
-    identities = _ancestor_identities(spelling)
+    project = directory if walked is None else walked
+    config = project / CONFIG_NAME
+    identity = _config_identity(config)
+    result = (project, config, identity)
+    if walked is None or identity is None:
+        return result
+    markers = _nearer_markers(spelling, os.fspath(project))
+    if markers is None:
+        return result
     with _PROJECT_ROOTS_LOCK:
-        _PROJECT_ROOTS[spelling] = (walked, identities)
+        _PROJECT_ROOTS[spelling] = (result, os.fspath(config), markers)
         _PROJECT_ROOTS.move_to_end(spelling)
         while len(_PROJECT_ROOTS) > _PROJECT_ROOTS_MAX:
             _PROJECT_ROOTS.popitem(last=False)
-    return walked
+    return result
 
 
 def _backend_factory(backend: str) -> BackendFactory:
@@ -258,7 +274,7 @@ def _backend_factory(backend: str) -> BackendFactory:
 #: ``path -> (config identity, store)`` for the project-selected backend.
 #: Only populated when the project config exists: a config created later must
 #: still be found, so the no-config case keeps walking each call.
-_SELECTED_STORES: OrderedDict[Path, tuple[tuple[int, int, int, int], MetadataStore]] = OrderedDict()
+_SELECTED_STORES: OrderedDict[Path, tuple[_ConfigIdentity, MetadataStore]] = OrderedDict()
 _SELECTED_STORES_LOCK = threading.Lock()
 _SELECTED_STORES_MAX = 128
 
@@ -293,20 +309,18 @@ def metadata_store(
     pinned = (_PINNED_STORES.get() or {}).get(path)
     if pinned is not None and backend is None and (root is None or root.resolve() == pinned.root):
         return pinned
-    project = root.resolve() if root is not None else _project_root(path.parent)
-    config = project / CONFIG_NAME
-    try:
-        stat = config.stat()
-    except FileNotFoundError:
-        config_identity: tuple[int, int, int, int] | None = None
+    if root is None:
+        project, config, config_identity = _project_root(path.parent)
     else:
-        config_identity = (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
+        project = root.resolve()
+        config = project / CONFIG_NAME
+        config_identity = _config_identity(config)
     if backend is None and config_identity is not None:
         # One dict lookup for the whole common case: the project selects the
         # backend and has not rewritten its config since the store was built.
         with _SELECTED_STORES_LOCK:
             selected = _SELECTED_STORES.get(path)
-        if selected is not None and selected[0] == config_identity:
+        if selected is not None and selected[0] == config_identity and selected[1].root == project:
             return selected[1]
         reads, writes = _configured_routes(config, config_identity)
         store: MetadataStore
@@ -363,6 +377,11 @@ def pin_metadata_stores(stores: list[MetadataStore]) -> Iterator[None]:
         yield
     finally:
         _PINNED_STORES.reset(token)
+
+
+def metadata_stores_pinned() -> bool:
+    """Return whether this transaction can route individual paths differently."""
+    return bool(_PINNED_STORES.get())
 
 
 @contextlib.contextmanager
