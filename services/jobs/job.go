@@ -250,6 +250,76 @@ type MatchOptions struct {
 
 var defaultMatchOptions = MatchOptions{Generations: 100, Population: 64}
 
+// discardUnreceiptedCustody removes an admission that crashed before its receipt
+// became durable. Compile custody is removed only when its ledger proves no
+// attempt was sent; an unresolved paid compile must keep its key for recovery.
+func (o *Owner) discardUnreceiptedCustody(id string) error {
+	original := filepath.Join(o.dir, id+".original")
+	compileDir := filepath.Join(o.dir, id+".compile")
+	info, err := os.Lstat(compileDir)
+	if err == nil {
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("invalid unreceipted compile custody")
+		}
+		entries, readErr := os.ReadDir(compileDir)
+		if readErr != nil {
+			return readErr
+		}
+		for _, entry := range entries {
+			if entry.Name() != "ledger" && entry.Name() != "config.json" {
+				return errors.New("unreceipted compile custody contains unknown state")
+			}
+		}
+		ledger := filepath.Join(compileDir, "ledger")
+		ledgerInfo, ledgerErr := os.Lstat(ledger)
+		if ledgerErr == nil {
+			if !ledgerInfo.IsDir() || ledgerInfo.Mode()&os.ModeSymlink != 0 {
+				return errors.New("invalid unreceipted compile ledger")
+			}
+			ledgerEntries, readErr := os.ReadDir(ledger)
+			if readErr != nil {
+				return readErr
+			}
+			for _, entry := range ledgerEntries {
+				if entry.Name() != "index.json" {
+					return errors.New("unreceipted compile custody contains an attempt")
+				}
+			}
+			if len(ledgerEntries) != 0 {
+				indexInfo, statErr := os.Lstat(filepath.Join(ledger, "index.json"))
+				if statErr != nil {
+					return statErr
+				}
+				if !indexInfo.Mode().IsRegular() || indexInfo.Mode()&os.ModeSymlink != 0 {
+					return errors.New("invalid unreceipted compile index")
+				}
+				ids, indexErr := readCompileIndex(ledger)
+				if indexErr != nil {
+					return indexErr
+				}
+				if len(ids) != 0 {
+					return errors.New("unreceipted compile custody contains an attempt")
+				}
+			}
+		} else if !errors.Is(ledgerErr, os.ErrNotExist) {
+			return ledgerErr
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	for _, path := range []string{original, compileDir} {
+		if _, statErr := os.Lstat(path); statErr == nil {
+			makeTreeRemovable(path)
+			if removeErr := os.RemoveAll(path); removeErr != nil {
+				return removeErr
+			}
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return statErr
+		}
+	}
+	return syncDir(o.dir)
+}
+
 // Admit pins one seed under the workspace and durably retains intent before launch.
 // The boolean reports whether this call created the job rather than replaying it.
 func (o *Owner) Admit(key, seed, expectedWorkspaceSHA256 string) (Receipt, bool, error) {
@@ -367,6 +437,9 @@ func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, c
 	}
 	if o.occupied {
 		return Receipt{}, false, ErrOccupied
+	}
+	if err = o.discardUnreceiptedCustody(id); err != nil {
+		return Receipt{}, false, err
 	}
 	originalPath := filepath.Join(o.dir, id+".original")
 	if _, statErr := os.Lstat(originalPath); !errors.Is(statErr, os.ErrNotExist) {

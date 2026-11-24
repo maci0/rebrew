@@ -23,7 +23,7 @@
 - Verification drops a measured row if the target binary was replaced before the cache write, instead of stamping the old bytes' verdict with the replacement image's identity.
 - Job idempotency replay checks the execution provider and pinned image, so a backend change cannot return an older job's result.
 - The jobs service keeps one managed compile's idempotency key after `delivery_denied`, `result_unavailable` and other refusals that may follow billing, so a worker retry cannot compile and bill the same intent again.
-- The jobs service caps event streams across the owner, removes unreceipted custody after failed managed admission, and runs owner cleanup after graceful HTTP shutdown.
+- The jobs service caps event streams across the owner, removes unreceipted custody after failed or interrupted admission while preserving any compile attempt that may have been sent, and runs owner cleanup after graceful HTTP shutdown.
 - LLM-assisted GA seeding reuses terminal billed outcomes from its bounded in-process cache, including empty responses and lost replies. A concurrent waiter that times out returns no seeds instead of becoming a second sender, while connect-stage failures remain retryable and release their unused token reservation.
 - The clispec document declares every JSON error kind the CLI emits, describes repeatable `--verbose` as a count, and records terminal and prompt behavior. JSON-mode Ctrl+C now writes the declared `interrupted` error envelope before exiting 130.
 - Eager `--version` output honors the last repeated root `--output` choice, matching normal Click parsing.

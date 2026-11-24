@@ -116,6 +116,140 @@ func TestRealMatchInvocationAndIdempotentRecovery(t *testing.T) {
 	}
 }
 
+func TestAdmissionRetryDiscardsUnreceiptedCustody(t *testing.T) {
+	for _, managed := range []bool{false, true} {
+		name := "local"
+		if managed {
+			name = "managed"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, dir := t.TempDir(), testJobDir(t)
+			if err := os.WriteFile(filepath.Join(root, "seed.c"), []byte("int f(void){return 0;}\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			digest, err := WorkspaceDigest(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var owner *Owner
+			if managed {
+				owner, err = OpenDocker(root, dir, DockerProvider{Binary: "/bin/false", Image: "sha256:" + strings.Repeat("a", 64)})
+				if err == nil {
+					err = owner.ConfigureManagedCompile("https://recompile.invalid", 1, []string{"gcc"})
+				}
+			} else {
+				owner, err = Open(root, dir, "/bin/false")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer owner.Close()
+
+			key := "interrupted-admission"
+			keySum := sha256.Sum256([]byte(key))
+			id := hex.EncodeToString(keySum[:])
+			stage, stageDigest, err := snapshot(root, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stageDigest != digest {
+				t.Fatal("workspace changed between digest and custody snapshot")
+			}
+			original := filepath.Join(dir, id+".original")
+			if err = os.Rename(stage, original); err != nil {
+				t.Fatal(err)
+			}
+			if err = sealSnapshot(original); err != nil {
+				t.Fatal(err)
+			}
+			if managed {
+				ledger := filepath.Join(dir, id+".compile", "ledger")
+				if err = os.MkdirAll(ledger, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err = writeCompileIndex(ledger, []string{}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			var first Receipt
+			var created bool
+			if managed {
+				first, created, err = owner.AdmitManaged(key, "seed.c", digest, "rck_secret")
+			} else {
+				first, created, err = testAdmit(owner, key, "seed.c")
+			}
+			if err != nil || !created {
+				t.Fatalf("retry after interrupted admission: created=%v err=%v", created, err)
+			}
+			var replay Receipt
+			if managed {
+				replay, created, err = owner.AdmitManaged(key, "seed.c", digest, "rck_secret")
+			} else {
+				replay, created, err = testAdmit(owner, key, "seed.c")
+			}
+			if err != nil || created || replay.ID != first.ID {
+				t.Fatalf("admission replay: created=%v id=%q err=%v", created, replay.ID, err)
+			}
+		})
+	}
+}
+
+func TestAdmissionRetryPreservesUnreceiptedCompileAttempt(t *testing.T) {
+	root, dir := t.TempDir(), testJobDir(t)
+	if err := os.WriteFile(filepath.Join(root, "seed.c"), []byte("int f(void){return 0;}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := WorkspaceDigest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := OpenDocker(root, dir, DockerProvider{Binary: "/bin/false", Image: "sha256:" + strings.Repeat("a", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	if err = owner.ConfigureManagedCompile("https://recompile.invalid", 1, []string{"gcc"}); err != nil {
+		t.Fatal(err)
+	}
+
+	key := "interrupted-paid-admission"
+	keySum := sha256.Sum256([]byte(key))
+	id := hex.EncodeToString(keySum[:])
+	stage, _, err := snapshot(root, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := filepath.Join(dir, id+".original")
+	if err = os.Rename(stage, original); err != nil {
+		t.Fatal(err)
+	}
+	if err = sealSnapshot(original); err != nil {
+		t.Fatal(err)
+	}
+	ledger := filepath.Join(dir, id+".compile", "ledger")
+	if err = os.MkdirAll(ledger, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = writeCompileIndex(ledger, []string{}); err != nil {
+		t.Fatal(err)
+	}
+	intent := strings.Repeat("e", 64)
+	attempt := filepath.Join(ledger, intent+".json")
+	if err = os.WriteFile(attempt, []byte(`{"intent":"`+intent+`","key":"abcdef123456"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, created, err := owner.AdmitManaged(key, "seed.c", digest, "rck_secret"); err == nil || created {
+		t.Fatalf("admission discarded a possible paid compile: created=%v err=%v", created, err)
+	}
+	for _, path := range []string{original, attempt} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("retry removed unresolved custody %s: %v", path, statErr)
+		}
+	}
+}
+
 func TestIdempotentReplayRejectsChangedProvider(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "seed.c"), []byte("x"), 0600); err != nil {

@@ -88,7 +88,9 @@ provider, or set `REBREW_DOCKER_BINARY` and `REBREW_JOB_DOCKER_IMAGE` for the
 Docker candidate. It listens on `127.0.0.1:8089`; `REBREW_JOBS_ADDR` may move it to another
 loopback address only (non-loopback is refused at startup). The job directory must be
 private and outside the workspace. A single local owner holds an exclusive
-filesystem lock. Reconnect to `/jobs/{id}/events` for retained state snapshots;
+filesystem lock. An admission interrupted before its receipt is durable can be
+retried under the same key; custody is discarded only when the compile ledger
+proves no attempt was sent. Reconnect to `/jobs/{id}/events` for retained state snapshots;
 `/jobs/{id}/output` returns currently retained partial output. Output is not an
 independently settled result.
 
