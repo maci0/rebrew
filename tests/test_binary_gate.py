@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 
 def _write(path: Path, text: str) -> None:
@@ -70,6 +72,25 @@ class TestCompareBytes:
         res = compare_bytes(b"ab", b"abc")
         assert res["match"] is False
         assert res["first_diff"] == 2
+
+    @given(st.binary(max_size=256), st.binary(max_size=256), st.integers(0, 256))
+    def test_first_diff_matches_a_byte_by_byte_scan(
+        self, expected: bytes, tail: bytes, shared: int
+    ) -> None:
+        """The XOR search agrees with scanning one byte at a time."""
+        from rebrew.binary_gate import compare_bytes
+
+        actual = expected[:shared] + tail
+        first = next(
+            (i for i, (a, b) in enumerate(zip(expected, actual, strict=False)) if a != b),
+            min(len(expected), len(actual)),
+        )
+        want = (
+            {"match": True, "first_diff": None}
+            if expected == actual
+            else {"match": False, "first_diff": first}
+        )
+        assert compare_bytes(expected, actual) == want
 
 
 class TestCompareSnapshots:

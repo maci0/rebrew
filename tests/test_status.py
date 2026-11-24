@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 from cache_util import cache_text
 from cli_json import cli_payload
+from hypothesis import given
+from hypothesis import strategies as st
 from source_util import write_source, write_store_fixture
 
 from rebrew.status import (
@@ -2380,6 +2382,15 @@ class TestFileSimilarity:
     def test_shorter_tail_is_unmatched(self) -> None:
         matched, span = compare_file_bytes(b"abcdef", b"abXd")
         assert (matched, span) == (3, 6)
+
+    @given(st.binary(max_size=512), st.binary(max_size=512), st.integers(0, 512))
+    def test_equal_byte_count_matches_the_byte_by_byte_count(
+        self, reference: bytes, built: bytes, shared: int
+    ) -> None:
+        """The XOR count agrees with a comparison of one byte at a time, shared prefix or not."""
+        built = reference[:shared] + built
+        scalar = sum(a == b for a, b in zip(reference, built, strict=False))
+        assert compare_file_bytes(reference, built) == (scalar, max(len(reference), len(built)))
 
     def test_floor_pct_does_not_round_up(self) -> None:
         report = StatusReport(file_matched_bytes=2, file_total_bytes=6)

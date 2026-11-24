@@ -77,10 +77,11 @@ def compare_bytes(expected: bytes, actual: bytes) -> dict[str, Any]:
     """Compare raw bytes; report the first differing offset (or length drift)."""
     if expected == actual:
         return {"match": True, "first_diff": None}
-    first_diff = next(
-        (i for i, (a, b) in enumerate(zip(expected, actual, strict=False)) if a != b),
-        min(len(expected), len(actual)),
-    )
+    # The first difference is the first nonzero byte of the XOR, found in C rather than one Python
+    # comparison per byte; with none, the shorter length is where they drift.
+    size = min(len(expected), len(actual))
+    xor = int.from_bytes(expected[:size], "little") ^ int.from_bytes(actual[:size], "little")
+    first_diff = size - len(xor.to_bytes(size, "little").lstrip(b"\0"))
     return {"match": False, "first_diff": first_diff}
 
 

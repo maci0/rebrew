@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 lazy import bisect
 lazy import json
 lazy from datetime import UTC, datetime
-lazy from operator import eq
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -377,9 +376,11 @@ def compare_file_bytes(reference: bytes, built: bytes) -> tuple[int, int]:
     span = max(len(reference), len(built))
     if len(reference) == len(built) and reference == built:
         return span, span
-    # map/eq drives the comparison loop in C; the index arithmetic in a Python
-    # loop over two multi-MB images is the whole cost of a `rebrew status`.
-    return sum(map(eq, reference, built, strict=False)), span
+    # A byte matches where the XOR of the two images is zero: the big-integer XOR and
+    # bytes.count run over whole words in C instead of one Python comparison per byte.
+    size = min(len(reference), len(built))
+    xor = int.from_bytes(reference[:size], "little") ^ int.from_bytes(built[:size], "little")
+    return xor.to_bytes(size, "little").count(0), span
 
 
 def linker_produced_match(
