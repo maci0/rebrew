@@ -17,6 +17,11 @@ After collection every process moves the collected graph (modules, test
 items, fixtures) to the permanent GC generation and raises the young
 threshold, as the ``rebrew`` CLI does at startup: cyclic collections during
 the tests rescanned that graph. Objects the tests allocate stay collectable.
+
+Before and after every test it empties ``rebrew.decompiler``'s backend probe
+cache, which keeps a decompiler's state for 30 s: a test that fakes a probe
+(``shutil.which``, a kuna that answers) otherwise leaves the decompiler offered
+to whichever test runs next in the process.
 """
 
 from __future__ import annotations
@@ -45,6 +50,25 @@ def pytest_collection_finish() -> None:
     """Freeze the collected graph out of cyclic GC passes; see the module docstring."""
     gc.freeze()
     gc.set_threshold(_GC_YOUNG_THRESHOLD, *gc.get_threshold()[1:])
+
+
+def _forget_decompiler_states() -> None:
+    from rebrew import decompiler
+
+    with decompiler._states_lock:
+        decompiler._states.clear()
+
+
+def pytest_runtest_setup(item: Any) -> None:
+    """Start every test with no decompiler probe cached; see the module docstring."""
+    del item
+    _forget_decompiler_states()
+
+
+def pytest_runtest_teardown(item: Any, nextitem: Any) -> None:
+    """Leave no decompiler probe a test faked to the next one."""
+    del item, nextitem
+    _forget_decompiler_states()
 
 
 def pytest_configure() -> None:
