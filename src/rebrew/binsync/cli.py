@@ -59,6 +59,7 @@ _PULL_COUNTS: tuple[str, ...] = (
     "applied_typedefs",
     "applied_locals",
     "applied_comments",
+    "applied_notes",
     "conflicts",
     "skipped",
 )

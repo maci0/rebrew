@@ -92,7 +92,7 @@ lazy from rebrew.compiler.compile import (
 )
 lazy from rebrew.compiler.recompile_client import Attribution
 lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat, load_binary
-lazy from rebrew.metadata.bindings import BindingConflictError
+lazy from rebrew.metadata.bindings import DATA_KINDS, BindingConflictError
 lazy from rebrew.utils import fold_host, path_is_relative_to, sha256_file, split_source_lines
 
 logger = logging.getLogger(__name__)
@@ -444,7 +444,7 @@ DATA_FIELD_OPTIONS = {
 }
 
 #: Coverage rows that are data, not functions.
-_DATA_MARKERS = frozenset({"GLOBAL", "DATA"})
+_DATA_MARKERS = DATA_KINDS
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _TARGET_UNSAFE = re.compile(r"[^A-Za-z0-9_]")

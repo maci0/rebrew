@@ -1616,16 +1616,17 @@ def _as_table(value: Any, field_name: str) -> dict[str, Any]:
 
 
 #: ``rebrew-project.toml`` sections every :func:`load_config` reads as tables.
-_PROJECT_TABLE_SECTIONS = ("project", "targets", "compiler", "link")
+_PROJECT_TABLE_SECTIONS = ("project", "targets", "compiler", "link", "llm", "cache", "metadata")
 
 
 def check_project_document(raw: Mapping[str, Any]) -> None:
     """Raise :class:`ConfigError` unless *raw* has the shape every reader assumes.
 
-    [project], [targets], [compiler] and [link] must be tables when present,
-    and every ``[targets.X]`` must be a table.  ``load_config``, the ``cfg``
-    editor, ``build driver``, ``calibrate-bss`` and ``init --refresh-agents``
-    all read the parsed document through these sections.
+    [project], [targets], [compiler], [link], [llm], [cache] and [metadata]
+    must be tables when present, and every ``[targets.X]`` must be a table.
+    ``load_config``, the ``cfg`` editor, ``build driver``, ``calibrate-bss``
+    and ``init --refresh-agents`` all read the parsed document through these
+    sections.
     """
     for name in _PROJECT_TABLE_SECTIONS:
         _as_table(raw.get(name), name)
