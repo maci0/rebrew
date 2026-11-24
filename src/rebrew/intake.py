@@ -40,6 +40,7 @@ from rebrew.utils import (
     atomic_write_text,
     c_comment_safe,
     read_json_text,
+    read_source_text,
 )
 lazy from rebrew.cli import EXIT_OK, console, error_exit, json_print, require_config
 lazy from rebrew.config import (
@@ -50,6 +51,7 @@ lazy from rebrew.config import (
 )
 lazy from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
 lazy from rebrew.metadata.storage import metadata_store
+lazy from rebrew.rename_ops import is_valid_new_name
 lazy from rebrew.sources import iter_sources
 
 _EPILOG = (
@@ -183,6 +185,69 @@ def blocker_reason(family: str, size: int, version_hint: str) -> str:
     return "Application code — pending per-function decompilation"
 
 
+#: How a record's note keeps the name a placeholder replaced.
+_EARLIER_NAME_NOTE = "earlier name: {name}"
+
+
+def _kept_name_note(entry: dict[str, Any], new_name: str) -> dict[str, Any]:
+    """The ``note`` field that keeps *entry*'s name when *new_name* replaces it; else nothing."""
+    old = str(entry.get("name") or "")
+    if not old or old == new_name:
+        return {}
+    kept = _EARLIER_NAME_NOTE.format(name=old)
+    note = str(entry.get("note") or "")
+    if kept in note.splitlines():
+        return {}
+    return {"note": f"{note}\n{kept}" if note else kept}
+
+
+def _repair_free_text_names(
+    meta_base: Path, module: str, existing: dict[tuple[str, int], dict[str, Any]]
+) -> int:
+    """Give each source-bound record of *module* whose name is no identifier its anchor's name.
+
+    The binding check refuses such a record, so every read skipped its function. The
+    anchor's definition name becomes the record's name and symbol, or the address
+    placeholder when the source has no anchor for it; the old text moves to the note.
+    Answers the number of records repaired; a repaired store repairs nothing again.
+    """
+    from rebrew.config import address_comments_for_file
+    from rebrew.metadata.anchors import parse_address_anchors
+    from rebrew.metadata.functions import is_function_name, record_function_rows
+
+    rows = []
+    for (row_module, va), entry in sorted(existing.items()):
+        name = str(entry.get("name") or "")
+        stored = str(entry.get("file") or "")
+        if row_module != module or not name or is_function_name(name) or not stored:
+            continue
+        source = meta_base / stored
+        if not source.is_file():
+            continue
+        syntax = address_comments_for_file(source, module=module)
+        text, _ = read_source_text(source)
+        anchor = next(
+            (
+                found
+                for found in parse_address_anchors(text, syntax=syntax)
+                if found.va == va and found.kind == "FUNCTION"
+            ),
+            None,
+        )
+        new_name = anchor.name if anchor is not None else f"fcn_{va:08x}"
+        prototype = anchor.prototype if anchor is not None else ""
+        rows.append(
+            {
+                "module": module,
+                "va": va,
+                "identity": {"name": new_name, "symbol": derive_c_symbol(new_name, prototype)},
+                "fields": _kept_name_note(entry, new_name),
+            }
+        )
+    record_function_rows(meta_base, rows, overwrite_name=True, updated_by="intake")
+    return len(rows)
+
+
 def classify_all(
     project: Path,
     src_dir: Path,
@@ -243,19 +308,33 @@ def classify_all(
     syntax = address_comments_for_file(src_dir / "fcn.c", module=target_module_name)
     if syntax.style == "delphi":
         raise ValueError("C stub generation requires c89 or cpp address_comments.style")
+    if _repair_free_text_names(meta_base, target_module_name, existing):
+        existing = load_metadata(meta_base, deepcopy=False)
+        existing_vas = {
+            ann["va"]
+            for _, annotations in iter_source_bindings(
+                iter_sources(src_dir), target=target_module_name, metadata_dir=meta_base
+            )
+            for ann in annotations
+        }
     for va, size, _name in funcs:
         reason = blocker_reason(family, size, hint)
+        out = src_dir / f"fcn_{va:08x}.c"
+        if (va in existing_vas or out.exists()) and (target_module_name, va) in existing:
+            continue
+        prev = existing.get((target_module_name, va), {})
+        # The stub defines the record's name, so the binding check accepts the pair. A name
+        # no C definition can carry gives way to the placeholder; its text stays in the note.
+        placeholder = f"fcn_{va:08x}"
+        prev_name = str(prev.get("name") or "")
+        c_name = prev_name if is_valid_new_name(prev_name) else placeholder
         # Pure C. The ADDRESS anchor binds the identity; the blocker reason is
         # an ordinary comment.
         stub = (
             address_comment(target_module_name, va, syntax=syntax)
             + "\n\n"
-            + f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
+            + f"void {c_name}(void)\n{{\n    /* {reason} */\n}}\n"
         )
-        out = src_dir / f"fcn_{va:08x}.c"
-        if (va in existing_vas or out.exists()) and (target_module_name, va) in existing:
-            continue
-        prev = existing.get((target_module_name, va), {})
         prev_status = str(prev.get("status") or "STUB")
         # Onboarding is a one-shot document step — a RE-RUN (re-discovery
         # via `rebrew intake` on an existing project) must never demote a
@@ -273,7 +352,6 @@ def classify_all(
         if va not in existing_vas and not out.exists():
             atomic_write_text(out, stub)
             existing_vas.add(va)
-            c_name = f"fcn_{va:08x}"
             identity_rows.append(
                 {
                     "module": target_module_name,
@@ -284,7 +362,7 @@ def classify_all(
                         "name": c_name,
                         "kind": "STUB",
                     },
-                    "fields": {},
+                    "fields": _kept_name_note(prev, c_name),
                 }
             )
         prev_blocker = str(prev.get("blocker") or "")
@@ -312,7 +390,8 @@ def classify_all(
             }
         )
         documented += 1
-    record_function_rows(meta_base, identity_rows)
+    # A placeholder replaces a stored name only together with its stub and note.
+    record_function_rows(meta_base, identity_rows, overwrite_name=True)
     set_fields_batch(meta_base, field_updates)
     update_statuses_batch(meta_base, status_updates)
     return documented

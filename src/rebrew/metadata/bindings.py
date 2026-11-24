@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 import re
 import threading
@@ -11,7 +13,7 @@ lazy import bisect
 lazy import copy
 lazy import os
 lazy import unicodedata
-lazy from collections.abc import Callable, Iterable
+lazy from collections.abc import Callable, Iterable, Iterator
 lazy from pathlib import Path
 
 lazy from rebrew.c_parser import extract_function_name_from_line
@@ -26,6 +28,82 @@ lazy from rebrew.utils import (
 lazy from rebrew.workspace.status import MATCHED_STATUSES
 
 logger = logging.getLogger(__name__)
+
+
+class BindingConflictError(ValueError):
+    """A source's address anchor names another function than the record at its address."""
+
+    def __init__(self, message: str, module: str, va: int) -> None:
+        super().__init__(message)
+        self.module = module
+        self.va = va
+
+
+#: The open :func:`binding_conflicts` collectors, outermost first: each holds the
+#: ``(module, va)`` keys of the function records skipped while it was open.
+_BINDING_CONFLICTS: contextvars.ContextVar[tuple[set[tuple[str, int]], ...]] = (
+    contextvars.ContextVar("rebrew_binding_conflicts", default=())
+)
+#: Set by :func:`strict_bindings`: a disagreeing record raises instead of being skipped.
+_STRICT_BINDINGS: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "rebrew_strict_bindings", default=False
+)
+
+
+@contextlib.contextmanager
+def binding_conflicts() -> Iterator[set[tuple[str, int]]]:
+    """Collect the records reads skip because their source's anchor names another function.
+
+    A record is logged once, by its key, while any collector that already saw it is open:
+    one call wrapped in a collector logs it once however many readers walk the tree.
+    """
+    collected: set[tuple[str, int]] = set()
+    token = _BINDING_CONFLICTS.set((*_BINDING_CONFLICTS.get(), collected))
+    try:
+        yield collected
+    finally:
+        _BINDING_CONFLICTS.reset(token)
+
+
+@contextlib.contextmanager
+def strict_bindings() -> Iterator[None]:
+    """Raise :class:`BindingConflictError` for a disagreeing record instead of skipping it.
+
+    For writers: a write must not act on a function whose record and source disagree.
+    """
+    token = _STRICT_BINDINGS.set(True)
+    try:
+        yield
+    finally:
+        _STRICT_BINDINGS.reset(token)
+
+
+def strict_bindings_active() -> bool:
+    """True inside :func:`strict_bindings`."""
+    return _STRICT_BINDINGS.get()
+
+
+def recorded_binding_conflicts() -> frozenset[tuple[str, int]]:
+    """The records every open :func:`binding_conflicts` collector saw: skipped, or refused
+    inside :func:`strict_bindings`."""
+    collectors = _BINDING_CONFLICTS.get()
+    return frozenset(collectors[0]) if collectors else frozenset()
+
+
+def _record_conflict(module: str, va: int) -> None:
+    collectors = _BINDING_CONFLICTS.get()
+    seen = any((module, va) in collected for collected in collectors)
+    for collected in collectors:
+        collected.add((module, va))
+    if not seen and not _STRICT_BINDINGS.get():
+        logger.warning(
+            "skipping function record %s.0x%08x: its source's address anchor names another "
+            "function (rebrew doctor reports it; rebrew intake repairs a generated stub)",
+            module,
+            va,
+        )
+
+
 MIN_VALID_VA = 0x1000
 SYMBOL_KINDS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA", "VTABLE", "STRING"}
 FUNCTION_KINDS = frozenset({"FUNCTION", "LIBRARY", "STUB"})
@@ -1354,10 +1432,18 @@ def source_bindings(
         )
         if existing is not None:
             if existing.name and existing.name != anchor.name:
-                raise ValueError(
+                message = (
                     f"{filepath}:{anchor.line}: address anchor names {anchor.name!r}, "
                     f"but the metadata names {existing.name!r}"
                 )
+                if is_data:
+                    raise BindingConflictError(message, existing.module, anchor.va)
+                _record_conflict(existing.module, anchor.va)
+                if _STRICT_BINDINGS.get():
+                    raise BindingConflictError(message, existing.module, anchor.va)
+                rows.remove(existing)
+                del indexed[key]
+                continue
             if not existing.name:
                 existing.name = anchor.name
             if not is_data and not existing.symbol:
@@ -1582,8 +1668,10 @@ __all__ = [
     "FUNCTION_KINDS",
     "MIN_VALID_VA",
     "SYMBOL_KINDS",
+    "BindingConflictError",
     "SourceBinding",
     "address_pairs",
+    "binding_conflicts",
     "derive_c_symbol",
     "file_backed_by_metadata",
     "find_source_binding_by_symbol",
@@ -1599,6 +1687,7 @@ __all__ = [
     "module_for_va",
     "read_function_fields",
     "read_source_bindings",
+    "recorded_binding_conflicts",
     "remove_binding_field",
     "resolve_symbol",
     "set_binding_field",
@@ -1607,4 +1696,6 @@ __all__ = [
     "source_bindings",
     "span_contains_factory",
     "split_address_sections",
+    "strict_bindings",
+    "strict_bindings_active",
 ]

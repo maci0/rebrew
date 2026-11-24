@@ -9,6 +9,7 @@ replacement is explicit and preserves the supplied canonical evidence.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -137,6 +138,7 @@ __all__ = [
     "get_entry",
     "identity_file",
     "import_status_history",
+    "is_function_name",
     "is_metadata_key",
     "is_status_parked",
     "library_override_fingerprint",
@@ -937,6 +939,16 @@ def import_status_history(
     return changed
 
 
+#: A function record's ``name``: the identifier an address anchor binds, optionally
+#: qualified with ``::`` or ``.`` (C++ and Delphi definitions), a destructor's ``~`` kept.
+_FUNCTION_NAME_RE = re.compile(r"~?[A-Za-z_][A-Za-z0-9_]*(?:(?:::|\.)~?[A-Za-z_][A-Za-z0-9_]*)*")
+
+
+def is_function_name(name: str) -> bool:
+    """True when *name* can be the definition name of a function record."""
+    return _FUNCTION_NAME_RE.fullmatch(name) is not None
+
+
 def _identity_updates(
     entry: dict[str, Any],
     identity: Any,
@@ -959,6 +971,8 @@ def _identity_updates(
         if key not in FUNCTION_IDENTITY_FIELDS:
             raise ValueError(f"unknown function identity field {key!r}")
         if value and not (key == "name" and entry.get("name") and not overwrite_name):
+            if key == "name" and not is_function_name(str(value)):
+                raise ValueError(f"function name {value!r} is not a valid identifier")
             stored = validate_identity_file(str(value)) if key == "file" else str(value)
             if stored:
                 updates[key] = toml_safe(stored)

@@ -923,6 +923,50 @@ def check_source_files(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+#: The most disagreeing record keys :func:`check_function_bindings` names in its message.
+_BINDING_CONFLICTS_SHOWN = 10
+
+
+def check_function_bindings(cfg: ProjectConfig) -> CheckResult:
+    """Report function records whose source's address anchor names another function.
+
+    Every read skips such a record, so its function is missing from coverage, status and
+    verification until the record and the source agree.
+    """
+    from rebrew.config import target_module
+    from rebrew.metadata.bindings import binding_conflicts, iter_source_bindings
+    from rebrew.sources import iter_sources
+
+    name = "Function bindings"
+    if not cfg.reversed_dir.exists():
+        return CheckResult(name=name, status=_SKIP, message="No source directory")
+    with binding_conflicts() as conflicts:
+        iter_source_bindings(
+            iter_sources(cfg.reversed_dir, cfg),
+            target=target_module(cfg),
+            metadata_dir=cfg.metadata_dir,
+        )
+    if not conflicts:
+        return CheckResult(
+            name=name, status=_OK, message="Every source anchor agrees with its record"
+        )
+    keys = [f"{module}.0x{va:08x}" for module, va in sorted(conflicts)]
+    shown = ", ".join(keys[:_BINDING_CONFLICTS_SHOWN])
+    more = len(keys) - _BINDING_CONFLICTS_SHOWN
+    return CheckResult(
+        name=name,
+        status=_WARN,
+        message=(
+            f"{len(keys)} function record(s) disagree with their source's address anchor and "
+            f"are skipped by every read: {shown}{f', and {more} more' if more > 0 else ''}"
+        ),
+        fix=(
+            "Re-run rebrew intake to repair a generated stub whose record holds a name that is "
+            "no C identifier; otherwise rename the source or the record so both name one function."
+        ),
+    )
+
+
 def check_metadata_files(cfg: ProjectConfig) -> CheckResult:
     """Check that rebrew-functions.toml and rebrew-data.toml exist in metadata_dir."""
     metadata_dir: Path = cfg.metadata_dir
@@ -1198,6 +1242,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_source_files(cfg))
     report.checks.append(check_bin_dir(cfg))
     report.checks.append(check_metadata_files(cfg))
+    report.checks.append(check_function_bindings(cfg))
     report.checks.append(check_shared_sources(cfg))
     report.checks.append(check_external_libs(cfg))
     report.checks.append(check_layout_package(cfg))
