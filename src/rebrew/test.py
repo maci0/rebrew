@@ -198,7 +198,7 @@ def _patch_verify_cache(
     stale cache row instead of attaching this verdict to newer bytes.
 
     *pending* collects the patch instead of writing it.  One write costs a
-    full read, JSON decode, identity check, re-serialize and locked rewrite
+    full read, TOML decode, identity check, re-serialize and locked rewrite
     of a document that grows with the function count, so a per-function loop
     hands each patch to this list and applies the whole batch once via
     :func:`rebrew.verify_cache.patch_verify_cache_entries`.

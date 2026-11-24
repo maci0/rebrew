@@ -1017,11 +1017,11 @@ Measured 100 warmed `/api/functions` calls on 500 synthetic functions
 
 `/api/functions` now emits compact arrays under `cols` instead of per-row
 dicts. 500-row JSON 58 915 → 31 978 bytes (0.54×). `json.dumps` CPU / 200:
-0.033 s → 0.020 s. Gate: `test_functions_omit_unused_marker_type`.
+0.033 s → 0.020 s. Gate: `TestHostValidation.test_functions_omit_unused_kind`.
 
 `/api/globals` and `/api/history` use the same compact-array shape. 100-row
 globals JSON 8053 → 4597 bytes (0.57×); gzip-5 872 → 821. Gate:
-`test_functions_omit_unused_marker_type` (cols lists).
+`test_functions_omit_unused_kind` (cols lists).
 
 `/api/sections` moved to it too, on the 14-column rows. 2000-section JSON
 346 091 → 88 229 bytes (0.25×); the size now comes from a join on the
@@ -1029,8 +1029,8 @@ globals JSON 8053 → 4597 bytes (0.57×); gzip-5 872 → 821. Gate:
 Gates: `test_sections`, `test_api_sections_includes_count_total`.
 
 Wire encoding: responses negotiate `zstd` then `gzip` from `Accept-Encoding`
-(q-values; zstd wins ties). HTML shell and `/app.js` are precompressed at both
-codecs at import. Measured 500-row functions JSON:
+(q-values; zstd wins ties). HTML shell and `/app.js` are compressed lazily on
+first use and cached at both codecs. Measured 500-row functions JSON:
 gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 

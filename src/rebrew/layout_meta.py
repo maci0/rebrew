@@ -652,12 +652,12 @@ def write_package(
 def load_package(pkg_dir: Path) -> LayoutMetadata:
     """Load a text-only layout package written by :func:`write_package`.
 
-    The package is hand-editable text, so it is validated as untrusted input:
-    a missing key, a wrong type, a value outside the PE field the fixers write
-    it into, a sparse-map row of the wrong length, a header block that is not
-    a whole PE32 header, or a section list whose length differs from that
-    header's section count raises ``ValueError``.  A missing sparse-map file
-    is an ``OSError``.
+    The package is generated plain text, but the loader validates it as
+    untrusted input: a missing key, a wrong type, a value outside the PE field
+    the fixers write it into, a sparse-map row of the wrong length, a header
+    block that is not a whole PE32 header, or a section list whose length
+    differs from that header's section count raises ``ValueError``.  A missing
+    sparse-map file is an ``OSError``.
     """
     import tomlkit
 

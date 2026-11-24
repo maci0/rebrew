@@ -19,6 +19,11 @@ type DockerReceipt struct {
 	ExitCode int    `json:"exit_code"`
 	Image    string `json:"image"`
 }
+
+// DockerProvider pins the Docker executable, image digest and job command.
+// Binary must be absolute and Image a sha256 digest. OpenDocker requires Kind,
+// CompileDir and match bounds to be empty because the owner fills them from each
+// receipt. Zero bounds passed directly to Create omit the CLI's tuning flags.
 type DockerProvider struct {
 	Binary, Image, CompileDir, Kind string
 	Generations, Population         int

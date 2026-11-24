@@ -699,7 +699,8 @@ for inspection. Sync health reports stale measurement evidence independently.
    the cache's `SIZE_MISMATCH`/`MISSING_SIZE`/`STUB`) > the selected verify cache's
    measured result (the cache holds byte verdicts only, never PROVEN)
    > grid/DB snapshot.
-3. **Per-function > per-library > project** for toolchain/cflags
+3. **Per-function > per-library > per-module preset > project** for CFLAGS;
+   toolchain resolves per-function > per-library > project
    (`resolve_compile_overrides`).
 4. **SIZE precedence**: compile contract = stored metadata `SIZE`;
    coverage = registry canonical size.

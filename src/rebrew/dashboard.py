@@ -2870,7 +2870,7 @@ def _maybe_compress(
     if encoding is None:
         return body, None
     if cold_start:
-        # Same levels the import-time static blobs use, and the same
+        # Same levels the lazily cached static blobs use, and the same
         # "did it shrink" rule: this body goes out once per load and is a 304
         # on every load after, so the extra effort is paid about once and buys
         # bytes inside the initial congestion window.
@@ -2889,7 +2889,7 @@ def _precompressed_static(
     gzip_blob: bytes | None,
     raw: bytes,
 ) -> tuple[bytes, _WireEncoding | None]:
-    """Serve an import-time precompressed blob for the negotiated encoding.
+    """Serve a lazily cached precompressed blob for the negotiated encoding.
 
     A blob that did not shrink is stored as the raw body, so the per-request
     "did it shrink" rule applies here too: raw bytes must not be labelled
@@ -2940,8 +2940,8 @@ def _success_cache_control(path: str, query: dict[str, list[str]]) -> str:
 #: are written before (or without) a handler.  Shared so a response built
 #: outside ``_Handler`` cannot carry a weaker set than one built inside it.
 #: The CSP keeps CSS inline in the shell and JS same-origin at /app.js, and
-#: confines JSON fetching to same-origin; ``data:`` images carry the inline
-#: mark that stops a /favicon.ico 404 per load.
+#: confines JSON fetching to same-origin; ``img-src 'self' data:`` allows the
+#: same-origin /favicon.svg mark, which stops a /favicon.ico 404 per load.
 _SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
     ("X-Content-Type-Options", "nosniff"),
     ("X-Frame-Options", "DENY"),
@@ -3363,7 +3363,7 @@ class _Handler(BaseHTTPRequestHandler):
         entry_asset = False
         if status == 200:
             # Shell HTML and the static clients are immutable for a given
-            # process: serve the import-time zstd/gzip blobs instead of
+            # process: serve the lazily cached zstd/gzip blobs instead of
             # recompressing every request.
             accept = self.headers.get("Accept-Encoding", "")
             if body is _INDEX_HTML:

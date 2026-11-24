@@ -767,9 +767,11 @@ before compiling. `--link-tools-from` can link a vendored host tree into
 
 `rebrew intake [OPTIONS] BINARY`
 
-One-shot binary onboarding: FLIRT scan, function catalog, triage; the
-automated version of the `rebrew-intake` skill's steps.  It writes no coverage
-document; `rebrew coverage export --output snapshots/` does, afterwards.
+One-shot binary onboarding: compiler detection, function discovery, and
+STUB/blocker scaffolding; the automated version of the `rebrew-intake` skill's
+steps. Run `rebrew library scan-signatures` separately for FLIRT signatures.
+It writes no coverage document; `rebrew coverage export --output snapshots/`
+does, afterwards.
 
 
 Intake fails (exit 2) when no discoverer yields **any** function: a missing
@@ -4872,12 +4874,13 @@ rebrew build round-trip --fix-headers         # patch the reassembled copy's pat
 sources generated from raw asm (`rebrew binary asm show`) or thiscall stubs that lack a
 native calling-convention keyword (MSVC 5.0) carry their `__declspec(naked)` +
 inline-asm body behind `#ifdef REBREW_ALLOW_NAKED`, with an idiomatic-C
-`#else` fallback.  Only `rebrew build round-trip --allow-naked` defines the macro (as
+`#else` fallback.  `rebrew build round-trip --allow-naked` defines the macro (as
 `/DREBREW_ALLOW_NAKED` for MSVC-style toolchains, `-DREBREW_ALLOW_NAKED` for
 posix ones), so the naked branch reproduces the exact bytes for byte-identity
-verification while `rebrew test`/`verify`/`match` always compile the fallback
-(which `rebrew prove` can establish as PROVEN without byte equality).  Naked
-is never a GA mutation.
+verification. By default `rebrew test`/`verify`/`match` compile the fallback
+(which `rebrew prove` can establish as PROVEN without byte equality); explicit
+CFLAGS such as `rebrew test --cflags /DREBREW_ALLOW_NAKED` select the naked
+branch for a comparison build. Naked is never a GA mutation.
 
 The JSON report's `fenced_naked` field (`count` + `vas`) lists the fenced
 functions selected for an `--allow-naked` run (before compilation, so failed or
@@ -4914,13 +4917,13 @@ padding does not cause a false "oversize" (the trimmed span is compared and
 spliced; `spliced_bytes` counts the real span, not the padded SIZE).
 
 ```bash
-rebrew build round-trip --strict-catalog     # also fail on catalog gaps / zero splices
+rebrew build round-trip --strict-catalog     # also fail on catalog gaps
 ```
 
 Exit 0 only when `mismatches` is empty **and** SHA-256(reasm) equals the original.
-With `--strict-catalog`, non-empty `skipped_catalog` (or a non-empty splice set
-that produced zero successful splices) also fails. Passthrough keeps the SHA
-equal when a splice is skipped; compile/drift failures still exit 1.
+With `--strict-catalog`, non-empty `skipped_catalog` also fails. Passthrough
+keeps the SHA equal when a splice is skipped; compile/drift failures still
+exit 1.
 
 See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 `rebrew build round-trip --strict-catalog`).
@@ -4930,7 +4933,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | `--filter` | str | none | Only round-trip functions whose symbol contains this substring |
 | `--strict-catalog` | flag | `False` | Exit non-zero when any EXACT/RELOC function hits an unresolved catalog symbol |
 | `--fix-headers` | flag | `False` | Patch the reasm copy's PE header (linker/OS/subsystem versions, TSAWARE, stack, timestamp, checksum) to match the original. Values from [link] in rebrew-project.toml, falling back to the original's own fields |
-| `--allow-naked` | flag | `False` | Define REBREW_ALLOW_NAKED so fenced naked functions use their __declspec(naked) + __asm exact-byte branch (round-trip only; the comparison build keeps the idiomatic C fallback) |
+| `--allow-naked` | flag | `False` | Define REBREW_ALLOW_NAKED so fenced naked functions use their __declspec(naked) + __asm exact-byte branch in this round-trip build; comparison commands keep the idiomatic C fallback unless explicit CFLAGS define it |
 | `--output` / `-o` | path | none | Override output PE path (default: <binary>.reasm next to target) |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
@@ -6280,7 +6283,7 @@ host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 | `rebrew toolchain smoke` | Compile the fixed smoke source in each image and verify the object hash matches the golden bytes (reproducibility gate). |
 | `rebrew toolchain build` | Build a toolchain's docker image from the recompile-toolchains checkout. |
 | `rebrew toolchain check-updates` | Detect upstream drift in pinned toolchain sources. |
-| `rebrew toolchain update` | Re-pin a toolchain source to the current upstream and rebuild. |
+| `rebrew toolchain update` | Report the pin a toolchain source would take from current upstream. |
 | `rebrew toolchain install-wibo` | Download wibo into tools/wibo if missing; keep existing installations. |
 
 ### `rebrew toolchain list`

@@ -84,16 +84,17 @@ boundaries before adding another surface.
 | `similar.py --cluster` (`instruction_clones.cluster_units`) | which functions are identical after normalization | this target, one hash per function, linear in total instructions |
 | `binary_similarity.py` | how alike are two whole binaries (versions, DLL vs EXE) | two images, section and structural summary |
 | `cfg_ged.py` | how alike are two control-flow graphs | per function pair, block-graph edit distance |
-| `matcher/scoring.py` → `resembl.scoring` | which stored snippets resemble this query | a persisted cross-project corpus, approximate (MinHash + LSH) |
+| `matcher/scoring.py` → `resembl.scoring` | how structurally alike are these two compiled function byte buffers | two buffers, normalized-token MinHash/Jaccard plus text ratio, no persisted index |
 | `crt_match.py` / `flirt.py` / `identify_library.py` | is this function library code, and from which archive | signature and archive matching, not a similarity score |
 
 The boundary that matters is the last two rows against `instruction_clones`: in-process,
-exact, no persistence, one target (instruction_clones) versus a persisted corpus with
-approximate near-neighbour search across projects (`resembl`). A request for
-cross-project duplicate detection, a fragment query against a snippet library,
-or near-duplicate clustering belongs on `resembl`, which rebrew already reuses
-for the whole-function score; growing an index or a MinHash inside rebrew
-would be a second answer to that question. See
+exact, no persistence, one target (`instruction_clones`), pairwise structural scoring
+(`resembl`), and signature/archive identification (library tools). Rebrew's
+resembl integration scores two supplied buffers and stores no corpus or index.
+A request for cross-project duplicate detection, a fragment query against a
+snippet library, or near-duplicate clustering belongs on `resembl`, which rebrew
+already reuses for the whole-function score; growing an index or a MinHash inside
+rebrew would be a second answer to that question. See
 [ECOSYSTEM.md](ECOSYSTEM.md#resembl-assembly-similarity-search).
 
 ## The compile → compare → STATUS/BLOCKER loop

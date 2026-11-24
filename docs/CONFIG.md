@@ -302,8 +302,9 @@ Compiler settings are resolved in layers. Each layer overrides the previous:
 1. **Built-in defaults**: `command = "wine CL.EXE"` when the key is absent (inert for docker-backed profiles; see [`command`](#compiler-keys)), `/nologo /c /MT` base flags, 60s timeout
 2. **`[compiler]`**: Global settings shared across all targets
 3. **`[targets.<name>.compiler]`**: Per-target overrides (partial; only keys present override)
-4. **Nearest `rebrew-libraries.toml`**: Per-library toolchain/flags overrides (walk-up from the source dir; presets fill missing fields)
-5. **`rebrew-functions.toml` metadata**: Per-function TOOLCHAIN/CFLAGS override in the function's entry (highest priority)
+4. **Per-module CFLAGS preset**: The matching `cflags_presets` entry from the merged project/target tables overrides project CFLAGS, but not library or function CFLAGS.
+5. **Nearest `rebrew-libraries.toml`**: Per-library toolchain/flags overrides (walk-up from the source dir; presets fill missing fields)
+6. **`rebrew-functions.toml` metadata**: Per-function TOOLCHAIN/CFLAGS override in the function's entry (highest priority)
 
 ```toml
 # Global defaults: all targets inherit these
@@ -349,8 +350,9 @@ recognized (the loader warns about it as an unrecognized key).
 ### Origin-Based Flag Presets (`cflags_presets`)
 
 Named flag presets for projects that track common per-origin compiler flags.
-`rebrew cfg module set-cflags` edits these tables, but per-function `CFLAGS` metadata is
-still the value consumed by compile/test operations.
+`rebrew cfg module set-cflags` edits these tables. Compile and test operations use
+the matching preset when neither function metadata nor a library override
+supplies CFLAGS.
 
 ```toml
 [compiler.cflags_presets]
@@ -931,7 +933,7 @@ not be the one command that cannot show it.
 
 ## Compiler profiles from `rebrew init`
 
-`rebrew init --toolchain <profile>` accepts every registered profile;
+`rebrew init --toolchain <profile>` accepts every registered, non-withdrawn profile;
 `rebrew toolchain list` prints the exact names.  Every image-backed profile gets an empty `command`/`runner` in the
 generated config ([why](#compiler-keys)); a plugin toolchain registered
 without an image keeps its host command.  The target

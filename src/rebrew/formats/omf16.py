@@ -142,7 +142,7 @@ def parse_omf16(data: bytes) -> Omf16Module:
         elif t == 0xC2:  # optimized dialect: one code record per function
             saw_code = True
             c2_bodies.append(body)
-        elif t == 0x90:  # MODEND — public name/offset pairs (unoptimized)
+        elif t == 0x90:  # PUBDEF — public name/offset pairs (unoptimized)
             i = 0
             while i + 3 <= len(body):
                 ln2 = body[i]

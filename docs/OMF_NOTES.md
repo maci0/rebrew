@@ -99,11 +99,11 @@ reads `0x90` as `[len][name][offset:2 LE]` pairs. `_main` at `0x1a` lands at
 the second function in the stream. Symbols match across `_add` / `add` /
 `add_`, and a Borland Pascal uppercase spelling (`F` for `f`).
 
-The minimal parser does not decode FIXUPP or BAKPAT. It scans every
-`e8` / `e9` byte and marks the next two bytes as a rel16 slot, including
-local jumps; this is a heuristic, not decoded linker-fixup evidence.
-In the fixture, `_add` gets slots 7 and 18, and `_main` gets 7, 20 and 26.
-The parser labels each `rel16`; it does not recover `__aNchkstk` by name.
+The minimal parser does not decode FIXUPP or BAKPAT. It derives `rel16` slots
+from decoded `e8` / `e9` instructions, including local jumps. If Capstone cannot
+initialize, `code_relocs` returns no slots. In the fixture, `_add` gets slots 7
+and 18, and `_main` gets 7, 20 and 26. The parser labels each `rel16`; it does
+not recover `__aNchkstk` by name.
 
 Turbo C and 16-bit Watcom fixtures end `0xA0` LEDATA with a valid checksum
 (record sum, type and length included, is 0 mod 256). The unoptimized MSVC
@@ -147,12 +147,12 @@ Name records (`0xCA`, then `0x96`) are in code-record order: function `i`
 is code record `i`. Statics in `0xCA` precede the `0x96` publics.
 
 `is_omf16` is true when an `0xA0` or `0xC2` record is present in a
-well-framed prefix. Relocs add,
-on top of the `e8` / `e9` scan, absolute disp16 operands (`a0`-`a3` moffs,
-and modrm `mod=00 rm=110` such as `add ax,[global]` / `push [global]`) and
-the far `9a` / `ea` slots. Capstone in 16-bit mode locates the displacement
-byte. The byte scan also runs when Capstone handle construction fails; the
-Capstone import itself is required. Verified:
+well-framed prefix. Relocs follow the decoded-instruction contract above. The
+`/O` fixtures exercise absolute `disp16` operands (`a0`-`a3` moffs, and modrm
+`mod=00 rm=110` such as `add ax,[global]` / `push [global]`) and the far
+`9a` / `ea` slots. Capstone in 16-bit mode locates each displacement. If handle
+construction fails, `code_relocs` returns no slots; the Capstone import itself
+is required. Verified:
 `_f` (near) = `{1: disp16}`, `_callg` (near) = `{1: rel16, 5: disp16}`,
 `_callg` (far) = `{1: far16, 7: disp16}`.
 

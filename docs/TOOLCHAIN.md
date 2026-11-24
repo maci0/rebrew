@@ -133,7 +133,8 @@ was never sent: the deadline, headers a bundle cannot ship), is `NOT_RUN`
 the stored STATUS and cache, and fails; `rebrew test` prints it as its result
 (`message`, `error`), for each function of a multi-function file, and exits 2;
 `rebrew build round-trip` lists it as a `not_run` mismatch. A local toolchain
-that cannot run stays `COMPILE_ERROR` with its `ToolchainError`.
+that cannot run is `NOT_RUN` with a structured `ToolchainError`;
+`COMPILE_ERROR` means the compiler ran and rejected the source.
 
 A source that reads project headers ships them with the compile as an include
 bundle (`compiler.compile.remote_include_bundle`): every header its include
@@ -430,10 +431,12 @@ registered profile, or a `library` that is not a known preset logs a warning
 (the fields rebrew does understand still apply), and a non-string value is a
 hard error rather than a silently stringified compiler argument.
 
-Resolution (most specific first): per-function `TOOLCHAIN`/`CFLAGS` → the
+Resolution (most specific first): `TOOLCHAIN` is per-function metadata →
 nearest `rebrew-libraries.toml` walking up from the function's directory →
-project defaults.  **Known-library presets** cover the shipped runtimes
-rebrew knows the build settings for. For example, `msvcrt-static` expands to
+project default. `CFLAGS` inserts the matching per-module `cflags_presets` entry
+between the library override and the project default. **Known-library presets**
+cover the shipped runtimes rebrew knows the build settings for. For example,
+`msvcrt-static` expands to
 `msvc-6.0` + `/O2 /Gd /MT` (the MSVC static CRT), `msvcrt-dynamic` to
 `/MD`, `msvc16-runtime` / `borland-runtime` / `watcom-runtime` for the
 16-bit and Borland/Watcom runtimes. The override selects the toolchain image;
@@ -554,10 +557,10 @@ mapping are described in [CI.md](CI.md).
 > selects the PE runtime per run via `REBREW_RUNNER`, defaulting to **wine**
 > (`${REBREW_RUNNER:-wine}`): the most compatible option.  `wibo` is opt-in
 > (`REBREW_RUNNER=wibo`) and faster for plain console tools, but **fails on
-> some tools**, so rebrew never steers projects toward it: the only wibo-runtime MSVC
-> profile is the opt-in `msvc-6.0-win9x` (several non-MSVC families, such as
-> `mwccarm-*`, `mwccpsp-*`, most `mwcps2-*` and `gcc-*-sn*`, ship with wibo;
-> the GameCube/Wii `mwcc-*` profiles use wine), `rebrew doctor`
+> some tools**, so rebrew never steers projects toward it. No packaged MSVC
+> profile defaults to wibo; `msvc-6.0-win9x` uses wine. Several non-MSVC
+> families, such as `mwccarm-*`, `mwccpsp-*`, most `mwcps2-*` and `gcc-*-sn*`,
+> ship with wibo; the GameCube/Wii `mwcc-*` profiles use wine. `rebrew doctor`
 > reports a present wibo binary as informational only, and
 > `rebrew toolchain install-wibo` downloads it but leaves an image-backed
 > project's `runner` config untouched.
@@ -609,10 +612,10 @@ Notes:
   `rebrew test`/`verify` work for Watcom targets.
   objconv crashes on 16-bit OMF: `rebrew.formats.omf16` now decodes the
   MSVC 1.52 dialect in both flavors (unoptimized: code from 0xA0 records,
-  publics from MODEND; **/O-optimized: code from 0xC2 records, publics
+  publics from PUBDEF (0x90); **/O-optimized: code from 0xC2 records, publics
   from 0x96/0xCA name lists**; the GA flag sweep emits this), so 16-bit
   function bytes + reloc slots extract through
-  `parse_obj_symbol_and_relocs` (e8/e9 rel16 slots); see
+  `parse_obj_symbol_and_relocs` (decoded rel16/disp16/far16 slots); see
   [OMF_NOTES.md](OMF_NOTES.md).  When the `omf16` decoder cannot extract
   code, the parse falls through to the objconv→COFF path; the vendored
   `tools/objconv/objconv` should be the fixed build from the objconv fork

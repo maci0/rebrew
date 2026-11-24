@@ -1,10 +1,10 @@
 """compiler/overrides.py — resolve effective toolchain + CFLAGS for a source.
 
 Domain resolution for the compiler/flags fallback chain (per-function
-metadata → nearest ``rebrew-libraries.toml`` → project defaults).  Lives
-outside :mod:`rebrew.cli` so library code (``compile``, ``verify``,
-``match``, …) does not depend on the CLI transport layer for a pure
-config decision.
+metadata → nearest ``rebrew-libraries.toml`` → per-module CFLAGS preset →
+project defaults).  Lives outside :mod:`rebrew.cli` so library code
+(``compile``, ``verify``, ``match``, …) does not depend on the CLI transport
+layer for a pure config decision.
 """
 
 from __future__ import annotations

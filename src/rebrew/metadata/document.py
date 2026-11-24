@@ -468,8 +468,8 @@ def canonical_va_key(va: Any) -> Any:
     Hex strings (``0x1000`` vs ``0x00001000``) map to the same int so key
     spelling drift can't silently break lookups.  Non-hex values pass
     through unchanged (still unique).  The single parser for bare-VA keys
-    in JSON files (verify cache, verify reports); TOML ``MODULE.0xVA`` keys
-    go through :func:`parse_metadata_key` instead.
+    in verify-cache TOML and JSON verify reports; qualified TOML ``MODULE.0xVA``
+    keys go through :func:`parse_metadata_key` instead.
     """
     if isinstance(va, int):
         return va

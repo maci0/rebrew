@@ -615,9 +615,8 @@ _VERIFY_CACHE_REL = Path(".rebrew") / "verify_cache.toml"
 _VERIFY_BASELINE_REL = Path(".rebrew") / "verify_baseline.toml"
 _VERIFY_TARGETS_REL = Path(".rebrew") / "targets"
 _GHIDRA_SYNC_STATE_REL = Path(".rebrew") / "ghidra_sync_state.json"
-# Legacy JSON verify cache (pre-TOML migration). Still live: the TOML
-# writer publishes it as a compat sidecar, so without it in the bundle a
-# restore would lose the JSON view the next run reads first.
+# Derived JSON parse sidecar for verify_cache.toml. It is regenerable and
+# never authoritative; a restore removes stale copies.
 _VERIFY_JSON_REL = Path(".rebrew") / "verify_cache.json"
 _NAME_COVER_REL = Path(".rebrew") / "name-map-cover.json"
 _DATA_SCAN_ROLES_REL = Path(".rebrew") / "data-scan-roles.json"

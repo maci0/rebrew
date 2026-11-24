@@ -20,6 +20,9 @@ import (
 	"time"
 )
 
+// Receipt is the durable state of one admitted job. Hashes pin the seed,
+// workspace and retained output; State records whether execution is proven
+// complete or still needs reconciliation.
 type Receipt struct {
 	ID                    string `json:"id"`
 	Kind                  string `json:"kind,omitempty"`
@@ -46,6 +49,8 @@ type Receipt struct {
 	CompileSocket         string `json:"compile_socket,omitempty"`
 }
 
+// Owner retains job receipts for one workspace and holds the store's exclusive
+// lock. It refuses a new job while an earlier job has an unresolved outcome.
 type Owner struct {
 	mu                    sync.Mutex
 	root, dir, executable string
@@ -160,6 +165,9 @@ func Open(root, dir, executable string) (*Owner, error) {
 	}
 	return owner, nil
 }
+
+// Close cancels active work, waits for job workers and managed compiles to
+// stop, then releases the owner lock.
 func (o *Owner) Close() error {
 	o.mu.Lock()
 	o.closed = true
@@ -220,6 +228,8 @@ var (
 func (o *Owner) save(r Receipt) error {
 	return writeJSONAtomic(o.dir, ".job-", r.ID+".json", r)
 }
+
+// Get returns the retained receipt for id.
 func (o *Owner) Get(id string) (Receipt, error) { o.mu.Lock(); defer o.mu.Unlock(); return o.read(id) }
 
 func (o *Owner) notify(id string) {
@@ -231,7 +241,8 @@ func (o *Owner) notify(id string) {
 	}
 }
 
-// Admit pins one seed under the workspace and durably retains intent before launch.
+// MatchOptions bounds a match run. Generations must be 1 through 10000 and
+// Population must be 2 through 4096.
 type MatchOptions struct {
 	Generations int
 	Population  int
@@ -239,10 +250,14 @@ type MatchOptions struct {
 
 var defaultMatchOptions = MatchOptions{Generations: 100, Population: 64}
 
+// Admit pins one seed under the workspace and durably retains intent before launch.
+// The boolean reports whether this call created the job rather than replaying it.
 func (o *Owner) Admit(key, seed, expectedWorkspaceSHA256 string) (Receipt, bool, error) {
 	return o.admit(context.Background(), key, seed, expectedWorkspaceSHA256, "", defaultMatchOptions, "")
 }
 
+// AdmitTuned admits a match with caller-selected bounds. The boolean reports
+// whether this call created the job rather than replaying it.
 func (o *Owner) AdmitTuned(key, seed, digest string, options MatchOptions) (Receipt, bool, error) {
 	return o.admit(context.Background(), key, seed, digest, "", options, "")
 }
@@ -255,6 +270,8 @@ func (o *Owner) AdmitManaged(key, seed, expectedWorkspaceSHA256, credential stri
 	return o.admit(context.Background(), key, seed, expectedWorkspaceSHA256, credential, defaultMatchOptions, "")
 }
 
+// AdmitManagedTuned admits a managed match with caller-selected bounds. The
+// boolean reports whether this call created the job rather than replaying it.
 func (o *Owner) AdmitManagedTuned(key, seed, digest, credential string, options MatchOptions) (Receipt, bool, error) {
 	if credential == "" {
 		return Receipt{}, false, errors.New("managed compile credential required")
@@ -262,6 +279,8 @@ func (o *Owner) AdmitManagedTuned(key, seed, digest, credential string, options 
 	return o.admit(context.Background(), key, seed, digest, credential, options, "")
 }
 
+// AdmitCatalog admits a catalog build over rebrew-project.toml. The boolean
+// reports whether this call created the job rather than replaying it.
 func (o *Owner) AdmitCatalog(key, digest string) (Receipt, bool, error) {
 	return o.admit(context.Background(), key, "rebrew-project.toml", digest, "", defaultMatchOptions, "catalog")
 }

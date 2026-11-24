@@ -1233,7 +1233,7 @@ def main(
             compiler_profile = guess
 
     # Look up compiler defaults for the profile (registry-merged, so every
-    # `toolchain list` name is accepted, not just the hand-written table).
+    # registered, non-withdrawn `toolchain list` name is accepted).
     defaults = profile_defaults()
     if compiler_profile not in defaults:
         error_exit(

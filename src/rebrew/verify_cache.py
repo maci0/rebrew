@@ -452,7 +452,7 @@ def _clamp_percent(value: float) -> float:
 def _cached_percent(value: Any) -> float | None:
     """A cached ``match_percent`` as a float, ``None`` when absent or unusable.
 
-    The cache is a JSON file on disk, so a hand-edit or a partial write can
+    The cache is a TOML document on disk, so a hand-edit or a partial write can
     leave a non-numeric value behind; coercing it unguarded would raise
     ``ValueError`` out of the write path, taking the verify that produced the
     patch down with it.  Non-finite and out-of-range values are clamped rather
@@ -1457,7 +1457,7 @@ def save_verify_cache(
     # to metadata and the next plain run recompiles them all).  Copy them from
     # the file being replaced; a VA this run did produce always wins.
     #
-    # If the prior cache exists but cannot be read (corrupt JSON, I/O error,
+    # If the prior cache exists but cannot be read (corrupt TOML, I/O error,
     # wrong shape), refuse to overwrite: falling back to `previous = {}` and
     # writing anyway would wipe every preserved VA with no signal.
     #
