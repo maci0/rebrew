@@ -18,6 +18,7 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 from rebrew.metadata.sqlite import MetadataStorageError, MetadataUnavailableError
+lazy from rebrew.metadata import rendered_toml
 lazy from rebrew.metadata.files import METADATA_FILENAMES, TomlStore
 lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import project_transaction
@@ -634,7 +635,7 @@ class RoutedStore:
             return {}
         if roundtrip:
             return parse_roundtrip(record.content, validate)
-        doc = tomllib.loads(record.content)
+        doc = rendered_toml.loads(record.content)
         if validate is not None:
             validate(doc)
         return doc

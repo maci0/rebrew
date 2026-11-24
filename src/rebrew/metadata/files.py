@@ -14,6 +14,7 @@ lazy import tomlkit
 lazy from tomlkit import TOMLDocument
 lazy from tomlkit.exceptions import InternalParserError, ParseError
 
+lazy from rebrew.metadata import rendered_toml
 lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import file_transaction, project_transaction
 lazy from rebrew.metadata.records import metadata_records
@@ -22,7 +23,6 @@ lazy from rebrew.utils import (
     atomic_write_locked,
     clone_plain,
     load_toml_for_write_strict,
-    load_tomllib,
     read_toml_text,
 )
 
@@ -141,6 +141,11 @@ _PARSED_MEMBERS_LOCK = threading.Lock()
 _PARSED_MEMBERS_MAX = 8
 
 
+def _load_member(path: Path) -> dict[str, Any]:
+    """Parse one metadata TOML file through :func:`rendered_toml.loads`."""
+    return rendered_toml.loads(read_toml_text(path))
+
+
 def _parsed_member(path: Path, fingerprint: tuple[int, int, int, int]) -> dict[str, Any]:
     """Reuse parsed input; callers receive copies and still run every validator."""
     key = (path, fingerprint)
@@ -148,7 +153,7 @@ def _parsed_member(path: Path, fingerprint: tuple[int, int, int, int]) -> dict[s
         if key in _PARSED_MEMBERS:
             _PARSED_MEMBERS.move_to_end(key)
             return _PARSED_MEMBERS[key]
-    document = load_tomllib(path)
+    document = _load_member(path)
     with _PARSED_MEMBERS_LOCK:
         # Re-check: a peer may have stored the same fingerprint while this
         # thread parsed, and a writer may have stored a newer fingerprint.

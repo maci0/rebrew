@@ -15,6 +15,7 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `replication.py` | Ordered readers, durable write journal, tombstones and causal reconciliation |
 | `locking.py` | Reentrant project and physical-storage locks |
 | `document.py` | Qualified-key algebra and backend-neutral document cache |
+| `rendered_toml.py` | `loads`: `tomllib.loads` for stored documents, a line at a time on the layout rebrew renders, `tomllib` for any other text |
 | `records.py` | Record boundaries of a logical document, shared by backends and diffs |
 | `model.py` | `MetadataEntry`: typed view and validation of a function entry |
 | `anchors.py` | Configurable address comments bound to the next declaration; C stays AST-based |

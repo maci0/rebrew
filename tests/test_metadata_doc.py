@@ -13,7 +13,6 @@ class TestParsedDocumentCache:
         """A new process reuses the parsed rows. The parse count does not move with load."""
         import rebrew.metadata.files as document
         from rebrew.metadata.functions import clear_metadata_cache, load_metadata
-        from rebrew.utils import load_tomllib
 
         store = tmp_path / "rebrew-functions.toml"
         store.write_text(
@@ -21,14 +20,14 @@ class TestParsedDocumentCache:
             encoding="utf-8",
         )
         parses = 0
-        real = load_tomllib
+        real = document._load_member
 
         def counting(path: Path) -> dict[str, Any]:
             nonlocal parses
             parses += 1
             return real(path)
 
-        monkeypatch.setattr(document, "load_tomllib", counting)
+        monkeypatch.setattr(document, "_load_member", counting)
         first = load_metadata(tmp_path, deepcopy=False)
         assert parses == 1
         assert first[("GAME", 0x1000)]["name"] == "f"

@@ -437,13 +437,13 @@ def test_raw_reads_reuse_parsing_without_sharing_mutations(
     path = tmp_path / "rebrew-functions.toml"
     path.write_text('format = 3\n["GAME.0x1000"]\nname = "before"\n')
     calls = []
-    original = files.load_tomllib
+    original = files._load_member
 
     def counted(member: Path) -> dict[str, Any]:
         calls.append(member)
         return original(member)
 
-    monkeypatch.setattr(files, "load_tomllib", counted)
+    monkeypatch.setattr(files, "_load_member", counted)
     store = files.TomlStore(path, tmp_path)
     first = store.read("test")
     first["GAME.0x1000"]["name"] = "mutated"

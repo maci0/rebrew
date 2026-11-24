@@ -14,6 +14,7 @@ lazy from typing import Any
 lazy from tomlkit.exceptions import ParseError
 
 from rebrew.errors import RebrewError
+lazy from rebrew.metadata import rendered_toml
 lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import file_transaction, project_transaction
 
@@ -285,7 +286,7 @@ class SqliteStore:
         try:
             if roundtrip:
                 return parse_roundtrip(row[0], validate)
-            doc = tomllib.loads(row[0])
+            doc = rendered_toml.loads(row[0])
         except (tomllib.TOMLDecodeError, ParseError) as exc:
             raise MetadataStorageError(
                 f"{self.location}: invalid {description} for {self.key}: {exc}"
