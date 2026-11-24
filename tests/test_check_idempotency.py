@@ -24,22 +24,23 @@ class TestNormalize:
         assert _normalize({"a": 1, "b": [1, 2]}) == {"a": 1, "b": [1, 2]}
 
 
-class TestOutputsIdentical:
-    def _install_rebrew(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str) -> None:
-        """Install a fake `rebrew` on PATH that runs *script*."""
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        script_path = bin_dir / "rebrew"
-        script_path.write_text("#!/bin/sh\n" + script + "\n", encoding="utf-8")
-        script_path.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+def _install_rebrew(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str) -> None:
+    """Install a fake `rebrew` on PATH that runs *script*."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    script_path = bin_dir / "rebrew"
+    script_path.write_text("#!/bin/sh\n" + script + "\n", encoding="utf-8")
+    script_path.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
 
+
+class TestOutputsIdentical:
     def test_identical_outputs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._install_rebrew(tmp_path, monkeypatch, 'echo \'{"timestamp": "t", "a": 1}\'')
+        _install_rebrew(tmp_path, monkeypatch, 'echo \'{"timestamp": "t", "a": 1}\'')
         assert outputs_identical("status --json", tmp_path)
 
     def test_differing_outputs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        self._install_rebrew(
+        _install_rebrew(
             tmp_path,
             monkeypatch,
             'echo "{\\"a\\": $(date +%s%N)}"',
@@ -51,7 +52,7 @@ class TestOutputsIdentical:
         # First invocation exits 0, second exits 1 (count via a marker file
         # in the sandbox — $HOME is unreliable in the test subprocess).
         marker = tmp_path / "count"
-        self._install_rebrew(
+        _install_rebrew(
             tmp_path,
             monkeypatch,
             f"if [ -f {marker} ]; then exit 1; fi; touch {marker}; echo '{{\"a\": 1}}'",
@@ -61,7 +62,7 @@ class TestOutputsIdentical:
     def test_non_json_output_compared_verbatim(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        self._install_rebrew(tmp_path, monkeypatch, 'echo "plain text"')
+        _install_rebrew(tmp_path, monkeypatch, 'echo "plain text"')
         assert outputs_identical("status --json", tmp_path)
 
 
@@ -98,14 +99,6 @@ class TestTreeDigest:
 class TestWriteIdempotency:
     """A mutating command must leave the same project behind on its second run."""
 
-    def _install_rebrew(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str) -> None:
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        script_path = bin_dir / "rebrew"
-        script_path.write_text("#!/bin/sh\n" + script + "\n", encoding="utf-8")
-        script_path.chmod(0o755)
-        monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
-
     def test_convergent_command_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -113,7 +106,7 @@ class TestWriteIdempotency:
 
         project = tmp_path / "proj"
         project.mkdir()
-        self._install_rebrew(
+        _install_rebrew(
             tmp_path,
             monkeypatch,
             'if [ -f note.c ]; then rm -f note.c; fi; echo "// once" > note.c',
@@ -125,7 +118,7 @@ class TestWriteIdempotency:
 
         project = tmp_path / "proj"
         project.mkdir()
-        self._install_rebrew(tmp_path, monkeypatch, 'echo "// GLOBAL: SERVER 0x401000" >> note.c')
+        _install_rebrew(tmp_path, monkeypatch, 'echo "// GLOBAL: SERVER 0x401000" >> note.c')
         ok, reason = check_write_idempotency("document-unmatched", project)
         assert not ok
         assert "note.c" in reason
@@ -137,7 +130,7 @@ class TestWriteIdempotency:
 
         project = tmp_path / "proj"
         project.mkdir()
-        self._install_rebrew(
+        _install_rebrew(
             tmp_path,
             monkeypatch,
             f"if [ -f {project}/ran ]; then exit 3; fi; touch {project}/ran",
@@ -159,7 +152,7 @@ class TestWriteIdempotency:
 
         project = tmp_path / "proj"
         project.mkdir()
-        self._install_rebrew(tmp_path, monkeypatch, 'echo "nothing to do"')
+        _install_rebrew(tmp_path, monkeypatch, 'echo "nothing to do"')
         ok, reason = check_write_idempotency("document-unmatched", project)
         assert not ok
         assert "unchanged" in reason

@@ -168,8 +168,6 @@ def retired_source_elsewhere(
         previous_path = (root / previous_file).resolve()
         if previous_path == filepath.resolve():
             continue
-        if not name or previous_path.name == filepath.name:
-            return True
         return True
     return False
 

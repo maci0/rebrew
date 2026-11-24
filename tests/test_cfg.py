@@ -1581,21 +1581,20 @@ def _write_project(tmp_path: Path, toml: str = "") -> Path:
     return p
 
 
+def _invoke_cfg(tmp_path: Path, monkeypatch: object, args: list[str], toml: str = "") -> object:
+    from typer.testing import CliRunner
+
+    from rebrew.cfg import app
+
+    _write_project(tmp_path, toml)
+    monkeypatch.chdir(tmp_path)
+    return CliRunner().invoke(app, args)
+
+
 class TestCfgCli:
-    def _invoke(
-        self, tmp_path: Path, monkeypatch: object, args: list[str], toml: str = ""
-    ) -> object:
-        from typer.testing import CliRunner
-
-        from rebrew.cfg import app
-
-        _write_project(tmp_path, toml)
-        monkeypatch.chdir(tmp_path)
-        return CliRunner().invoke(app, args)
-
     def test_list_targets(self, tmp_path: Path, monkeypatch: object) -> None:
 
-        result = self._invoke(tmp_path, monkeypatch, ["target", "list", "--json"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["target", "list", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
         assert data["items"][0]["name"] == "main"
@@ -1603,7 +1602,7 @@ class TestCfgCli:
 
     def test_list_targets_empty(self, tmp_path: Path, monkeypatch: object) -> None:
 
-        result = self._invoke(
+        result = _invoke_cfg(
             tmp_path, monkeypatch, ["target", "list", "--json"], toml="[project]\n"
         )
         assert result.exit_code == 0
@@ -1611,58 +1610,58 @@ class TestCfgCli:
 
     def test_show_full_json(self, tmp_path: Path, monkeypatch: object) -> None:
 
-        result = self._invoke(tmp_path, monkeypatch, ["show", "--json"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["show", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
         assert data["targets"]["main"]["binary"] == "test.exe"
 
     def test_show_key_json(self, tmp_path: Path, monkeypatch: object) -> None:
 
-        result = self._invoke(tmp_path, monkeypatch, ["show", "project.default_target", "--json"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["show", "project.default_target", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
         assert data["value"] == "main"
 
     def test_show_key_missing(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["show", "nope.key"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["show", "nope.key"])
         assert result.exit_code != 0
         assert "not found" in result.output
 
     def test_show_key_plain(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["show", "project.default_target"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["show", "project.default_target"])
         assert result.exit_code == 0
         assert result.stdout.strip() == "main"
 
     def test_raw_command(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["raw"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["raw"])
         assert result.exit_code == 0
         assert "main" in result.stdout
 
     def test_path_command(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["path"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["path"])
         assert result.exit_code == 0
         assert str(tmp_path / "rebrew-project.toml") in result.stdout
 
     def test_remove_target_cli(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["target", "remove", "main", "--force"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["target", "remove", "main", "--force"])
         assert result.exit_code == 0
         assert "targets.main" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_set_cli(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["set", "project.description", "my game"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["set", "project.description", "my game"])
         assert result.exit_code == 0
         assert 'description = "my game"' in (tmp_path / "rebrew-project.toml").read_text(
             encoding="utf-8"
         )
 
     def test_add_module_cli(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["module", "add", "ZLIB", "--target", "main"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["module", "add", "ZLIB", "--target", "main"])
         assert result.exit_code == 0
         assert "ZLIB" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_remove_module_cli(self, tmp_path: Path, monkeypatch: object) -> None:
         toml = '[project]\n[targets.main]\nbinary = "test.exe"\norigins = ["GAME", "ZLIB"]\n'
-        result = self._invoke(
+        result = _invoke_cfg(
             tmp_path,
             monkeypatch,
             ["module", "remove", "ZLIB", "--target", "main", "--force"],
@@ -1672,7 +1671,7 @@ class TestCfgCli:
         assert "ZLIB" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_set_cflags_cli(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["module", "set-cflags", "main", "/O1 /Gy"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["module", "set-cflags", "main", "/O1 /Gy"])
         assert result.exit_code == 0
         assert "/O1 /Gy" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
@@ -1680,7 +1679,7 @@ class TestCfgCli:
         tools = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         tools.mkdir(parents=True)
         (tools / "MALLOC.C").write_text("int malloc(void);\n", encoding="utf-8")
-        result = self._invoke(tmp_path, monkeypatch, ["detect-crt", "show"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["detect-crt", "show"])
         assert result.exit_code == 0
         assert "MSVCRT" in result.output
         assert "toolchain/msvc/6.0-win32/VC98/CRT/SRC" in result.output
@@ -1694,25 +1693,14 @@ class TestCfgWriteCommandsJson:
     path on stdout) and had to scrape it.
     """
 
-    def _invoke(
-        self, tmp_path: Path, monkeypatch: object, args: list[str], toml: str = ""
-    ) -> object:
-        from typer.testing import CliRunner
-
-        from rebrew.cfg import app
-
-        _write_project(tmp_path, toml)
-        monkeypatch.chdir(tmp_path)
-        return CliRunner().invoke(app, args)
-
     def test_path_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["path", "--json"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["path", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
         assert data["path"] == str(tmp_path / "rebrew-project.toml")
 
     def test_set_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["set", "project.jobs", "4", "--json"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["set", "project.jobs", "4", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
         assert data["key"] == "project.jobs"
@@ -1720,7 +1708,7 @@ class TestCfgWriteCommandsJson:
         assert "jobs = 4" in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_set_dry_run_json_writes_nothing(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(
+        result = _invoke_cfg(
             tmp_path, monkeypatch, ["set", "project.jobs", "4", "--dry-run", "--json"]
         )
         assert result.exit_code == 0
@@ -1729,14 +1717,14 @@ class TestCfgWriteCommandsJson:
         assert "jobs" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_set_error_json_envelope(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["set", "targets.main.arch", "z80", "--json"])
+        result = _invoke_cfg(tmp_path, monkeypatch, ["set", "targets.main.arch", "z80", "--json"])
         assert result.exit_code == 2
         data = cli_payload(result)
         assert data["code"] == 2
         assert "z80" in data["error"]
 
     def test_set_cflags_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(
+        result = _invoke_cfg(
             tmp_path, monkeypatch, ["module", "set-cflags", "ZLIB", "/O2", "--json"]
         )
         assert result.exit_code == 0
@@ -1751,7 +1739,7 @@ class TestCfgWriteCommandsJson:
     def test_set_cflags_dry_run_json_writes_nothing(
         self, tmp_path: Path, monkeypatch: object
     ) -> None:
-        result = self._invoke(
+        result = _invoke_cfg(
             tmp_path, monkeypatch, ["module", "set-cflags", "ZLIB", "/O2", "--dry-run", "--json"]
         )
         assert result.exit_code == 0
@@ -1762,7 +1750,7 @@ class TestCfgWriteCommandsJson:
         )
 
     def test_set_compiler_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(
+        result = _invoke_cfg(
             tmp_path, monkeypatch, ["target", "set-compiler", "main", "msvc-6.0", "--json"]
         )
         assert result.exit_code == 0
@@ -1775,7 +1763,7 @@ class TestCfgWriteCommandsJson:
     def test_set_compiler_dry_run_json_writes_nothing(
         self, tmp_path: Path, monkeypatch: object
     ) -> None:
-        result = self._invoke(
+        result = _invoke_cfg(
             tmp_path,
             monkeypatch,
             ["target", "set-compiler", "main", "msvc-6.0", "--dry-run", "--json"],
@@ -1786,7 +1774,7 @@ class TestCfgWriteCommandsJson:
         assert "profile" not in (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_set_compiler_unknown_profile_json(self, tmp_path: Path, monkeypatch: object) -> None:
-        result = self._invoke(
+        result = _invoke_cfg(
             tmp_path, monkeypatch, ["target", "set-compiler", "main", "boguscompiler", "--json"]
         )
         assert result.exit_code == 2
