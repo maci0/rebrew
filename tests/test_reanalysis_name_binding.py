@@ -133,8 +133,13 @@ def test_reanalysis_keeps_an_identifier_name_in_the_stub(tmp_path: Path) -> None
 
 
 def test_reanalysis_repairs_a_record_its_stub_disagrees_with(tmp_path: Path) -> None:
+    from rebrew.metadata.bindings import binding_conflicts
+
     config, project = _disagreeing_stub(tmp_path)
-    _analyse(config)
+    with binding_conflicts() as skipped:
+        _analyse(config)
+    # The intake repairs the record before it reads the bindings: no read skipped it.
+    assert skipped == set()
     repaired = _assert_consistent(project)
     # A second run finds nothing to repair and changes nothing.
     _analyse(config)

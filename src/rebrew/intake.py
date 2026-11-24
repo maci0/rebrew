@@ -297,6 +297,12 @@ def classify_all(
         meta_base = project / "src"
     else:
         meta_base = project
+    documented = 0
+    # Two batched metadata writes (fields + statuses) instead of per-function
+    # RMWs, each of which rewrites the whole TOML.
+    existing = load_metadata(meta_base, deepcopy=False)
+    if _repair_free_text_names(meta_base, target_module_name, existing):
+        existing = load_metadata(meta_base, deepcopy=False)
     # A migrated source has no ADDRESS anchor. Its VA is visible only through
     # the row whose ``file`` matches, so the duplicate check has to read the
     # store. Without that, renaming a pure-C stub looks like a delete and
@@ -308,10 +314,6 @@ def classify_all(
         )
         for ann in annotations
     }
-    documented = 0
-    # Two batched metadata writes (fields + statuses) instead of per-function
-    # RMWs, each of which rewrites the whole TOML.
-    existing = load_metadata(meta_base, deepcopy=False)
     existing_sizes = {(mod, va): fields.get("size") for (mod, va), fields in existing.items()}
     field_updates: list[dict[str, Any]] = []
     status_updates: list[dict[str, Any]] = []
@@ -322,15 +324,6 @@ def classify_all(
     syntax = address_comments_for_file(src_dir / "fcn.c", module=target_module_name)
     if syntax.style == "delphi":
         raise ValueError("C stub generation requires c89 or cpp address_comments.style")
-    if _repair_free_text_names(meta_base, target_module_name, existing):
-        existing = load_metadata(meta_base, deepcopy=False)
-        existing_vas = {
-            ann["va"]
-            for _, annotations in iter_source_bindings(
-                iter_sources(src_dir), target=target_module_name, metadata_dir=meta_base
-            )
-            for ann in annotations
-        }
     for va, size, _name in funcs:
         reason = blocker_reason(family, size, hint)
         out = src_dir / f"fcn_{va:08x}.c"
