@@ -5,6 +5,7 @@
 - `rebrew todo` and `rebrew binary functions` accept `--fields` for JSON item projection while preserving pagination and envelope metadata. The clispec document declares both collections as offset-paginated and reads argument types and choices from Typer's resolved annotations.
 - The jobs service computes workspace digests without copying and syncing the tree, and streams retained-output hashing instead of allocating the full log. Remote compiles no longer stage source bytes that the local compiler never reads. Library-header verification loads function metadata once for the whole header set.
 - Project reports resolve each function source once per capture. SQLite metadata description and document reads reuse one bulk document pass instead of querying and parsing each document again.
+- Multi-function `rebrew test` batches STATUS promotions into one metadata write per source and publishes verify-cache patches only for accepted rows. A 260-row writer replay dropped from 6.24 s to 0.044 s CPU (260 writes to one).
 
 ### Breaking
 

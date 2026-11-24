@@ -1175,6 +1175,31 @@ class TestUpdateStatusesBatchPromotionPolicy:
             )
         assert self._read_status(tmp_path, 0x1000) == ""
 
+    def test_reports_per_row_outcomes_for_cache_publishers(self, tmp_path: Path) -> None:
+        """Batched callers must distinguish accepted rows from parked refusals."""
+        save_metadata(
+            tmp_path,
+            {
+                ("T", 0x1000): {"status": "SKIP"},
+                ("T", 0x2000): {"status": "STUB"},
+            },
+        )
+        outcomes = [True]
+        changed = update_statuses_batch(
+            tmp_path,
+            [
+                {"module": "T", "va": 0x1000, "new_status": "EXACT"},
+                {"module": "T", "va": 0x2000, "new_status": "SIZE_MISMATCH"},
+                {"module": "T", "va": 0x3000, "new_status": "EXACT"},
+            ],
+            status_outcomes=outcomes,
+        )
+        assert changed == 1
+        assert outcomes == [False, False, True]
+        assert self._read_status(tmp_path, 0x1000) == "SKIP"
+        assert self._read_status(tmp_path, 0x2000) == "STUB"
+        assert self._read_status(tmp_path, 0x3000) == "EXACT"
+
     def test_same_status_still_clears_stale_blocker(self, tmp_path: Path) -> None:
         """An already-classified entry with a stale blocker is cleaned up by
         the same-status clear_blockers write (the blocker-clearing path must

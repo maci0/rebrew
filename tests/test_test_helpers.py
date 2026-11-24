@@ -8,6 +8,7 @@ import pytest
 import typer
 from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
+from status_util import accept_status_batch, refuse_status_batch
 
 from rebrew.compiler.compile import CompareResult
 from rebrew.test import (
@@ -775,7 +776,7 @@ class TestMultiUnchangedStatusCachePatch:
             "smart_reloc_compare",
             lambda *a, **k: (False, 9, 12, [], []),
         )
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
+        monkeypatch.setattr(testmod, "update_statuses_batch", accept_status_batch)
         monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 12)
         patched: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
         monkeypatch.setattr(
@@ -842,7 +843,7 @@ class TestRefusedPromotionSkipsCache:
         )
         monkeypatch.setattr(testmod, "smart_reloc_compare", lambda *a, **k: (False, 9, 12, [], []))
         # The promotion policy refused (parked SKIP / documented STUB).
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: False)
+        monkeypatch.setattr(testmod, "update_statuses_batch", refuse_status_batch)
         monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 12)
         patched: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: patched.append((a, k)))
@@ -1046,7 +1047,7 @@ class TestMultiFixSize:
         monkeypatch.setattr(testmod, "extract_raw_bytes", _fake_extract)
         # Suppress status promotion side effects (validated by the single-path
         # CLI tests).
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
+        monkeypatch.setattr(testmod, "update_statuses_batch", accept_status_batch)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
 
         testmod._test_multi(
@@ -1123,7 +1124,7 @@ class TestMultiFixSize:
             "extract_raw_bytes",
             lambda binpath, va, size: (tmp_path / "x.bin").read_bytes()[:size],
         )
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
+        monkeypatch.setattr(testmod, "update_statuses_batch", accept_status_batch)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
 
         with pytest.raises(typer.Exit) as exc_info:
@@ -1183,7 +1184,7 @@ class TestMultiFixSize:
             "extract_raw_bytes",
             lambda b, va, size: (tmp_path / "x.bin").read_bytes()[:size],
         )
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
+        monkeypatch.setattr(testmod, "update_statuses_batch", accept_status_batch)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr(testmod, "json_print", lambda payload: captured.append(payload))
 
@@ -1449,7 +1450,7 @@ class TestMultiCachePatchDelta:
         monkeypatch.setattr(testmod, "compile_to_obj", _fake_compile)
         monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _fake_parse)
         monkeypatch.setattr(testmod, "smart_reloc_compare", _fake_compare)
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
+        monkeypatch.setattr(testmod, "update_statuses_batch", accept_status_batch)
         monkeypatch.setattr(testmod, "_patch_verify_cache", _fake_patch)
         monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: _tgt)
 
@@ -1853,9 +1854,19 @@ class TestMultiBlockerSource:
         monkeypatch.setattr(testmod, "smart_reloc_compare", lambda *a, **k: (True, 1, 1, [], []))
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
         writes: list[dict[str, Any]] = []
-        monkeypatch.setattr(
-            testmod, "update_source_status", lambda *a, **k: writes.append(k) or True
-        )
+
+        def _capture_status_batch(
+            _metadata_dir: Any,
+            updates: list[dict[str, Any]],
+            *,
+            status_outcomes: list[bool] | None = None,
+        ) -> int:
+            writes.extend(updates)
+            if status_outcomes is not None:
+                status_outcomes[:] = [True] * len(updates)
+            return len(updates)
+
+        monkeypatch.setattr(testmod, "update_statuses_batch", _capture_status_batch)
         testmod._test_multi(cfg, str(source), [ann], None)
         assert writes[0]["clear_blockers"] is True
 
@@ -1896,7 +1907,7 @@ class TestMultiRemoteRefusalIsNotRun:
 
         monkeypatch.setattr(testmod, "compile_to_obj", refused)
         writes: list[Any] = []
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: writes.append(a))
+        monkeypatch.setattr(testmod, "update_statuses_batch", lambda *a, **k: writes.append(a))
         anns = [
             SourceBinding(kind="FUNCTION", module="X", va=va, size=12, symbol=sym, status="STUB")
             for va, sym in ((0x1000, "_f"), (0x2000, "_g"))

@@ -12,6 +12,7 @@ lazy from pathlib import Path
 import pytest
 from cli_json import cli_payload
 from source_util import write_source
+from status_util import accept_status_batch
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
 from rebrew.compiler.compile import CompareResult
@@ -1043,10 +1044,20 @@ class TestForceStatus:
         monkeypatch.setattr(
             "rebrew.test.parse_obj_symbol_and_relocs", lambda *a, **k: (b"\x55\x8b\xec", {}, [])
         )
-        calls: list[object] = []
-        monkeypatch.setattr(
-            "rebrew.test.update_source_status", lambda *a, **k: calls.append((a, k))
-        )
+        calls: list[list[dict[str, Any]]] = []
+
+        def _capture_status_batch(
+            _metadata_dir: Any,
+            updates: list[dict[str, Any]],
+            *,
+            status_outcomes: list[bool] | None = None,
+        ) -> int:
+            calls.append(updates)
+            if status_outcomes is not None:
+                status_outcomes[:] = [True] * len(updates)
+            return len(updates)
+
+        monkeypatch.setattr("rebrew.test.update_statuses_batch", _capture_status_batch)
         monkeypatch.setattr("rebrew.test._patch_verify_cache", lambda *a, **k: None)
 
         test_mod._test_multi(
@@ -1058,7 +1069,8 @@ class TestForceStatus:
         test_mod._test_multi(
             cfg, "multi.c", anns, None, no_promote=False, dry_run=False, json_output=False
         )
-        assert len(calls) == 2  # real run promotes both
+        assert len(calls) == 1  # one real metadata write promotes both
+        assert len(calls[0]) == 2
 
 
 class TestSinglePathExitCodes:
@@ -1166,7 +1178,7 @@ class TestSinglePathExitCodes:
         monkeypatch.setattr(testmod, "compile_to_obj", lambda *a, **k: ("f.obj", ""))
         monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _boom)
         monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
-        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: True)
+        monkeypatch.setattr(testmod, "update_statuses_batch", accept_status_batch)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
         ann = SourceBinding(
             va=0x1000,

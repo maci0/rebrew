@@ -1512,7 +1512,11 @@ def update_source_status(
 
 
 def update_statuses_batch(
-    metadata_dir: Path | str | Any, updates: list[dict[str, Any]], *, now: datetime | None = None
+    metadata_dir: Path | str | Any,
+    updates: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+    status_outcomes: list[bool] | None = None,
 ) -> int:
     """Apply many STATUS updates in ONE TOML read-modify-write.
 
@@ -1535,6 +1539,12 @@ def update_statuses_batch(
     one instant for every row the batch stamps, so a replay lands the same
     bytes (see :func:`stamp_provenance`).
 
+    *status_outcomes*, when supplied, is replaced with one Boolean per input
+    row in input order. A true value means that row changed in the store,
+    including verification-only or associated-field changes; false means the
+    promotion policy refused it or it was already current. Callers that pair
+    a STATUS with a cache entry use this to avoid publishing refused verdicts.
+
     Each changed status passes through :func:`should_promote_status` —
     the single canonical promotion policy (SKIP never silently unparked, a
     documented STUB kept against placeholder size-mismatch verdicts).  ``force=True`` bypasses that policy for
@@ -1549,7 +1559,11 @@ def update_statuses_batch(
     the single write keeps the batch all-or-nothing.
     """
     if not updates:
+        if status_outcomes is not None:
+            status_outcomes.clear()
         return 0
+    if status_outcomes is not None:
+        status_outcomes[:] = [False] * len(updates)
     dir_path = resolve_metadata_dir(metadata_dir)
     path = (dir_path / METADATA_FILENAME).resolve()
     changed = 0
@@ -1558,7 +1572,7 @@ def update_statuses_batch(
         doc = load_metadata_for_write(path, "metadata", known_fields=_KNOWN_METADATA_FIELDS)
         key_index = build_metadata_key_index(doc)
 
-        for u in updates:
+        for update_index, u in enumerate(updates):
             module = u.get("module") or ""
             if not module:
                 raise ValueError(f"STATUS update missing 'module': {u!r}")
@@ -1657,10 +1671,14 @@ def update_statuses_batch(
                     raise ValueError("verification evidence must describe the compared status")
                 evidence_changed = record_verification(entry, evidence, now=now)
             if not row_changed and not evidence_changed:
+                if status_outcomes is not None:
+                    status_outcomes[update_index] = False
                 continue
             updated_by = str(u.get("updated_by") or "")
             if updated_by and row_changed:
                 stamp_provenance(entry, updated_by, now=now)
+            if status_outcomes is not None:
+                status_outcomes[update_index] = True
             changed += 1
 
         # Single write for the whole batch

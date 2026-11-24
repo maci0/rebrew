@@ -97,6 +97,7 @@ lazy from rebrew.metadata.functions import (
     should_promote_status,
     update_field,
     update_source_status,
+    update_statuses_batch,
 )
 lazy from rebrew.present import bar_plain
 lazy from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
@@ -2031,6 +2032,14 @@ def _test_multi(
         # annotations; one TOML read-modify-write per stale size used to
         # rewrite the same store once per function.
         size_updates: list[dict[str, Any]] = []
+        # STATUS writes share one metadata read-modify-write after the file's
+        # comparisons. Cache patches wait for the per-row outcomes so a parked
+        # SKIP or documented STUB can never publish a verdict the store refused.
+        status_updates: list[dict[str, Any]] = []
+        status_cache_patches: list[
+            tuple[int | None, tuple[int, str, int, int], dict[str, Any], bool]
+        ] = []
+        status_promotions: list[tuple[int, str, str, int]] = []
         from rebrew.verify_hash import comparison_inputs, comparison_inputs_current
 
         group_inputs: dict[tuple[str | None, str], dict[str, str] | None] = {}
@@ -2451,32 +2460,36 @@ def _test_multi(
                     # metrics: status/todo rank ROI from the cache's match_percent
                     # and byte delta (same rule as the single-file path).
                     if not dry_run and new_status == old_status and context is None:
+                        status_index: int | None = None
                         if measured_inputs:
-                            update_source_status(
-                                cfg.metadata_dir,
-                                new_status,
-                                ann.module,
-                                ann.va,
-                                clear_blockers=False,
-                                updated_by="test",
-                                verification={
-                                    **measured_inputs,
-                                    "status": new_status,
-                                    "writer": "test",
-                                },
+                            status_index = len(status_updates)
+                            status_updates.append(
+                                {
+                                    "module": ann.module,
+                                    "va": ann.va,
+                                    "new_status": new_status,
+                                    "clear_blockers": False,
+                                    "updated_by": "test",
+                                    "verification": {
+                                        **measured_inputs,
+                                        "status": new_status,
+                                        "writer": "test",
+                                    },
+                                }
                             )
-                        _patch_verify_cache(
-                            cfg,
-                            ann.va,
-                            new_status,
-                            match_count,
-                            total,
-                            delta=cmp.delta,
-                            match_percent=cmp.match_percent,
-                            context_hash=cmp.context_hash,
-                            measured_inputs=measured_inputs,
-                            size=ann.size,
-                            pending=cache_patches,
+                        status_cache_patches.append(
+                            (
+                                status_index,
+                                (ann.va, new_status, match_count, total),
+                                {
+                                    "delta": cmp.delta,
+                                    "match_percent": cmp.match_percent,
+                                    "context_hash": cmp.context_hash,
+                                    "measured_inputs": measured_inputs,
+                                    "size": ann.size,
+                                },
+                                False,
+                            )
                         )
                 elif dry_run:
                     # --dry-run must not write: preview (compile already ran).
@@ -2487,52 +2500,72 @@ def _test_multi(
                         )
                 else:
                     clear = clears_blocker(new_status, Path(source))
-                    written = update_source_status(
-                        cfg.metadata_dir,
-                        new_status,
-                        ann.module,
-                        ann.va,
-                        clear_blockers=clear,
-                        updated_by="test",
-                        verification={**measured_inputs, "status": new_status, "writer": "test"}
-                        if measured_inputs
-                        else None,
+                    status_index = len(status_updates)
+                    status_updates.append(
+                        {
+                            "module": ann.module,
+                            "va": ann.va,
+                            "new_status": new_status,
+                            "clear_blockers": clear,
+                            "updated_by": "test",
+                            "verification": {
+                                **measured_inputs,
+                                "status": new_status,
+                                "writer": "test",
+                            }
+                            if measured_inputs
+                            else None,
+                        }
                     )
-                    if not written:
-                        # Same refusal rule as the single-file path: a cache
-                        # entry the store refused would outrank the metadata
-                        # STATUS it never accepted.
-                        logging.warning(
-                            "promotion policy refused %s for %s 0x%x: the "
-                            "function is parked or classified as a documented "
-                            "STUB, so the verify cache is left alone",
-                            new_status,
-                            ann.module,
-                            ann.va,
-                        )
-                    elif context is None:
+                    status_promotions.append((status_index, new_status, ann.module, ann.va))
+                    if context is None:
                         # Same rule as the single-file path: a context-scoped
                         # verdict must not be written to the shared cache.
-                        _patch_verify_cache(
-                            cfg,
-                            ann.va,
-                            new_status,
-                            match_count,
-                            total,
-                            # The real byte delta, as the single-file path
-                            # passes: recomputing total - match_count yields 0
-                            # for a SIZE_MISMATCH (obj truncated to the
-                            # target), which todo then reads as a "0B diff —
-                            # try flag sweep" quick-win.
-                            delta=cmp.delta,
-                            match_percent=cmp.match_percent,
-                            context_hash=cmp.context_hash,
-                            measured_inputs=measured_inputs,
-                            size=ann.size,
-                            pending=cache_patches,
+                        status_cache_patches.append(
+                            (
+                                status_index,
+                                (ann.va, new_status, match_count, total),
+                                {
+                                    # The real byte delta, as the single-file path
+                                    # passes: recomputing total - match_count yields 0
+                                    # for a SIZE_MISMATCH (obj truncated to the
+                                    # target), which todo then reads as a "0B diff —
+                                    # try flag sweep" quick-win.
+                                    "delta": cmp.delta,
+                                    "match_percent": cmp.match_percent,
+                                    "context_hash": cmp.context_hash,
+                                    "measured_inputs": measured_inputs,
+                                    "size": ann.size,
+                                },
+                                True,
+                            )
                         )
-                    if written and not json_output:
-                        console.print(f"[dim]  STATUS → {untrusted_ident(new_status)}[/dim]")
+
+        status_outcomes: list[bool] = []
+        if status_updates:
+            update_statuses_batch(
+                cfg.metadata_dir,
+                status_updates,
+                status_outcomes=status_outcomes,
+            )
+        for status_index, cache_args, cache_kwargs, require_write in status_cache_patches:
+            if status_index is None or not require_write or status_outcomes[status_index]:
+                _patch_verify_cache(cfg, *cache_args, pending=cache_patches, **cache_kwargs)
+        for status_index, promotion_status, promotion_module, promotion_va in status_promotions:
+            if status_outcomes[status_index]:
+                if not json_output:
+                    console.print(f"[dim]  STATUS → {untrusted_ident(promotion_status)}[/dim]")
+            else:
+                # Same refusal rule as the single-file path: a cache entry the
+                # store refused would outrank the metadata STATUS it never accepted.
+                logging.warning(
+                    "promotion policy refused %s for %s 0x%x: the "
+                    "function is parked or classified as a documented "
+                    "STUB, so the verify cache is left alone",
+                    promotion_status,
+                    promotion_module,
+                    promotion_va,
+                )
 
         if size_updates:
             try:
