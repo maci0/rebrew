@@ -1,13 +1,60 @@
 """Target isolation and definition ownership in generated linker anchors."""
 
+from types import SimpleNamespace
 lazy from pathlib import Path
 
+import pytest
+from cli_json import cli_payload
+from typer.testing import CliRunner
+
 from rebrew.config import load_config
-from rebrew.link_anchors import anchor_symbols
+from rebrew.link_anchors import anchor_symbols, app
 from rebrew.metadata.functions import record_function_identity
 
 
 class TestLinkAnchors:
+    def test_text_response_is_written_to_stdout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "rebrew.link_anchors.require_config", lambda **_kwargs: SimpleNamespace(root=tmp_path)
+        )
+        monkeypatch.setattr(
+            "rebrew.link_anchors.anchor_symbols",
+            lambda *_args: {
+                "target": "server",
+                "functions": 1,
+                "data": 0,
+                "symbols": ["_first@4"],
+                "text": "/INCLUDE:_first@4\n",
+            },
+        )
+        result = CliRunner().invoke(app, [])
+        assert result.exit_code == 0, result.output
+        assert result.stdout == "/INCLUDE:_first@4\n"
+        assert result.stderr == ""
+
+    def test_json_response_stays_on_stdout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "rebrew.link_anchors.require_config", lambda **_kwargs: SimpleNamespace(root=tmp_path)
+        )
+        monkeypatch.setattr(
+            "rebrew.link_anchors.anchor_symbols",
+            lambda *_args: {
+                "target": "server",
+                "functions": 1,
+                "data": 0,
+                "symbols": ["_first@4"],
+                "text": "/INCLUDE:_first@4\n",
+            },
+        )
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["text"] == "/INCLUDE:_first@4\n"
+        assert result.stderr == ""
+
     def test_native_symbols_target_order_and_explicit_storage(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-project.toml").write_text("""[project]
 default_target = "server"
