@@ -418,6 +418,24 @@ class TestCiPins:
         drift = sync.rsplit("name: Check toolchain source drift\n", 1)[1]
         assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in drift.split("run: |", 1)[0]
 
+    def test_all_extras_jobs_keep_their_own_uv_cache(self) -> None:
+        """One shared key held the first job's packages only, never the extras' builds."""
+        import yaml
+
+        assert "cache-suffix: ${{ inputs.cache-suffix }}" in UV_ENV_ACTION.read_text(
+            encoding="utf-8"
+        )
+        suffixes, all_extras = {}, set()
+        for name, job in yaml.safe_load(CI_YML.read_text(encoding="utf-8"))["jobs"].items():
+            for step in job["steps"]:
+                if step.get("uses") == UV_ENV_USES:
+                    suffixes[name] = step.get("with", {}).get("cache-suffix", "")
+                if "uv sync" in step.get("run", "") and "--all-extras" in step["run"]:
+                    all_extras.add(name)
+        assert all_extras == {"lint", "test"}
+        assert {name for name, suffix in suffixes.items() if suffix} == all_extras
+        assert {suffixes[name] for name in all_extras} == {"all-extras"}
+
     def test_package_job_uploads_dist_artifacts(self) -> None:
         """Verified wheel/sdist/SBOM/buildinfo must be retained after smoke."""
         text = CI_YML.read_text(encoding="utf-8")

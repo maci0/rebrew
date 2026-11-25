@@ -14,6 +14,7 @@ import io
 import json
 import logging
 import shutil
+import sys
 import threading
 import zipfile
 from typing import Any
@@ -148,6 +149,24 @@ def _assert_consistent(project: Path) -> dict[str, Any]:
     assert record["note"] == f"earlier name: {FREE_TEXT}"
     assert [dict(event) for event in record["status_history"]] == [HISTORY]
     return record
+
+
+def test_a_tests_project_is_a_copy_and_runs_no_op(
+    tmp_path: Path, _analysed: Template, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Setup work counter: one ``analyse`` child per session, none per test."""
+
+    def no_op(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError(f"project setup ran an op: {args[1]}")
+
+    monkeypatch.setattr(sys.modules[__name__], "dispatch", no_op)
+    _, first = _disagreeing_stub(_analysed, tmp_path / "a")
+    _, second = _unbound_free_text(_analysed, tmp_path / "b")
+    # A write to one copy reaches neither the other nor the template.
+    assert (first / "src/mini" / f"{PLACEHOLDER}.c").is_file()
+    assert not (second / "src/mini" / f"{PLACEHOLDER}.c").exists()
+    template, rel = _analysed
+    assert _record(template / rel)["name"] == PLACEHOLDER
 
 
 def test_reanalysis_leaves_a_record_its_stub_agrees_with(
