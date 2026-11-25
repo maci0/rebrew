@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Insert generated externs before any trailing line comment (D-engines7-080).
 - Match CMake link outputs exactly and refuse missing or ambiguous named outputs (D-engines7-076).
 - Check text alignment before metadata-only postlink runs (D-engines7-084).
 - Run every requested postlink fixer when the caller supplies a generator (D-engines7-083).

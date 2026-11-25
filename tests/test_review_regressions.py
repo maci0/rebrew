@@ -212,6 +212,15 @@ class TestExternPlacement:
         assert new.splitlines()[3] == "extern char g_table[];"
         assert new.count("\n") == text.count("\n")
 
+    @pytest.mark.parametrize("separator", [" ", "\t"])
+    def test_appends_before_line_comment_without_counting_bytes_as_characters(
+        self, separator: str
+    ) -> None:
+        original = f"extern{separator}int café; // keep this semicolon ;\r\nint f(void) {{ return 0; }}\r\n"
+        rewritten, declared = declare_externs(original, ["g_table"])
+        assert declared == ["g_table"]
+        assert rewritten == original.replace("café;", "café; extern char g_table[];", 1)
+
     def test_conditional_extern_is_not_an_anchor(self) -> None:
         text = "#if 0\nextern int other;\n#endif\nint f(void) { return 0; }\n"
         with pytest.raises(ValueError, match="extern|empty"):

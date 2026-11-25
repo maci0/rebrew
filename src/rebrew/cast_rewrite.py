@@ -71,13 +71,20 @@ def declare_externs(text: str, names: list[str]) -> tuple[str, list[str]]:
     wanted = [name for name in dict.fromkeys(names) if name not in declared]
     if not wanted:
         return text, []
+    extern_lines = {var.line - 1 for var in variables if var.line == var.end_line}
     anchor = next(
         (
-            var.line
-            for var in variables
-            if var.line == var.end_line
-            and lines[var.line - 1].lstrip().startswith("extern")
-            and lines[var.line - 1].rstrip().endswith(";")
+            node
+            for node in nodes
+            if node.type == "declaration"
+            and node.start_point.row == node.end_point.row
+            and node.start_point.row in extern_lines
+            and any(
+                child.type == "storage_class_specifier"
+                and raw[child.start_byte : child.end_byte] == b"extern"
+                for child in node.named_children
+            )
+            and raw[node.end_byte - 1 : node.end_byte] == b";"
         ),
         None,
     )
@@ -100,13 +107,13 @@ def declare_externs(text: str, names: list[str]) -> tuple[str, list[str]]:
             offset = end
         if blank is None:
             raise ValueError("no one-line top-level extern declaration or empty line to declare in")
-        anchor = blank + 1
         decls = " ".join(f"extern char {name}[];" for name in wanted)
         lines[blank] = decls + (lines[blank] if lines[blank] in ("\n", "\r\n") else "\n")
         return "".join(lines), wanted
-    line = lines[anchor - 1]
-    body = line.rstrip("\r\n")
-    lines[anchor - 1] = (
-        body.rstrip() + "".join(f" extern char {name}[];" for name in wanted) + line[len(body) :]
+    row, column = anchor.end_point
+    encoded_line = lines[row].encode("utf-8", errors="surrogateescape")
+    decls = "".join(f" extern char {name}[];" for name in wanted)
+    lines[row] = (encoded_line[:column] + decls.encode() + encoded_line[column:]).decode(
+        "utf-8", errors="surrogateescape"
     )
     return "".join(lines), wanted
