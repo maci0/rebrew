@@ -678,18 +678,16 @@ class TestRunToolchain:
                 raise sp.TimeoutExpired(cmd, 300)
             return _FakeProc(0, "", "")
 
-        killed: list[str] = []
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
-        monkeypatch.setattr("rebrew.utils.kill_process_group", lambda proc: killed.append("group"))
 
-        with pytest.raises(ToolchainError, match="docker invocation failed"):
+        with pytest.raises(ToolchainError, match="docker invocation failed") as error:
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
 
-        assert len(calls) == 1
-        assert calls[0][calls[0].index("--name") + 1]
-        assert killed == []  # group-kill is inside run_process_group; no docker-kill wrapper
+        assert error.value.retryable
+        name = calls[0][calls[0].index("--name") + 1]
+        assert calls[1:] == [[calls[0][0], "kill", name]]
 
     def test_docker_interrupt_kills_named_container(self, tmp_path: Path, monkeypatch) -> None:
         """Ctrl+C mid-compile kills only the docker CLI; the container must
@@ -705,18 +703,15 @@ class TestRunToolchain:
                 raise KeyboardInterrupt
             return _FakeProc(0, "", "")
 
-        killed: list[str] = []
         monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
-        monkeypatch.setattr("rebrew.utils.kill_process_group", lambda proc: killed.append("group"))
 
         with pytest.raises(KeyboardInterrupt):
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
 
-        assert len(calls) == 1
-        assert calls[0][calls[0].index("--name") + 1]
-        assert killed == []  # group-kill is inside run_process_group; no docker-kill wrapper
+        name = calls[0][calls[0].index("--name") + 1]
+        assert calls[1:] == [[calls[0][0], "kill", name]]
 
     def test_docker_os_error_skips_kill(self, tmp_path: Path, monkeypatch) -> None:
         """No container exists when docker itself cannot be exec'd — the

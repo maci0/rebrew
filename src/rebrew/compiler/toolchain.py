@@ -1579,6 +1579,7 @@ def run_toolchain(
                 kind="missing",
                 name=spec.name,
             )
+        container_name = f"rebrew-{uuid.uuid4().hex[:12]}"
         cmd = [
             runtime,
             "run",
@@ -1592,7 +1593,7 @@ def run_toolchain(
             # running, so a hung compile would linger forever and accumulate
             # one orphan per timed-out invocation.
             "--name",
-            f"rebrew-{uuid.uuid4().hex[:12]}",
+            container_name,
             "-v",
             bind_mount(workdir, "/work"),
             "-w",
@@ -1632,12 +1633,16 @@ def run_toolchain(
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
+            kill_container(container_name, runtime=runtime)
             raise ToolchainError(
                 f"docker invocation failed: {exc}",
                 kind="invocation",
                 name=spec.name,
                 retryable=True,
             ) from exc
+        except KeyboardInterrupt:
+            kill_container(container_name, runtime=runtime)
+            raise
         except OSError as exc:
             # The docker CLI failed to exec, so no container was started and
             # there is nothing to kill; re-killing by name would be a no-op
