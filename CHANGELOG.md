@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.78.0] - 2026-11-25
+
 ### Changed
 
 - `rebrew todo` and `rebrew binary functions` accept `--fields` for JSON item projection while preserving pagination and envelope metadata. The clispec document declares both collections as offset-paginated and reads argument types and choices from Typer's resolved annotations.
