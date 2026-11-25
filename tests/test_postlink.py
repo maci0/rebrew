@@ -762,6 +762,15 @@ class TestCli:
         assert built.read_bytes() == built_bytes
 
 
+def test_run_fixers_accepts_a_single_pass_selection(tmp_path: Path) -> None:
+    original = make_full_pe()
+    built = _write(tmp_path, "built.dll", original)
+    ref = _write(tmp_path, "ref.dll", original)
+    patched, reports = run_fixers(built, ref, (name for name in FIXER_ORDER))
+    assert [report.name for report in reports] == list(FIXER_ORDER)
+    assert patched == original
+
+
 def test_fixer_order_constant() -> None:
     assert FIXER_ORDER == ("imports", "data", "pe-metadata")
 

@@ -918,14 +918,15 @@ def run_fixers(
     info_b = load_binary(built_path)
     built = bytearray(info_b.data)
 
-    if "data" in (fixer_names or FIXER_ORDER):
-        check_text_alignment(bytes(built), meta, info_b)
-
-    names = list(fixer_names) if fixer_names else list(FIXER_ORDER)
+    names = list(fixer_names) if fixer_names is not None else []
+    if not names:
+        names = list(FIXER_ORDER)
     unknown = [n for n in names if n not in FIXERS]
     if unknown:
         raise ValueError(f"unknown fixers: {', '.join(unknown)}")
     names = [n for n in FIXER_ORDER if n in names]  # dependency order
+    if "data" in names:
+        check_text_alignment(bytes(built), meta, info_b)
 
     reports: list[FixerReport] = []
     for name in names:
