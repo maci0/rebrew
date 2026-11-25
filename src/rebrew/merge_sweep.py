@@ -626,7 +626,7 @@ def _load_annotations(cfg: ProjectConfig) -> dict[int, Any]:
         project_root=getattr(cfg, "root", None),
     ):
         for ann in anns:
-            if ann.va and ann.va not in out:
+            if ann.va not in out:
                 out[ann.va] = ann
     return out
 
@@ -670,7 +670,7 @@ def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
             )
             continue
         for ann in anns:
-            if ann.va and ann.va not in out:
+            if ann.va not in out:
                 out[ann.va] = ann
     return out
 

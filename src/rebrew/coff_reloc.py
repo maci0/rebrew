@@ -387,7 +387,7 @@ def build_name_to_va(
                 continue
             ann_name = getattr(ann, "name", None)
             ann_va = getattr(ann, "va", None)
-            if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
+            if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int):
                 for name in {ann_name, getattr(ann, "symbol", "")} - {""}:
                     if name in name_to_va and name_to_va[name] != ann_va:
                         ambiguous_names.add(name)
@@ -518,7 +518,9 @@ def apply_coff_relocations(
         # Exact spelling first. ``hook@@12`` is ``hook``; one leading
         # ``_`` left that relocation unresolved. ``__foo`` is ``_foo``.
         c_name = c_name_from_symbol(r.symbol)
-        target_va = resolve_va(r.symbol) or resolve_va(c_name)
+        target_va = resolve_va(r.symbol)
+        if target_va is None:
+            target_va = resolve_va(c_name)
         if target_va is None:
             raise UnresolvedSymbolError(r.symbol)
         if r.offset < 0 or r.offset + 4 > len(buf):

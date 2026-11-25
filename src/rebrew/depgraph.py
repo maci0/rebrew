@@ -125,7 +125,7 @@ class NodeInfo(TypedDict):
     """Type-safe node info for dependency graph nodes."""
 
     status: str
-    va: int
+    va: int | None
     size: int
     file: str
     symbol: str
@@ -133,9 +133,9 @@ class NodeInfo(TypedDict):
 
 def _func_key(entry: Any, fallback: str) -> str:
     """Stable node key for one annotation entry: VA when known, else symbol."""
-    va = int(getattr(entry, "va", 0) or 0)
-    if va:
-        return f"va:0x{va:08x}"
+    va = getattr(entry, "va", None)
+    if va is not None:
+        return f"va:0x{int(va):08x}"
     symbol = getattr(entry, "symbol", "") or fallback
     return f"sym:{symbol}"
 
@@ -390,7 +390,7 @@ def build_graph(
             if callee_key not in nodes:
                 nodes[callee_key] = {
                     "status": "UNKNOWN",
-                    "va": 0,
+                    "va": None,
                     "size": 0,
                     "file": "",
                     "symbol": callee,
@@ -398,7 +398,7 @@ def build_graph(
             if caller_key != callee_key:  # no self-edges
                 edges.append((caller_key, callee_key))
 
-    va_lookup: dict[int, str] = {info["va"]: name for name, info in nodes.items() if info["va"]}
+    va_lookup = {va: name for name, info in nodes.items() if (va := info["va"]) is not None}
 
     dispatch_edges: list[tuple[str, str]] = []
     if dispatch_tables:
@@ -891,8 +891,8 @@ def main(
                     )
             else:
                 for name, n in nodes.items():
-                    va = int(n["va"]) if n.get("va") else 0
-                    if va:
+                    va = n["va"]
+                    if va is not None:
                         # Size the range from the annotated function size —
                         # a 1-byte span would never contain the call sites
                         # inside the body, so every edge resolved to None.
@@ -939,7 +939,7 @@ def main(
                 "nodes": {
                     name: {
                         "status": info["status"],
-                        "va": f"0x{info['va']:08x}" if info["va"] else "0x0",
+                        "va": f"0x{info['va']:08x}" if info["va"] is not None else "0x0",
                         "file": info["file"],
                         "symbol": info.get("symbol", "") or name,
                     }

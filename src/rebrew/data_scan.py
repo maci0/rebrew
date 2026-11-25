@@ -1356,11 +1356,10 @@ def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int,
             project_root=project_root,
             function_entries=function_entries,
         ):
-            if entry.va:
-                known_functions[entry.va] = {
-                    "name": entry.name or rel_display_path(cfile, src_dir),
-                    "status": entry.status,
-                }
+            known_functions[entry.va] = {
+                "name": entry.name or rel_display_path(cfile, src_dir),
+                "status": entry.status,
+            }
     return known_functions
 
 

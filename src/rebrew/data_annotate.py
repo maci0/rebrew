@@ -639,7 +639,7 @@ def gen_globals_header(
             if ann.is_function:
                 continue
             va = ann.va
-            if not va or va in seen_va:
+            if va in seen_va:
                 continue
             seen_va.add(va)
 

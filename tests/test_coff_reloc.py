@@ -19,6 +19,17 @@ from source_util import write_source
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.config import load_config
 
+
+def test_relocation_keeps_a_zero_address_exact_symbol() -> None:
+    from rebrew.coff_reloc import CoffRelocRecord, apply_coff_relocations
+
+    symbols = {"_entry": 0, "entry": 0x401000}
+    result = apply_coff_relocations(
+        b"\x04\0\0\0", [CoffRelocRecord(0, 0x06, "_entry")], symbols.get, section_va=0
+    )
+    assert result == b"\x04\0\0\0"
+
+
 PROJECT_TOML = """\
 [project]
 name = "t"

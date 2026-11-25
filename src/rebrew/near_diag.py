@@ -501,7 +501,7 @@ def main(
             json_mode=json_output,
         )
     size_val = size or ann.size
-    if not va_int or not size_val:
+    if va_int is None or not size_val:
         error_exit(
             "Cannot determine target VA/size — pass --va and --size or add them to the annotation",
             json_mode=json_output,

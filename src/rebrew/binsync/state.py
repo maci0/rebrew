@@ -279,8 +279,8 @@ def index_local_and_catalog(
     local_entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     local_by_va: dict[int, object] = {}
     for e in local_entries:
-        va = getattr(e, "va", 0)
-        if va and (va not in local_by_va or getattr(e, "kind", "") == "FUNCTION"):
+        va = getattr(e, "va", None)
+        if va is not None and (va not in local_by_va or getattr(e, "kind", "") == "FUNCTION"):
             # Keep FUNCTION entries preferentially; DATA/GLOBAL overwrite only if no function
             local_by_va[va] = e
 
@@ -615,9 +615,10 @@ def local_sync_records(
     function_rows = load_metadata(cfg.metadata_dir, deepcopy=False)
     records: dict[str, dict[str, Any]] = {}
     for entry in entries:
-        va = int(getattr(entry, "va", 0) or 0)
-        if not va:
+        address = getattr(entry, "va", None)
+        if address is None:
             continue
+        va = int(address)
         kind = "global" if getattr(entry, "is_data", False) else "function"
         module = getattr(entry, "module", "") or target_module(cfg)
         key = (unicodedata.normalize("NFC", module), va)

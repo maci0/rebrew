@@ -877,7 +877,7 @@ def load_layout(
             project_root=project_root,
             function_entries=function_entries,
         ):
-            if entry.is_data or not entry.va:
+            if entry.is_data:
                 continue
             va_to_file[entry.va] = rel
             names[entry.va] = entry.symbol or cfile.stem

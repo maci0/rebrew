@@ -29,6 +29,7 @@ class TestBuildFunctionLookup:
         ghidra_json.write_text(
             json.dumps(
                 [
+                    {"va": 0, "ghidra_name": "dos_entry", "size": 8},
                     {"va": 0x10001000, "ghidra_name": "my_func", "size": 64},
                     {"va": 0x10002000, "ghidra_name": "other_func", "size": 128},
                 ]
@@ -37,6 +38,7 @@ class TestBuildFunctionLookup:
         )
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path)
         result = build_function_lookup(cfg)
+        assert result[0] == ("dos_entry", "")
         assert 0x10001000 in result
         assert result[0x10001000] == ("my_func", "")
         assert 0x10002000 in result

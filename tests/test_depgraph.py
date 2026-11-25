@@ -111,6 +111,13 @@ class TestBuildGraph:
         assert nodes["UnknownFunc"]["status"] == "UNKNOWN"
         assert (self._va_key(0x10001000), "UnknownFunc") in edges
 
+    def test_address_zero_and_an_unaddressed_callee_are_distinct(self, tmp_path) -> None:
+        self._make_c_file(tmp_path, "Entry", 0, "STUB", "GAME", ["UnknownFunc"])
+        nodes, edges, _ = build_graph(tmp_path, cfg=self._cfg(tmp_path))
+        assert nodes[self._va_key(0)]["va"] == 0
+        assert nodes["UnknownFunc"]["va"] is None
+        assert (self._va_key(0), "UnknownFunc") in edges
+
     def test_no_self_edges(self, tmp_path) -> None:
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "RELOC", "GAME", ["FuncA"])
         _, edges, _ = build_graph(tmp_path, cfg=self._cfg(tmp_path))

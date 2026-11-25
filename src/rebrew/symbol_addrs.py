@@ -193,7 +193,7 @@ def format_csv(rows: list[SymbolRow], references: dict[int, list[str]]) -> str:
                 row.name,
                 row.kind,
                 "" if row.size is None else f"0x{row.size:X}",
-                "|".join(references.get(row.va or -1, ())),
+                "|".join(references.get(row.va, ())) if row.va is not None else "",
             ]
         )
     return buffer.getvalue()

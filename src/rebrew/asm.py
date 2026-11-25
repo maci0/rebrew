@@ -184,7 +184,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     ghidra_json = inventory_path_for(cfg.reversed_dir, cfg)
     ghidra_funcs = load_function_structure(ghidra_json)
     for func in ghidra_funcs:
-        if func.va and func.name:
+        if func.name:
             lookup[func.va] = (func.name, "")
 
     src_dir = Path(cfg.reversed_dir)
@@ -2049,7 +2049,7 @@ def disassemble(
 
     # Default to the known canonical size (function list) when no --size is
     # given — 32 is only a fallback for functions the list does not know.
-    effective_size = size or (_list_size_for(cfg, va_int) if va_int else None) or 32
+    effective_size = size or (_list_size_for(cfg, va_int) if va_int is not None else None) or 32
 
     # A stale function-list size truncates the dump mid-instruction and
     # breaks the calling-convention inference (no `ret` in the truncated

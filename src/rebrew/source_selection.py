@@ -49,11 +49,12 @@ def collect_target_sources(
     for (module, va), row in function_entries.items():
         retired_sources.update(historical_source_files(row, metadata_dir, cfg.root))
         stored = str(row.get("file", ""))
-        if (
-            not va
-            or row.get("kind") not in {"FUNCTION", "LIBRARY"}
-            or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}
-        ):
+        if row.get("kind") not in {"FUNCTION", "LIBRARY"} or Path(stored).suffix.casefold() not in {
+            ".c",
+            ".cpp",
+            ".cc",
+            ".cxx",
+        }:
             continue
         bound = bind_compiled_source(
             cfg, SourceBinding(module=module, va=va, kind=str(row["kind"])), row
@@ -72,17 +73,13 @@ def collect_target_sources(
     target_key = preset_module_key(target_module_name)
     for src in sorted(source_files):
         resolved = src.resolve()
-        anns = [
-            a
-            for a in read_source_bindings(
-                src,
-                metadata_dir=metadata_dir,
-                project_root=project_root,
-                function_entries=function_entries,
-                with_prototypes=False,
-            )
-            if a.va
-        ]
+        anns = read_source_bindings(
+            src,
+            metadata_dir=metadata_dir,
+            project_root=project_root,
+            function_entries=function_entries,
+            with_prototypes=False,
+        )
         anns.extend(library_entries.get(resolved, []))
         if not anns:
             # An anchor that resolved to no live row still names a module: a
@@ -91,7 +88,7 @@ def collect_target_sources(
             from rebrew.metadata.anchors import parse_address_anchors
 
             raw = parse_address_anchors(_read(src), syntax=getattr(cfg, "address_comments", None))
-            modules_named = {preset_module_key(a.module) for a in raw if a.va}
+            modules_named = {preset_module_key(a.module) for a in raw}
             if modules_named and target_key not in modules_named:
                 foreign.append(resolved)
                 continue

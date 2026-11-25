@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Address lookups, source selection and comparison tools keep zero as a known address when the input provides it (D-engines7-037).
 - A malformed remote `Retry-After` header preserves the original HTTP failure and its cost uncertainty (D-engines7-041).
 - A new remote compiler hold-off also applies to attempts already waiting for a service slot (D-engines7-040).
 - An empty remote artifact counts as a billed compile without a delivered verdict, and no object is written (D-engines7-039).

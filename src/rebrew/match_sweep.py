@@ -325,7 +325,7 @@ def resolve_build_params(
     )
 
     if not target_va:
-        if anno and anno.va:
+        if anno is not None:
             target_va = f"0x{anno.va:08x}"
         else:
             for marker_key in ("FUNCTION", "LIBRARY", "STUB"):

@@ -854,6 +854,7 @@ def check_libs(cfg: ProjectConfig) -> CheckResult:
 def check_function_list(cfg: ProjectConfig) -> CheckResult:
     """Check that the discovery inventory exists and parses."""
     from rebrew.catalog import cached_function_list
+    from rebrew.metadata.bindings import min_valid_va_for
 
     inv_path = inventory_path_for(cfg.reversed_dir, cfg)
     if not inv_path.exists():
@@ -869,7 +870,8 @@ def check_function_list(cfg: ProjectConfig) -> CheckResult:
 
     try:
         funcs = cached_function_list(cfg)
-        valid = sum(1 for f in funcs if int(f.get("va") or 0) > 0)
+        min_va = min_valid_va_for(cfg)
+        valid = sum(1 for f in funcs if (va := f.get("va")) is not None and int(va) >= min_va)
         if valid == 0:
             return CheckResult(
                 name="Function inventory",

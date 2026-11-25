@@ -129,8 +129,7 @@ def collect(
                 project_root=project_root,
                 function_entries=function_entries,
             )
-            if e.va
-            and preset_module_key(e.module) == preset_module_key(target_module_name)
+            if preset_module_key(e.module) == preset_module_key(target_module_name)
             and (not e.kind or e.kind.upper() in CODE_KINDS)
         ]
         if not entries:

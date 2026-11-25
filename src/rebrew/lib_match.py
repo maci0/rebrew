@@ -405,8 +405,11 @@ def _findings(
     sizes = native_sizes(cfg)
     for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg):
         module = getattr(entry, "module", "") or ""
-        va = int(getattr(entry, "va", 0) or 0)
-        if not module or not va or va in allow:
+        address = getattr(entry, "va", None)
+        if not module or address is None:
+            continue
+        va = int(address)
+        if va in allow:
             continue
         # A GLOBAL/DATA row is not a reversed function body.
         if getattr(entry, "kind", "FUNCTION") not in ("FUNCTION", "STUB"):

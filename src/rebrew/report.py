@@ -1464,8 +1464,8 @@ def _adjacency_list(
     for name in sorted(nodes):
         info = nodes[name]
         status = info.get("status", "")
-        va = info.get("va", 0)
-        va_str = f"0x{va:08x}" if va else "-"
+        va = info.get("va")
+        va_str = f"0x{va:08x}" if va is not None else "-"
         label = labels[name]
         callees = [labels.get(c, c) for c in callees_by_src.get(name, [])]
         dispatch = [labels.get(c, c) for c in dispatch_by_src.get(name, [])]

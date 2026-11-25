@@ -1435,7 +1435,7 @@ def _run_test_impl(
 
     va_str = va
     if not va_str:
-        va_str = f"0x{sel_ann.va:x}" if sel_ann is not None and sel_ann.va else None
+        va_str = f"0x{sel_ann.va:x}" if sel_ann is not None else None
 
     size_val = size
     from rebrew.compiler.overrides import resolve_cflags, resolve_compile_overrides

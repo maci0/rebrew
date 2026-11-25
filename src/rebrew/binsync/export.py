@@ -601,15 +601,17 @@ def export_state(
 
     existing_comments = load_binsync_comments(outdir) if outdir.exists() else {}
     emitted = {addr for addr, _owner, _text in comment_artifacts}
-    comment_artifacts.extend(
-        (addr, int(comment.get("func_addr") or addr), str(comment.get("comment") or ""))
-        for addr, comment in existing_comments.items()
-        if addr not in emitted
-        and not any(
-            key.startswith("function.") and key.endswith(f".0x{comment.get('func_addr', 0):x}")
-            for key in merged_records
-        )
-    )
+    for addr, comment in existing_comments.items():
+        owner = comment.get("func_addr")
+        if addr in emitted or (
+            owner is not None
+            and any(
+                key.startswith("function.") and key.endswith(f".0x{owner:x}")
+                for key in merged_records
+            )
+        ):
+            continue
+        comment_artifacts.append((addr, addr if owner is None else owner, comment["comment"]))
     written_comments = ""
     if comment_artifacts or (outdir / "comments.toml").exists():
         comments_path = outdir / "comments.toml"

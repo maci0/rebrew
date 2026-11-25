@@ -331,7 +331,7 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
     found: list[dict[str, Any]] = []
     for func in funcs:
         va = func.get("va")
-        if not va:
+        if va is None:
             continue
         try:
             # int(x, 0) accepts 0x-prefixed hex AND decimal strings — a

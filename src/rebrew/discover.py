@@ -341,7 +341,7 @@ def elf_function_symbols(binary: Path) -> list[tuple[int, int, str]]:
         found: dict[int, tuple[int, str]] = {}
         for symbol in elf.symbols:
             va, size, name = int(symbol.value), int(symbol.size), decode_binary_name(symbol.name)
-            if symbol.type != lief.ELF.Symbol.TYPE.FUNC or not symbol.shndx or not name or not va:
+            if symbol.type != lief.ELF.Symbol.TYPE.FUNC or not symbol.shndx or not name:
                 continue
             if not any(
                 s.va <= va < s.va + s.size and (not size or va + size <= s.va + s.size)

@@ -4,6 +4,7 @@ import struct
 from types import SimpleNamespace
 lazy from pathlib import Path
 
+import pytest
 from bin_util import make_pe
 
 from rebrew.switch import find_switches
@@ -172,13 +173,20 @@ class TestDispatchHeaderWidth:
 
 
 class TestScanAll:
-    def test_scan_all_console_no_double_prefix(self, tmp_path: Path, monkeypatch, capsys) -> None:
+    @pytest.mark.parametrize("address", [0, 0x01031150])
+    def test_scan_all_console_no_double_prefix(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        address: int,
+    ) -> None:
         import json as _json
 
         from rebrew.switch import _scan_all
 
         (tmp_path / "function_structure.json").write_text(
-            _json.dumps([{"va": 0x01031150, "size": 144, "name": "fcn.01031150"}]),
+            _json.dumps([{"va": address, "size": 144, "name": f"fcn.{address:08x}"}]),
             encoding="utf-8",
         )
         cfg = SimpleNamespace(
@@ -189,7 +197,7 @@ class TestScanAll:
         )
         monkeypatch.setattr(
             "rebrew.switch.find_switches",
-            lambda c, va, window=512: [{"entries": 3}] if va == 0x1031150 else [],
+            lambda c, va, window=512: [{"entries": 3}] if va == address else [],
         )
         import contextlib
 
@@ -198,7 +206,7 @@ class TestScanAll:
         with contextlib.suppress(Exit):
             _scan_all(cfg, 512, False)
         out = capsys.readouterr().err  # console → stderr
-        assert "0x01031150" in out
+        assert f"0x{address:08x}" in out
         assert "0x0x" not in out
 
     def test_stops_at_non_image_entry_despite_bounds(self, tmp_path: Path) -> None:
