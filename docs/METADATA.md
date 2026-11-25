@@ -388,8 +388,9 @@ Every `rebrew metadata backup` bundle carries a manifest
 (`rebrew-backup.manifest.json`, beside the SQLite database or inside
 the TOML bundle directory) listing each backed-up file with its size
 and sha256. Restore verifies the whole manifest before installing
-anything and refuses a bundle with a missing or corrupted file, so a
-backup is re-opened and proven before it is trusted. Keep the most
+anything and refuses a bundle with a missing or corrupted listed file.
+Files left in a reused backup directory are skipped when the current
+manifest omits them. Keep the most
 recent backup alongside the current one: the manifest detects a torn
 or truncated copy, and the previous backup is the only copy of the
 pre-restore state if a restore is pointed at the wrong bundle. A

@@ -697,6 +697,44 @@ def _reseal_manifest(bundle: Path) -> None:
     manifest.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "toml"])
+def test_restore_from_a_reused_backup_only_installs_manifest_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    source = _project(tmp_path, backend)
+    functions = tmp_path / "rebrew-functions.toml"
+    metadata_store(functions, backend=backend, root=tmp_path).write({"format": 3}, "test")
+    if backend == "sqlite":
+        retired = tmp_path / ".rebrew" / "ghidra_sync_state.json"
+        retired.parent.mkdir(parents=True, exist_ok=True)
+        retired.write_text('{"old_operation": "accepted"}\n', encoding="utf-8")
+    else:
+        retired = functions.with_suffix(".d") / "old.toml"
+        retired.parent.mkdir()
+        retired.write_text('format = 3\n["GAME.0x1000"]\nname = "old"\n', encoding="utf-8")
+
+    restored = tmp_path / "restored"
+    config = source
+    monkeypatch.setattr("rebrew.metadata_cli.require_config", lambda **kwargs: config)
+    runner = CliRunner()
+    args = ["metadata", "backup", "--dir", str(tmp_path / "off-tree"), "--json"]
+    first = runner.invoke(app, args)
+    assert first.exit_code == 0, first.output
+    retired.unlink()
+    second = runner.invoke(app, args)
+    assert second.exit_code == 0, second.output
+    backup = Path(json.loads(second.output)["file"])
+    bundle = backup if backend == "toml" else backup.parent
+    relative = retired.relative_to(tmp_path)
+    assert (bundle / relative).is_file()
+    assert relative.as_posix() not in verify_backup_manifest(bundle)
+
+    config = SimpleNamespace(root=restored, metadata_backend=backend)
+    result = runner.invoke(app, ["metadata", "restore", "--file", str(backup), "--json"])
+    assert result.exit_code == 0, result.output
+    assert not (restored / relative).exists()
+
+
 class TestBackupManifest:
     """The bundle manifest proves a backup is complete before restore."""
 

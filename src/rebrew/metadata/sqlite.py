@@ -1134,11 +1134,12 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
 
     if not bundle.is_dir():
         raise FileNotFoundError(f"no metadata backup bundle at {bundle}")
-    verify_backup_manifest(bundle)
+    verified = {Path(name) for name in verify_backup_manifest(bundle)}
     planned: list[Path] = []
     config = bundle / _PROJECT_CONFIG_NAME
+    has_config = Path(_PROJECT_CONFIG_NAME) in verified
     trees = toml_store_trees(bundle)
-    if config.is_file():
+    if has_config:
         try:
             load_tomllib(config)
         except (ValueError, OSError) as exc:
@@ -1146,24 +1147,28 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
         planned.append(config.relative_to(bundle))
     for _directory, tree in trees:
         for source in tree:
+            relative = source.relative_to(bundle)
+            if relative not in verified:
+                continue
             try:
                 load_tomllib(source)
             except (ValueError, OSError) as exc:
                 raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
-            planned.append(source.relative_to(bundle))
-    for rel in _target_binary_relpaths(bundle):
-        if rel not in planned:
+            planned.append(relative)
+    for rel in _target_binary_relpaths(bundle) if has_config else ():
+        if rel in verified and rel not in planned:
             planned.append(rel)
-    for rel in _binsync_state_relpaths(bundle):
-        for source in sorted(p for p in (bundle / rel).rglob("*") if p.is_file()):
-            entry = source.relative_to(bundle)
-            if entry not in planned:
-                planned.append(entry)
+    for rel in _binsync_state_relpaths(bundle) if has_config else ():
+        planned.extend(
+            entry
+            for entry in sorted(verified)
+            if entry.is_relative_to(rel) and entry not in planned
+        )
     extras = extra_durable_sources(bundle)
     for source in extras:
         rel = source.relative_to(bundle)
-        _validate_extra(source)
-        if rel not in planned:
+        if rel in verified and rel not in planned:
+            _validate_extra(source)
             planned.append(rel)
     if not planned:
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
@@ -1351,7 +1356,10 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
 
     if not backup.is_file():
         raise FileNotFoundError(f"no metadata database backup at {backup}")
-    verify_backup_manifest(backup.parent)
+    _backup_root = backup.parent
+    verified = {Path(name) for name in verify_backup_manifest(_backup_root)}
+    if Path(backup.name) not in verified:
+        raise MetadataStorageError(f"{backup}: database is absent from the backup manifest")
     check = sqlite3.connect(backup.as_uri() + "?mode=ro", uri=True, timeout=30)
     try:
         _check_database_schema(check, backup)
@@ -1367,7 +1375,6 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     if integrity != "ok":
         raise MetadataStorageError(f"{backup}: integrity check failed: {integrity}")
     _siblings: list[tuple[Path, Path]] = []
-    _backup_root = backup.parent
     # Restore exactly what the backup carries: extra_durable_sources
     # walks the backup root the same way it walks a live project, so
     # the GA log, upload ledger, journal, replication sidecar, verify
@@ -1375,22 +1382,23 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
     # BinSync baselines all come back.  A hand-rolled sibling list
     # here once drifted from the backup list and silently dropped the
     # verify cache and Ghidra state on SQLite restore.
-    config = _project_config(_backup_root)
+    config = _backup_root / _PROJECT_CONFIG_NAME if Path(_PROJECT_CONFIG_NAME) in verified else None
     extras = ([config] if config is not None else []) + extra_durable_sources(_backup_root)
     for _src in extras:
+        if _src.relative_to(_backup_root) not in verified:
+            continue
         # _validate_extra dispatches on suffix: GA log as JSONL,
         # uploads ledger / Ghidra JSON as JSON objects, rest as TOML.
         _validate_extra(_src)
         _siblings.append((_src, root / _src.relative_to(_backup_root)))
-    for rel in _target_binary_relpaths(_backup_root):
-        if rel not in [s.relative_to(_backup_root) for s, _ in _siblings]:
+    for rel in _target_binary_relpaths(_backup_root) if config is not None else ():
+        if rel in verified and (_backup_root / rel, root / rel) not in _siblings:
             _siblings.append((_backup_root / rel, root / rel))
-    for rel in _binsync_state_relpaths(_backup_root):
-        for _src in sorted(p for p in (_backup_root / rel).rglob("*") if p.is_file()):
-            if _src.relative_to(_backup_root) not in [
-                s.relative_to(_backup_root) for s, _ in _siblings
-            ]:
-                _siblings.append((_src, root / _src.relative_to(_backup_root)))
+    for rel in _binsync_state_relpaths(_backup_root) if config is not None else ():
+        for entry in sorted(verified):
+            pair = (_backup_root / entry, root / entry)
+            if entry.is_relative_to(rel) and pair not in _siblings:
+                _siblings.append(pair)
     location = root / DATABASE_FILENAME
     location.parent.mkdir(parents=True, exist_ok=True)
     with (
@@ -1488,7 +1496,7 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                     preserve_displaced(_dest, _current, original_mode)
                 if _src == config:
                     mode = _src.stat().st_mode & 0o777
-                elif _is_in_binsync_state(_backup_root, _src):
+                elif config is not None and _is_in_binsync_state(_backup_root, _src):
                     mode = _BINSYNC_MODE
                 else:
                     mode = _extra_mode(_dest)
