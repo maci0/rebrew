@@ -2512,6 +2512,27 @@ class TestCompilerListingFailures:
         assert compile_mod.remote_installed_compilers(self._cfg(tmp_path)) is None
         assert asked == []
 
+    def test_service_gate_registry_is_bounded_without_evicting_active_gates(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(compile_mod, "_service_gates", {})
+        monkeypatch.setattr(compile_mod, "_service_gate_users", {}, raising=False)
+        monkeypatch.setattr(compile_mod, "_SERVICE_GATES_MAX", 2, raising=False)
+
+        for index in range(3):
+            with compile_mod._service_gate_scope(f"http://service-{index}", 1):
+                pass
+        assert len(compile_mod._service_gates) == 2
+
+        with compile_mod._service_gate_scope("http://active", 1) as active:
+            for index in range(3):
+                with compile_mod._service_gate_scope(f"http://other-{index}", 1):
+                    pass
+            with compile_mod._service_gate_scope("http://active", 1) as again:
+                assert again is active
+        assert len(compile_mod._service_gates) <= 2
+        assert compile_mod._service_gate_users == {}
+
     def test_a_listing_waits_for_the_gate_the_compiles_share(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2522,6 +2543,7 @@ class TestCompilerListingFailures:
         monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://svc")
         monkeypatch.setenv(compile_mod.CALL_DEADLINE_ENV, str(time.time() + 60))
         cfg = self._cfg(tmp_path)
-        compile_mod._service_gate("http://svc", 2).hold_off(120)
+        with compile_mod._service_gate_scope("http://svc", 2) as gate:
+            gate.hold_off(120)
         assert compile_mod.remote_installed_compilers(cfg) is None
         assert asked == []

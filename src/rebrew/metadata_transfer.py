@@ -254,7 +254,9 @@ def _snapshot_destination(
 
         def _rows(db: Path) -> list[tuple[str, str]] | None:
             try:
-                with sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=30) as conn:
+                with contextlib.closing(
+                    sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=30)
+                ) as conn:
                     return conn.execute(
                         "SELECT path, content FROM metadata_documents ORDER BY path"
                     ).fetchall()

@@ -526,6 +526,42 @@ class TestSqliteBackup:
 
 
 class TestTransferSnapshot:
+    def test_sqlite_transfer_closes_snapshot_read_connections(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sqlite3
+
+        cfg = _project(tmp_path, "toml")
+        from rebrew.metadata.functions import update_field
+
+        update_field(tmp_path, 0x1000, "SIZE", 4, "GAME")
+        migrate_metadata(cfg, "sqlite")
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        doc = store.read("test")
+        doc["GAME.0x00001000"]["size"] = 7
+        store.write(doc, "test")
+        migrate_metadata(load_config(tmp_path), "toml")
+
+        opened: list[sqlite3.Connection] = []
+        closed: set[sqlite3.Connection] = set()
+        real_connect = sqlite3.connect
+
+        class TrackedConnection(sqlite3.Connection):
+            def close(self) -> None:
+                closed.add(self)
+                super().close()
+
+        def connect(*args: Any, **kwargs: Any) -> sqlite3.Connection:
+            kwargs["factory"] = TrackedConnection
+            connection = real_connect(*args, **kwargs)
+            opened.append(connection)
+            return connection
+
+        monkeypatch.setattr(sqlite3, "connect", connect)
+        migrate_metadata(load_config(tmp_path), "sqlite")
+        assert opened
+        assert set(opened) <= closed
+
     def test_sqlite_destination_snapshotted_before_overwrite(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path, "toml")
         from rebrew.metadata.functions import update_field

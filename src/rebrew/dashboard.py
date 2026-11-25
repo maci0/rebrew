@@ -4066,9 +4066,15 @@ def main(
     sigterm = getattr(signal, "SIGTERM", None)
     previous = signal.signal(sigterm, _stop) if sigterm is not None else None
     try:
-        stop_telemetry = telemetry.configure_from_env("relumea-rebrew", __version__)
-    except ValueError as exc:
-        error_exit(str(exc), json_mode=json_output)
+        try:
+            stop_telemetry = telemetry.configure_from_env("relumea-rebrew", __version__)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+    except BaseException:
+        server.server_close()
+        if sigterm is not None:
+            signal.signal(sigterm, previous)
+        raise
     try:
         restore_log = _attach_server_log_handler()
         server.serve_forever()

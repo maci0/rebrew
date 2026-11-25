@@ -96,7 +96,7 @@ lazy from rebrew.compiler.cache import (
 lazy from rebrew.compiler.context import CONTEXT_UNIT_NAME, CompileContext
 lazy from rebrew.compiler.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb_session
 lazy from rebrew.compiler.msvc_env import msvc_env_from_config, resolve_runner_path
-lazy from rebrew.compiler.recompile_client import Attribution
+lazy from rebrew.compiler.recompile_client import Attribution, ServiceGate
 lazy from rebrew.compiler.toolchain import (
     ToolchainError,
     ToolchainErrorKind,
@@ -1620,18 +1620,52 @@ def counting_remote_compiles(remote: RemoteCompiles) -> Iterator[RemoteCompiles]
 _service_gates_lock = threading.Lock()
 #: One gate per (service URL, concurrency): every compile of the process to
 #: that service shares its slots and its Retry-After hold-off.
-_service_gates: dict[tuple[str, int], Any] = {}
+_service_gates: dict[tuple[str, int], ServiceGate] = {}
+#: Active leases per gate. An active gate cannot be evicted, or a later call
+#: would create a second semaphore for the same service and exceed its bound.
+_service_gate_users: dict[tuple[str, int], int] = {}
+#: A long-lived worker can visit many project roots and service URLs. Keep the
+#: idle registry bounded; active gates may temporarily exceed this cap.
+_SERVICE_GATES_MAX = 32
 
 
-def _service_gate(url: str, concurrency: int) -> Any:
-    """The process-wide :class:`~rebrew.compiler.recompile_client.ServiceGate` for *url*."""
-    from rebrew.compiler.recompile_client import ServiceGate
+def _evict_idle_service_gates_locked() -> None:
+    """Trim the registry to its cap without dropping an active gate."""
+    while len(_service_gates) > _SERVICE_GATES_MAX:
+        victim = next((entry for entry in _service_gates if entry not in _service_gate_users), None)
+        if victim is None:
+            break
+        del _service_gates[victim]
 
+
+def _service_gate_locked(url: str, concurrency: int) -> ServiceGate:
+    """Look up or create a gate and evict idle entries; caller holds the registry lock."""
+    key = (url, concurrency)
+    gate = _service_gates.pop(key, None)
+    if gate is None:
+        gate = ServiceGate(concurrency)
+    _service_gates[key] = gate
+    _evict_idle_service_gates_locked()
+    return gate
+
+
+@contextlib.contextmanager
+def _service_gate_scope(url: str, concurrency: int) -> Iterator[ServiceGate]:
+    """Lease one shared service gate and release its registry claim on every exit."""
+    key = (url, concurrency)
     with _service_gates_lock:
-        gate = _service_gates.get((url, concurrency))
-        if gate is None:
-            gate = _service_gates[(url, concurrency)] = ServiceGate(concurrency)
-        return gate
+        gate = _service_gate_locked(url, concurrency)
+        _service_gate_users[key] = _service_gate_users.get(key, 0) + 1
+    try:
+        yield gate
+    finally:
+        with _service_gates_lock:
+            users = _service_gate_users[key] - 1
+            if users:
+                _service_gate_users[key] = users
+            else:
+                del _service_gate_users[key]
+            _evict_idle_service_gates_locked()
 
 
 def _shared_recompile_client(timeout: float) -> Any:
@@ -1973,11 +2007,9 @@ def remote_installed_compilers(cfg: ProjectConfig) -> frozenset[str] | None:
     )
     if isinstance(client, tuple):
         return None  # the compile reports the misconfigured job transport
-    gate = _service_gate(
-        url, int(getattr(cfg, "recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY))
-    )
+    concurrency = int(getattr(cfg, "recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY))
     try:
-        with gate.attempt(deadline, time.sleep):
+        with _service_gate_scope(url, concurrency) as gate, gate.attempt(deadline, time.sleep):
             return installed_compilers(url, client=client)
     except RecompileError as exc:
         logging.getLogger(__name__).warning("recompile %s compiler listing unread: %s", url, exc)
@@ -2114,29 +2146,29 @@ def _compile_via_recompile(
     outcome: RemoteOutcome = "free"
     call = None if remote is None else remote.begin()
     try:
-        res = compile_source(
-            url,
-            compiler=profile,
-            source=source_text,
-            flags=all_flags,
-            filename=source_path.name,
-            timeout=timeout,
-            emit_assembly=emit_assembly,
-            client=client,
-            includes=bundle.includes if bundle is not None else None,
-            source_dir=bundle.source_dir if bundle is not None else "",
-            # A service with no room (capacity, 429, 503) is waited out until
-            # the deadline; other transient failures are retried
-            # `[compiler] recompile_retries` times (default 2), so a deployment
-            # pointing at a slow or flaky service can raise or drop it.  The
-            # job socket's mediator keys each retry as recompile requires.
-            retries=int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),
-            gate=_service_gate(
-                url, int(getattr(cfg, "recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY))
-            ),
-            deadline=None if called_by is None else called_by - timeout,
-            attribution=None if remote is None else remote.attribution,
-        )
+        concurrency = int(getattr(cfg, "recompile_concurrency", DEFAULT_RECOMPILE_CONCURRENCY))
+        with _service_gate_scope(url, concurrency) as gate:
+            res = compile_source(
+                url,
+                compiler=profile,
+                source=source_text,
+                flags=all_flags,
+                filename=source_path.name,
+                timeout=timeout,
+                emit_assembly=emit_assembly,
+                client=client,
+                includes=bundle.includes if bundle is not None else None,
+                source_dir=bundle.source_dir if bundle is not None else "",
+                # A service with no room (capacity, 429, 503) is waited out until
+                # the deadline; other transient failures are retried
+                # `[compiler] recompile_retries` times (default 2), so a deployment
+                # pointing at a slow or flaky service can raise or drop it.  The
+                # job socket's mediator keys each retry as recompile requires.
+                retries=int(getattr(cfg, "recompile_retries", DEFAULT_RECOMPILE_RETRIES)),
+                gate=gate,
+                deadline=None if called_by is None else called_by - timeout,
+                attribution=None if remote is None else remote.attribution,
+            )
         # Billed; the verdict counts once it is stored (the object written).
         outcome = "billed"
         if not res.ok:

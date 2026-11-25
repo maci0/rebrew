@@ -36,6 +36,9 @@
 - Verification-cache promotions keep the source, header and compiler identity measured by the comparison. A patch whose inputs changed drops the old row instead of attaching the verdict to newer bytes.
 - LLM seed-cache entries are scoped to the API credential, so one account cannot reuse another account's generated seeds.
 - Verification fingerprints preserve last-wins ordering for repeated macro definitions while still treating distinct macro names as order-independent.
+- The coverage dashboard closes its listening socket and restores the SIGTERM handler when telemetry configuration fails after bind.
+- SQLite metadata transfer closes the read-only connections used to compare destination snapshots.
+- The recompile service-gate registry evicts idle gates and retains active gates, bounding memory in long-lived workers that visit many service URLs.
 
 ## [6.77.0] - 2026-11-24
 

@@ -1903,6 +1903,31 @@ class TestCli:
         assert "serving" not in result.output.lower()
         assert "Rebrew dashboard" not in result.output
 
+    def test_invalid_telemetry_closes_the_bound_listener(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A configuration failure after bind must not strand the listening socket."""
+        from rebrew.dashboard import _DashboardServer, app
+
+        _write_document(tmp_path / "db", "t")
+        servers: list[_DashboardServer] = []
+        real_server = _DashboardServer
+
+        def tracked_server(*args: Any, **kwargs: Any) -> _DashboardServer:
+            server = real_server(*args, **kwargs)
+            servers.append(server)
+            return server
+
+        def invalid_telemetry(*_args: Any) -> Any:
+            raise ValueError("bad collector")
+
+        monkeypatch.setattr("rebrew.dashboard._DashboardServer", tracked_server)
+        monkeypatch.setattr("rebrew.dashboard.telemetry.configure_from_env", invalid_telemetry)
+        result = CliRunner().invoke(app, ["--snapshots", str(tmp_path / "db"), "--port", "0"])
+        assert result.exit_code == 2, result.output
+        assert len(servers) == 1
+        assert servers[0].socket.fileno() == -1
+
     def test_port_in_use_names_port_and_fix(self, tmp_path: Path) -> None:
         """A taken port says which one and how to pick another, not a bare errno."""
         import socket
