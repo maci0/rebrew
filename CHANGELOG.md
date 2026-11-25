@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Source role and name caches only publish facts for the source revision read by the scan (D-engines7-059).
 - Data annotation uses parsed file-scope declarations and definitions, so an automatic local cannot claim a global (D-engines7-058).
 - The structure pass keeps valid address-zero functions and excludes jump-table case labels using both names (D-engines7-054, D-engines7-037).
 - Unscoped baseline comparisons report removed functions, and scoped runs preserve the full baseline (D-engines7-052).

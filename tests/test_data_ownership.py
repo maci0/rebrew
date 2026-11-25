@@ -380,6 +380,36 @@ def test_data_scan_caches_are_bounded(tmp_path: Path) -> None:
     assert str(roots[-1].resolve()) in data_scan._NAME_COVER_CACHE
 
 
+@pytest.mark.parametrize("roles", [False, True])
+def test_data_scan_keeps_cache_facts_with_the_revision_read(
+    tmp_path: Path, monkeypatch, roles: bool
+) -> None:
+    from rebrew import data_scan
+
+    source = tmp_path / "globals.c"
+    source.write_text("int retired;\n", encoding="utf-8")
+    replacement = source.with_suffix(".new")
+    replacement.write_text(
+        "/* ADDRESS: SERVER 0x501000 */\nextern int replacement;\n", encoding="utf-8"
+    )
+    hook = "_collect_scan_file_facts" if roles else "_store_names_the_file"
+    original = getattr(data_scan, hook)
+
+    def replace_after_read(*args, **kwargs):
+        facts = original(*args, **kwargs)
+        replacement.replace(source)
+        return facts
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(data_scan, hook, replace_after_read)
+        data_scan.scan_globals(tmp_path, record_roles=roles, declarations=roles)
+    monkeypatch.setattr(data_scan, "_NAME_COVER_CACHE", {})
+    monkeypatch.setattr(data_scan, "_ROLE_FACT_CACHE", {})
+    scanned = data_scan.scan_globals(tmp_path, record_roles=roles, declarations=roles)
+    assert "retired" not in scanned.globals
+    assert scanned.globals["replacement"].va == 0x501000
+
+
 def test_name_cover_publishes_one_record_per_store(tmp_path: Path, monkeypatch) -> None:
     """Two scans that miss together must share one cover record.
 
@@ -482,7 +512,7 @@ def test_name_cover_flush_serializes_a_concurrent_remember(tmp_path: Path, monke
     second.write_text("int second;\n")
     data_scan._NAME_COVER_CACHE.clear()
     cover = data_scan._begin_name_cover(tmp_path)
-    data_scan._name_cover_remember(cover, first)
+    data_scan._name_cover_remember(cover, first, data_scan._source_stamp(first))
 
     writing = threading.Event()
     release = threading.Event()
@@ -501,7 +531,7 @@ def test_name_cover_flush_serializes_a_concurrent_remember(tmp_path: Path, monke
     remembered = threading.Event()
 
     def _remember() -> None:
-        data_scan._name_cover_remember(cover, second)
+        data_scan._name_cover_remember(cover, second, data_scan._source_stamp(second))
         remembered.set()
 
     remember = threading.Thread(target=_remember)

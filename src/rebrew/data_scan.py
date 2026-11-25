@@ -411,7 +411,7 @@ _NAME_COVER_CACHE_LOCK = threading.Lock()
 #: Bump when the cover rule or the recorded shape changes.  The store
 #: fingerprint only says the metadata did not change; a cache written by older
 #: coverage semantics must not keep a source out of the reloc-name parse.
-_NAME_COVER_VERSION = 2
+_NAME_COVER_VERSION = 3
 
 
 def _path_key(path: Path) -> str:
@@ -517,9 +517,8 @@ def _name_cover_hit(cover: dict[str, Any], cfile: Path) -> bool:
         return bool(cover["files"].get(_path_key(cfile)) == stamp)
 
 
-def _name_cover_remember(cover: dict[str, Any], cfile: Path) -> None:
-    stamp = _source_stamp(cfile)
-    if stamp is None:
+def _name_cover_remember(cover: dict[str, Any], cfile: Path, stamp: list[int] | None) -> None:
+    if stamp is None or stamp != _source_stamp(cfile):
         return
     key = _path_key(cfile)
     with cover["lock"]:
@@ -561,7 +560,7 @@ def _flush_name_cover(cover: dict[str, Any]) -> None:
 
 
 # Bump when the recorded fact shape or the parser inputs change.
-_ROLE_FACT_VERSION = 2
+_ROLE_FACT_VERSION = 3
 # Bounded: one entry holds per-file parse facts for every source under one
 # target identity, so `data list --all-targets` must not retain every target's
 # facts until the process exits.
@@ -691,9 +690,10 @@ def _restore_roles(
     return True
 
 
-def _role_cache_remember(cache: dict[str, Any], cfile: Path, facts: dict[str, Any]) -> None:
-    stamp = _source_stamp(cfile)
-    if stamp is None or not _usable_role_facts(facts):
+def _role_cache_remember(
+    cache: dict[str, Any], cfile: Path, facts: dict[str, Any], stamp: list[int] | None
+) -> None:
+    if stamp is None or stamp != _source_stamp(cfile) or not _usable_role_facts(facts):
         return
     key = _path_key(cfile)
     with cache["lock"]:
@@ -776,6 +776,7 @@ def _collect_scan_file_facts(
     from rebrew.metadata.bindings import function_rows_for_file, source_bindings
     from rebrew.metadata.data import data_rows_for_path
 
+    cover_stamp = _source_stamp(cfile) if name_cover is not None else None
     try:
         # Tolerant read: a legacy-encoded source must not have its
         # non-ASCII bytes silently deleted, which would corrupt string
@@ -792,7 +793,7 @@ def _collect_scan_file_facts(
     data_rows = data_rows_for_path(metadata_dir, cfile, index=data_index)
     if not declarations and _store_names_the_file(text, cfile, data_rows, function_entries):
         if name_cover is not None:
-            _name_cover_remember(name_cover, cfile)
+            _name_cover_remember(name_cover, cfile, cover_stamp)
         return {"apply": False, "fname": fname, "header": is_header}
     stored_modules = tuple(
         module
@@ -1117,6 +1118,7 @@ def scan_globals(
         if facts is None:
             facts = cached_facts.get(fact_key) if cached_facts is not None else None
         if not _usable_scan_fact(facts):
+            role_stamp = _source_stamp(cfile) if role_cache is not None else None
             facts = _collect_scan_file_facts(
                 cfile,
                 src_dir,
@@ -1132,7 +1134,7 @@ def scan_globals(
                 name_cover=name_cover,
             )
             if role_cache is not None and facts is not None:
-                _role_cache_remember(role_cache, cfile, facts)
+                _role_cache_remember(role_cache, cfile, facts, role_stamp)
         if facts is None:
             continue
         if recorded_facts is not None:
