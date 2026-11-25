@@ -300,6 +300,7 @@ IN_PROCESS_TIMEOUT_SECONDS = 600
 #: project's source bindings, in process or in the command it runs.
 SKIPPED_RECORD_OPS = frozenset(
     {
+        "rebrew.analyse",
         "rebrew.data_list",
         "rebrew.identify_library",
         "rebrew.coverage_report",
@@ -322,7 +323,7 @@ MAX_SKIPPED_RECORD_KEYS = 256
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "0a0ae03ccbef17e0fca0babab877d6ee7dd466ba96c112f6b9a4891a320cd264"
+DISPATCH_SCHEMA_SHA256 = "2cdda19bea683b8ad444cfce6b0e72fe7563043901c0a7b087e2089af12c7620"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4

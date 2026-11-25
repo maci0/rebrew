@@ -177,6 +177,22 @@ def test_reanalysis_leaves_a_record_its_stub_agrees_with(
     _assert_consistent(project)
 
 
+def test_reanalysis_reports_an_unrepaired_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _analysed: Template
+) -> None:
+    config, project = _disagreeing_stub(_analysed, tmp_path)
+    cfg = load_config(project, target="mini")
+    _store_name(cfg.metadata_dir, "wrong_handler")
+    monkeypatch.setenv("REBREW_OPS_STRICT_REPLIES", "1")
+
+    assert _analyse(config).get("skipped_records") == {
+        "count": 1,
+        "keys": [KEY],
+        "truncated": False,
+    }
+    assert _record(project)["name"] == "wrong_handler"
+
+
 def test_reanalysis_keeps_an_identifier_name_in_the_stub(
     tmp_path: Path, _analysed: Template
 ) -> None:
@@ -198,7 +214,7 @@ def test_reanalysis_repairs_a_record_its_stub_disagrees_with(
 
     config, project = _disagreeing_stub(_analysed, tmp_path)
     with binding_conflicts() as skipped:
-        _analyse(config)
+        assert "skipped_records" not in _analyse(config)
     # The intake repairs the record before it reads the bindings: no read skipped it.
     assert skipped == set()
     repaired = _assert_consistent(project)
@@ -770,7 +786,8 @@ def test_every_ops_read_of_a_contradicted_project_names_what_it_skipped(
     reply = json.loads(raw)
     assert status == 200, reply
     _validate(_op_schema(op, "response"), reply)
-    if op in SKIPPED_RECORD_OPS:
+    # Analyse repairs this particular generated stub before reading bindings.
+    if op in SKIPPED_RECORD_OPS and op != "rebrew.analyse":
         assert skipped == {(MODULE, VA)}
         assert reply["skipped_records"] == {"count": 1, "keys": [KEY], "truncated": False}
     else:

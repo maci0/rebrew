@@ -32,7 +32,8 @@ format request members (the sets each op refuses others of) were extended here f
 from its rebrew.ImportArchive definition (branch fix-yc-reversed, commit "define
 rebrew.import_archive"); the rest is the copy of backend commit
 80314a46a1ae26d9ef3d56d90e1d454c561f5928.
-SHA-256: 0a0ae03ccbef17e0fca0babab877d6ee7dd466ba96c112f6b9a4891a320cd264.
+The optional skipped_records member on rebrew.analyse first appears here.
+SHA-256: 2cdda19bea683b8ad444cfce6b0e72fe7563043901c0a7b087e2089af12c7620.
 tests/test_ops.py validates every op request and reply against it, the
 analysis report rebrew.analyse captures against documents, and every op's
 timeout_seconds and interruptible against rebrew.ops.OPS.

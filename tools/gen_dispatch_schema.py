@@ -103,9 +103,11 @@ def render(text: str) -> str:
     each op's own codes as the ``errors`` of its entry.
     """
     from rebrew import ops
-    from rebrew.ops_replies import DECLARED, WORKSPACE_PATHS, json_schema
+    from rebrew.ops_replies import DECLARED, WORKSPACE_PATHS, SkippedRecords, json_schema
 
     schema = json.loads(text)
+    analyse = schema["ops"]["rebrew.analyse"]["response"]["properties"]
+    analyse["skipped_records"] = json_schema(SkippedRecords)
     for op, declared in DECLARED.items():
         response = schema["ops"][op]["response"]
         schema["ops"][op]["response"] = {"$schema": response["$schema"], **json_schema(declared)}
