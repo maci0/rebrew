@@ -113,6 +113,45 @@ class TestContextPinnedCompileCache:
         assert ctx is not None
         return ctx
 
+    @pytest.mark.parametrize("compiler_starts", [True, False])
+    def test_in_place_compile_preserves_input(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, compiler_starts: bool
+    ) -> None:
+        from rebrew.compiler.toolchain import ToolchainError
+
+        source = tmp_path / "f.c"
+        source.write_text(SOURCE, encoding="utf-8")
+        output = tmp_path / "f.obj"
+        output.write_bytes(b"previous object")
+        context = self._ctx(tmp_path / "context.c", "typedef int word;\n")
+        fake = _FakeCompiler(output.name)
+
+        def compile_unit(spec: Any, args: list[str], *, workdir: Path, **kwargs: Any) -> Any:
+            assert workdir != tmp_path
+            assert source.read_text(encoding="utf-8") == SOURCE
+            if not compiler_starts:
+                raise ToolchainError("compiler unavailable", kind="invocation")
+            return fake(spec, args, workdir=workdir, **kwargs)
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(
+            "rebrew.compiler.compile.toolchain_registry",
+            SimpleNamespace(TOOLCHAINS={"fake-1.0": _spec()}),
+        )
+        monkeypatch.setattr("rebrew.compiler.compile.run_toolchain", compile_unit)
+        obj, error = compile_to_obj(
+            _cfg(tmp_path), source, [], tmp_path, context=context, use_cache=False
+        )
+        assert source.read_text(encoding="utf-8") == SOURCE
+        assert list(tmp_path.glob(".rebrew-context-*")) == []
+        if compiler_starts:
+            assert obj == str(output) and not error
+            assert output.read_bytes() == b"\x55\xc3"
+            assert fake.units == [contextualized_source(context, SOURCE, source.name)]
+        else:
+            assert obj is None and "compiler unavailable" in error
+            assert output.read_bytes() == b"previous object"
+
     def test_cache_hit_per_context_and_miss_on_change(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

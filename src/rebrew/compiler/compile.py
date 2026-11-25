@@ -123,6 +123,7 @@ lazy from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 lazy from rebrew.metadata.functions import canonical_status
 lazy from rebrew.sources import contained_path, source_roots
 lazy from rebrew.utils import (
+    atomic_write_bytes,
     container_runtime,
     fold_ident,
     interruptible_pool,
@@ -2454,6 +2455,51 @@ def compile_to_obj(
             kind="validation",
             name=active,
         )
+    if (workdir / obj_name).resolve() == source_path.resolve():
+        return _not_run(
+            backend_errors,
+            "Object output would replace the input source",
+            kind="validation",
+            name=active,
+        )
+    if (
+        context is not None
+        and context.text
+        and recompile_url(cfg) is None
+        and local_src.resolve() == source_path.resolve()
+    ):
+        # Preserve the source's basename for compiler drivers that derive the
+        # object name from it. Only the finished object leaves this workdir.
+        from tempfile import TemporaryDirectory
+
+        try:
+            with TemporaryDirectory(prefix=".rebrew-context-", dir=workdir) as isolated:
+                compiled, error = compile_to_obj(
+                    cfg,
+                    source_path,
+                    cflags,
+                    isolated,
+                    cache=cache,
+                    use_cache=use_cache,
+                    obj_name=obj_name,
+                    toolchain=toolchain,
+                    extra_include_dirs=extra_include_dirs,
+                    context=context,
+                    backend_errors=backend_errors,
+                    remote_compiles=remote_compiles,
+                )
+                if compiled is None:
+                    return None, error
+                output = workdir / Path(compiled).name
+                atomic_write_bytes(output, Path(compiled).read_bytes())
+                return str(output), ""
+        except OSError as exc:
+            return _not_run(
+                backend_errors,
+                f"Failed to stage the context compile: {exc}",
+                kind="invocation",
+                name=active,
+            )
     inc_path = compiler_dir(cfg.compiler_includes)
     # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc-5.0"):
     # compile with THAT toolchain's image.  Every compile runs through the
@@ -2613,7 +2659,7 @@ def compile_to_obj(
     # The workdir gets the keyed text, never a second read of *source_path*:
     # a rewrite between the two reads (GA splice, editor save under
     # ``verify --watch``) would store the new object under the old key.
-    in_place = context is None and local_src.resolve() == source_path.resolve()
+    in_place = local_src.resolve() == source_path.resolve()
 
     def source_changed() -> bool:
         if not in_place:
