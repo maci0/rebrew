@@ -809,6 +809,47 @@ class TestImportMechanics:
         assert row["size"] == 11
         assert row["file"] == "src_DST/f1.c"
 
+    @pytest.mark.parametrize("existing_destination", [True, False])
+    def test_copy_restores_destination_if_verification_raises(
+        self, tmp_path: Path, monkeypatch, existing_destination: bool
+    ) -> None:
+        cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
+        cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
+        source = cfg_src.reversed_dir / "f1.c"
+        destination = cfg_dst.reversed_dir / "f1.c"
+        write_source(
+            source,
+            "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
+            encoding="utf-8",
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION"}},
+        )
+        original = b"/* ADDRESS: DST 0x401040 */\r\nint f1(void){ return 0; }\r\n"
+        if existing_destination:
+            write_source(
+                destination,
+                original.decode(),
+                encoding="utf-8",
+                metadata_fields={"DST.0x401040": {"kind": "FUNCTION"}},
+            )
+            destination.chmod(0o640)
+        metadata = tmp_path / "rebrew-functions.toml"
+        before = metadata.read_bytes()
+
+        def fail_verify(*args, **kwargs):
+            assert b"return 1" in destination.read_bytes()
+            raise OSError("verification interrupted")
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", fail_verify)
+        with pytest.raises(OSError, match="verification interrupted"):
+            ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="f1.c")
+
+        assert metadata.read_bytes() == before
+        if existing_destination:
+            assert destination.read_bytes() == original
+            assert destination.stat().st_mode & 0o777 == 0o640
+        else:
+            assert not destination.exists()
+
     def test_unmatched_copy_still_applies_status(self, tmp_path: Path, monkeypatch) -> None:
         """A copy that fails verify stays imported-unverified and still applies STATUS.
 
@@ -2733,8 +2774,13 @@ class TestVerifiedSymbolShapes:
 
     @pytest.mark.parametrize(
         "other_definition",
-        ["int hand_written_helper(void) { return 9; }\n", "int hand_written_state = 9;\n"],
-        ids=["function", "storage"],
+        [
+            "int hand_written_helper(void) { return 9; }\n",
+            "int hand_written_state = 9;\n",
+            "typedef unsigned long hand_written_type;\n",
+            "#define HAND_WRITTEN_VALUE 9\n",
+        ],
+        ids=["function", "storage", "type", "macro"],
     )
     def test_copy_import_preserves_an_unbound_destination_definition(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, other_definition: str

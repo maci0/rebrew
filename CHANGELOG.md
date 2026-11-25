@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Copy imports preserve destination macros and declarations and roll back the source and metadata when publication or verification raises (D-engines7-029).
 - Coverage fingerprints stop at the backed section boundary or the next known function start while retaining the reported size (D-engines7-044).
 - Image swaps retain update and rollback errors when a follow-up inspect cannot determine the tag state (D-engines7-043).
 - A timed-out or interrupted container compile asks its runtime to kill the named container (D-engines7-042).

@@ -1163,6 +1163,10 @@ def import_function(
             message=f"destination file escapes reversed_dir: {dst_file!r}",
         )
 
+    from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
+
+    expected = coordinated_inputs(cfg_dst.metadata_dir, [dst_path]) if not dry_run else {}
+
     # Refuse to clobber.  The copy path writes ONE extracted function over
     # whatever the destination path holds, so it is only safe when that file
     # holds exactly the destination's own single block and nothing else.  In
@@ -1214,14 +1218,26 @@ def import_function(
                 project_root=cfg_src.root,
             )
         )
-        _, spans = source_layout(dst_text)
+        raw, spans = source_layout(dst_text)
         definitions = [span for span in spans if span.kind in {"function", "storage"}]
+        preamble = [raw[span.start : span.end] for span in spans if span.kind == "preamble"]
+        preamble_changed = False
+        if preamble:
+            replacement, replacement_spans = source_layout(rewritten)
+            preamble_changed = preamble != [
+                replacement[span.start : span.end]
+                for span in replacement_spans
+                if span.kind == "preamble"
+            ]
         if (
             src_in_file
             or other
             or len(own) != 1
             or len(definitions) != 1
-            or (definitions[0].kind != "function" or definitions[0].name != own[0].name)
+            or definitions[0].kind != "function"
+            or definitions[0].name != own[0].name
+            or definitions[0].inside_pp
+            or preamble_changed
         ):
             if src_in_file:
                 why = (
@@ -1264,22 +1280,6 @@ def import_function(
             message="",
         )
 
-    # Write with the destination file's own encoding when it exists, else the
-    # source's detected encoding.  The old hardcoded-UTF-8, non-atomic write
-    # could not round-trip a legacy-encoded source and a crash mid-write left a
-    # truncated .c.
-    try:
-        atomic_write_text(dst_path, rewritten, encoding=dst_encoding)
-    except OSError as exc:
-        return _import_result(
-            dst_va,
-            src_va,
-            action="error",
-            status="WRITE_ERROR",
-            filepath=rel_dst,
-            message=str(exc),
-        )
-
     # Verify against the destination binary through the shared flow, then
     # promote STATUS exactly like `rebrew verify` would.  A wrong match
     # compiles to bytes that don't compare → NEAR_MATCHING/STUB — the source
@@ -1300,20 +1300,6 @@ def import_function(
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
     from rebrew.metadata.functions import identity_file, record_function_identity
 
-    # The row has to exist before verify: a binding-less file is invisible
-    # until rebrew-functions.toml names it.
-    record_function_identity(
-        cfg_dst.metadata_dir,
-        module=module,
-        va=dst_va,
-        file=identity_file(dst_path, cfg_dst.metadata_dir),
-        kind="FUNCTION",
-        name=copied_name,
-        symbol=copied_symbol,
-        size=dst_size,
-    )
-    update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import")
-
     entry = SourceBinding(
         va=dst_va,
         name=copied_name,
@@ -1325,23 +1311,59 @@ def import_function(
         module=module,
         cflags=cflags,
     )
-    result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
-    message = result.message
-    if result.matched:
-        record_function_identity(
-            cfg_dst.metadata_dir,
-            module=module,
-            va=dst_va,
-            file=identity_file(dst_path, cfg_dst.metadata_dir),
-            kind="FUNCTION",
-            name=copied_name,
-            symbol=copied_symbol,
-            overwrite_name=True,
+    encoded = rewritten.encode(dst_encoding)
+    published = False
+    try:
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        with coordinated_transaction(
+            cfg_dst.metadata_dir, [dst_path], expected_inputs=expected, allow_unconfigured=True
+        ) as staged:
+            staged.publish(dst_path, encoded)
+            published = True
+            # Verify reads the new owner row and source together.
+            record_function_identity(
+                cfg_dst.metadata_dir,
+                module=module,
+                va=dst_va,
+                file=identity_file(dst_path, cfg_dst.metadata_dir),
+                kind="FUNCTION",
+                name=copied_name,
+                symbol=copied_symbol,
+                size=dst_size,
+            )
+            update_field(
+                cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import"
+            )
+            result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
+            message = result.message
+            if result.matched:
+                record_function_identity(
+                    cfg_dst.metadata_dir,
+                    module=module,
+                    va=dst_va,
+                    file=identity_file(dst_path, cfg_dst.metadata_dir),
+                    kind="FUNCTION",
+                    name=copied_name,
+                    symbol=copied_symbol,
+                    overwrite_name=True,
+                )
+            if body is not None:
+                update_field(
+                    cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import"
+                )
+                message = f"{message} {_merged_entry_note(body)}".strip()
+            apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
+    except OSError as exc:
+        if published:
+            raise
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="WRITE_ERROR",
+            filepath=rel_dst,
+            message=str(exc),
         )
-    if body is not None:
-        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
-        message = f"{message} {_merged_entry_note(body)}".strip()
-    apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
 
     action = "imported" if result.matched else "imported-unverified"
     return _import_result(
