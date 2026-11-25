@@ -7,6 +7,7 @@
 - `metadata reconcile` lists the documents whose replica differs from the reconciled state (`diverged`), so a TOML replica reset by `git checkout` is no longer reported as clean. `metadata restore` now publishes the restored backend to the other replicas; before, the untouched replica kept its later state and the next reconcile reverted the restore.
 - `rebrew build symbol-stubs` names the option that conflicts with `--update-symbol` or `--update-data-symbol` (for example `--module`) instead of reporting that `--specials` is missing when it is given.
 - `rebrew test --va ... --no-promote` compares at the function inventory's SIZE when the row records none, instead of asking for `--size`. Promoting runs still require a size.
+- `source binding rebind` name refusals (generated name of another function, name already declared with other types) give the `rebrew source rename` command to run and the `--name` to rebind with.
 
 ## [6.80.0] - 2026-11-25
 

@@ -355,7 +355,10 @@ class TestRebindRejectingControls:
         with patch("rebrew.source_binding.require_config", return_value=cfg):
             result = CliRunner().invoke(app, [*args, "--reason", "twin", "--dry-run", "--json"])
         assert result.exit_code == 2
-        assert "0x00403000" in cli_payload(result)["error"]
+        message = cli_payload(result)["error"]
+        assert "0x00403000" in message
+        assert "`rebrew source rename fcn_00403000 <new name>" in message
+        assert "`--name <new name>`" in message
         assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
 
     def test_name_declared_with_other_types_is_rejected(self, tmp_path: Path) -> None:
@@ -373,7 +376,10 @@ class TestRebindRejectingControls:
         with patch("rebrew.source_binding.require_config", return_value=cfg):
             result = CliRunner().invoke(app, [*args, "--dry-run", "--json"])
         assert result.exit_code == 2
-        assert "src/caller.c" in cli_payload(result)["error"]
+        message = cli_payload(result)["error"]
+        assert "src/caller.c" in message
+        assert "`rebrew source rename fcn_00405000 <new name>" in message
+        assert "`--name <new name>`" in message
 
     def test_unprototyped_declaration_is_compatible(self, tmp_path: Path) -> None:
         """An unspecified list permits int parameters with the same return type and ABI."""
