@@ -68,7 +68,8 @@ class ToolchainSpec:
     # declares its own dialect, so no profile-name list is needed to pick the
     # argument order.
     obj_ext: str = ".obj"
-    host_path: str | Path | None = None  # vendored dir (host fallback)
+    # Vendored host tree used by build tooling, not a compile fallback.
+    host_path: str | Path | None = None
     host_bin: str = "Bin"  # subdir of host_path holding the compiler (Bin for
     # MSVC, binl for Watcom, "" for the root — Delphi)
     tool_root: str | None = None  # container dir holding the command-line tools

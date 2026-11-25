@@ -512,7 +512,7 @@ class RecompileError(RebrewError, RuntimeError):
     Structured fields let callers recover without string-matching ``str(exc)``:
 
     - ``kind`` — ``"network"`` / ``"http"`` / ``"validation"`` / ``"protocol"`` /
-      ``"service"``
+      ``"service"`` / ``"deadline"``
     - ``status_code`` — HTTP status when ``kind == "http"``, else ``None``
     - ``error_code`` — the service's failure kind when ``kind == "service"``
       (``capacity``, ``timeout``, ``runner_unavailable``, ``publish_failed``,

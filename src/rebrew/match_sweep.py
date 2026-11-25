@@ -580,8 +580,8 @@ def run_flag_sweep(
             clock=clock,
         )
     except ValueError as exc:
-        # The flag sweep is MSVC-only — a posix project must not silently
-        # waste compiles; surface it as a per-function failure.
+        # A POSIX profile without a registered flag set has no safe axes to
+        # sweep; surface the refusal as a per-function failure.
         return float("inf"), str(exc), []
 
     if not results:
@@ -722,7 +722,7 @@ def sweep_candidate_count(
 def run_single_toolchain_sweep(
     p: BuildParams, json_output: bool, only: str = "", exclude: str = ""
 ) -> None:
-    """Compile the seed with each vendored MSVC toolchain and report the best.
+    """Compile the seed with each registered MSVC profile and report the best.
 
     A profile the remote compile service has not installed is left out and
     named in the report's ``not_installed``.
@@ -838,7 +838,7 @@ def run_single_toolchain_flag_sweep(
     only: str = "",
     exclude: str = "",
 ) -> None:
-    """Flag-sweep with each vendored MSVC toolchain; report per-toolchain best.
+    """Flag-sweep with each registered MSVC profile; report per-profile best.
 
     Answers "which MSVC version AND which flags built this function" in one
     run — the two-dimension question a decompiler faces when the configured

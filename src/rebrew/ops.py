@@ -5753,7 +5753,9 @@ class OpsServer(ThreadingHTTPServer):
     def _refuse_connection(self, request: Any, client_address: Any, active: int) -> None:
         """Answer one over-cap connection without creating a handler thread."""
         request_id = f"r{next(_REQUEST_IDS)}"
-        detail = f"too many connections in flight ({active} of {self._max_connections}); retry shortly"
+        detail = (
+            f"too many connections in flight ({active} of {self._max_connections}); retry shortly"
+        )
         body = error_body(WORKER_BUSY, detail, 503)
         with self._metrics_lock:
             self._busy_refusals += 1

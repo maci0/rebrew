@@ -2332,15 +2332,15 @@ def compile_to_obj(
     backend_errors: list[RebrewError] | None = None,
     remote_compiles: list[dict[str, Any]] | None = None,
 ) -> tuple[str | None, str]:
-    """Compile a .c file to .obj through the toolchain's container image.
+    """Compile a source file to an object through the configured backend.
 
-    Execution is container-only for every Windows/DOS toolchain (all MSVC
-    versions, Borland, Watcom, the 16-bit DOS compilers, via docker, podman,
-    or experimental unshare): the image
-    encapsulates the runtime (wine / DOSBox) and the host never calls
-    CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly - there is no host
-    wine/wibo/dosbox fallback.  A spec registered without an image (a
-    plugin toolchain) runs through the standardized native backend.
+    Local Windows/DOS toolchains are container-only (all MSVC versions,
+    Borland, Watcom, the 16-bit DOS compilers, via docker, podman, or
+    experimental unshare): the image encapsulates the runtime (wine / DOSBox)
+    and the host never calls CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly.
+    There is no host wine/wibo/dosbox fallback.  A configured remote recompile
+    service handles the compile instead of a local image; a plugin toolchain
+    registered without an image runs through the standardized native backend.
 
     The source file is copied into ``workdir`` (mounted at /work in the
     container).  Relative /I flags are rewritten to container paths;
@@ -3631,7 +3631,7 @@ def compile_and_compare(
     extra_include_dirs: list[str] | None = None,
     _precompiled_obj: str | None = None,
 ) -> CompareResult:
-    """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
+    """Compile source, extract an object symbol, and compare against target bytes.
 
     This is the shared compile→extract→compare flow used by both ``rebrew test``
     and ``rebrew verify``.  Timeout is taken from ``cfg.compile_timeout``.
@@ -3642,7 +3642,8 @@ def compile_and_compare(
     Args:
         cfg: ProjectConfig with compiler settings.
         source_path: Path to the .c source file.
-        symbol: COFF symbol name to extract (e.g. ``_my_func``).
+        symbol: Object symbol name to extract (for example, ``_my_func`` in COFF
+            or ``my_func`` in ELF).
         target_bytes: Expected bytes from the target binary (bytes, bytearray, or memoryview).
         cflags: Compiler flags (string or list).
         cache: Optional explicit CompileCache instance.

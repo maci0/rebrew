@@ -4480,6 +4480,7 @@ Rebuild the base object supplied by objdiff using the source's compiler and flag
 | --- | --- | --- | --- |
 | `TARGET_NAME` | str | required | Project target to compile |
 | `BASE_OBJECT` | path | required | Base object path supplied by objdiff |
+| `--json` | flag | `False` | Output results as JSON |
 
 ### `rebrew build cmake-flags`
 
