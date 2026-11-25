@@ -3,6 +3,7 @@
 ### Fixed
 
 - Type evidence context digests spell project paths relative to the project root, so a clone at another path no longer reports every type row stale (W031). Digests stored with absolute paths stay valid in the checkout that recorded them; `rebrew types migrate-context` rewrites them to the portable form on request.
+- `rebrew metadata backup --dir` and `restore --file` resolve relative paths instead of failing with "relative paths can't be expressed as file URIs" on the SQLite backend.
 
 ## [6.80.0] - 2026-11-25
 

@@ -111,9 +111,9 @@ def backup_cmd(
                 "PostgreSQL backups require pg_dump; include the project files separately"
             )
         if getattr(cfg, "metadata_backend", "toml") == "sqlite":
-            dest = backup_metadata_database(Path(cfg.root), dest_dir)
+            dest = backup_metadata_database(Path(cfg.root), dest_dir.resolve())
         else:
-            dest = backup_metadata_toml(Path(cfg.root), dest_dir)
+            dest = backup_metadata_toml(Path(cfg.root), dest_dir.resolve())
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     if json_output:
@@ -138,6 +138,7 @@ def restore_cmd(
     try:
         if cfg.metadata_backend == "pgsql":
             raise ValueError("PostgreSQL restores require pg_restore or psql")
+        file = file.resolve()
         if file.is_dir():
             dests = restore_metadata_toml(file, Path(cfg.root))
             dest: str = str(dests[0]) if len(dests) == 1 else f"{len(dests)} stores"
