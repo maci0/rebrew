@@ -136,8 +136,10 @@ class BinaryInfo:
 
         The opened file must match the identity recorded by ``load_binary``.
         A lazy read after a rebuild otherwise pairs the old section map with
-        the new file's bytes. Reads are capped at the bytes actually returned,
-        and an in-place rewrite during the read is rejected.
+        the new file's bytes. The read asks for the opened size plus one byte:
+        ``read(n)`` reserves *n* bytes first, so asking for the size cap would
+        reserve 512 MiB for any file. A file that grew or was rewritten during
+        the read is rejected.
 
         ``BinaryInfo`` instances are shared across worker threads via
         ``_load_binary_cache``, so the lazy fill is guarded: without the
@@ -165,14 +167,11 @@ class BinaryInfo:
                                 f"Binary file too large "
                                 f"({opened.st_size / BYTES_PER_MIB:.0f} MiB): {self.path}"
                             )
-                        raw = stream.read(MAX_BINARY_SIZE + 1)
-                        if bound and _stat_identity(os.fstat(stream.fileno())) != expected:
+                        raw = stream.read(opened.st_size + 1)
+                        if len(raw) > opened.st_size or (
+                            bound and _stat_identity(os.fstat(stream.fileno())) != expected
+                        ):
                             raise ValueError(f"Binary changed after it was loaded: {self.path}")
-                    if len(raw) > MAX_BINARY_SIZE:
-                        raise ValueError(
-                            f"Binary file too large "
-                            f"({len(raw) / BYTES_PER_MIB:.0f} MiB): {self.path}"
-                        )
                     self._data = raw
         return self._data
 
