@@ -1028,15 +1028,15 @@ def main(
             json_mode=json_output,
             code=EXIT_ERROR,
         )
-    if "all" in fixers:
-        fixers = list(FIXER_ORDER)
-    if any(f not in FIXERS for f in fixers):
+    unknown = [f for f in fixers if f != "all" and f not in FIXERS]
+    if unknown:
         error_exit(
-            f"unknown fixer(s): {[f for f in fixers if f not in FIXERS]} — "
-            f"choose from {_FIX_CHOICES}",
+            f"unknown fixer(s): {unknown} — choose from {_FIX_CHOICES}",
             json_mode=json_output,
             code=EXIT_ERROR,
         )
+    if "all" in fixers:
+        fixers = list(FIXER_ORDER)
 
     try:
         patched, reports = run_fixers(built, reference, fixers, layout_dir=layout)

@@ -738,12 +738,18 @@ class TestCli:
         assert out.exists()
         assert out.read_bytes() == ref.read_bytes()
 
-    def test_unknown_fixer(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("fixers", ["nope", "all,nope"])
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_unknown_fixer(self, tmp_path: Path, fixers: str, dry_run: bool) -> None:
+        original = make_full_pe(timestamp=1)
         ref = _write(tmp_path, "ref.dll", make_full_pe())
-        built = _write(tmp_path, "built.dll", make_full_pe())
-        result = runner.invoke(app, ["--fix", "nope", str(built), str(ref)], env={"COLUMNS": "200"})
+        built = _write(tmp_path, "built.dll", original)
+        options = ["--dry-run"] if dry_run else []
+        command = [*options, "--fix", fixers, str(built), str(ref)]
+        result = runner.invoke(app, command, env={"COLUMNS": "200"})
         assert result.exit_code == 2
         assert "unknown fixer" in result.output
+        assert built.read_bytes() == original
 
     def test_empty_fixer_selection_is_rejected(self, tmp_path: Path) -> None:
         """``--fix ""`` selects nothing; it must not silently run every fixer."""
