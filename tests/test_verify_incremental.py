@@ -74,6 +74,30 @@ def _write_cache(cfg: ProjectConfig, **overrides: Any) -> Path:
     return cache_path
 
 
+_IMAGE_ID = "sha256:" + "a" * 64
+
+
+@pytest.fixture
+def compiler_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("rebrew.verify_hash.current_compiler_image", lambda *_: _IMAGE_ID)
+
+
+def _measure_for_cache(cfg: ProjectConfig, entry: SourceBinding) -> None:
+    fp = fresh_entry_fingerprint(cfg, entry)
+    assert fp is not None
+    entry.verify_snapshot = {
+        "source_hash": fp.source_hash,
+        "headers_hash": fp.headers_fp,
+        "cflags": fp.cflags,
+        "defines": fp.defines,
+        "toolchain": fp.toolchain,
+        "size": fp.size,
+        "module": entry.module,
+        "binary_id": binary_id(cfg),
+        "image_id": _IMAGE_ID,
+    }
+
+
 def _patch_verify(
     monkeypatch: pytest.MonkeyPatch,
     cfg: ProjectConfig,
@@ -104,6 +128,7 @@ def _patch_verify(
         cache: object = None,
         **_kwargs: object,
     ) -> CompareResult:
+        _measure_for_cache(cfg, entry)
         if calls is not None:
             calls.append(int(entry.va))
         return CompareResult(
@@ -116,6 +141,7 @@ def _patch_verify(
             message="EXACT MATCH",
         )
 
+    monkeypatch.setattr("rebrew.verify_hash.current_compiler_image", lambda *_: _IMAGE_ID)
     monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
     monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
     monkeypatch.setattr("rebrew.verify.cached_function_list", fake_cached_function_list)
@@ -1563,10 +1589,13 @@ class TestIncrementalVerify:
         }
         calls: list[int] = []
         _patch_verify(monkeypatch, cfg, entries)
-        monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
-            lambda entry, *_a, **_k: calls.append(int(entry.va)) or compared[int(entry.va)],
-        )
+
+        def run_entry(entry: SourceBinding, *_args: Any, **_kwargs: Any) -> CompareResult:
+            _measure_for_cache(cfg, entry)
+            calls.append(entry.va)
+            return compared[entry.va]
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", run_entry)
         expected = {
             "0x10001000": {
                 "source": "src/func_a.c",
@@ -1591,7 +1620,7 @@ class TestIncrementalVerify:
         # Both compiled once, by the fresh run: the second run's rows are the cache's.
         assert sorted(calls) == [0x10001000, 0x10002000]
 
-    def test_rows_carry_the_remote_compile_they_ran(
+    def test_remote_rows_without_an_actual_image_are_remeasured(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A freshly compiled row carries its remote compile's record, as ``rebrew test --json`` does.
@@ -1633,10 +1662,10 @@ class TestIncrementalVerify:
         _patch_verify(monkeypatch, cfg, entries)
         monkeypatch.setattr("rebrew.verify.verify_entry", lambda *_a, **_k: compared)
         compiles = []
-        for _run in ("fresh", "cached"):
+        for _run in ("first", "second"):
             outcome = runner.invoke(app, ["--json", "--no-promote"])
             compiles.append(cli_payload(outcome)["results"][0]["compile"])
-        assert compiles == [record, None]
+        assert compiles == [record, record]
 
     def test_cache_hit_reports_the_same_row_bytes_as_a_fresh_run(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2062,6 +2091,7 @@ class TestVerifyBaselineDump:
         assert tomllib.loads(_dump_verify_baseline(document)) == generic
 
 
+@pytest.mark.usefixtures("compiler_image")
 class TestHitChecksTheResolvedSource:
     """A cache hit stats the path the fingerprint resolved. It does not resolve again."""
 
@@ -2792,6 +2822,8 @@ def _seed_known_binding_cache(
         if evidence is not None:
             row["relocation_bindings"] = evidence
         rows.append(row)
+    for entry in found:
+        _measure_for_cache(cfg, entry)
     save_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg, rows, found)
     return cfg, found
 
@@ -2830,6 +2862,8 @@ def _seed_current_cache(tmp_path: Path) -> tuple[ProjectConfig, Path, Path]:
         }
         for entry in found
     ]
+    for entry in found:
+        _measure_for_cache(cfg, entry)
     save_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg, rows, found)
     return cfg, shared, other
 
@@ -2852,6 +2886,7 @@ def _bump_mtime(path: Path) -> None:
     assert path.stat().st_mtime_ns != before
 
 
+@pytest.mark.usefixtures("compiler_image")
 class TestCurrentWriterCacheIdentity:
     """Hit and miss through a cache file the current writer produced.
 
@@ -2954,6 +2989,7 @@ class TestCurrentWriterCacheIdentity:
         assert _prepare_cached(cfg) == (2, 0)
 
 
+@pytest.mark.usefixtures("compiler_image")
 class TestKnownBindingCacheAdmission:
     """``check_known_bindings`` serves a row only when recorded bindings still resolve.
 

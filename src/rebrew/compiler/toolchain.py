@@ -35,6 +35,7 @@ lazy import logging
 lazy import os
 lazy import shutil
 lazy import subprocess
+lazy import tempfile
 lazy import tomllib
 lazy import unicodedata
 lazy import uuid
@@ -150,6 +151,7 @@ class RunResult:
     stdout: str
     stderr: str
     backend: str  # Selected container frontend, "unshare", or plugin "native".
+    image_id: str = ""  # The runtime reported this digest for the container that ran.
 
     @property
     def ok(self) -> bool:
@@ -1408,6 +1410,93 @@ def _refuse_compiler_not_run(who: str, returncode: int, stderr: str, name: str) 
     )
 
 
+def _container_compile(
+    cmd: list[str],
+    container_name: str,
+    timeout: int,
+    spec: ToolchainSpec,
+    cidfile: Path | None = None,
+) -> RunResult:
+    runtime = cmd[0]
+    container_id = ""
+    image_id = ""
+    log = logging.getLogger(__name__)
+    try:
+        r = run_process_group(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        _refuse_compiler_not_run(runtime, r.returncode, r.stderr, spec.name)
+        if cidfile is not None:
+            container_id = _compile_container_id(cidfile)
+        if container_id:
+            try:
+                inspected = run_process_group(
+                    [runtime, "container", "inspect", "--format", "{{.Image}}", container_id],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if inspected.returncode == 0:
+                    image_id = image_content_id(inspected.stdout or "")
+            except (OSError, subprocess.SubprocessError) as exc:
+                log.debug("could not read image for compile container %s: %s", container_id, exc)
+        return RunResult(r.returncode, r.stdout, r.stderr, backend=runtime, image_id=image_id)
+    except subprocess.TimeoutExpired as exc:
+        if cidfile is None:
+            kill_container(container_name, runtime=runtime)
+        raise ToolchainError(
+            f"docker invocation failed: {exc}",
+            kind="invocation",
+            name=spec.name,
+            retryable=True,
+        ) from exc
+    except KeyboardInterrupt:
+        if cidfile is None:
+            kill_container(container_name, runtime=runtime)
+        raise
+    except OSError as exc:
+        raise ToolchainError(
+            f"docker invocation failed: {exc}",
+            kind="invocation",
+            name=spec.name,
+            retryable=True,
+        ) from exc
+    finally:
+        if cidfile is not None:
+            # A run can fail before it owns a container. Only remove the ID the
+            # runtime recorded for this invocation, even on timeout.
+            container_id = container_id or _compile_container_id(cidfile)
+            if container_id:
+                try:
+                    removed = run_process_group(
+                        [runtime, "rm", "-f", container_id],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if removed.returncode and not _ALREADY_GONE_RE.search(removed.stderr or ""):
+                        log.warning(
+                            "could not remove compile container %s: %s",
+                            container_id,
+                            (removed.stderr or "").strip(),
+                        )
+                except (OSError, subprocess.SubprocessError) as exc:
+                    log.warning("could not remove compile container %s: %s", container_id, exc)
+
+
+def _compile_container_id(cidfile: Path) -> str:
+    try:
+        value = cidfile.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+    return value if re.fullmatch(r"[0-9a-f]{64}", value) else ""
+
+
 def run_toolchain(
     spec: ToolchainSpec,
     args: list[str],
@@ -1418,6 +1507,7 @@ def run_toolchain(
     image_id: str | None = None,
     execution_backend: str | None = None,
     project_cwd: str | Path | None = None,
+    capture_image: bool = False,
 ) -> RunResult:
     """Invoke a toolchain's compiler through its container image (uniform backend).
 
@@ -1456,6 +1546,7 @@ def run_toolchain(
         project_cwd: CMake cwd inside workdir; unshare mounts that project at its host path.
         execution_backend: docker, podman, or experimental unshare. None uses
             the runtime environment. Unsupported setup never falls back.
+        capture_image: Read the actual container's image ID before removing it.
 
     Raises:
         ToolchainError: no docker daemon/image for a docker toolchain, or no
@@ -1599,41 +1690,13 @@ def run_toolchain(
             cmd += ["--entrypoint", spec.image_entrypoint]
         cmd.append(target)
         cmd.extend(args)
-        try:
-            # Group-killed (run_process_group): this is the hot path (every
-            # compile), so a wedged pipe writer must not let a timed-out
-            # compile's process group escape the kill.
-            r = run_process_group(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired as exc:
-            kill_container(container_name, runtime=runtime)
-            raise ToolchainError(
-                f"docker invocation failed: {exc}",
-                kind="invocation",
-                name=spec.name,
-                retryable=True,
-            ) from exc
-        except KeyboardInterrupt:
-            kill_container(container_name, runtime=runtime)
-            raise
-        except OSError as exc:
-            # The docker CLI failed to exec, so no container was started and
-            # there is nothing to kill; re-killing by name would be a no-op
-            # against a name that was never registered with dockerd.
-            raise ToolchainError(
-                f"docker invocation failed: {exc}",
-                kind="invocation",
-                name=spec.name,
-                retryable=True,
-            ) from exc
-        _refuse_compiler_not_run(runtime, r.returncode, r.stderr, spec.name)
-        return RunResult(r.returncode, r.stdout, r.stderr, backend=runtime)
+        if not capture_image or Path(runtime).stem not in {"docker", "podman"}:
+            return _container_compile(cmd, container_name, timeout, spec)
+        # Auto-removal would discard the per-container runtime receipt.
+        with tempfile.TemporaryDirectory(prefix="rebrew-compile-receipt-") as receipt_dir:
+            cidfile = Path(receipt_dir) / "cid"
+            cmd[2:3] = ["--cidfile", str(cidfile)]
+            return _container_compile(cmd, container_name, timeout, spec, cidfile)
 
     if spec.runtime == "native":
         # Image-less compiler (plugin/overlay spec) — vendored binary

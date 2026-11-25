@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Reuse verification verdicts only under the image ID observed on the container that compiled them (D-engines7-063).
 - Report a Kuna launch failure or timeout as an engine failure with a bounded cause (D-engines7-003).
 - Validate every successful worker reply against the packaged dispatch schema before sending it (D-engines7-002).
 

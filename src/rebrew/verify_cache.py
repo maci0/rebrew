@@ -884,6 +884,9 @@ class VerifyCacheEntry:
     Entries written before this field existed carry ``""`` and are re-verified
     once."""
 
+    image_id: str = ""
+    """Immutable image ID reported by the local runner, empty for an unreceipted measurement."""
+
     headers_fp: str = ""
     """Per-source header-dependency fingerprint (reached ``#include`` closure).
 
@@ -1268,6 +1271,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 and ctx_matches
             ):
                 continue  # Already in sync
+            entry.pop("image_id", None)  # The patch cannot inherit another compile's receipt.
             entry["status"] = p["status"]
             entry["match_percent"] = match_pct
             entry["passed"] = passed
@@ -1459,6 +1463,7 @@ def save_verify_cache(
         res_dict = {k: result.get(k) for k in RESULT_FIELDS}
         res_dict["va"] = va_key
 
+        snapshot = getattr(measured_entry, "verify_snapshot", None)
         cache_entries[str(va_key)] = {
             **res_dict,
             "source_hash": source_hash,
@@ -1466,6 +1471,7 @@ def save_verify_cache(
             "cflags": fp_entry.cflags,
             "headers_fp": fp_entry.headers_fp,
             "toolchain": fp_entry.toolchain,
+            "image_id": snapshot.get("image_id", "") if isinstance(snapshot, dict) else "",
             "defines": fp_entry.defines,
             # Context digest the verdict was earned under (None = bare
             # source).  Part of the cache identity: a changed context is a

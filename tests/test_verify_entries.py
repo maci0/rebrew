@@ -256,6 +256,9 @@ class TestPrepareEntriesCache:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: SourceBinding
     ) -> SimpleNamespace:
         cfg = _cfg(tmp_path)
+        monkeypatch.setattr(
+            verify_hash_mod, "current_compiler_image", lambda *_: "sha256:" + "a" * 64
+        )
         (tmp_path / "x.dll").write_bytes(b"MZ")
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
@@ -319,6 +322,7 @@ class TestPrepareEntriesCache:
             "cflags": cflags,
             "headers_fp": headers_fp,
             "toolchain": toolchain,
+            "image_id": "sha256:" + "a" * 64,
             "defines": "(none)",
             "status": "EXACT" if passed else "STUB",
             "va": "0x1000",

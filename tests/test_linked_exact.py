@@ -245,11 +245,10 @@ class TestStickiness:
         kept = {key: value for key, value in evidence.items() if key != "measured_at"}
         assert {key: entry["verification"][key] for key in kept} == kept
         assert entry["verification"]["measured_at"] >= evidence["measured_at"]
-        if not full:
-            assert entry["verification"]["measured_at"] == evidence["measured_at"]
-        if full:
-            assert entry["similarity"] == 100.0
-            assert entry["verification"]["aligned_pairs"] == 2
+        # The raw-link verdict has no container receipt. Both plain and
+        # --no-cache verify remeasure it and keep the linked evidence.
+        assert entry["similarity"] == 100.0
+        assert entry["verification"]["aligned_pairs"] == 2
 
     def test_rebuilt_image_demotes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         built = _project(tmp_path)

@@ -671,6 +671,77 @@ class TestVerifyCli:
         assert "requested 8 bytes, read 4" in row["message"]
         assert get_entry(cfg.metadata_dir, va, "SERVER")["status"] != "EXACT"
 
+    @pytest.mark.parametrize("receipt", ["admitted", "different", "missing"])
+    def test_verify_cache_depends_on_the_running_container_image(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, receipt: str
+    ) -> None:
+        from bin_util import make_coff_obj, make_pe
+
+        from rebrew import verify
+        from rebrew.compiler import compile as compiler
+        from rebrew.compiler import toolchain
+        from rebrew.verify_cache import cache_path_for, load_verify_cache
+
+        code = b"\x31\xc0\x40\xc3"
+        cfg = _cfg(tmp_path, compiler_profile="msvc-6.0", compile_timeout=3)
+        cfg.target_binary.write_bytes(make_pe(code))
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x401000 */\nint my_func(void) { return 1; }\n",
+            metadata_fields={"SERVER.0x401000": {"size": len(code), "status": "STUB"}},
+            metadata_dir=cfg.metadata_dir,
+        )
+        image_a, image_b = "sha256:" + "a" * 64, "sha256:" + "b" * 64
+        current = image_a
+        calls: list[str] = []
+        comparators: list[None] = []
+        compare = compiler.compile_and_compare
+
+        def compare_counted(*args, **kwargs):
+            comparators.append(None)
+            return compare(*args, **kwargs)
+
+        def build(_spec, args, *, workdir, image_id, **kwargs):
+            calls.append(image_id)
+            output = next(arg[3:] for arg in args if arg.startswith("/Fo"))
+            body = code if image_id == image_a else b"\x31\xc0\x48\xc3"
+            (workdir / output).write_bytes(make_coff_obj(body, func_symbol="_my_func"))
+            actual = {"admitted": image_id, "different": "sha256:" + "c" * 64, "missing": ""}[
+                receipt
+            ]
+            return SimpleNamespace(returncode=0, stdout="", stderr="", image_id=actual)
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(verify, "require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr(compiler, "cached_image_digest", lambda *args, **kwargs: current)
+        monkeypatch.setattr(toolchain, "cached_image_digest", lambda *args, **kwargs: current)
+        monkeypatch.setattr(compiler, "run_toolchain", build)
+        monkeypatch.setattr(compiler, "compile_and_compare", compare_counted)
+        runner = CliRunner()
+        assert runner.invoke(verify.app, ["--json"]).exit_code == 0
+        assert calls == [image_a]
+        saved = load_verify_cache(cache_path_for(cfg), cfg)
+        assert saved is not None
+        row = saved.entries["0x00401000"]
+        assert (
+            getattr(row, "image_id", "")
+            == {
+                "admitted": image_a,
+                "different": "sha256:" + "c" * 64,
+                "missing": "",
+            }[receipt]
+        )
+
+        again = runner.invoke(verify.app, ["--json"])
+        assert again.exit_code == 0
+        assert len(comparators) == (1 if receipt == "admitted" else 2)
+
+        current = image_b
+        changed = runner.invoke(verify.app, ["--json"])
+        assert changed.exit_code == 1, changed.output or repr(changed.exception)
+        assert calls[-1] == image_b
+        assert len(comparators) == (2 if receipt == "admitted" else 3)
+
     @pytest.mark.parametrize("edit_at", ["compile", "publish", "reference-read"])
     def test_stale_result_is_reported_without_publishing_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit_at: str

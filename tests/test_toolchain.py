@@ -14,6 +14,7 @@ from cli_json import cli_payload
 
 from rebrew.compiler.toolchain import (
     TOOLCHAINS,
+    RunResult,
     ToolchainError,
     ToolchainSpec,
     bind_mount,
@@ -660,6 +661,51 @@ class TestRunToolchain:
         with pytest.raises(ToolchainError, match="no docker image"):
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
         assert calls == [], "no subprocess may run for a wine spec without an image"
+
+    @pytest.mark.parametrize("run_outcome", ["done", "timed-out", "failed-before-create"])
+    def test_compile_receipt_comes_from_the_owned_container(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run_outcome: str
+    ) -> None:
+        import subprocess
+
+        cid = "c" * 64
+        admitted = "sha256:" + "a" * 64
+        measured = "sha256:" + "b" * 64
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
+        calls: list[list[str]] = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[1] == "run":
+                assert "--rm" not in cmd and admitted in cmd
+                if run_outcome == "failed-before-create":
+                    raise FileNotFoundError("runtime unavailable")
+                receipt = Path(cmd[cmd.index("--cidfile") + 1])
+                receipt.write_text(cid)
+                if run_outcome == "timed-out":
+                    raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+            if cmd[1:3] == ["container", "inspect"]:
+                return _FakeProc(0, measured + "\n", "")
+            return _FakeProc(0, "", "")
+
+        monkeypatch.setattr("rebrew.compiler.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", run)
+
+        def compile_with_receipt() -> RunResult:
+            return run_toolchain(
+                spec, ["/c", "f.c"], workdir=tmp_path, image_id=admitted, capture_image=True
+            )
+
+        if run_outcome == "done":
+            assert compile_with_receipt().image_id == measured
+            assert calls[1][1:] == ["container", "inspect", "--format", "{{.Image}}", cid]
+        else:
+            with pytest.raises(ToolchainError, match="docker invocation failed"):
+                compile_with_receipt()
+        if run_outcome == "failed-before-create":
+            assert len(calls) == 1
+        else:
+            assert calls[-1][1:] == ["rm", "-f", cid]
 
     def test_docker_timeout_kills_named_container(self, tmp_path: Path, monkeypatch) -> None:
         """A timed-out compile must kill its container by name: killing the

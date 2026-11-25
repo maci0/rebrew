@@ -2364,6 +2364,7 @@ def compile_to_obj(
     context: CompileContext | None = None,
     backend_errors: list[RebrewError] | None = None,
     remote_compiles: list[dict[str, Any]] | None = None,
+    image_receipts: list[str] | None = None,
 ) -> tuple[str | None, str]:
     """Compile a source file to an object through the configured backend.
 
@@ -2421,6 +2422,8 @@ def compile_to_obj(
             successful one appends its flags, execution provenance and shipped
             include bundle (``CompareResult.remote_compile``).  Per call, so
             concurrent compiles in one process never report each other's.
+        image_receipts: Optional sink for the local runner's measured image ID.
+            A compile-cache hit provides no receipt.
 
     Returns:
         (obj_path, error_msg) - obj_path is ``None`` on failure;
@@ -2766,7 +2769,9 @@ def compile_to_obj(
             )
         try:
             backend = getattr(cfg, "execution_backend", "")
-            execution_options = {"execution_backend": backend} if backend else {}
+            execution_options: dict[str, Any] = {"execution_backend": backend} if backend else {}
+            if image_receipts is not None:
+                execution_options["capture_image"] = True
             tr = run_toolchain(
                 spec,
                 args,
@@ -2780,6 +2785,9 @@ def compile_to_obj(
             if backend_errors is not None:
                 backend_errors.append(exc)
             return None, str(exc)
+        measured_image = image_content_id(getattr(tr, "image_id", ""))
+        if image_receipts is not None and measured_image:
+            image_receipts.append(measured_image)
         if source_changed():
             return _not_run(
                 backend_errors,
@@ -2804,7 +2812,7 @@ def compile_to_obj(
             if not err:
                 err = f"compiler produced no object ({obj_name}) and no output"
             return None, err
-        if cc is not None and cache_key is not None:
+        if cc is not None and cache_key is not None and measured_image in ("", admitted_image_id):
             fresh_key = cache_key_now()
             # Identity can disappear between lookup and publish (the native
             # binary becomes unreadable).  That is not a cache write.
@@ -2891,6 +2899,7 @@ def compile_batch_objs(
     *,
     image_id: str | None = None,
     execution_backend: str | None = None,
+    image_receipts: list[str] | None = None,
 ) -> tuple[dict[str, str], str]:
     """Compile N sources already staged in *workdir* with one container run.
 
@@ -2931,6 +2940,11 @@ def compile_batch_objs(
             args = _msvc_batch_args(all_flags + ["/c"], argv_srcs, workdir)
         except OSError as exc:
             return {}, f"cannot write batch response file: {exc}"
+    execution_options: dict[str, Any] = (
+        {"execution_backend": execution_backend} if execution_backend else {}
+    )
+    if image_receipts is not None:
+        execution_options["capture_image"] = True
     try:
         tr = run_toolchain(
             spec,
@@ -2939,10 +2953,13 @@ def compile_batch_objs(
             timeout=timeout,
             mounts=mounts,
             image_id=image_id,
-            **({"execution_backend": execution_backend} if execution_backend else {}),
+            **execution_options,
         )
     except ToolchainError as exc:
         return {}, str(exc)
+    measured_image = image_content_id(getattr(tr, "image_id", ""))
+    if image_receipts is not None and measured_image:
+        image_receipts.append(measured_image)
     ext = ".o" if style == "posix" else ".obj"
     out: dict[str, str] = {}
     for src in src_names:
@@ -3079,6 +3096,7 @@ def precompile_batch(
     cache: CacheBackend | None = None,
     context: CompileContext | None = None,
     lasting: list[Path] | None = None,
+    image_receipts: dict[str, str] | None = None,
 ) -> dict[int, str]:
     """Compile many entries' sources with one container run per flag group.
 
@@ -3410,6 +3428,12 @@ def precompile_batch(
             for path in workdir.iterdir():
                 if fold_ident(path.name) in output_names and path.is_file():
                     path.unlink()
+            group_receipts: list[str] = []
+            options: dict[str, Any] = {}
+            if image_receipts is not None:
+                options["image_receipts"] = group_receipts
+            if getattr(cfg, "execution_backend", ""):
+                options["execution_backend"] = cfg.execution_backend
             objs, err = compile_batch_objs(
                 spec,
                 sorted(staged),
@@ -3418,11 +3442,7 @@ def precompile_batch(
                 batch_mounts,
                 cfg.compile_timeout,
                 image_id=admitted,
-                **(
-                    {"execution_backend": cfg.execution_backend}
-                    if getattr(cfg, "execution_backend", "")
-                    else {}
-                ),
+                **options,
             )
             if tree_snapshot() != staged_snapshot:
                 return group_out
@@ -3445,9 +3465,11 @@ def precompile_batch(
                 lasting = lasting_root / f"{uuid.uuid4().hex[:12]}{Path(obj).suffix}"
                 lasting.write_bytes(obj_bytes)
                 lasting_path = str(lasting)
+                if image_receipts is not None and group_receipts:
+                    image_receipts[lasting_path] = group_receipts[0]
                 for e in staged[name]:
                     group_out[id(e)] = lasting_path
-                    if cache is None:
+                    if cache is None or (group_receipts and group_receipts[0] != admitted):
                         continue
                     with contextlib.suppress(OSError, ValueError):
                         own_cflags = member_cflags[id(e)]
@@ -3739,6 +3761,8 @@ def compile_and_compare(
     context: CompileContext | None = None,
     extra_include_dirs: list[str] | None = None,
     _precompiled_obj: str | None = None,
+    _precompiled_image: str = "",
+    image_receipts: list[str] | None = None,
 ) -> CompareResult:
     """Compile source, extract an object symbol, and compare against target bytes.
 
@@ -3771,6 +3795,8 @@ def compile_and_compare(
         _precompiled_obj: Path to an already-built ``.obj`` (verify's batch
             precompile hands one back here), skipping both the compile and the
             per-call workdir.  Ignored when the path is not an existing file.
+        image_receipts: Optional sink for the actual image ID of the compile
+            producing the selected object.
 
     Returns:
         :class:`CompareResult` with status, metrics, and byte data.  A failed
@@ -3800,6 +3826,8 @@ def compile_and_compare(
             # Batch precompile already produced the .obj — skip the
             # mkdir/rmtree tax that dominated verify after ADR-021 batching.
             obj_path, err = _precompiled_obj, ""
+            if image_receipts is not None and _precompiled_image:
+                image_receipts.append(_precompiled_image)
         else:
             # A real-disk, container-visible workdir (writable_temp_dir) - the
             # docker runner mounts it at /work, so a system-temp sandbox
@@ -3808,6 +3836,9 @@ def compile_and_compare(
             from rebrew.compiler.temp_dirs import writable_temp_dir
 
             workdir = writable_temp_dir("rebrew_cmp_")
+            options: dict[str, Any] = (
+                {"image_receipts": image_receipts} if image_receipts is not None else {}
+            )
             obj_path, err = compile_to_obj(
                 cfg,
                 source_path,
@@ -3820,6 +3851,7 @@ def compile_and_compare(
                 extra_include_dirs=extra_include_dirs,
                 backend_errors=backend_errors,
                 remote_compiles=remote_compiles,
+                **options,
             )
         if obj_path is None:
             return _pin(

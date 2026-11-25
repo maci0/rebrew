@@ -253,6 +253,7 @@ def verify_entry(
     context: CompileContext | None = None,
     instructions: bool = False,
     _precompiled_obj: str | None = None,
+    _precompiled_image: str = "",
 ) -> CompareResult:
     """Compile a .c file and compare output bytes against DLL.
 
@@ -411,6 +412,7 @@ def verify_entry(
         )
     ):
         entry.comparison_inputs = None
+    image_receipts: list[str] = []
     result = compile_and_compare(
         cfg,
         cfile,
@@ -423,7 +425,11 @@ def verify_entry(
         toolchain=toolchain,
         context=context,
         _precompiled_obj=_precompiled_obj,
+        _precompiled_image=_precompiled_image,
+        image_receipts=image_receipts,
     )
+    if entry.verify_snapshot and image_receipts:
+        entry.verify_snapshot["image_id"] = image_receipts[0]
     from rebrew.verify_hash import comparison_inputs_current
 
     if not comparison_inputs_current(cfg, cfile, entry.comparison_inputs) or (
@@ -2868,7 +2874,7 @@ def prepare_entries(
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )
-    from rebrew.verify_hash import compiler_config_hash
+    from rebrew.verify_hash import compiler_config_hash, current_compiler_image
 
     snapshot_compiler_hash = (
         compiler_config_hash(cfg)
@@ -2884,6 +2890,7 @@ def prepare_entries(
         else getattr(verify_cache_obj, "compiler_hash", "")
     )
     cached_count = 0
+    images_by_toolchain: dict[str, str] = {}
 
     for entry in unique_entries:
         va_key = f"0x{entry.va:08x}"
@@ -2921,6 +2928,12 @@ def prepare_entries(
         if fp is None:
             continue
         if not cached_entry.toolchain or cached_entry.toolchain != fp.toolchain:
+            continue
+        if not cached_entry.image_id:
+            continue
+        if fp.toolchain not in images_by_toolchain:
+            images_by_toolchain[fp.toolchain] = current_compiler_image(cfg, fp.toolchain)
+        if cached_entry.image_id != images_by_toolchain[fp.toolchain]:
             continue
         if not cached_entry.defines or cached_entry.defines != fp.defines:
             continue
@@ -2972,6 +2985,7 @@ def prepare_entries(
             "size": entry.size,
             "module": getattr(entry, "module", ""),
             "binary_id": getattr(verify_cache_obj, "binary_id", ""),
+            "image_id": cached_entry.image_id,
         }
         # A cached row ran no compile in this run: no compile record.
         results.append(
@@ -3136,6 +3150,7 @@ def run_verification(
                 context=context,
                 instructions=instructions,
                 _precompiled_obj=precompiled,
+                _precompiled_image=batch_images.get(precompiled, "") if precompiled else "",
             ),
         )
 
@@ -3148,6 +3163,7 @@ def run_verification(
     # later pass's cleanup cannot delete them out from under interrupted
     # workers.
     _batch_objs: dict[int, str] = {}
+    batch_images: dict[str, str] = {}
     batch_dirs: list[Path] = []
     try:
         from rebrew.compiler.compile import precompile_batch
@@ -3178,6 +3194,7 @@ def run_verification(
             cache=compile_cache,
             context=context,
             lasting=batch_dirs,
+            image_receipts=batch_images,
         )
     except Exception as exc:  # batch is an optimization; never fail the run
         # An abort can leave this pass's group workers (and their lasting

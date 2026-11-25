@@ -381,6 +381,25 @@ def _compare_logic_hash() -> str:
     return digest
 
 
+def current_compiler_image(cfg: ProjectConfig, override: str) -> str:
+    """Resolve today's image for the effective toolchain, without a stale tag memo."""
+    from rebrew.compiler.compile import recompile_url
+    from rebrew.compiler.toolchain import TOOLCHAINS, cached_image_digest
+    from rebrew.errors import ConfigError
+
+    backend = getattr(cfg, "execution_backend", "") or None
+    if backend == "unshare" or recompile_url(cfg) is not None:
+        return ""
+    profile = getattr(cfg, "compiler_profile", "") if override == DEFAULT_TOOLCHAIN else override
+    spec = TOOLCHAINS.get(profile)
+    if spec is None or spec.image is None:
+        return ""
+    try:
+        return cached_image_digest(spec.image, runtime=backend, refresh=True)
+    except ConfigError:
+        return ""
+
+
 def compiler_config_hash(cfg: ProjectConfig) -> str:
     """Digest of the compile configuration shared by every cache entry.
 
