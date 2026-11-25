@@ -297,7 +297,7 @@ def consolidate_declarations(text: str, *, syntax: Any = None) -> tuple[str, Ext
         i += 1
 
     header: list[str] = []
-    uniq_includes = [inc for inc in dict.fromkeys(includes) if "rebrew_types" not in inc]
+    uniq_includes = list(dict.fromkeys(includes))
     if uniq_includes:
         header += [inc + "\n" for inc in uniq_includes] + ["\n"]
     if typedefs:

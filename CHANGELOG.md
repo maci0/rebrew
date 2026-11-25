@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Source merge consolidation preserves project headers whose names include `rebrew_types`; it drops the retired `rebrew_types.h` include (D-engines7-033).
 - Source merge consolidation leaves block-scope declarations in their function bodies (D-engines7-032).
 - Cross-target imports exclude linked library addresses from both disassembly-sized candidates and sizeless diagnostics (D-engines7-030).
 - Source split keeps a static function in its translation unit when a file-scope initializer still uses it (D-engines7-028).

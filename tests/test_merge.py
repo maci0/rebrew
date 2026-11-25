@@ -185,6 +185,28 @@ class TestMergeBasic:
         assert "int func_a(void) {\n    typedef int T;\n    return (T)1;" in text
         assert "int func_b(void) {\n    typedef double T;\n    return (T)2;" in text
 
+    def test_consolidate_preserves_project_headers_with_rebrew_types_in_the_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write(tmp_path / "game_rebrew_types.h", "#define GAME_CONSTANT 3\n")
+        first = _write(
+            tmp_path / "a.c",
+            _single(
+                0x10001000,
+                "_func_a",
+                preamble='#include "rebrew_types.h"\n#include "game_rebrew_types.h"\n',
+            ).replace("return 0", "return GAME_CONSTANT"),
+        )
+        second = _write(tmp_path / "b.c", _single(0x10002000, "_func_b"))
+        result, output = _invoke(
+            tmp_path, monkeypatch, "--force", "--consolidate", str(first), str(second)
+        )
+        assert result.exit_code == 0, result.output
+        text = output.read_text(encoding="utf-8")
+        assert '#include "game_rebrew_types.h"' in text
+        assert '#include "rebrew_types.h"' not in text
+        assert "return GAME_CONSTANT;" in text
+
     def test_consolidate_hoists_declarations(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--consolidate hoists per-block includes/externs/typedefs to the top."""
         block_extra = "#include <stdio.h>\nextern int helper(void);\ntypedef int HANDLE;\n"
