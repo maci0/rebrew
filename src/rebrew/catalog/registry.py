@@ -286,14 +286,20 @@ def build_function_registry(
 
     for struc_func in structure_entries:
         va = struc_func.va
-        if va == 0 or struc_func.size == 0 or va in iat_vas:
+        tool_name = struc_func.tool_name or struc_func.name
+        if (
+            struc_func.size == 0
+            or va in iat_vas
+            or struc_func.name.startswith("case.")
+            or tool_name.startswith("case.")
+        ):
             continue
 
         entry = _entry_for(registry, va, cfg, iat_thunks)
         if "ghidra" not in entry["detected_by"]:
             entry["detected_by"].append("ghidra")
         entry["size_by_tool"]["ghidra"] = struc_func.size
-        entry["ghidra_name"] = struc_func.tool_name or struc_func.name
+        entry["ghidra_name"] = tool_name
 
     # --- Exports ---
     exports: dict[int, str] = cfg.dll_exports if cfg else {}

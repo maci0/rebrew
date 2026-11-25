@@ -14,6 +14,25 @@ def _cfg(**overrides: object) -> SimpleNamespace:
 
 
 class TestBuildFunctionRegistry:
+    def test_structure_does_not_restore_case_labels(self, tmp_path: Path) -> None:
+        inventory = tmp_path / "function_structure.json"
+        funcs = [
+            {"va": 0, "size": 16, "name": "entry"},
+            {"va": 8, "size": 4, "name": "case.1"},
+        ]
+        inventory.write_text(
+            json.dumps(
+                [
+                    *funcs,
+                    {"va": 12, "size": 4, "name": "case_alias", "tool_name": "case.2"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        registry = build_function_registry(funcs, _cfg(), inventory)
+        assert set(registry) == {0}
+        assert registry[0]["detected_by"] == ["list", "ghidra"]
+
     def test_merges_list_and_ghidra(self, tmp_path: Path) -> None:
         funcs = [{"va": 0x1000, "size": 100, "name": "fn_a"}]
         ghidra_path = tmp_path / "function_structure.json"
