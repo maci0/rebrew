@@ -762,7 +762,7 @@ class TestArtifactLength:
         [
             ("²", True),
             ("9" * 5000, True),
-            ("31457281", True),
+            ("33554433", True),
             ("3", False),
             ("n/a", False),
             ("", False),
@@ -788,6 +788,30 @@ class TestArtifactLength:
                 "https://compiler.invalid", "msvc-6.0", "int f(void){}", [], client=client
             )
             assert result.ok and result.obj_bytes == b"OBJ"
+        assert post.closed and artifact.closed
+
+    @pytest.mark.parametrize("oversized", [False, True], ids=["at-limit", "oversize-body"])
+    def test_artifact_at_the_service_limit(
+        self, monkeypatch: pytest.MonkeyPatch, oversized: bool
+    ) -> None:
+        monkeypatch.delenv("REBREW_RECOMPILE_API_KEY", raising=False)
+        limit = 32 * 1024**2
+        obj = b"x" * (limit + oversized)
+        post = _Resp(200, json_body={"status": "ok", "artifact_url": "/object.obj"})
+        artifact = _Resp(200, content=obj, headers={"content-length": str(limit)})
+        client = _FakeClient(post, artifact)
+        if oversized:
+            with pytest.raises(RecompileError, match=f"exceeds {limit} bytes") as error:
+                compile_source(
+                    "https://compiler.invalid", "msvc-6.0", "int f(void){}", [], client=client
+                )
+            assert error.value.kind == "protocol"
+            assert not error.value.retryable
+        else:
+            result = compile_source(
+                "https://compiler.invalid", "msvc-6.0", "int f(void){}", [], client=client
+            )
+            assert result.ok and result.obj_bytes == obj
         assert post.closed and artifact.closed
 
 

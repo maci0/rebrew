@@ -52,13 +52,9 @@ _MAX_FLAGS = 64
 #: there, so counting characters here would post a request the service 422s.
 _MAX_FLAG_BYTES = 256
 
-#: Hard cap on a recompile artifact body, checked before it is written to
-#: disk and parsed. The GET has buffered the whole body (``art.content``) by
-#: then, so the cap refuses an oversized ``.obj`` from a compromised or
-#: misconfigured service but does not bound the memory spent receiving it.
-#: A single-function COFF object is at most a few MiB for MSVC/Watcom/DOS
-#: toolchains; 30 MiB is generous headroom.
-_MAX_ARTIFACT_BYTES = 30 * 1024**2
+#: Recompile's verified artifact limit. The GET buffers the body before this
+#: check, so the limit applies before writing or parsing, not during receipt.
+_MAX_ARTIFACT_BYTES = 32 * 1024**2
 
 #: Random bytes in one ``Idempotency-Key``; the service takes exactly 12
 #: lowercase hex digits (recompile ``docs/API.md``).
