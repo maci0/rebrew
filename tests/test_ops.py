@@ -1854,6 +1854,43 @@ class TestFunctionDigests:
             ]
         }
 
+    def test_elf_digest_ignores_nonallocated_relocations(self, tmp_path: Path) -> None:
+        from rebrew.formats.binary_loader import load_binary
+
+        cc = shutil.which("cc")
+        if cc is None or sys.platform != "linux" or os.uname().machine != "x86_64":
+            pytest.skip("requires an x86-64 ELF compiler")
+        source = tmp_path / "entry.c"
+        source.write_text("int entry(void) { return 7; }\n")
+        image = tmp_path / "entry"
+        subprocess.run(
+            [
+                cc,
+                "-g",
+                "-nostdlib",
+                "-static",
+                "-no-pie",
+                "-Wl,--emit-relocs,-e,entry",
+                str(source),
+                "-o",
+                str(image),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        info = load_binary(image)
+        filestore, workspace = _worker_dirs(tmp_path)
+        config = WorkerConfig(filestore.resolve(), workspace.resolve())
+        digest, key = _store(filestore, image.read_bytes())
+        reply = _call(
+            config,
+            "rebrew.binary_function_digests",
+            self._request(digest, key, (info.text_va, 4)),
+        )
+        original = info.data[info.text_raw_offset : info.text_raw_offset + 4]
+        assert reply["identities"][0]["digest"] == hashlib.sha256(original).hexdigest()
+
     def test_fixups_are_masked(self, tmp_path: Path) -> None:
         filestore, workspace = _worker_dirs(tmp_path)
         config = WorkerConfig(filestore.resolve(), workspace.resolve())

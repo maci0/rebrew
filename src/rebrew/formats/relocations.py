@@ -106,6 +106,10 @@ def _elf_spans(info: BinaryInfo) -> list[tuple[int, int]]:
     }
     spans: list[tuple[int, int]] = []
     for entry in binary.relocations:
+        target = entry.section if entry.has_section else None
+        if target is not None and not target.has(lief.ELF.Section.FLAGS.ALLOC):
+            # Retained debug fixups use section offsets, outside the load image.
+            continue
         if entry.type in (kinds.X86_NONE, kinds.X86_64_NONE):
             continue
         width = widths.get(entry.type)
