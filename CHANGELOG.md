@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- A compile that could not start keeps its structured toolchain refusal regardless of diagnostic text (D-engines7-048).
 - Raw-link data verification leaves stored verdicts intact for rows the selected sections could not establish a verdict for (D-engines7-062).
 - Data verification requires the recorded native symbol for direct placement evidence (D-engines7-061).
 - Data annotation binds only a unique name visible to the requested target (D-engines7-057).

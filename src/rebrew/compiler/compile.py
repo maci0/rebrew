@@ -580,9 +580,9 @@ def classify_compare_result(
 
     Classification precedence:
     - ``matched=True`` → EXACT (no relocs) or RELOC (with relocs).
-    - ``"EXTRACT_ERROR"`` in *msg* → EXTRACT_ERROR.
     - ``service_unavailable(error)`` or ``isinstance(error, ToolchainError)``
       → NOT_RUN.
+    - ``"EXTRACT_ERROR"`` in *msg* → EXTRACT_ERROR.
     - ``obj_bytes is None`` or ``"COMPILE_ERROR"`` in *msg* → COMPILE_ERROR.
     - ``"MISSING"`` in *msg* → MISSING_SIZE or MISSING_FILE (by substring).
     - ``size_mismatch=True`` or ``"SIZE_MISMATCH"`` in *msg* → SIZE_MISMATCH
@@ -639,19 +639,6 @@ def classify_compare_result(
             full_obj_bytes=full_obj_bytes,
         )
 
-    if "EXTRACT_ERROR" in msg:
-        return CompareResult(
-            matched=False,
-            status="EXTRACT_ERROR",
-            match_percent=0.0,
-            delta=0,
-            obj_bytes=None,
-            reloc_offsets=None,
-            message=msg,
-            match_count=0,
-            error=error,
-        )
-
     if service_unavailable(error):
         # The service never gave a verdict on the source: no compile error.
         from rebrew.compiler.toolchain import CompilerNotOffered
@@ -682,6 +669,19 @@ def classify_compare_result(
             obj_bytes=None,
             reloc_offsets=None,
             message=f"not run (toolchain): {error}",
+            match_count=0,
+            error=error,
+        )
+
+    if "EXTRACT_ERROR" in msg:
+        return CompareResult(
+            matched=False,
+            status="EXTRACT_ERROR",
+            match_percent=0.0,
+            delta=0,
+            obj_bytes=None,
+            reloc_offsets=None,
+            message=msg,
             match_count=0,
             error=error,
         )

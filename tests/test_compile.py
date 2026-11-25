@@ -2049,6 +2049,26 @@ class _RejectingCache:
 
 
 class TestPinnedImageExecution:
+    def test_start_failure_with_extraction_marker_is_still_not_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler import compile as compiler
+        from rebrew.compiler.toolchain import ToolchainError
+
+        error = ToolchainError("cannot start /build/EXTRACT_ERROR/CL.EXE", kind="invocation")
+
+        def unavailable(*args, **kwargs):
+            raise error
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(compiler, "cached_image_digest", lambda *args, **kwargs: "")
+        monkeypatch.setattr(compiler, "run_toolchain", unavailable)
+        result = compiler.compile_and_compare(
+            self._cfg(tmp_path), self._source(tmp_path), "_f", b"\xc3", [], use_cache=False
+        )
+        assert result.status == "NOT_RUN"
+        assert result.error is error
+
     def _cfg(self, tmp_path: Path) -> Any:
         return SimpleNamespace(
             root=tmp_path,
