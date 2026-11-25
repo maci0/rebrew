@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Cross-target imports exclude linked library addresses from both disassembly-sized candidates and sizeless diagnostics (D-engines7-030).
 - Source split keeps a static function in its translation unit when a file-scope initializer still uses it (D-engines7-028).
 - Rehome rejects a second claim to a function definition at a different address in the same target, including claims in one batch (D-engines7-025).
 - Orphan pruning preserves live function records at DOS address zero, including records known only to the inventory (D-engines7-037).

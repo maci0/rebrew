@@ -409,6 +409,45 @@ class TestOnlyVaGuard:
 
 
 class TestLibraryRowsAreNotDestinations:
+    @pytest.mark.parametrize("provider", ["library", "external-range"])
+    def test_sizeless_library_functions_are_neither_matched_nor_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
+    ) -> None:
+        from rebrew.metadata.functions import record_function_identity
+
+        binary = tmp_path / "a.exe"
+        binary.write_bytes(_pe_a())
+        source = tmp_path / "src"
+        source.mkdir()
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            target_name="DST",
+            module="DST",
+            target_binary=binary,
+            reversed_dir=source,
+            metadata_dir=tmp_path,
+        )
+        if provider == "library":
+            record_function_identity(
+                tmp_path,
+                module="DST",
+                va=A_F1,
+                file="src/library.h",
+                name="f",
+                symbol="_f",
+                kind="LIBRARY",
+            )
+        else:
+            cfg.external_ranges = [(A_F1, A_F1 + len(F1))]
+        monkeypatch.setattr(ci, "registry", lambda cfg: {A_F1: {"canonical_size": 0}})
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.function_extent_from_disasm",
+            lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
+        )
+        assert ci.unmatched_dest_bytes(cfg, only_va=A_F1) == {}
+        assert ci.unmatched_dest_bytes(cfg) == {}
+        assert ci.sizeless_dest_vas(cfg) == ({}, [])
+
     def test_library_row_bound_outside_reversed_dir(self, tmp_path: Path) -> None:
         """A LIBRARY row bound with ``library bind-source`` to a vendored file
         outside ``reversed_dir`` (``references/zlib/deflate.c``) is linked code:

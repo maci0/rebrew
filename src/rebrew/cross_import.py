@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 lazy import hashlib
 lazy import heapq
 lazy import shutil
+lazy from collections.abc import Callable
 lazy from dataclasses import replace
 lazy from pathlib import Path
 
@@ -246,7 +247,12 @@ def sizeless_dest_vas(cfg: ProjectConfig) -> tuple[dict[int, int], list[int]]:
     for the refusals.
     """
     entries = registry(cfg)
-    sizeless = [va for va, reg in entries.items() if not int(reg.get("canonical_size") or 0)]
+    eligible = _destination_eligibility(cfg)
+    sizeless = [
+        va
+        for va, reg in entries.items()
+        if not int(reg.get("canonical_size") or 0) and eligible(va)
+    ]
     return disasm_sizes(cfg, sizeless)
 
 
@@ -448,6 +454,21 @@ def _in_external_range(va: int, ranges: list[tuple[int, int]]) -> bool:
     return any(lo <= va <= hi for lo, hi in ranges)
 
 
+def _destination_eligibility(cfg: ProjectConfig) -> Callable[[int], bool]:
+    statuses = annotations_by_va(cfg)
+    library = _library_vas(cfg)
+    bands = list(getattr(cfg, "external_ranges", None) or [])
+
+    def eligible(va: int) -> bool:
+        return (
+            statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES
+            and va not in library
+            and not _in_external_range(va, bands)
+        )
+
+    return eligible
+
+
 def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> dict[int, bytes]:
     """Destination side: target bytes of the destination's NOT-yet-matched
     functions (anything whose STATUS is not EXACT/RELOC, PROVEN included).
@@ -460,36 +481,22 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
     extent (ret-ended only); ones the disassembler cannot size stay out of
     the match and surface as ``sizeless, use --va`` rows from
     :func:`sizeless_dest_vas`."""
-    statuses = annotations_by_va(cfg_dst)
+    eligible = _destination_eligibility(cfg_dst)
+    if only_va is not None and not eligible(only_va):
+        return {}
     entries = registry(cfg_dst)
-    library_vas = _library_vas(cfg_dst)
-    bands = list(getattr(cfg_dst, "external_ranges", None) or [])
+    if only_va is not None:
+        entries = {only_va: entries.get(only_va, {})}
+    candidates = {va: entry for va, entry in entries.items() if eligible(va)}
     vas = {
         va: int(reg["canonical_size"])
-        for va, reg in entries.items()
+        for va, reg in candidates.items()
         if reg.get("canonical_size")
-        and statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES
-        and va not in library_vas
-        and not _in_external_range(va, bands)
     }
-    if only_va is not None:
-        if only_va in vas:
-            vas = {only_va: vas[only_va]}
-        elif statuses.get(only_va, ("", ""))[0] in MATCHED_STATUSES:
-            # ``--va`` must not bypass the matched-STATUS filter: an already
-            # EXACT/RELOC function whose registry entry was filtered out above
-            # would otherwise be re-imported and possibly demoted.
-            vas = {}
-        elif only_va in library_vas or _in_external_range(only_va, bands):
-            vas = {}
-        else:
-            sizes, _refused = disasm_sizes(cfg_dst, [only_va])
-            vas = sizes
-    else:
-        _disasm_sizes_out, _ = sizeless_dest_vas(cfg_dst)
-        for va, size in _disasm_sizes_out.items():
-            if statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES:
-                vas[va] = size
+    missing = list(candidates.keys() - vas.keys())
+    if missing:
+        sizes, _refused = disasm_sizes(cfg_dst, sorted(missing))
+        vas.update(sizes)
     return target_bytes_by_va(cfg_dst, vas)
 
 
