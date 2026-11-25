@@ -618,18 +618,37 @@ class ServiceGate:
         out the hold-off.  Raises :class:`RecompileError` (``kind="deadline"``)
         when the hold-off or a free slot comes later than *deadline*.
         """
-        with self._lock:
-            wait = self._not_before - time.monotonic()
-        if wait > 0:
-            if deadline is not None and time.monotonic() + wait > deadline:
-                raise _deadline_refusal("the service's Retry-After runs past the call's deadline")
-            sleep(wait)
-        if deadline is None:
-            self._slots.acquire()
-        elif not self._slots.acquire(timeout=max(0.0, deadline - time.monotonic())):
-            raise _deadline_refusal("no compile slot came free before the call's deadline")
+        slept_until = time.monotonic()
+        while True:
+            now = max(slept_until, time.monotonic())
+            with self._lock:
+                not_before = self._not_before
+            if not_before > now:
+                if deadline is not None and not_before > deadline:
+                    raise _deadline_refusal(
+                        "the service's Retry-After runs past the call's deadline"
+                    )
+                sleep(not_before - now)
+                slept_until = not_before
+                continue
+            if deadline is None:
+                self._slots.acquire()
+            elif not self._slots.acquire(timeout=max(0.0, deadline - now)):
+                raise _deadline_refusal("no compile slot came free before the call's deadline")
+            now = max(slept_until, time.monotonic())
+            if deadline is not None and now >= deadline:
+                self._slots.release()
+                raise _deadline_refusal("no compile slot came free before the call's deadline")
+            with self._lock:
+                if self._not_before <= now:
+                    break
+            self._slots.release()
         try:
             yield
+        except RecompileError as exc:
+            if exc.retryable and exc.retry_after:
+                self.hold_off(exc.retry_after)
+            raise
         finally:
             self._slots.release()
 
@@ -1407,11 +1426,6 @@ def compile_source(
                 exc.__cause__ = None
                 exc.__context__ = None
                 exc.__suppress_context__ = True
-            # The service's Retry-After holds back every compile the gate
-            # paces, the next call's as well as this call's next attempt: a
-            # call that gives up here must not let the next one send at once.
-            if exc.retryable and exc.retry_after and gate is not None:
-                gate.hold_off(exc.retry_after)
             # An answer that asks to wait is waited out until the deadline;
             # another retryable one spends a retry.
             no_room = then in ("wait", "new_key_wait")

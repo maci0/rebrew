@@ -1474,6 +1474,64 @@ class TestServicePacing:
 
         return _Replay(None, _Resp(200, content=b"OBJ"))
 
+    def test_holdoff_applies_to_an_attempt_already_queued(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import threading
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+
+        from rebrew.compiler.recompile_client import ServiceGate
+
+        gate = ServiceGate(1)
+        first_post, queued = threading.Event(), threading.Event()
+        acquire = gate._slots.acquire
+        next_client = self._client([_Resp(200, json_body=_COMPILED)])
+
+        def observe_acquire(*args: Any, **kwargs: Any) -> bool:
+            if first_post.is_set():
+                queued.set()
+            return acquire(*args, **kwargs)
+
+        class _Throttled(_FakeClient):
+            def post(self, *_args: Any, **_kwargs: Any) -> _Resp:
+                first_post.set()
+                assert queued.wait(30)
+                return _Resp(429, headers={"Retry-After": "60"})
+
+        def next_attempt() -> str:
+            assert first_post.wait(30)
+            try:
+                compile_source(
+                    "http://svc",
+                    "msvc-6.0",
+                    "next",
+                    [],
+                    client=next_client,
+                    gate=gate,
+                    deadline=time.monotonic() + 30,
+                )
+            except RecompileError as exc:
+                return exc.kind
+            return "sent"
+
+        monkeypatch.setattr(gate._slots, "acquire", observe_acquire)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            waiting = pool.submit(next_attempt)
+            with pytest.raises(RecompileError) as refused:
+                compile_source(
+                    "http://svc",
+                    "msvc-6.0",
+                    "first",
+                    [],
+                    client=_Throttled(None),
+                    gate=gate,
+                    deadline=time.monotonic() + 30,
+                )
+            assert refused.value.status_code == 429
+            assert waiting.result(timeout=30) == "deadline"
+        assert next_client.calls == []
+
     @pytest.mark.parametrize(
         "refusal",
         [

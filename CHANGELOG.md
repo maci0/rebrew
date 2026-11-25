@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- A new remote compiler hold-off also applies to attempts already waiting for a service slot (D-engines7-040).
 - An empty remote artifact counts as a billed compile without a delivered verdict, and no object is written (D-engines7-039).
 - Contradictory remote compile replies leave billing unsettled and never produce a verdict (D-engines7-038).
 - SQLite restore keeps a verified JSON cache from the backup and removes obsolete live sidecars only after publishing the database (D-engines7-027).
