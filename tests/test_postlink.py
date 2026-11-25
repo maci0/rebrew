@@ -598,6 +598,16 @@ class TestTextAlignmentGuard:
     refused before anything is patched, not padded to the reference's
     VirtualSize and shipped."""
 
+    def test_metadata_only_checks_alignment_before_writing(self, tmp_path: Path) -> None:
+        operand = b"\xb8" + struct.pack("<I", _IMAGE_BASE + 0x3000) + b"\xc3"
+        original = make_full_pe(code=b"\x90" + operand, timestamp=1)
+        built = _write(tmp_path, "built.dll", original)
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=operand))
+        result = runner.invoke(app, ["--fix", "pe-metadata", str(built), str(ref)])
+        assert result.exit_code == 2
+        assert "position-aligned" in result.output
+        assert built.read_bytes() == original
+
     def test_aligned_text_passes(self, tmp_path: Path) -> None:
         operand = _DATA_VA + 0x10 + _IMAGE_BASE
         code = b"\xb8" + struct.pack("<I", operand) + b"\xe8\x10\x00\x00\x00\xc3"

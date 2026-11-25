@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Check text alignment before metadata-only postlink runs (D-engines7-084).
 - Run every requested postlink fixer when the caller supplies a generator (D-engines7-083).
 - Reject unknown postlink fixers even when the selection includes all (D-engines7-082).
 - Refuse moving data rows whose source still carries a case-equivalent address anchor (D-engines7-075).

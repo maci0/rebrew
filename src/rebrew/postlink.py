@@ -925,7 +925,7 @@ def run_fixers(
     if unknown:
         raise ValueError(f"unknown fixers: {', '.join(unknown)}")
     names = [n for n in FIXER_ORDER if n in names]  # dependency order
-    if "data" in names:
+    if "data" in names or "pe-metadata" in names:
         check_text_alignment(bytes(built), meta, info_b)
 
     reports: list[FixerReport] = []
