@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Rewrite moved import slots through the last complete operand in raw text (D-engines7-085).
 - Move an existing global definition with its original declarator and initializer (D-engines7-081).
 - Preserve multidimensional declarators when materializing stub globals (D-engines7-079).
 - Restrict data ownership repair to the selected target metadata and link order (D-engines7-077).

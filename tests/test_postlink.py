@@ -269,6 +269,32 @@ class TestImportsFixer:
         assert patched == ref.read_bytes()
         assert not reports[0].changed
 
+    @pytest.mark.parametrize("tail_padding", [0, 1])
+    def test_rewrites_slot_at_end_of_raw_text(self, tmp_path: Path, tail_padding: int) -> None:
+        from rebrew.layout_meta import extract_layout
+
+        imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
+
+        def jump_to_first(descriptors: list[tuple[str, list[str]]]) -> bytes:
+            metadata = extract_layout(make_full_pe(imports=descriptors))
+            slot = next(item.iat_va for item in metadata.imports if item.name == "GetLocalTime")
+            jump = b"\xff\x25" + struct.pack("<I", _IMAGE_BASE + slot)
+            code = (
+                b"\xc3"
+                + b"\xcc" * (0x1000 - 1 - len(jump) - tail_padding)
+                + jump
+                + b"\xcc" * tail_padding
+            )
+            return make_full_pe(code=code, imports=descriptors)
+
+        reference = _write(tmp_path, "ref.dll", jump_to_first(imports))
+        built = _write(
+            tmp_path, "built.dll", jump_to_first([("KERNEL32.dll", ["WriteFile", "GetLocalTime"])])
+        )
+        patched, reports = run_fixers(built, reference, ["imports"])
+        assert reports[0].stats["slot_operands_rewritten"] == 1
+        assert patched == reference.read_bytes()
+
     def test_rewrite_requires_indirect_call_opcode(self, tmp_path: Path) -> None:
         """Only FF /2 (call [mem]) and FF /5 (jmp [mem]) operands are IAT
         references.  A bare dword equal to a moved slot VA (e.g. a

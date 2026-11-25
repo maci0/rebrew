@@ -360,7 +360,7 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
         text = _built_raw_section(built, info_b, ".text")
         moved = 0
         skipped = 0
-        for off in range(text.file_offset + 2, text.file_offset + text.raw_size - 4):
+        for off in range(text.file_offset + 2, text.file_offset + text.raw_size - 3):
             v = struct.unpack_from("<I", built, off)[0]
             slot = v - info_b.image_base
             if slot not in remap:
