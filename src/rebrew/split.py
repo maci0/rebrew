@@ -321,6 +321,11 @@ def _split_definitions(
     extents = {id(span): span_extent(raw, span, spans) for span in selected}
     problems: list[str] = []
     uses_cache: dict[int, set[str]] = {}
+    global_uses = (
+        find_variable_roles(text, function_filter=lambda _: False)[2]
+        if any(span.static for span in selected)
+        else set()
+    )
 
     def _uses(span: SourceSpan) -> set[str]:
         key = id(span)
@@ -332,6 +337,8 @@ def _split_definitions(
         if span.inside_pp or not span.proto:
             problems.append(f"{span.name} is inside a preprocessor conditional or did not parse")
             continue
+        if span.static and span.name in global_uses:
+            problems.append(f"static {span.name} is used at file scope in {source_path.name}")
         direct = _uses(span)
         for other in functions:
             if other is span:

@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Source split keeps a static function in its translation unit when a file-scope initializer still uses it (D-engines7-028).
 - Rehome rejects a second claim to a function definition at a different address in the same target, including claims in one batch (D-engines7-025).
 - Orphan pruning preserves live function records at DOS address zero, including records known only to the inventory (D-engines7-037).
 - Both source rehome modes resolve library provider paths from the project root when the metadata store is nested (D-engines7-024).

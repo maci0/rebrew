@@ -1074,6 +1074,22 @@ class TestMarkerlessSplit:
         assert "static helper" in result.output
         assert src.read_text(encoding="utf-8") == source
 
+    def test_split_keeps_static_helper_used_by_a_global_initializer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        original = "static int helper(void) { return 1; }\nint (*table[])(void) = {helper};\n"
+        source = _write(tmp_path / "multi.c", original)
+        _seed(tmp_path, [("SERVER", 0x10001000, "_helper")])
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+
+        result, _ = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
+
+        assert result.exit_code == 2, result.output
+        assert "static helper is used at file scope" in result.output
+        assert source.read_text(encoding="utf-8") == original
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+        assert not (tmp_path / "multi_c").exists()
+
     def test_sibling_call_gets_a_prototype(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(
             tmp_path / "multi.c",
