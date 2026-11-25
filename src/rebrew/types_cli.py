@@ -196,6 +196,33 @@ def bind(
         )
 
 
+@app.command(
+    "migrate-context",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew types migrate-context --dry-run\n\n"
+        "Rewrites context digests stored with absolute paths (earlier releases) to the checkout-independent form, only for rows whose source, headers and binary still match. Run it once per target in the checkout that recorded the evidence."
+    ),
+)
+def migrate_context(
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Rewrite legacy type context digests to the checkout-independent form."""
+    from rebrew.type_metadata import migrate_context_hashes
+
+    cfg = require_config(target=target, json_mode=json_output)
+    try:
+        migrated = migrate_context_hashes(cfg, dry_run=dry_run)
+    except (OSError, ValueError) as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if json_output:
+        json_print({"migrated": migrated, "dry_run": dry_run})
+    else:
+        console.print(f"{'Would migrate' if dry_run else 'Migrated'} {len(migrated)} type row(s)")
+
+
 def main_entry() -> None:
     """Run the Typer CLI application."""
     from rebrew.cli import run_cli

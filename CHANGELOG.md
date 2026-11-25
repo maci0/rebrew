@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- Type evidence context digests spell project paths relative to the project root, so a clone at another path no longer reports every type row stale (W031). Digests stored with absolute paths stay valid in the checkout that recorded them; `rebrew types migrate-context` rewrites them to the portable form on request.
+
 ## [6.80.0] - 2026-11-25
 
 ### Fixed

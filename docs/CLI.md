@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 242 surfaces: 208 leaf commands and 34 groups, including the
+The CLI exposes 243 surfaces: 209 leaf commands and 34 groups, including the
 root. Run `rebrew <command> --help` (or `-h`) for the installed command's
 arguments, defaults, and examples. See [CLI migration](CLI_MIGRATION.md) for
 renamed routes and [Getting started](GETTING_STARTED.md) for the first match.
@@ -4048,6 +4048,7 @@ Use `rebrew types <operation> --help` for exact arguments and examples.
 | --- | --- |
 | `rebrew types check` | Check declared structs against decompiler offset evidence. |
 | `rebrew types bind` | Bind a type to a target layout after sizeof/offsetof compiler checks. |
+| `rebrew types migrate-context` | Rewrite legacy type context digests to the checkout-independent form. |
 | `rebrew types contracts` | Audit declarations, definitions and callers in actual target/include contexts. |
 | `rebrew types reconcile` | Review and apply a canonical subsystem-header signature across targets. |
 | `rebrew types apply` | Rewrite one parameter's type in project C source (recovered types reach the compiler). |
@@ -4197,6 +4198,30 @@ native extent from sizeof.
 | `--extent` | str | `allocation` | Native extent kind: allocation or stride |
 | `--field` | str (repeatable) | `[]` | Compiler-check member=offset (repeatable; no bitfields) |
 | `--cflags` | str | none | Compile flags; defaults to target flags |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
+
+### `rebrew types migrate-context`
+
+`rebrew types migrate-context [OPTIONS]`
+
+```bash
+rebrew types migrate-context --dry-run
+```
+
+The compiler-context digest of a type record spells project paths relative to
+the project root, so evidence stays fresh in a clone at another path. Records
+bound by earlier releases hash absolute paths: `types check` and lint W031
+still accept them in the checkout that recorded them, and report them stale in
+any other location. This command rewrites the context digest of the selected
+target's rows to the portable form, only where the source, headers and binary
+digests still match and the stored digest equals the legacy one at this
+location. Other rows are left for a reviewed rebind. Run it once in the
+checkout that recorded the evidence, then commit the store.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
