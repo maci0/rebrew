@@ -59,6 +59,7 @@ from typing import TYPE_CHECKING, Any
 lazy import contextlib
 lazy import io
 lazy import struct
+lazy from itertools import pairwise
 lazy from pathlib import Path
 
 if TYPE_CHECKING:
@@ -445,6 +446,54 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     rdata = _meta_section(meta, ".rdata")
     data_m = _meta_section(meta, ".data")
 
+    text_m = _meta_section(meta, ".text")
+    text_b = text
+    data_b = _built_raw_section(built, info_b, ".data")
+    reloc_b = _built_raw_section(built, info_b, ".reloc")
+    reloc_m = _meta_section(meta, ".reloc")
+    # Two contracts:
+    #  * default — keep the BUILT link's own raw pointer.  A layout that has
+    #    not converged (sections shifted, .data longer than the reference's)
+    #    must not have the reference's pointers copied over bytes the fixer
+    #    never wrote.
+    #  * EXACT_LAYOUT — write at the REFERENCE's raw pointer and trim the file
+    #    to the reference's section end.  A converged link can still sit one
+    #    FileAlignment block later (guild-rebrew: .reloc at 0x36000 against
+    #    0x35000), which makes the delivered file 4096 bytes too long and
+    #    shifts every byte after it in a whole-file compare.  Guarded: only
+    #    when the reference's offset is past every other built section's raw
+    #    extent, i.e. there is nothing to clobber.
+    new_rptr = reloc_b.file_offset
+    if EXACT_LAYOUT:
+        others_end = max(s.raw_ptr + s.raw for s in meta.sections if s.name != ".reloc")
+        # Consider the reference's final geometry before moving the pointer.
+        # Check it against the built offsets below before writing anything.
+        if reloc_m.raw_ptr >= others_end and reloc_m.raw_ptr <= reloc_b.file_offset:
+            new_rptr = reloc_m.raw_ptr
+    # The zero fill runs to the reference's SizeOfRawData.  extract_layout
+    # holds that inside the reference file; a layout package has no file to
+    # hold it to, so the binary size limit bounds the grown image.
+    reloc_size = max(len(meta.reloc), reloc_m.raw)
+    if new_rptr + reloc_size > MAX_BINARY_SIZE:
+        raise ValueError(
+            f"reference .reloc raw size {reloc_m.raw:#x} at {new_rptr:#x} grows the image "
+            f"past the {MAX_BINARY_SIZE:#x}-byte binary size limit"
+        )
+    planned = {
+        ".text": (text.file_offset, text_m.raw),
+        ".data": (data_b.file_offset, len(meta.data)),
+        ".reloc": (new_rptr, reloc_size),
+    }
+    ranges = []
+    for name, section in info_b.sections.items():
+        start, length = planned.get(name, (section.file_offset, section.raw_size))
+        if length:
+            ranges.append((start, start + length, name))
+    ranges.sort()
+    for (_, left_end, left_name), (right_start, _, right_name) in pairwise(ranges):
+        if left_end > right_start:
+            raise ValueError(f"postlink raw sections overlap: {left_name} and {right_name}")
+
     # operand ranges, image-base-relative (== the reference's RVA space)
     lo_r = rdata.va
     hi_r = rdata.va + rdata.vs
@@ -505,8 +554,6 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     # left as the built binary's, which for X X is the reference itself.)
     # Both sides resolve through their own headers: the built trim point
     # from the built geometry, not the reference's file offsets.
-    text_m = _meta_section(meta, ".text")
-    text_b = _built_raw_section(built, info_b, ".text")
     # The trim start is the BUILT section's own file offset plus the
     # reference's raw size.  Using the reference's ``raw_ptr`` here would index
     # the built buffer with the reference's layout: a built link whose .text
@@ -553,7 +600,6 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
             report.changed = True
 
     # ---- 4. grow .data to the reference raw size and copy it ----
-    data_b = _built_raw_section(built, info_b, ".data")
     if len(meta.data) > len(built) - data_b.file_offset:
         built.extend(b"\x00" * (data_b.file_offset + len(meta.data) - len(built)))
     built[data_b.file_offset : data_b.file_offset + len(meta.data)] = meta.data
@@ -567,38 +613,6 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     # ---- 5. replace .reloc (at the built file's own .reloc offset) ----
     # The built file's .reloc raw pointer comes from its own headers —
     # the reference's raw_ptr belongs to the reference's layout.
-    reloc_b = _built_raw_section(built, info_b, ".reloc")
-    reloc_m = _meta_section(meta, ".reloc")
-    # Two contracts:
-    #  * default — keep the BUILT link's own raw pointer.  A layout that has
-    #    not converged (sections shifted, .data longer than the reference's)
-    #    must not have the reference's pointers copied over bytes the fixer
-    #    never wrote.
-    #  * EXACT_LAYOUT — write at the REFERENCE's raw pointer and trim the file
-    #    to the reference's section end.  A converged link can still sit one
-    #    FileAlignment block later (guild-rebrew: .reloc at 0x36000 against
-    #    0x35000), which makes the delivered file 4096 bytes too long and
-    #    shifts every byte after it in a whole-file compare.  Guarded: only
-    #    when the reference's offset is past every other built section's raw
-    #    extent, i.e. there is nothing to clobber.
-    new_rptr = reloc_b.file_offset
-    if EXACT_LAYOUT:
-        others_end = max(s.raw_ptr + s.raw for s in meta.sections if s.name != ".reloc")
-        # Compare against the REFERENCE extents: the fixers have already
-        # written every section at the reference raw size (a built .data one
-        # FileAlignment block longer is trimmed by the .data copy), so the
-        # reference's own extents are what the finished file contains.
-        if reloc_m.raw_ptr >= others_end and reloc_m.raw_ptr <= reloc_b.file_offset:
-            new_rptr = reloc_m.raw_ptr
-    # The zero fill runs to the reference's SizeOfRawData.  extract_layout
-    # holds that inside the reference file; a layout package has no file to
-    # hold it to, so the binary size limit bounds the grown image.
-    reloc_size = max(len(meta.reloc), reloc_m.raw)
-    if new_rptr + reloc_size > MAX_BINARY_SIZE:
-        raise ValueError(
-            f"reference .reloc raw size {reloc_m.raw:#x} at {new_rptr:#x} grows the image "
-            f"past the {MAX_BINARY_SIZE:#x}-byte binary size limit"
-        )
     reloc_raw = meta.reloc + b"\x00" * (reloc_size - len(meta.reloc))
     if new_rptr + len(reloc_raw) > len(built):
         built.extend(b"\x00" * (new_rptr + len(reloc_raw) - len(built)))

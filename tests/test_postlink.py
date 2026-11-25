@@ -413,6 +413,21 @@ class TestDataFixer:
         assert report.stats.get("text_overshoot_zeroed") == expected, report.stats
         assert bytes(blob[text_ptr + 1 : text_ptr + 1 + len(overshoot)]) == b"\x00" * len(overshoot)
 
+    def test_data_growth_into_reloc_preserves_input(self, tmp_path: Path) -> None:
+        reference = bytearray(make_full_pe(data=b"\x01" * 512))
+        reference[0x3200:0x3400] = b"\x55" * 512
+        for field in (8, _RAW_SIZE):
+            struct.pack_into("<I", reference, _section_field(".data", field), 0x400)
+        original = bytearray(make_full_pe(data=b"\x01" * 512))
+        original[0x3200:0x3400] = original[0x4000:0x4200]
+        struct.pack_into("<I", original, _section_field(".reloc", _RAW_POINTER), 0x3200)
+        built = _write(tmp_path, "built.dll", bytes(original))
+        ref = _write(tmp_path, "ref.dll", bytes(reference))
+
+        with pytest.raises(ValueError, match=r"raw sections overlap: \.data and \.reloc"):
+            run_fixers(built, ref, ["data"])
+        assert built.read_bytes() == original
+
     def test_reloc_written_at_built_offset_not_reference(self, tmp_path: Path) -> None:
         """The .reloc bytes must land at the *built* file's own .reloc raw
         pointer (from its headers), not the reference's raw_ptr: a built

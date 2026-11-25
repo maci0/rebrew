@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Refuse postlink data and relocation geometry that would overlap raw sections (D-engines7-086).
 - Rewrite moved import slots through the last complete operand in raw text (D-engines7-085).
 - Move an existing global definition with its original declarator and initializer (D-engines7-081).
 - Preserve multidimensional declarators when materializing stub globals (D-engines7-079).
