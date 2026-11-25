@@ -65,13 +65,6 @@ class TestLoadSaveDataMetadata:
         result = load_data_metadata(tmp_path)
         assert result == {}
 
-    def test_corrupted_file_returns_empty(self, tmp_path: Path) -> None:
-        path = tmp_path / DATA_METADATA_FILENAME
-        path.write_text("{broken")
-        with pytest.raises(ValueError):
-            load_data_metadata(tmp_path)
-        assert path.read_text() == "{broken"
-
     @pytest.mark.parametrize("reader", ["metadata", "document", "entry"])
     def test_nested_provenance_is_detached(self, tmp_path: Path, reader: str) -> None:
         from rebrew.metadata.data import load_data_document

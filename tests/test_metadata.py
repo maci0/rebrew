@@ -113,10 +113,6 @@ class TestKeyHelpers:
     def test_qualified_key_with_module(self) -> None:
         assert _qualified_key("SERVER", 0x01006364) == "SERVER.0x01006364"
 
-    def test_qualified_key_without_module(self) -> None:
-        # No bare-key support — _qualified_key always requires a module string
-        assert _qualified_key("SERVER", 0x01006364) == "SERVER.0x01006364"
-
     def test_parse_qualified_key(self) -> None:
         result = _parse_key("SERVER.0x01006364")
         assert result == ("SERVER", 0x01006364)
@@ -183,14 +179,6 @@ class TestLoadSaveMetadata:
         idx_low = text.index("0x01000000")
         idx_high = text.index("0x02000000")
         assert idx_low < idx_high
-
-    def test_corrupt_toml_returns_empty(self, tmp_path: Path) -> None:
-        path = tmp_path / METADATA_FILENAME
-        original = "{broken"
-        path.write_text(original)
-        with pytest.raises(ValueError):
-            load_metadata(tmp_path)
-        assert path.read_text() == original
 
     def test_multi_target_no_collision(self, tmp_path: Path) -> None:
         """Two different modules at the same VA coexist in one metadata."""

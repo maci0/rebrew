@@ -95,7 +95,7 @@ class TestFindSourcesBlock:
         assert block.label == "set(SOURCES ...)"
         assert block.managed == ["src/b.c", "src/a.c"]
 
-    def test_add_library_fallback(self) -> None:
+    def test_add_library_fallback_leaves_keywords_unmanaged(self) -> None:
         block = find_sources_block(_CMAKE_INLINE, {".c"})
         assert block is not None
         assert block.managed == ["src/b.c", "src/a.c"]
@@ -107,11 +107,6 @@ class TestFindSourcesBlock:
     def test_no_list_returns_none(self) -> None:
         block = find_sources_block("project(x C)\n", {".c"})
         assert block is None
-
-    def test_keywords_not_managed(self) -> None:
-        block = find_sources_block(_CMAKE_INLINE, {".c"})
-        assert block is not None
-        assert block.managed == ["src/b.c", "src/a.c"]
 
 
 class TestLinkOrderCli:

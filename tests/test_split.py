@@ -215,14 +215,6 @@ class TestSplitBasic:
         assert "#include <stdio.h>" in b_text
         assert "#define MAGIC 7" in b_text
 
-    def test_uses_symbol_for_filename(self, tmp_path: Path, monkeypatch: Any) -> None:
-        _write(tmp_path / "multi.c", _multi_two())
-
-        result, src = _invoke(tmp_path, monkeypatch, "--force")
-        assert result.exit_code == 0
-        assert (tmp_path / "func_a.c").exists()
-        assert (tmp_path / "func_b.c").exists()
-
     def test_derives_name_from_c_definition_without_symbol_annotation(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:

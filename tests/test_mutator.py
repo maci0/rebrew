@@ -2001,10 +2001,6 @@ class TestWrongCodeRegression:
         src = "void f() { if (a && b) { x = 1; } else { y = 2; } }"
         assert mut_split_and_condition(src, _rng()) is None
 
-    def test_merge_cmp_chain_skips_if_with_else(self) -> None:
-        src = "void f() { if (a) { if (b) { x = 1; } } else { y = 2; } }"
-        assert mut_merge_nested_ifs(src, _rng()) is None
-
     def test_flatten_nested_if_skips_if_with_else(self) -> None:
         src = "void f() { if (a) { if (b) { x = 1; } } else { y = 2; } }"
         assert mut_merge_nested_ifs(src, _rng()) is None

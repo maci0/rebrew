@@ -826,9 +826,6 @@ class TestReload:
     def test_reload_discards_a_page_append_started_before_it(self) -> None:
         _run_script("dashboard_reload_race.mjs")
 
-    def test_empty_state_reload_is_reachable(self) -> None:
-        _run_script("dashboard_no_targets.mjs")
-
     def test_no_targets_offers_reload(self) -> None:
         _run_script("dashboard_no_targets.mjs")
 
