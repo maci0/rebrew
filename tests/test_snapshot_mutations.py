@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from recompile_stub import serve_recompile
 from source_util import write_source
 
@@ -291,11 +292,31 @@ def _renamed_candidate_request(
     return ops.WorkerConfig(filestore.resolve(), workspace.resolve()), request
 
 
-def test_a_decompme_export_of_a_renamed_candidate_runs(tmp_path: Path, monkeypatch: Any) -> None:
-    """It answered 500 "rebrew export decompme failed: src/notepad/fcn_00401000.c:1: address anchor
-    names 'add', but the metadata names 'fcn_00401000'"."""
+@pytest.mark.parametrize("custom_syntax", [False, True])
+def test_a_decompme_export_of_a_renamed_candidate_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, custom_syntax: bool
+) -> None:
     monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
     config, request = _renamed_candidate_request(tmp_path, "decompme")
+    assert config.filestore is not None
+    if custom_syntax:
+        for entry in request["files"]:
+            data = (config.filestore / entry["key"]).read_bytes()
+            if entry["path"] == "rebrew-project.toml":
+                data += (
+                    b"\n[project.address_comments]\n"
+                    b"regex = 'NATIVE (?P<module>\\S+)@(?P<va>0x[0-9a-fA-F]+)'\n"
+                    b"template = '/* NATIVE $module@$va */'\n"
+                )
+            elif entry["path"] == request["source"]:
+                data = data.replace(b"ADDRESS: MINI ", b"NATIVE MINI@")
+            else:
+                continue
+            digest = hashlib.sha256(data).hexdigest()
+            entry.update(key=f"objects/{digest}", digest=digest, size=len(data))
+            (config.filestore / entry["key"]).write_bytes(data)
+        request["candidate"] = request["candidate"].replace("ADDRESS: MINI ", "NATIVE MINI@")
+        request["candidate_sha256"] = hashlib.sha256(request["candidate"].encode()).hexdigest()
     stored = {e["key"]: (config.filestore / e["key"]).read_bytes() for e in request["files"]}
     status, body = ops.dispatch(
         config, "rebrew.retained_source_operation", json.dumps(request).encode()

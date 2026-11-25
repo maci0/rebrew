@@ -171,7 +171,7 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
                 raise invalid("candidate does not match its digest")
             source.write_bytes(candidate)
             ops.remote_header_refusal(cfg, [source])
-            registry, renamed = _follow_candidate_anchor(cfg, root, retained_paths, req)
+            registry, renamed = _follow_candidate_anchor(cfg, root, source, retained_paths, req)
             if req.operation == "variants":
                 arguments = [
                     "match",
@@ -348,7 +348,7 @@ def snapshot_mutation(config: Any, req: Any) -> dict[str, Any]:
 
 
 def _follow_candidate_anchor(
-    cfg: Any, root: Path, staged: set[str], req: Any
+    cfg: Any, root: Path, source: Path, staged: set[str], req: Any
 ) -> tuple[str, bytes | None]:
     """Let the staged registry follow the name the candidate's own anchor for ``req.va`` gives.
 
@@ -357,10 +357,14 @@ def _follow_candidate_anchor(
     it has one, is the identity (``rebrew.ops.follow_candidate_name``).
     """
     from rebrew import ops
+    from rebrew.config import address_comments_for_file, target_module
     from rebrew.metadata.anchors import parse_address_anchors
     from rebrew.metadata.bindings import derive_c_symbol
 
-    anchors = [a for a in parse_address_anchors(req.candidate) if a.va == req.va and a.name]
+    syntax = address_comments_for_file(source, module=target_module(cfg), project_root=root)
+    anchors = [
+        a for a in parse_address_anchors(req.candidate, syntax=syntax) if a.va == req.va and a.name
+    ]
     if len(anchors) != 1:
         return "", None
     (anchor,) = anchors
