@@ -1357,7 +1357,7 @@ def _render_graph(cfg: ProjectConfig, *, trusted: Any = None) -> tuple[str, str 
                 va = node["va"]
                 verdict = trusted.verdict(cfg.root, cfg.reversed_dir / node["file"], va)
                 node["status"] = verdict.status if verdict else "UNKNOWN"
-                node["size"] = sizes.get(va, 0)
+                node["size"] = sizes.get(va, 0) if va is not None else 0
         if not nodes:
             note = (
                 f"<h2>Call graph</h2><p class='note'>{_no_functions_note(Path(reversed_dir))}</p>"

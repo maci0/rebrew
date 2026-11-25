@@ -304,10 +304,10 @@ def coordinated_transaction(
                     try:
                         with path.open("rb") as original_file:
                             original_stat = os.fstat(original_file.fileno())
-                            digest = hashlib.file_digest(original_file, "sha256").hexdigest()
+                            staged_digest = hashlib.file_digest(original_file, "sha256").hexdigest()
                             live = path.lstat()
                             if (
-                                digest != expected
+                                staged_digest != expected
                                 or not os.path.samestat(original_stat, live)
                                 or live.st_mtime_ns != original_stat.st_mtime_ns
                                 or live.st_ctime_ns != original_stat.st_ctime_ns
