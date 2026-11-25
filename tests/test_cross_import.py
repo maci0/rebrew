@@ -2692,6 +2692,35 @@ class TestVerifiedSymbolShapes:
         assert res["action"] == "imported-shared"
         assert seen["entry"].symbol == symbol
 
+    @pytest.mark.parametrize(
+        "other_definition",
+        ["int hand_written_helper(void) { return 9; }\n", "int hand_written_state = 9;\n"],
+        ids=["function", "storage"],
+    )
+    def test_copy_import_preserves_an_unbound_destination_definition(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, other_definition: str
+    ) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        write_source(
+            cfg_src.reversed_dir / "f.c",
+            "/* ADDRESS: SRC 0x401000 */\nint f(void) { return 1; }\n",
+            metadata_dir=tmp_path,
+            metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
+        )
+        replacing = cfg_dst.reversed_dir / "f.c"
+        original = "/* ADDRESS: DST 0x401040 */\nint f(void) { return 0; }\n" + other_definition
+        write_source(
+            replacing,
+            original,
+            metadata_dir=tmp_path,
+            metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 11}},
+        )
+        seen = self._capture_verify(monkeypatch)
+        result = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f.c", 11)
+        assert replacing.read_text(encoding="utf-8") == original, result
+        assert result["status"] == "TARGET_CONFLICT"
+        assert not seen
+
     @pytest.mark.parametrize(("body", "symbol"), SHAPES)
     def test_copy_import_verifies_the_definition(
         self, tmp_path: Path, monkeypatch, body: str, symbol: str

@@ -1166,17 +1166,38 @@ def import_function(
     # duplicates the body (C2084).  Those cases need ``--shared``, which moves
     # the binding onto the body already in the file.  Checked before the
     # dry-run return so the preview lists it.
+    dst_encoding = src_encoding
     if dst_path.exists():
-        from rebrew.metadata.bindings import read_source_bindings
+        from rebrew.metadata.bindings import source_bindings
+        from rebrew.source_layout import source_layout
 
-        existing = read_source_bindings(
+        try:
+            dst_text, dst_encoding = read_source_text(dst_path)
+        except OSError as exc:
+            return _import_result(
+                dst_va,
+                src_va,
+                action="error",
+                status="READ_ERROR",
+                filepath=rel_dst,
+                message=str(exc),
+            )
+        existing = source_bindings(
+            dst_text,
             dst_path,
-            target_name=module,
-            metadata_dir=cfg_dst.metadata_dir,
+            None,
+            None,
+            cfg_dst.metadata_dir,
             project_root=cfg_dst.root,
         )
-        own = [e for e in existing if e.va == dst_va]
-        other = [e for e in existing if e.va != dst_va]
+        own = [
+            entry
+            for entry in existing
+            if entry.va == dst_va
+            and preset_module_key(entry.module) == preset_module_key(module)
+            and entry.kind in FUNCTION_KINDS
+        ]
+        other = [entry for entry in existing if entry not in own]
         src_module = target_module(cfg_src) or cfg_src.target_name
         src_in_file = any(
             e.va == src_va
@@ -1187,7 +1208,15 @@ def import_function(
                 project_root=cfg_src.root,
             )
         )
-        if not own or other or src_in_file:
+        _, spans = source_layout(dst_text)
+        definitions = [span for span in spans if span.kind in {"function", "storage"}]
+        if (
+            src_in_file
+            or other
+            or len(own) != 1
+            or len(definitions) != 1
+            or (definitions[0].kind != "function" or definitions[0].name != own[0].name)
+        ):
             if src_in_file:
                 why = (
                     f"the source body already lives in {rel_dst}. Recording the "
@@ -1201,10 +1230,14 @@ def import_function(
                     f"0x{other[0].va:x} — remove/rename it or import to a "
                     "different file"
                 )
-            else:
+            elif not own:
                 why = (
                     f"destination {rel_dst} exists without a binding for this VA "
                     "— copying would overwrite a file this VA does not own"
+                )
+            else:
+                why = (
+                    f"destination {rel_dst} does not contain only the selected function definition"
                 )
             return _import_result(
                 dst_va,
@@ -1229,13 +1262,6 @@ def import_function(
     # source's detected encoding.  The old hardcoded-UTF-8, non-atomic write
     # could not round-trip a legacy-encoded source and a crash mid-write left a
     # truncated .c.
-    if dst_path.exists():
-        try:
-            _, dst_encoding = read_source_text(dst_path)
-        except OSError:
-            dst_encoding = src_encoding
-    else:
-        dst_encoding = src_encoding
     try:
         atomic_write_text(dst_path, rewritten, encoding=dst_encoding)
     except OSError as exc:
