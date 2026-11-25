@@ -386,7 +386,7 @@ def verify_entry(
                 "binary_id": binary_id(cfg),
             }
             if entry.comparison_inputs is not None
-            else None
+            else {}
         )
     if _precompiled_obj is not None and (
         not batch_inputs
@@ -3378,6 +3378,23 @@ def _warn_unwritten_statuses(
         log.warning("... and %d more unwritten STATUS updates", len(updates) - _ORPHAN_REPORT_LIMIT)
 
 
+def _verification_still_current(cfg: Any, entry: SourceBinding) -> bool:
+    from rebrew.verify_hash import comparison_inputs_current
+
+    source = contained_path(source_roots(cfg), entry.filepath)
+    if (
+        source is not None
+        and entry.verify_snapshot is not None
+        and entry.verify_snapshot.get("binary_id") == binary_id(cfg)
+        and comparison_inputs_current(cfg, source, entry.comparison_inputs)
+    ):
+        return True
+    log.warning(
+        "kept stored status for %s 0x%x: verification inputs changed", entry.module, entry.va
+    )
+    return False
+
+
 def apply_status_updates(
     deferred_fixes: list[tuple[SourceBinding, str, int]],
     cfg: Any,
@@ -3388,6 +3405,8 @@ def apply_status_updates(
     and ``rebrew test --all`` always keep metadata in sync with the
     compile-and-compare truth.  Blockers are cleared only on a byte match.
     """
+    from functools import partial
+
     updates: list[dict[str, Any]] = []
     orphaned: list[str] = []
     kept_earned: list[str] = []
@@ -3427,6 +3446,11 @@ def apply_status_updates(
                 "new_status": status,
                 "clear_blockers": clears_blocker(status, fp),
                 "updated_by": "verify",
+                **(
+                    {"publish_if": partial(_verification_still_current, cfg, entry)}
+                    if getattr(entry, "verify_snapshot", None) is not None
+                    else {}
+                ),
                 **(
                     {
                         "verification": {

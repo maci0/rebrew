@@ -1532,7 +1532,9 @@ def update_statuses_batch(
     atomic write, even if STATUS stays parked), and ``identity`` (keys from
     :data:`FUNCTION_IDENTITY_FIELDS`, same empty-value and ``overwrite_name``
     rules as :func:`record_function_rows`; ``overwrite_name`` on the row
-    defaults false). Identity, the verdict, and fields land in one write.
+    defaults false). ``publish_if`` optionally rechecks a comparison under
+    the store's write lock, before the row can change. Identity, the verdict,
+    and fields land in one write.
     Returns the number of entries
     written, including a same-status write that stripped a stale blocker or
     changed associated fields. *now* fixes that
@@ -1592,6 +1594,9 @@ def update_statuses_batch(
                     f"unknown STATUS {new_status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
             va_int = int(va)
+            publish_if = u.get("publish_if")
+            if publish_if is not None and not publish_if():
+                continue
             _, entry = _ensure_entry_table(doc, module, va_int, key_index)
 
             from rebrew.metadata.binding_history import retired_binding

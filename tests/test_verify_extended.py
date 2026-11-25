@@ -559,6 +559,59 @@ class TestDiffReports:
 
 
 class TestVerifyCli:
+    @pytest.mark.parametrize("edit_during_compile", [True, False])
+    def test_stale_result_is_reported_without_publishing_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit_during_compile: bool
+    ) -> None:
+        from bin_util import make_coff_obj, make_pe
+
+        from rebrew import verify
+        from rebrew.compiler import compile as compiler
+        from rebrew.compiler.toolchain import RunResult
+        from rebrew.metadata import functions
+
+        va = 0x401000
+        code = b"\x31\xc0\x40\xc3"
+        cfg = _cfg(tmp_path, compiler_profile="msvc-6.0", compile_timeout=3)
+        cfg.target_binary.write_bytes(make_pe(code))
+        source = cfg.reversed_dir / "f.c"
+        write_source(
+            source,
+            "/* ADDRESS: SERVER 0x401000 */\nint my_func(void) { return 1; }\n",
+            metadata_fields={"SERVER.0x401000": {"size": len(code), "status": "STUB"}},
+            metadata_dir=cfg.metadata_dir,
+        )
+
+        def save_edit() -> None:
+            replacement = source.with_suffix(".new")
+            replacement.write_text(source.read_text().replace("return 1;", "return 2;"))
+            replacement.replace(source)
+
+        def build(spec, args, *, workdir, **kwargs):
+            assert "return 1;" in (workdir / source.name).read_text()
+            basename = next(arg[3:] for arg in args if arg.startswith("/Fo"))
+            (workdir / basename).write_bytes(make_coff_obj(code, func_symbol="_my_func"))
+            if edit_during_compile:
+                save_edit()
+            return RunResult(0, "", "", "docker")
+
+        update = functions.update_statuses_batch
+
+        def publish(*args, **kwargs):
+            if not edit_during_compile:
+                save_edit()
+            return update(*args, **kwargs)
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(verify, "require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr(compiler, "cached_image_digest", lambda *args, **kwargs: "")
+        monkeypatch.setattr(compiler, "run_toolchain", build)
+        monkeypatch.setattr(functions, "update_statuses_batch", publish)
+        result = CliRunner().invoke(verify.app, ["--json", "--no-cache"])
+        assert cli_payload(result)["results"][0]["status"] == "EXACT"
+        assert "return 2;" in source.read_text()
+        assert functions.get_entry(cfg.metadata_dir, va, "SERVER")["status"] == "STUB"
+
     def test_data_only_never_starts_function_verification_or_checks_runner(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

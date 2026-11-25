@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Verification keeps its measured diagnostic and leaves canonical status alone when the comparison inputs change before publication (D-engines7-050).
 - Local in-place compiles with declarations use an isolated workdir and publish only the finished object (D-engines7-046).
 - Partial batch compilation returns fresh objects only and keeps any earlier object in the source tree untouched (D-engines7-045).
 - Copy imports preserve destination macros and declarations and roll back the source and metadata when publication or verification raises (D-engines7-029).
