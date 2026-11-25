@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Restrict data ownership repair to the selected target metadata and link order (D-engines7-077).
 - Limit reads at virtual addresses to file-backed section bytes (D-engines7-069).
 - Reuse verification verdicts only under the image ID observed on the container that compiled them (D-engines7-063).
 - Report a Kuna launch failure or timeout as an engine failure with a bounded cause (D-engines7-003).

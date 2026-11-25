@@ -802,6 +802,37 @@ def _fix_ownership_two_tu(tmp_path: Path, a_body: str) -> tuple[Path, Path]:
     return meta, binp
 
 
+def test_fix_ownership_uses_selected_metadata_and_link_order(tmp_path: Path) -> None:
+    from rebrew.data_layout import fix_ownership
+
+    meta, binary = _fix_ownership_two_tu(tmp_path, "int g_a = 1;\n")
+    project = tmp_path / "rebrew-project.toml"
+    project.write_text(
+        project.read_text() + 'module = "SERVER"\n[targets.other]\nmodule = "OTHER"\n'
+    )
+    write_store_fixture(
+        meta,
+        "format = 2\n"
+        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
+        '["SERVER.0x10028004"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n'
+        '["OTHER.0x10028f04"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+    builds = tmp_path / "build" / "CMakeFiles"
+    (builds / "x.dir" / "link.txt").write_text("link @objects1.rsp /out:game.dll\n")
+    other = builds / "a-other.dir"
+    other.mkdir()
+    (other / "link.txt").write_text("link @objects1.rsp /out:other.dll\n")
+    (other / "objects1.rsp").write_text(
+        "CMakeFiles/a-other.dir/b.c.obj CMakeFiles/a-other.dir/a.c.obj\n"
+    )
+
+    src = tmp_path / "src"
+    before = {file: file.read_bytes() for file in src.glob("*.c")}
+    assert fix_ownership(tmp_path, meta, binary, src, target="game.dll")["moved"] == 0
+    assert {file: file.read_bytes() for file in src.glob("*.c")} == before
+
+
 def test_fix_ownership_sees_array_of_pointers_to_array(tmp_path: Path) -> None:
     """``int (*table[2])[3] = {0}`` is the definition of ``table``.
 

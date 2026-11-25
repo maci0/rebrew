@@ -1722,13 +1722,14 @@ def _merged_definition_line(dtyp: str, dsize: int | None, name: str, def_line: s
     return f"{dtyp} {name}[{size}] = {init};"
 
 
-def _data_symbol_types(metadata: Path) -> dict[str, tuple[int, str]]:
+def _data_symbol_types(metadata: Path, module: str | None) -> dict[str, tuple[int, str]]:
     """``{name: (full VA, type)}`` for the .data symbols in the metadata."""
     db = load_data_document(metadata)
     return {
         str(val["name"]): (va, str(val.get("type", "int")))
-        for _, va, val in iter_data_symbols(db)
+        for row_module, va, val in iter_data_symbols(db)
         if val.get("name")
+        and (module is None or preset_module_key(row_module) == preset_module_key(module))
     }
 
 
@@ -1749,8 +1750,11 @@ def fix_ownership(
     partition's TU (the old TU keeps an ``extern``), and unowned symbols are
     emitted with their original bytes.
     """
-    toml = _data_symbol_types(metadata)
-    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
+    build_target = _converge_target(root, target)
+    toml = _data_symbol_types(metadata, _target_module(root, build_target))
+    data_base, raw_end, _section_end = layout_geometry(
+        root / "rebrew-project.toml", target=build_target
+    )
     orig = data_raw_from_binary(bin_path)
     byte_order = data_byte_order(bin_path)
     files = scan_files(src_dir, shared_dir)
@@ -1766,7 +1770,7 @@ def fix_ownership(
                 owner[defined] = f
     original_owner = dict(owner)
 
-    tu_files: list[Path | None] = [_obj_to_source(obj, root, src_dir) for obj in link_objects(root)]
+    tu_files = [_obj_to_source(obj, root, src_dir) for obj in link_objects(root, build_target)]
     # One pass over the symbol table instead of rescanning it per object: a
     # mature target has thousands of symbols and hundreds of link-order objects.
     owners_of: dict[Path, int] = {}
