@@ -316,6 +316,46 @@ class TestIntake:
         assert "0x00402000" not in meta
         assert "0x00403000" in meta
 
+    def test_rediscovery_prunes_only_untouched_named_stubs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.app.main as main_mod
+        from rebrew.metadata.functions import load_metadata, record_function_rows
+
+        (tmp_path / "game.exe").write_bytes(b"MZ")
+        record_function_rows(
+            tmp_path,
+            [
+                {"module": "GAME", "va": va, "identity": {"name": name, "kind": "STUB"}}
+                for (va, _, _), name in zip(FAKE_FUNCS, ("sound_init", "sound_stop"), strict=True)
+            ],
+        )
+        args = ["game.exe", "--json"]
+        _run_main(tmp_path, monkeypatch, argv=args)
+        source = tmp_path / "src" / "game"
+        stale = source / "fcn_00401000.c"
+        edited = source / "fcn_00401020.c"
+        assert "void sound_init(void)" in stale.read_text(encoding="utf-8")
+        text = edited.read_text(encoding="utf-8")
+        assert "void sound_stop(void)" in text
+        edited.write_text(
+            text.replace("pending native review", "reviewed by hand"), encoding="utf-8"
+        )
+
+        monkeypatch.setattr(
+            "rebrew.intake._enumerate_functions",
+            lambda b: [(0x402000, 32, "fcn.00402000"), (0x403000, 16, "fcn.00403000")],
+        )
+        reply = CliRunner().invoke(main_mod.app, ["intake", *args])
+        assert reply.exit_code == 0, reply.output
+        rows = load_metadata(tmp_path)
+        assert not stale.exists()
+        assert ("GAME", 0x401000) not in rows
+        assert "reviewed by hand" in edited.read_text(encoding="utf-8")
+        assert rows[("GAME", 0x401020)]["name"] == "sound_stop"
+
     def test_rediscovery_keeps_edited_stubs(self, tmp_path: Path, monkeypatch) -> None:
         """A stub the user has edited (no longer matching the auto-stub
         pattern) must survive re-discovery even if its VA vanishes."""

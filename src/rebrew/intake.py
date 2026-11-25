@@ -266,6 +266,10 @@ def _repair_free_text_names(
     return len(rows)
 
 
+def _auto_stub_body(name: str, reason: str) -> str:
+    return f"void {name}(void)\n{{\n    /* {reason} */\n}}\n"
+
+
 def classify_all(
     project: Path,
     src_dir: Path,
@@ -344,7 +348,7 @@ def classify_all(
         stub = (
             address_comment(target_module_name, va, syntax=syntax)
             + "\n\n"
-            + f"void {c_name}(void)\n{{\n    /* {reason} */\n}}\n"
+            + _auto_stub_body(c_name, reason)
         )
         prev_status = str(prev.get("status") or "STUB")
         # Onboarding is a one-shot document step — a RE-RUN (re-discovery
@@ -413,9 +417,10 @@ def classify_all(
 #: user has written into (a filled-in body, extra lines, a trailing newline of
 #: their own) no longer matches, so the prune cannot delete real work.
 _AUTO_STUB_BODY_RE = re.compile(
-    r"\Avoid fcn_([0-9a-fA-F]{8})\(void\)\n\{\n    /\*.*?\*/\n\}\n?\Z",
+    r"\Avoid fcn_([0-9a-fA-F]{8})\(void\)\n\{\n    /\*(?:(?!\*/).)*\*/\n\}\n?\Z",
     re.DOTALL,
 )
+_AUTO_STUB_FILE_RE = re.compile(r"fcn_([0-9a-fA-F]{8})\.c")
 
 
 def prune_stale_stubs(
@@ -450,7 +455,9 @@ def prune_stale_stubs(
     An :class:`_UnreadableInventory` there means the guard has no baseline to
     compare, and the prune is skipped for the same reason.
     """
-    from rebrew.metadata.functions import delete_entries_batch, get_entry
+    from rebrew.config import address_comments_for_file
+    from rebrew.metadata.anchors import address_comment
+    from rebrew.metadata.functions import delete_entries_batch, get_entry, identity_file
 
     previous = _read_prior_inventory(src_dir) if prior_inventory is None else prior_inventory
     if isinstance(previous, _UnreadableInventory):
@@ -477,6 +484,12 @@ def prune_stale_stubs(
     meta_base = metadata_dir if metadata_dir is not None else project / "src"
     stale: list[tuple[Path, int]] = []
     for path in sorted(src_dir.glob("fcn_*.c")):
+        filename = _AUTO_STUB_FILE_RE.fullmatch(path.name)
+        if filename is None:
+            continue
+        va = int(filename.group(1), 16)
+        if va in valid_vas:
+            continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
@@ -485,20 +498,28 @@ def prune_stale_stubs(
             # which leaves a partial prune with no report.
             logger.warning("skipping unreadable stub %s during prune: %s", path, exc)
             continue
-        from rebrew.config import address_comments_for_file
-        from rebrew.metadata.anchors import address_comment
-
         header, separator, body = text.partition("\n\n")
-        m = _AUTO_STUB_BODY_RE.fullmatch(body)
-        if not separator or m is None:
+        if not separator:
             continue
-        va = int(m.group(1), 16)
         syntax = address_comments_for_file(path, module=target_module_name)
         if header != address_comment(target_module_name, va, syntax=syntax):
             continue
         entry = get_entry(meta_base, va, target_module_name)
-        if va in valid_vas or entry.get("status_history") or entry.get("binding_history"):
+        if entry.get("status_history") or entry.get("binding_history"):
             continue
+        placeholder = _AUTO_STUB_BODY_RE.fullmatch(body)
+        if placeholder is None or int(placeholder.group(1), 16) != va:
+            name = str(entry.get("name") or "")
+            reason = entry.get("blocker")
+            if (
+                entry.get("kind") != "STUB"
+                or entry.get("status") != "STUB"
+                or entry.get("file") != identity_file(path, meta_base)
+                or not is_valid_new_name(name)
+                or not isinstance(reason, str)
+                or body != _auto_stub_body(name, reason)
+            ):
+                continue
         stale.append((path, va))
 
     # Unlink each stub before dropping its row, but rewrite the store once:
