@@ -81,6 +81,32 @@ def test_rejects_unknown_row(tmp_path: Path) -> None:
         rehome_functions(cfg, ["0x2000=src/b.c"])
 
 
+@pytest.mark.parametrize("whole_file", [False, True], ids=["address", "whole-file"])
+def test_library_rehome_uses_the_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, whole_file: bool
+) -> None:
+    from rebrew.metadata.bindings import function_rows_for_file
+    from rebrew.metadata.functions import load_metadata, record_function_identity
+
+    metadata = tmp_path / "src"
+    metadata.mkdir()
+    cfg = SimpleNamespace(
+        root=tmp_path, metadata_dir=metadata, module="SERVER", target_name="SERVER"
+    )
+    old, new = "src/library_old.h", "src/library_new.h"
+    (tmp_path / new).write_text("/* Linker provider */\n", encoding="utf-8")
+    record_function_identity(
+        metadata, module="SERVER", va=0x1000, file=old, name="f", symbol="_f", kind="LIBRARY"
+    )
+    monkeypatch.setattr("rebrew.rehome.require_config", lambda **kwargs: cfg)
+    args = ["--from", old, "--to", new] if whole_file else [f"0x1000={new}"]
+    result = CliRunner().invoke(app, ["source", "rehome", *args, "--json"])
+    assert result.exit_code == 0, result.output
+    records = load_metadata(metadata)
+    assert records[("SERVER", 0x1000)]["file"] == new
+    assert function_rows_for_file(tmp_path / new, metadata, records, project_root=tmp_path)
+
+
 _PROJECT_TOML = """\
 [project]
 name = "rehome"

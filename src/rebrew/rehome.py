@@ -62,24 +62,29 @@ def _defined_names(path: Path) -> set[str]:
 
 
 def _rows_naming(
-    metadata_dir: Any, rel: str
+    cfg: Any, path: Path
 ) -> tuple[list[tuple[str, int, dict[str, Any]]], list[tuple[str, int, dict[str, Any]]]]:
     """Function rows and data rows, across every module, whose ``file`` names *rel*."""
+    from rebrew.metadata.bindings import function_rows_for_file
     from rebrew.metadata.data import load_data_metadata
-    from rebrew.metadata.functions import load_metadata, stored_file_matches
+    from rebrew.metadata.functions import identity_file, load_metadata, stored_file_matches
 
-    def naming(
-        store: dict[tuple[str, int], dict[str, Any]],
-    ) -> list[tuple[str, int, dict[str, Any]]]:
-        return sorted(
-            (module, va, entry)
-            for (module, va), entry in store.items()
-            if stored_file_matches(str(entry.get("file") or ""), rel)
-        )
-
+    metadata_dir = cfg.metadata_dir
+    rel = identity_file(path, metadata_dir)
     return (
-        naming(load_metadata(metadata_dir, deepcopy=False)),
-        naming(load_data_metadata(metadata_dir, deepcopy=False)),
+        sorted(
+            function_rows_for_file(
+                path,
+                metadata_dir,
+                load_metadata(metadata_dir, deepcopy=False),
+                project_root=cfg.root,
+            )
+        ),
+        sorted(
+            (module, va, entry)
+            for (module, va), entry in load_data_metadata(metadata_dir, deepcopy=False).items()
+            if stored_file_matches(str(entry.get("file") or ""), rel)
+        ),
     )
 
 
@@ -114,6 +119,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
     if not module:
         raise ValueError("no target module configured to address the function metadata")
     rows: list[dict[str, Any]] = []
+    evidence_moves: list[tuple[Path, Path]] = []
     for spec in specs:
         va_s, sep, value = spec.partition("=")
         value = value.strip()
@@ -129,11 +135,15 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
         path = _source(cfg, value)
         if not _defines(path, _defined_names(path), name, entry):
             raise ValueError(f"{value} does not define {name}")
-        identity = validate_identity_file(identity_file(path, cfg.metadata_dir))
+        owner_root = cfg.root if entry.get("kind") == "LIBRARY" else cfg.metadata_dir
+        identity = validate_identity_file(identity_file(path, owner_root))
+        old_file = str(entry.get("file") or "")
+        if old_file and old_file != identity:
+            evidence_moves.append((owner_root / old_file, path))
         row: dict[str, Any] = {
             "va": f"0x{va:x}",
             "name": name,
-            "old_file": str(entry.get("file") or ""),
+            "old_file": old_file,
             "file": identity,
         }
         if bind is not None and bind != old_name:
@@ -156,10 +166,8 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
             overwrite_name=True,
             updated_by="rehome",
         )
-        for r in rows:
-            old_file = str(r.get("old_file") or "")
-            if old_file and old_file != r["file"]:
-                _follow_assembly_evidence(cfg, old_file, r["file"])
+        for old_path, new_path in evidence_moves:
+            _follow_assembly_evidence(cfg, old_path, new_path)
     return rows
 
 
@@ -185,7 +193,7 @@ def retarget_file(
     new_rel = validate_identity_file(identity_file(new_path, cfg.metadata_dir))
     if old_rel == new_rel:
         raise ValueError(f"--from and --to name the same file: {new_rel}")
-    functions, data = _rows_naming(cfg.metadata_dir, old_rel)
+    functions, data = _rows_naming(cfg, old_path)
     if not functions and not data:
         raise ValueError(f"no function or data row names {old_rel}")
     defined = _defined_names(new_path)
@@ -196,13 +204,14 @@ def retarget_file(
             raise ValueError(f"function row {module}.0x{va:x} has no name to check in {new}")
         if not _defines(new_path, defined, name, entry):
             raise ValueError(f"{new} does not define {name} ({module}.0x{va:x})")
+        owner_root = cfg.root if entry.get("kind") == "LIBRARY" else cfg.metadata_dir
         function_rows.append(
             {
                 "module": module,
                 "va": f"0x{va:x}",
                 "name": name,
                 "old_file": str(entry.get("file") or ""),
-                "file": new_rel,
+                "file": validate_identity_file(identity_file(new_path, owner_root)),
             }
         )
     data_rows = [
@@ -219,8 +228,12 @@ def retarget_file(
         record_function_rows(
             cfg.metadata_dir,
             [
-                {"module": module, "va": va, "identity": {"file": new_rel}}
-                for module, va, _entry in functions
+                {
+                    "module": row["module"],
+                    "va": int(row["va"], 16),
+                    "identity": {"file": row["file"]},
+                }
+                for row in function_rows
             ],
             updated_by="rehome",
         )
@@ -231,11 +244,11 @@ def retarget_file(
                 for module, va, _entry in data
             ],
         )
-        _follow_assembly_evidence(cfg, old_rel, new_rel)
+        _follow_assembly_evidence(cfg, old_path, new_path)
     return function_rows, data_rows
 
 
-def _follow_assembly_evidence(cfg: Any, old_rel: str, new_rel: str) -> None:
+def _follow_assembly_evidence(cfg: Any, old_path: Path, new_path: Path) -> None:
     """Keep documented original-assembly records filed under the live path.
 
     Assembly provenance is keyed by source path, so a moved file would lose its
@@ -244,8 +257,6 @@ def _follow_assembly_evidence(cfg: Any, old_rel: str, new_rel: str) -> None:
     from rebrew.metadata.source_provenance import rename_source_provenance
 
     directory = cfg.metadata_dir.resolve()
-    old_path = directory / old_rel
-    new_path = directory / new_rel
     if not old_path.exists() and not new_path.exists():
         return
     try:
