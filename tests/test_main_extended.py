@@ -184,3 +184,47 @@ class TestJsonRequested:
         # and must not match; the old substring scan matched it.
         assert not _json_requested(["rebrew", "match", "--cflags=--json"])
         assert not _json_requested([])
+
+    def test_separate_option_value_is_not_a_format_flag(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.cli import error_exit
+
+        probe = typer.Typer()
+
+        @probe.command()
+        def command(
+            cflags: str = typer.Option(..., "--cflags"),
+            json_output: bool = typer.Option(False, "--json"),
+        ) -> None:
+            del cflags, json_output
+            error_exit("bad input")
+
+        result = CliRunner().invoke(probe, ["--cflags", "--json"])
+        assert result.exit_code == 2
+        assert "bad input" in result.stderr
+        assert '"error"' not in result.stderr
+
+    def test_root_json_wins_over_a_json_looking_option_value(self) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+
+        result = CliRunner().invoke(app, ["-o", "json", "test", "--cflags", "--json"])
+        assert result.exit_code == 2
+        assert json.loads(result.stderr.strip().splitlines()[-1])["error"]["kind"] == "failure"
+
+    def test_usage_error_does_not_append_a_json_envelope(self) -> None:
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-m", "rebrew.app.main", "test", "--cflags", "--json", "--bad-flag"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert result.returncode == 2
+        assert "No such option: --bad-flag" in result.stderr
+        assert '"error"' not in result.stderr

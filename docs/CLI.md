@@ -3376,7 +3376,8 @@ Extract and disassemble a single VA.
 
 `rebrew binary extract batch [OPTIONS] [COUNT]`
 
-Extract and disassemble a batch of functions.
+Extract and disassemble a batch of functions. The whole batch is processed;
+if any selected function fails, the command exits 1 after writing its report.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

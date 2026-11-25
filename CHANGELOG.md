@@ -13,6 +13,8 @@
 
 ### Fixed
 
+- JSON-mode detection no longer treats a separate option value such as `--cflags --json` as a request for JSON. Parsed Typer context supplies the command's actual output choice, while root `--output json` still wins.
+- `rebrew binary extract batch` exits 1 after processing the whole batch when any selected function fails, instead of reporting failures in its JSON or terminal output and exiting 0.
 - The CLI reference documents field projection, placement pagination, retained decomp.me ledger overrides, and the remaining source/coverage option tables. A documentation test now compares every registered argument and long option with its reference table.
 - The coverage dashboard restores removed Status and Module filters on Back navigation, reloads function rows with saved filters after a summary retry, and cancels pending search debounces when an immediate filter change loads the list.
 - The coverage dashboard applies a status card clicked from another view instead of clearing the hidden Functions filter, cancels abandoned view requests before they can overwrite the active view, and explains each displayed status with the report's shared reference.

@@ -111,7 +111,9 @@ class TestCmdBatch:
         monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", _extract)
         _patch_disasm(monkeypatch)
         candidates = [(0x1000, 2, "good"), (0x2000, 8, "bad")]
-        cmd_batch(binary, candidates, 2, 0, tmp_path, json_output=True)  # type: ignore[arg-type]
+        with pytest.raises(typer.Exit) as caught:
+            cmd_batch(binary, candidates, 2, 0, tmp_path, json_output=True)  # type: ignore[arg-type]
+        assert caught.value.exit_code == 1
         out = json.loads(capsys.readouterr().out)
         assert out["count"] == 2
         assert out["failed"] == 1  # the ERROR item is tallied
@@ -149,7 +151,9 @@ class TestCmdBatch:
             raise RuntimeError("no capstone")
 
         monkeypatch.setattr("rebrew.extract.disasm_bytes", _boom)
-        cmd_batch(binary, [(0x1000, 2, "f")], 1, 0, tmp_path, json_output=True)  # type: ignore[arg-type]
+        with pytest.raises(typer.Exit) as caught:
+            cmd_batch(binary, [(0x1000, 2, "f")], 1, 0, tmp_path, json_output=True)  # type: ignore[arg-type]
+        assert caught.value.exit_code == 1
         out = json.loads(capsys.readouterr().out)
         assert out["results"][0]["status"] == "ERROR"
 
@@ -158,8 +162,10 @@ class TestCmdBatch:
     ) -> None:
         binary = SimpleNamespace(data=b"", sections={})
         monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: None)
-        cmd_batch(binary, [(0x1000, 8, "bad")], 1, 0, tmp_path)  # type: ignore[arg-type]
-        # Non-JSON: prints error, continues without raising.
+        with pytest.raises(typer.Exit) as caught:
+            cmd_batch(binary, [(0x1000, 8, "bad")], 1, 0, tmp_path)  # type: ignore[arg-type]
+        assert caught.value.exit_code == 1
+        # Non-JSON: prints error, continues without aborting the batch early.
         assert "Failed to extract bytes" in capsys.readouterr().err
 
 
@@ -231,6 +237,34 @@ class TestExtractCli:
         assert result.exit_code == 0
         data = cli_payload(result)
         assert data["count"] == 2
+
+    def test_batch_partial_failure_exits_mismatch_after_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.extract import app
+
+        self._setup(tmp_path, monkeypatch)
+        _write_inv(
+            tmp_path,
+            [
+                {"va": 0x1000, "size": 64, "name": "func_a"},
+                {"va": 0x2000, "size": 32, "name": "func_b"},
+            ],
+        )
+        monkeypatch.setattr(
+            "rebrew.extract.extract_bytes_at_va",
+            lambda _info, va, _size: b"\x90" * 8 if va == 0x1000 else b"",
+        )
+        monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda *a, **k: "nop")
+        result = CliRunner().invoke(app, ["batch", "2", "--json"])
+        assert result.exit_code == 1, result.output
+        payload = cli_payload(result)
+        assert payload["failed"] == 1
+        assert {item["va"]: item["status"] for item in payload["results"]} == {
+            "0x00001000": "OK",
+            "0x00002000": "ERROR",
+        }
+        assert result.stderr == ""
 
     def test_missing_function_list_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

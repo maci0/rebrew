@@ -37,9 +37,9 @@ lazy from pathlib import Path
 import typer
 from rich.theme import Theme
 from typer.core import TyperGroup, TyperOption
-lazy import click
 lazy from rich.console import Console
 lazy from typer import rich_utils
+lazy from typer._click import globals as typer_click_globals
 lazy from typer._click.core import Command as TyperBaseCommand
 lazy from typer._click.core import Context as TyperContext
 lazy from typer._click.core import Parameter as TyperParameter
@@ -441,15 +441,40 @@ def _output_choice_from(ctx: TyperContext | None) -> str:
     return "auto"
 
 
-def _argv_format_choice(argv: list[str] | None = None) -> str | None:
+def _value_option_names(ctx: TyperContext | None) -> set[str]:
+    """Option spellings in *ctx* and its parents that consume the next token."""
+    names: set[str] = set()
+    while ctx is not None:
+        for param in getattr(ctx.command, "params", ()):
+            if not getattr(param, "is_flag", False) and not getattr(param, "count", False):
+                names.update(getattr(param, "opts", ()))
+                names.update(getattr(param, "secondary_opts", ()))
+        ctx = ctx.parent
+    return names
+
+
+def _invocation_value_names(ctx: TyperContext | None) -> set[str]:
+    """Value options from a live context, or the last parsed command."""
+    if ctx is not None:
+        return _value_option_names(ctx)
+    return set(_invocation_value_options)
+
+
+def _argv_format_choice(
+    argv: list[str] | None = None, *, ctx: TyperContext | None = None
+) -> str | None:
     """Format selected before the subcommand, from argv when click has no context.
 
     ``-o`` / ``--output`` counts only before the first positional and only when
     the value is ``auto``, ``text``, or ``json``. A later ``-o`` is a path.
     Repeated root options keep the last value, like click. ``--output text``
-    wins over ``--json``; a final ``auto`` leaves that flag in control.
+    wins over ``--json``; a final ``auto`` leaves that flag in control. Tokens
+    consumed as another option's value are not format flags.
     """
     args = list(argv if argv is not None else sys.argv[1:])
+    if ctx is None:
+        ctx = typer_click_globals.get_current_context(silent=True)
+    value_options = _invocation_value_names(ctx) | {"-o", "--output"}
     choice: str | None = None
     saw_json = False
     saw_command = False
@@ -458,17 +483,22 @@ def _argv_format_choice(argv: list[str] | None = None) -> str | None:
         arg = args[index]
         if arg == "--":
             break
+        if arg in value_options:
+            if (
+                not saw_command
+                and arg in ("-o", "--output")
+                and index + 1 < len(args)
+                and args[index + 1] in {"auto", "text", "json"}
+            ):
+                choice = args[index + 1]
+            index += 2
+            continue
         if arg in ("--json", "--json=true"):
             saw_json = True
         elif arg.startswith("--output="):
             value = arg.split("=", 1)[1]
             if not saw_command and value in {"auto", "text", "json"}:
                 choice = value
-        elif arg in ("-o", "--output") and index + 1 < len(args):
-            value = args[index + 1]
-            if not saw_command and value in {"auto", "text", "json"}:
-                choice = value
-                index += 1
         elif arg in ("-otext", "-ojson", "-oauto"):
             # Click accepts attached short-option values: -otext / -ojson.
             if not saw_command:
@@ -481,7 +511,7 @@ def _argv_format_choice(argv: list[str] | None = None) -> str | None:
     return "json" if saw_json else None
 
 
-def json_mode_active() -> bool:
+def json_mode_active(ctx: TyperContext | None = None) -> bool:
     """True when this invocation asked for JSON.
 
     ``--output text`` wins over ``--json``. ``auto`` stays text, including
@@ -490,26 +520,32 @@ def json_mode_active() -> bool:
     """
     choice = "auto"
     found_format = False
+    found_json_param = False
     flagged = False
-    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        ctx = typer_click_globals.get_current_context(silent=True)
+    scan_ctx = ctx
     while ctx is not None:
         params = ctx.params or {}
-        if params.get("json_output"):
-            flagged = True
+        if "json_output" in params:
+            found_json_param = True
+            flagged = flagged or bool(params["json_output"])
         if "output_format" in params and params["output_format"] is not None:
             choice = str(params["output_format"])
             found_format = True
             break
         ctx = ctx.parent
     if not found_format:
-        argv_choice = _argv_format_choice()
+        argv_choice = _argv_format_choice(ctx=scan_ctx)
         if argv_choice is not None:
             choice = argv_choice
     if choice == "json":
         return True
     if choice == "text":
         return False
-    return flagged or _json_requested()
+    if found_json_param:
+        return flagged
+    return flagged or _json_requested(ctx=scan_ctx)
 
 
 def _json_mode_from_choice(ctx: TyperContext | None, local_json: bool) -> bool:
@@ -536,6 +572,13 @@ def _apply_output_choice(ctx: TyperContext) -> None:
 #: :func:`run_cli` last reset it.
 _error_written = False
 
+#: JSON mode resolved by the invoked command. Click has closed its context by
+#: the time :func:`run_cli` handles a bare exit, so retain the parsed choice.
+_invocation_json_mode: bool | None = None
+
+#: Value-taking option spellings captured before Click closes a failed parse.
+_invocation_value_options: frozenset[str] = frozenset()
+
 #: Message of the envelope :func:`run_cli` appends when a JSON-mode command
 #: exits :data:`EXIT_ERROR` after reporting its cause only on stdout.
 _UNREPORTED_FAILURE = "command failed; the JSON document on stdout names the cause"
@@ -550,9 +593,16 @@ def _write_error(kind: str, message: str, hint: str) -> None:
     _error_written = True
 
 
+def _active_json_mode() -> bool:
+    """Parsed JSON choice, including after Click has closed its context."""
+    if _invocation_json_mode is not None:
+        return _invocation_json_mode
+    return json_mode_active()
+
+
 def _report_interrupt() -> None:
     """Report Ctrl+C in the caller's selected output format."""
-    if json_mode_active():
+    if _active_json_mode():
         _write_error("interrupted", "Interrupted by user", "")
         return
     console.print("[red]error:[/red] Interrupted by user")
@@ -564,7 +614,7 @@ def _close_unreported_failure(code: Any) -> None:
     A command that prints its report and raises ``typer.Exit(EXIT_ERROR)``
     would otherwise exit 2 with no error object on stderr.
     """
-    if code == EXIT_ERROR and not _error_written and json_mode_active():
+    if code == EXIT_ERROR and not _error_written and _active_json_mode():
         _write_error("failure", _UNREPORTED_FAILURE, "")
 
 
@@ -584,7 +634,7 @@ def _install_click_error_hook() -> None:
 
     def _make_show(original: Any, usage_original: Any, usage_error: type[Any]) -> Any:
         def show(self: Any, file: Any = None) -> None:
-            if json_mode_active():
+            if json_mode_active(getattr(self, "ctx", None)):
                 kind = "usage" if isinstance(self, usage_error) else "failure"
                 _write_error(kind, self.format_message(), "")
                 return
@@ -622,7 +672,7 @@ def _install_click_error_hook() -> None:
         if not getattr(original_rich, "_rebrew_hook", False):
 
             def rich_show(self: _AnyClickException) -> None:
-                if json_mode_active():
+                if json_mode_active(getattr(self, "ctx", None)):
                     kind = (
                         "usage"
                         if isinstance(self, (_ClickUsageError, _TyperUsageError))
@@ -999,10 +1049,22 @@ def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
     original_invoke = cmd.invoke
 
     def invoke(ctx: TyperContext) -> Any:
+        global _invocation_json_mode, _invocation_value_options
+        _invocation_value_options = frozenset(_value_option_names(ctx))
         _apply_output_choice(ctx)
+        if "json_output" in ctx.params:
+            _invocation_json_mode = bool(ctx.params["json_output"])
         return original_invoke(ctx)
 
     cmd.invoke = invoke  # type: ignore[method-assign]
+    original_parse_for_output = cmd.parse_args
+
+    def parse_args_for_output(ctx: TyperContext, args: list[str]) -> list[str]:
+        global _invocation_value_options
+        _invocation_value_options = frozenset(_value_option_names(ctx))
+        return original_parse_for_output(ctx, args)
+
+    cmd.parse_args = parse_args_for_output  # type: ignore[method-assign]
     # Rich accepts four-sided padding; one column gap keeps full flags visible at 60 columns.
     rich_utils.__dict__["STYLE_OPTIONS_TABLE_PADDING"] = (0, 1, 0, 0)
     cmd.context_settings.setdefault("help_option_names", ["--help", "-h"])
@@ -1138,20 +1200,29 @@ def run_standalone(main: Any) -> None:
     run_cli(_standalone)
 
 
-def _json_requested(argv: list[str] | None = None) -> bool:
+def _json_requested(argv: list[str] | None = None, *, ctx: TyperContext | None = None) -> bool:
     """True when the invocation passed the exact ``--json`` / ``--json=true`` token.
 
     A substring scan would match a file named ``x--json.c`` or
-    ``--cflags "--json"``. Tokens after ``--`` are operands to the
-    subcommand (e.g. compiler flags for ``build driver``), not rebrew
-    options; ``_argv_format_choice`` already stops there.
+    ``--cflags "--json"``. Tokens consumed as option values and tokens after
+    ``--`` are operands (e.g. compiler flags for ``build driver``), not rebrew
+    options.
     """
     args = sys.argv if argv is None else argv
-    for arg in args:
+    if ctx is None:
+        ctx = typer_click_globals.get_current_context(silent=True)
+    value_options = _invocation_value_names(ctx)
+    index = 0
+    while index < len(args):
+        arg = args[index]
         if arg == "--":
             break
+        if arg in value_options:
+            index += 2
+            continue
         if arg in ("--json", "--json=true"):
             return True
+        index += 1
     return False
 
 
@@ -1215,10 +1286,12 @@ def run_cli(app: Callable[[], Any]) -> None:
     shared ``--version``/``--verbose``/``--quiet`` flags from
     :func:`add_global_options`.
     """
-    global _error_written
+    global _error_written, _invocation_json_mode, _invocation_value_options
     warnings.simplefilter("ignore", ConfigWarning)
     reset_verbosity()
     _error_written = False
+    _invocation_json_mode = None
+    _invocation_value_options = frozenset()
 
     def entry() -> None:
         from rebrew.metadata.bindings import binding_conflicts, report_skipped_records
@@ -1276,7 +1349,7 @@ def run_cli(app: Callable[[], Any]) -> None:
         _close_unreported_failure(e.exit_code)
         raise SystemExit(e.exit_code) from None
     except BindingConflictError as e:
-        if json_mode_active():
+        if _active_json_mode():
             _write_error(
                 BINDING_CONFLICT_KIND,
                 _binding_conflict_message(e.module, e.va),
@@ -1289,7 +1362,7 @@ def run_cli(app: Callable[[], Any]) -> None:
             )
         raise SystemExit(EXIT_ERROR) from None
     except (ValueError, OSError, KeyError, RuntimeError) as e:
-        if json_mode_active():
+        if _active_json_mode():
             _write_error("failure", str(e), "")
         else:
             console.print(

@@ -173,9 +173,11 @@ class TestCmdBatch:
         )
         monkeypatch.setattr(extract_mod, "disasm_bytes", lambda *a, **k: "push ebp")
         candidates = [(0x1000, 4, "f1"), (0x2000, 4, "f2")]
-        extract_mod.cmd_batch(
-            self._info(), candidates, count=2, start=0, bin_dir=tmp_path, json_output=True
-        )
+        with pytest.raises(typer.Exit) as caught:
+            extract_mod.cmd_batch(
+                self._info(), candidates, count=2, start=0, bin_dir=tmp_path, json_output=True
+            )
+        assert caught.value.exit_code == 1
         out, _err = capsys.readouterr()
         payload = json.loads(out)
         statuses = {i["va"]: i["status"] for i in payload["results"]}

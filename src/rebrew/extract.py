@@ -18,6 +18,7 @@ import typer
 
 from rebrew.cli import (
     EXIT_ERROR,
+    EXIT_MISMATCH,
     TargetOption,
     console,
     error_exit,
@@ -157,16 +158,18 @@ def cmd_batch(
     json_output: bool = False,
     dry_run: bool = False,
 ) -> None:
-    """Extract and disassemble a batch of functions."""
+    """Extract and disassemble a batch, exiting 1 if any selected function failed."""
     require_non_negative(count, "COUNT", json_mode=json_output)
     require_non_negative(start, "--start", json_mode=json_output)
     if not dry_run:
         bin_dir.mkdir(parents=True, exist_ok=True)
     batch = candidates[start : start + count]
     items: list[dict[str, str | int]] = []
+    failed = 0
     for va, size, name in batch:
         code = extract_bytes_at_va(binary_info, va, size) or b""
         if code == b"":
+            failed += 1
             if json_output:
                 items.append(
                     {
@@ -184,6 +187,7 @@ def cmd_batch(
         try:
             asm_text = disasm_bytes(code, va, cfg=cfg)
         except RuntimeError as e:
+            failed += 1
             if json_output:
                 items.append(
                     {
@@ -246,12 +250,14 @@ def cmd_batch(
         json_print(
             {
                 "count": len(items),
-                "failed": sum(1 for i in items if i.get("status") == "ERROR"),
+                "failed": failed,
                 "start": start,
                 "requested": count,
                 "results": items,
             }
         )
+    if failed:
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +318,7 @@ app = typer.Typer(
         "  rebrew binary extract show 0x10001860\n\n"
         "  rebrew binary extract batch 20\n\n"
         "  rebrew binary extract batch 20 --start 10\n\n"
-        "[dim]list/batch select unreversed inventory functions. show selects an explicit VA, including already-reversed functions. show/batch write .bin files into the configured bin_dir and print disassembly; --dry-run previews the writes.[/dim]\n\n"
+        "[dim]list/batch select unreversed inventory functions. show selects an explicit VA, including already-reversed functions. show/batch write .bin files into the configured bin_dir and print disassembly; --dry-run previews the writes. batch exits 1 when any selected function fails, after processing the whole batch.[/dim]\n\n"
     ),
 )
 
