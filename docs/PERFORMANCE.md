@@ -2,6 +2,36 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## Test suite (2026-11-25)
+
+Base `1a168d04`, 16,662 tests, one warm run on 16 xdist workers: 51 s by
+pytest, 432 CPU-s, 2,641 G user-space instructions. Per-test median 1.0 ms,
+p95 123 ms; 116 tests of 1 s or more hold 42% of the summed time. Workers were
+busy 88% of the time after collection, so wall time is the summed test time
+over the workers plus 4.6 s of collection; no single test is the long pole.
+
+| change | before | after |
+|---|---:|---:|
+| `test_reanalysis_name_binding` builds its analysed SQLite project once per session (59 tests, 3 runs each) | 299 G instructions, 53.8 CPU-s | 154 G, 29.0 CPU-s |
+| `lint` / `test` keep a uv cache of their own (CI) | 46 s / 73 s installing | not measured yet |
+
+The shared uv cache key held what the first job to finish installed (plain
+`uv sync --locked`), so lmdb, jpype1 and pypcode were built on every run.
+
+Gates, neither reading a clock: `test_a_tests_project_is_a_copy_and_runs_no_op`
+(setup runs no op) and `test_all_extras_jobs_keep_their_own_uv_cache`.
+
+Rejected:
+
+- shards weighted by recorded file times instead of byte size: the slowest
+  shard went from 614 G to 593 G instructions (3.4%), against 12% predicted
+  from wall times. The recorded times include container compiles CI skips, and
+  the record can go stale;
+- collection (29.9 G instructions, 2.9 CPU-s per worker): pytest's own work per
+  item; every test module's top-level code together is under 1 s;
+- shorter op deadlines in `TestOpDeadlines` (about 3 s of sleeping): the
+  remaining margin is what keeps them deterministic on a loaded host.
+
 ## `rebrew status` on guild-rebrew (2026-11-24)
 
 guild-rebrew has 2,631 compiled sources and a replicated SQLite metadata store
