@@ -44,6 +44,49 @@ module = "GOLD"
 reversed_dir = "src"
 """
 
+
+@pytest.mark.parametrize("nested_store", [False, True], ids=["project-root", "nested-store"])
+def test_rename_file_uses_the_function_row_path_namespace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, nested_store: bool
+) -> None:
+    from typer.testing import CliRunner
+
+    from rebrew.app.main import app
+    from rebrew.config import load_config
+    from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.functions import get_entry, record_function_identity
+
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    metadata = source_dir if nested_store else tmp_path
+    (tmp_path / "rebrew-project.toml").write_text(
+        '[project]\ndefault_target = "GAME"\nshared_dir = ""\n'
+        '[targets.GAME]\nbinary = "reference.exe"\nreversed_dir = "src"\nmodule = "GAME"\n',
+        encoding="utf-8",
+    )
+    old = source_dir / "old.c"
+    old.write_text("int old(void) { return 1; }\n", encoding="utf-8")
+    record_function_identity(
+        metadata,
+        module="GAME",
+        va=0x401000,
+        file=old.relative_to(metadata).as_posix(),
+        name="old",
+        symbol="_old",
+        kind="FUNCTION",
+    )
+    assert load_config(tmp_path).metadata_dir == metadata
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["source", "rename", "--json", "GAME.0x401000", "new_name"])
+    assert result.exit_code == 0, result.output
+    new = source_dir / "new_name.c"
+    assert not old.exists()
+    assert get_entry(metadata, 0x401000, "GAME")["file"] == new.relative_to(metadata).as_posix()
+    assert [row.name for row in read_source_bindings(new, "GAME", metadata_dir=metadata)] == [
+        "new_name"
+    ]
+
+
 _GAME_H = """\
 #ifndef GAME_H
 #define GAME_H

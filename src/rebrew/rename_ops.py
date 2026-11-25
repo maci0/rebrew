@@ -1568,7 +1568,8 @@ def _plan_file_move(
     new_filename: str | None,
 ) -> None:
     """Rename the definition's file when its stem is the old name (or on request)."""
-    from rebrew.utils import rel_display_path
+    from rebrew.metadata.bindings import function_rows_for_file
+    from rebrew.metadata.functions import identity_file, load_metadata, stored_file_matches
 
     cfg = project.cfg
     metadata_dir = project.metadata_dir
@@ -1602,22 +1603,23 @@ def _plan_file_move(
             "(different VA). Use --file to pick a different filename."
         )
     plan.move = (filepath, target)
-    new_file = rel_display_path(target, getattr(cfg, "root", None) or metadata_dir)
-    from rebrew.metadata.functions import load_metadata, stored_file_matches
+    project_root = getattr(cfg, "root", None) or metadata_dir
+    new_file = identity_file(target, metadata_dir)
 
     function_rows = load_metadata(metadata_dir, deepcopy=False)
     by_key = {(r.store, r.module, r.va): r for r in plan.rows}
-    for entry in project.annotations(filepath):
-        stored = function_rows.get((entry.module, entry.va), {})
-        if not stored.get("file"):
-            continue
-        row = by_key.get(("function", entry.module, entry.va))
+    for module, va, stored in function_rows_for_file(
+        filepath, metadata_dir, function_rows, project_root=project_root
+    ):
+        row = by_key.get(("function", module, va))
         if row is None:
-            row = RowChange("function", entry.module, entry.va, {}, {})
+            row = RowChange("function", module, va, {}, {})
             plan.rows.append(row)
-            by_key[("function", entry.module, entry.va)] = row
+            by_key[("function", module, va)] = row
         row.old["file"] = str(stored["file"])
-        row.new["file"] = new_file
+        row.new["file"] = (
+            identity_file(target, project_root) if stored.get("kind") == "LIBRARY" else new_file
+        )
     old_file = project.stored_file(filepath)
     for (module, va), data_row in project.data_rows().items():
         if not stored_file_matches(str(data_row.get("file") or ""), old_file):
