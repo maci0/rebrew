@@ -273,7 +273,7 @@ def test_annotate_duplicate_names_are_not_reported_unnamed(tmp_path: Path) -> No
     assert per_file == {}
 
 
-def test_cli_data_annotation_scopes_same_name_to_selected_target(tmp_path, monkeypatch) -> None:
+def test_cli_data_annotation_uses_the_selected_targets_file_scope(tmp_path, monkeypatch) -> None:
     from cli_json import cli_payload
     from typer.testing import CliRunner
 
@@ -283,6 +283,9 @@ def test_cli_data_annotation_scopes_same_name_to_selected_target(tmp_path, monke
 
     src = tmp_path / "src" / "SERVER"
     src.mkdir(parents=True)
+    (src / "a.c").write_text(
+        "int f(void) {\n    int g_counter = 0;\n    return g_counter;\n}\n", encoding="utf-8"
+    )
     (src / "owner.c").write_text("int g_counter = 1;\n", encoding="utf-8")
     meta = tmp_path / "rebrew-data.toml"
     write_store_fixture(

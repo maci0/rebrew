@@ -27,40 +27,6 @@ lazy from rebrew.utils import (
 
 log = logging.getLogger(__name__)
 
-# Brackets may be hex, an expression, several dimensions, or one nested
-# pair. A decimal-only bound skipped ``g[0x10]``. Stopping at the first
-# ``]`` skipped ``g[sizeof(wchar_t[3])]``, so that row was never bound.
-# ``(*g)[4]`` puts the name inside parentheses; a bare word never saw it.
-# ``*table[4]`` glues the star to the name. ``(*rows[4])`` and
-# ``(counts[4])`` put the brackets inside the parentheses.
-# ``(__cdecl *name)`` and ``(* const name)`` keep the convention and the
-# qualifier off the name. ``(*name[N])(int)`` keeps the parameter list
-# off the name.
-_POINTER_NAME_QUALIFIER = r"(?:(?:const|volatile)\b\s*)*"
-_FN_PARAMS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
-_DECL_LINE_RE = re.compile(
-    r"^\s*(?:extern\s+)?[\w\s]+"
-    r"(?:"
-    r"\s+\*+\s*" + _POINTER_NAME_QUALIFIER + r"([A-Za-z_]\w*)"
-    r"|\(\s*"
-    + CALLING_CONVENTION
-    + r"\*+\s*"
-    + _POINTER_NAME_QUALIFIER
-    + r"([A-Za-z_]\w*)\s*\)"
-    + _FN_PARAMS
-    + r"|\(\s*"
-    + CALLING_CONVENTION
-    + r"\**\s*"
-    + _POINTER_NAME_QUALIFIER
-    + r"([A-Za-z_]\w*)\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+\s*\)"
-    + _FN_PARAMS
-    + r"|\(\s*"
-    + CALLING_CONVENTION
-    + r"([A-Za-z_]\w*)\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+\s*\)"
-    r"|\s+([A-Za-z_]\w*)"
-    r")"
-    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*(?:=\s*[^;]*|\s*;)"
-)
 # The whole trailing bracket run moves onto the name. A group that stops
 # at the first ``]`` left ``char[sizeof(wchar_t[3])]`` as the type, and
 # matching only the last group turned ``char[2][4]`` into ``extern char[2] g[4]``.
@@ -92,6 +58,7 @@ def annotate_globals(
     with no ``name``: the declaration is what locates them.
     """
 
+    from rebrew.c_parser import find_extern_variables
     from rebrew.metadata.data import module_visible_to_target, record_data_rows
     from rebrew.metadata.functions import identity_file
     from rebrew.sources import iter_sources
@@ -117,17 +84,13 @@ def annotate_globals(
     per_file: dict[str, int] = {}
     for f in iter_sources(src_dir, cfg):
         text, _encoding = read_source_text(f)
-        lines = split_source_lines(text)
         bound_here = 0
-        seen_in_file: set[str] = set()
-        for line in lines:
-            decl = _DECL_LINE_RE.match(line)
-            if not decl:
+        for declaration in find_extern_variables(
+            text, include_definitions=True, function_filter=lambda _line: False
+        ):
+            name = declaration.name
+            if name not in symbols or name in claimed:
                 continue
-            name = next(group for group in decl.groups() if group)
-            if name not in symbols or name in claimed or name in seen_in_file:
-                continue
-            seen_in_file.add(name)
             module, addr, has_file = symbols[name]
             if has_file:
                 continue
