@@ -1119,6 +1119,31 @@ def _retag_image(src: str, dst: str) -> None:
         )
 
 
+def _restore_image(tag: str, backup: str) -> str:
+    """Return the rollback diagnostic to attach to the original failure."""
+    try:
+        if _image_id(tag) == backup:
+            return ""
+    except ToolchainError:
+        # The tag could not be read, but the known backup can still be restored.
+        pass
+
+    rollback_error: ToolchainError | None = None
+    try:
+        _retag_image(backup, tag)
+    except ToolchainError as exc:
+        rollback_error = exc
+
+    detail = f" ({rollback_error})" if rollback_error is not None else ""
+    try:
+        restored = _image_id(tag) == backup
+    except ToolchainError as exc:
+        return f"; rollback status indeterminate{detail}; could not verify tag ({exc})"
+    if restored:
+        return f"; previous image restored{detail}"
+    return f"; previous image NOT restored{detail}; retag {backup} manually"
+
+
 def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
     """Transactionally replace the docker image under *tag* (backup→swap→rollback).
 
@@ -1143,72 +1168,26 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
     backup = _image_id(tag)
     try:
         op()
+        current = _image_id(tag)
+        if current is None:
+            raise ToolchainError(f"image tag {tag!r} does not resolve after the swap")
     except Exception as exc:
-        # Rollback: restore the previous image under the tag.  A normal
-        # build/pull failure leaves the old tag in place (docker only re-tags
-        # on success), so the restore is a no-op check in that case; it only
-        # acts when the tag was left dangling or repointed at something else.
-        # A restore that itself fails must stay attached to the original
-        # error: swallowing it reports a working toolchain that is not there.
-        rollback_note = ""
-        if backup is not None:
-            try:
-                if _image_id(tag) != backup:
-                    _retag_image(backup, tag)
-            except ToolchainError as restore_error:
-                rollback_note = f"; previous image NOT restored ({restore_error})"
-                if _image_id(tag) != backup:
-                    rollback_note += f"; retag {backup} manually"
-        # Presence/digest may have been observed mid-failure; drop again so
-        # the restored (or still-old) tag is re-inspected.
-        _drop_image_presence(tag)
-        invalidate_toolchain_digest(tag)
-        if isinstance(exc, ToolchainError):
-            if rollback_note:
-                # Base RebrewError types these as optional; a ToolchainError
-                # always fills both, and a missing one falls back rather than
-                # dropping the restore failure.
-                kind = cast(
-                    "ToolchainErrorKind", exc.kind if exc.kind is not None else "invocation"
-                )
-                raise ToolchainError(
-                    f"{exc}{rollback_note}",
-                    kind=kind,
-                    name=exc.name or "",
-                    retryable=exc.retryable,
-                ) from exc
+        rollback_note = _restore_image(tag, backup) if backup is not None else ""
+        if not rollback_note:
             raise
-        if rollback_note:
-            raise ToolchainError(f"{exc}{rollback_note}") from exc
-        raise
-    current = _image_id(tag)
-    if current is None:
-        restored = False
-        rollback_error: ToolchainError | None = None
-        if backup is not None:
-            try:
-                _retag_image(backup, tag)
-            except ToolchainError as exc:
-                rollback_error = exc
-            else:
-                restored = _image_id(tag) == backup
+        if isinstance(exc, ToolchainError):
+            kind = cast("ToolchainErrorKind", exc.kind or "invocation")
+            raise ToolchainError(
+                f"{exc}{rollback_note}",
+                kind=kind,
+                name=exc.name or "",
+                retryable=exc.retryable,
+            ) from exc
+        raise ToolchainError(f"{exc}{rollback_note}") from exc
+    finally:
+        # Other callers may have seen the tag while the swap was in flight.
         _drop_image_presence(tag)
         invalidate_toolchain_digest(tag)
-        # The rollback runs against the same container runtime the failed swap
-        # just failed against, so it can fail too.  Report what actually
-        # happened: a message that claims a restore that never landed sends
-        # the operator looking for a working toolchain that is not there.
-        if restored:
-            outcome = "previous image restored"
-        elif rollback_error is not None:
-            outcome = f"previous image NOT restored ({rollback_error})"
-        elif backup is not None:
-            outcome = f"previous image NOT restored; retag {backup} manually"
-        else:
-            outcome = "no previous image"
-        raise ToolchainError(f"image tag {tag!r} does not resolve after the swap — {outcome}")
-    _drop_image_presence(tag)
-    invalidate_toolchain_digest(tag)
     return current
 
 

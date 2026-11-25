@@ -1252,6 +1252,46 @@ class TestSwapToolchainImage:
 
         assert swap_toolchain_image(self.TAG, _ok_op) == "sha256:FRESH"
 
+    @pytest.mark.parametrize("op_fails", [True, False])
+    def test_rollback_inspect_keeps_swap_diagnostics(self, monkeypatch, op_fails: bool) -> None:
+        from rebrew.compiler import toolchain as tc
+
+        key = (tc.container_runtime(), self.TAG)
+        checks = 0
+        retagged = False
+
+        def inspect(tag: str) -> str | None:
+            nonlocal checks
+            if retagged:
+                raise ToolchainError("verification inspect timed out")
+            checks += 1
+            return "sha256:OLD" if checks == 1 else None
+
+        def retag(source: str, dest: str) -> None:
+            nonlocal retagged
+            retagged = True
+            if op_fails:
+                raise ToolchainError("rollback tag operation failed")
+
+        def replace_image() -> None:
+            tc._image_presence[key] = True
+            tc._toolchain_digest_cache[key] = "sha256:OLD"
+            if op_fails:
+                raise ToolchainError("original image update failed", retryable=True)
+
+        monkeypatch.setattr(tc, "_image_id", inspect)
+        monkeypatch.setattr(tc, "_retag_image", retag)
+        primary = "original image update failed" if op_fails else "does not resolve after the swap"
+        with pytest.raises(ToolchainError, match=primary) as error:
+            tc.swap_toolchain_image(self.TAG, replace_image)
+        assert "rollback status indeterminate" in str(error.value)
+        assert "verification inspect timed out" in str(error.value)
+        if op_fails:
+            assert "rollback tag operation failed" in str(error.value)
+            assert error.value.retryable
+        assert key not in tc._image_presence
+        assert key not in tc._toolchain_digest_cache
+
     def test_clears_presence_and_digest_memos(self, monkeypatch) -> None:
         """A successful swap must not leave stale presence/digest memos."""
         from rebrew.compiler import toolchain as toolchain_mod
