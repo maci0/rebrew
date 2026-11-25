@@ -1329,6 +1329,14 @@ def compile_source(
                                 kind="protocol",
                                 retryable=True,
                             )
+                        if (status == "ok" and body.get("error_code") is not None) or (
+                            status == "error" and body.get("artifact_url") is not None
+                        ):
+                            raise RecompileError(
+                                "recompile service returned contradictory verdict fields",
+                                kind="protocol",
+                                retryable=True,
+                            )
                         if status != "ok":
                             failure_log = str(body.get("log", ""))
                             if api_key:

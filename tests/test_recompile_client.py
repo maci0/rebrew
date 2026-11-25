@@ -201,6 +201,23 @@ def _sequence_client(
 
 
 class TestCompileSource:
+    @pytest.mark.parametrize("status", ["ok", "error"])
+    def test_contradictory_reply_cannot_establish_a_verdict(self, status: str) -> None:
+        body = {"status": status, "error_code": "toolchain_failure", "artifact_url": "/out.obj"}
+        client = _FakeClient(_Resp(200, json_body=body), _Resp(200, content=b"OBJ"))
+        with pytest.raises(RecompileError) as caught:
+            compile_source(
+                "https://compiler.invalid",
+                "msvc-6.0",
+                "int f(void){}",
+                [],
+                client=client,
+                retries=0,
+            )
+        assert caught.value.kind == "protocol"
+        assert caught.value.cost == "unknown"
+        assert [method for method, _url in client.calls] == ["post"]
+
     def test_ok_downloads_the_artifact(self, monkeypatch: pytest.MonkeyPatch) -> None:
         body = {
             "status": "ok",
