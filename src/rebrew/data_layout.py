@@ -75,6 +75,10 @@ def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 _OBJ_RE = re.compile(r'"([^"]+\.obj)"|(?:^|\s)(\S+\.obj)(?=\s|$)')
+_LINK_OUTPUT_RE = re.compile(
+    r'(?<!\S)(?:"/out:([^"]+)"|(?:/out:|-o[ \t]+)(?:"([^"]+)"|([^"\s]+)))(?=\s|$)',
+    re.IGNORECASE,
+)
 _WS_RE = re.compile(r"\s+")
 _INDENT_RE = re.compile(r"[ \t]*")
 _CMAKE_DIR_RE = re.compile(r"^.*?CMakeFiles/[^/]+\.dir/")
@@ -267,14 +271,23 @@ def _cmake_rsp_objects(build_dir: Path, target: str | None = None) -> list[Path]
         return None
     chosen = rsp_dirs[0]
     if target:
-        wanted = fold_ident(f"/out:{target}")
+        wanted = fold_ident(config_path(target).name)
+        matches = []
         for candidate in rsp_dirs:
             link_txt = candidate / "link.txt"
             if not link_txt.is_file():
                 continue
-            if wanted in fold_ident(link_txt.read_text(encoding="utf-8", errors="replace")):
-                chosen = candidate
-                break
+            command = link_txt.read_text(encoding="utf-8", errors="replace")
+            outputs = {
+                fold_ident(config_path(a or b or c).name)
+                for a, b, c in _LINK_OUTPUT_RE.findall(command)
+            }
+            if wanted in outputs:
+                matches.append(candidate)
+        if len(matches) != 1:
+            detail = "ambiguous" if matches else "unresolved"
+            raise ValueError(f"{detail} CMake link output for {target!r}")
+        chosen = matches[0]
     text = "\n".join(
         path.read_text(encoding="utf-8", errors="surrogateescape")
         for path in sorted(chosen.glob("objects*.rsp"))

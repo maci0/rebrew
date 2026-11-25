@@ -771,6 +771,7 @@ def _mingw_obj(tmp_path: Path, name: str, body: str) -> Path:
 def _write_rsp(tmp_path: Path, objs: list[Path]) -> None:
     rsp_dir = tmp_path / "build" / "CMakeFiles" / "x.dir"
     rsp_dir.mkdir(parents=True, exist_ok=True)
+    (rsp_dir / "link.txt").write_text("link @objects1.rsp /out:game.dll\n")
     entries = " ".join(f"CMakeFiles/x.dir/{o.name}" for o in objs)
     (rsp_dir / "objects1.rsp").write_text(entries, encoding="utf-8")
 
@@ -1455,7 +1456,7 @@ def test_link_objects_selects_the_named_target(tmp_path: Path) -> None:
     from rebrew.data_layout import link_objects
 
     for name, output, source in (
-        ("server", "server.dll", "src/server.c.obj"),
+        ("server", "Euro_TL.exe.backup", "src/server.c.obj"),
         ("tl", "Euro_TL.exe", "src/tl.c.obj"),
     ):
         rsp_dir = tmp_path / f"build/CMakeFiles/{name}.dir"
@@ -1468,6 +1469,24 @@ def test_link_objects_selects_the_named_target(tmp_path: Path) -> None:
     assert link_objects(tmp_path, "Euro_TL.exe") == [
         tmp_path / "build" / "CMakeFiles/tl.dir/src/tl.c.obj"
     ]
+
+
+@pytest.mark.parametrize("suffix, expected", [(".backup", "unresolved"), ("", "ambiguous")])
+def test_link_objects_refuses_nonunique_exact_output(
+    tmp_path: Path, suffix: str, expected: str
+) -> None:
+    from rebrew.data_layout import link_objects
+
+    for target in ("first", "second"):
+        directory = tmp_path / "build" / "CMakeFiles" / f"{target}.dir"
+        directory.mkdir(parents=True)
+        (directory / "link.txt").write_text(
+            f'link /nologo @objects1.rsp /out:"output dir/game.dll{suffix}"\n'
+        )
+        (directory / "objects1.rsp").write_text(f"CMakeFiles/{target}.dir/mod.c.obj\n")
+
+    with pytest.raises(ValueError, match=expected):
+        link_objects(tmp_path, "game.dll")
 
 
 def test_link_objects_cmake_rsp_backslash_paths(tmp_path: Path) -> None:
