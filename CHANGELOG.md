@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- Re-analysis repairs a function name using the address anchor for its own module, even when a shared source reuses the address in another module (D-engines7-001).
+
 ## [6.78.0] - 2026-11-25
 
 ### Changed

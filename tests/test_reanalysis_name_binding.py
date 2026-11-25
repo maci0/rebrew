@@ -156,6 +156,28 @@ def test_reanalysis_repairs_a_record_its_stub_disagrees_with(tmp_path: Path) -> 
     assert _record(project) == repaired
 
 
+def test_reanalysis_repairs_the_anchor_for_its_own_module(tmp_path: Path) -> None:
+    from rebrew.metadata.bindings import binding_conflicts, read_source_bindings
+
+    config, project = _disagreeing_stub(tmp_path)
+    cfg = load_config(project, target="mini")
+    source = cfg.reversed_dir / f"{PLACEHOLDER}.c"
+    source.write_text(
+        f"/* ADDRESS: OTHER 0x{VA:08x} */\nvoid other_handler(void) {{}}\n\n"
+        + source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    with binding_conflicts() as skipped:
+        _analyse(config)
+    record = _record(project)
+    assert (record["name"], record["symbol"]) == (PLACEHOLDER, f"_{PLACEHOLDER}")
+    assert record["note"] == f"earlier name: {FREE_TEXT}"
+    assert skipped == set()
+    [binding] = read_source_bindings(source, target_name=MODULE, metadata_dir=cfg.metadata_dir)
+    assert binding.va == VA
+    assert binding.name == PLACEHOLDER
+
+
 @pytest.mark.parametrize("op", ["rebrew.data_list", "rebrew.identify_library"])
 def test_project_reads_skip_a_disagreeing_record(
     tmp_path: Path, caplog: pytest.LogCaptureFixture, op: str

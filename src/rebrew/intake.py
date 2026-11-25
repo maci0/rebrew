@@ -53,6 +53,7 @@ lazy from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
 lazy from rebrew.metadata.storage import metadata_store
 lazy from rebrew.rename_ops import is_valid_new_name
 lazy from rebrew.sources import iter_sources
+lazy from rebrew.utils import preset_module_key
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -220,6 +221,7 @@ def _repair_free_text_names(
     from rebrew.metadata.anchors import parse_address_anchors
     from rebrew.metadata.functions import record_function_rows
 
+    module_key = preset_module_key(module)
     rows = []
     for (row_module, va), entry in sorted(existing.items()):
         name = str(entry.get("name") or "")
@@ -241,7 +243,9 @@ def _repair_free_text_names(
             (
                 found
                 for found in parse_address_anchors(text, syntax=syntax)
-                if found.va == va and found.kind == "FUNCTION"
+                if found.va == va
+                and found.kind == "FUNCTION"
+                and preset_module_key(found.module) == module_key
             ),
             None,
         )
