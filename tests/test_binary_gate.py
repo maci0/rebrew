@@ -322,8 +322,8 @@ class TestLayoutFreshness:
     def test_matching_fingerprint(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.binary_gate import check_layout_freshness
 
-        (tmp_path / "layout.fingerprint").write_text("abc123\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.binary_gate.layout_fingerprint", lambda p: "abc123")
+        (tmp_path / "layout.fingerprint").write_text("a" * 64 + "\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.binary_gate.layout_fingerprint", lambda p: "a" * 64)
         res = check_layout_freshness(tmp_path, tmp_path / "ref.dll")
         assert res["match"] is True
         assert res["status"] == "fresh"
@@ -331,8 +331,8 @@ class TestLayoutFreshness:
     def test_stale_fingerprint(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.binary_gate import check_layout_freshness
 
-        (tmp_path / "layout.fingerprint").write_text("abc123\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.binary_gate.layout_fingerprint", lambda p: "def456")
+        (tmp_path / "layout.fingerprint").write_text("a" * 64 + "\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.binary_gate.layout_fingerprint", lambda p: "b" * 64)
         res = check_layout_freshness(tmp_path, tmp_path / "ref.dll")
         assert res["match"] is False
         assert res["status"] == "stale"

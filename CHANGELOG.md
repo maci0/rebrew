@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Whole-binary verification reports a layout mismatch when the recorded fingerprint is malformed or unreadable (D-engines7-018).
 - Anchor materialization recognizes existing bindings for modules configured in lowercase (D-engines7-017).
 - Anchor materialization previews and writes the address-comment syntax configured for each source file (D-engines7-016).
 - Remote compiles accept recompile artifacts through the service's 32 MiB limit (D2-recompile7-004).

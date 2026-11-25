@@ -8,6 +8,7 @@ gate-relevant facts.  The ``verify --whole-binary`` wiring lives in
 """
 
 lazy import io
+lazy import re
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -236,11 +237,13 @@ def check_layout_freshness(pkg_dir: Path, binary_path: Path) -> dict[str, Any]:
     failure: it would otherwise pass a package built against another binary.
     """
     fingerprint_file = pkg_dir / "layout.fingerprint"
-    if not fingerprint_file.exists():
-        return {"match": True, "status": "unknown", "expected": None, "actual": None}
     try:
-        recorded = fingerprint_file.read_text(encoding="utf-8").strip().split()
-    except OSError as exc:
+        expected = fingerprint_file.read_text(encoding="utf-8").strip()
+        if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+            raise ValueError("expected one lowercase SHA-256 digest")
+    except FileNotFoundError:
+        return {"match": True, "status": "unknown", "expected": None, "actual": None}
+    except (OSError, ValueError) as exc:
         # Present but unreadable is not the same as absent: reporting it as
         # "unknown" would pass the freshness gate for a package scaffolded
         # against a different reference binary.
@@ -251,9 +254,6 @@ def check_layout_freshness(pkg_dir: Path, binary_path: Path) -> dict[str, Any]:
             "actual": None,
             "error": f"cannot read {fingerprint_file}: {exc}",
         }
-    if not recorded:
-        return {"match": True, "status": "unknown", "expected": None, "actual": None}
-    expected = recorded[0]
     actual = layout_fingerprint(binary_path)
     if not actual:
         return {"match": True, "status": "unknown", "expected": expected, "actual": None}

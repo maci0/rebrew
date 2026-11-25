@@ -97,6 +97,32 @@ def _make_built(tmp_path: Path) -> Path:
     return built
 
 
+@pytest.mark.parametrize("fingerprint", [b"", b" \n", b"\xff", b"not-a-digest"])
+def test_verify_whole_binary_refuses_a_bad_layout_fingerprint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fingerprint: bytes
+) -> None:
+    from bin_util import make_pe
+
+    from rebrew.verify import app
+
+    cfg = _cfg(tmp_path)
+    _patch_flow(monkeypatch, cfg)
+    binary = make_pe(b"\x90\xc3")
+    cfg.target_binary.write_bytes(binary)
+    _make_built(tmp_path).write_bytes(binary)
+    layout = cfg.root / "layout" / cfg.target_name / "layout.fingerprint"
+    layout.parent.mkdir(parents=True)
+    layout.write_bytes(fingerprint)
+
+    result = CliRunner().invoke(app, ["--whole-binary", "--json"])
+    assert result.exit_code == EXIT_MISMATCH, result.output
+    whole = cli_payload(result)["whole_binary"]
+    assert whole["file"]["match"] is True
+    assert whole["match"] is False
+    assert whole["layout"]["status"] == "unreadable"
+    assert "layout.fingerprint" in whole["layout"]["error"]
+
+
 class TestVerifyText:
     @pytest.mark.parametrize("explicit", [False, True])
     def test_link_map_precedes_object_walk(
