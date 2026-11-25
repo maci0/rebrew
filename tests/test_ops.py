@@ -3759,8 +3759,8 @@ class TestOpDeadlines:
                     state = (
                         Path(f"/proc/{grandchild}/stat").read_text().rsplit(")", 1)[1].split()[0]
                     )
-                except FileNotFoundError:
-                    break
+                except FileNotFoundError, ProcessLookupError:
+                    break  # ESRCH: it exited between the open and the read
                 if state in ("Z", "X"):
                     break
                 if time.monotonic() >= deadline:

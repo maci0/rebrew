@@ -8,10 +8,13 @@ a docker compile is not needed to pin the ordering rule.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+lazy import concurrent.futures
+lazy from collections.abc import Iterator
 
 import pytest
 from source_util import SourceFixture, write_source
@@ -24,6 +27,28 @@ SOURCE = SourceFixture(
     "/* ADDRESS: DEMO 0x10001000 */\nint demo(int arg)\n{\n\tint a;\n\tint b;\n\ta = arg;\n\treturn a + b;\n}\n",
     {"DEMO.0x10001000": {"kind": "FUNCTION"}},
 )
+
+
+@pytest.fixture(autouse=True)
+def _joined_pools(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Join every sweep's workers while the test's patches are still in place.
+
+    An interrupted pool leaves a started candidate running. It looks
+    ``score_fn`` up when it scores, so it called the next test's patch.
+    """
+    pool = rebrew.qual_sweep.interruptible_pool
+    executors: list[concurrent.futures.ThreadPoolExecutor] = []
+
+    @contextlib.contextmanager
+    def recorded(max_workers: int) -> Iterator[concurrent.futures.ThreadPoolExecutor]:
+        with pool(max_workers) as executor:
+            executors.append(executor)
+            yield executor
+
+    monkeypatch.setattr(rebrew.qual_sweep, "interruptible_pool", recorded)
+    yield
+    for executor in executors:
+        executor.shutdown(wait=True)
 
 
 def _prepare(monkeypatch: object, tmp_path: Path, score: object) -> Path:
