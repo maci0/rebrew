@@ -173,7 +173,13 @@ def test_cli_preview_keeps_an_existing_lowercase_module_anchor(
     source.write_text(original, encoding="utf-8")
     cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="mobile")
     record_function_identity(
-        tmp_path, module="mobile", va=0x401000, file="unit.c", name="f", symbol="_f", kind="FUNCTION"
+        tmp_path,
+        module="mobile",
+        va=0x401000,
+        file="unit.c",
+        name="f",
+        symbol="_f",
+        kind="FUNCTION",
     )
     monkeypatch.setattr("rebrew.source_anchors.require_config", lambda **kwargs: cfg)
     result = CliRunner().invoke(app, [str(source), "--dry-run", "--json"])

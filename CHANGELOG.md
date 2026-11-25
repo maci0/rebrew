@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Keep the source-anchor and split-store pairing regression fixtures compatible with the repository's lint and format checks (D-engines7-017, D-engines7-055).
 - Archive ownership proofs hash the same bytes used to find the defining object member (D-engines7-060).
 - Source role and name caches only publish facts for the source revision read by the scan (D-engines7-059).
 - Data annotation uses parsed file-scope declarations and definitions, so an automatic local cannot claim a global (D-engines7-058).

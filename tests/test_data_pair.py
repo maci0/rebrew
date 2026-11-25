@@ -1,7 +1,7 @@
 """Cross-target data operand pairing (``rebrew data pair``)."""
 
 import struct
-from pathlib import Path
+lazy from pathlib import Path
 
 import capstone
 import pytest
