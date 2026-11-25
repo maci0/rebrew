@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Coverage fingerprints stop at the backed section boundary or the next known function start while retaining the reported size (D-engines7-044).
 - Image swaps retain update and rollback errors when a follow-up inspect cannot determine the tag state (D-engines7-043).
 - A timed-out or interrupted container compile asks its runtime to kill the named container (D-engines7-042).
 - Address lookups, source selection and comparison tools keep zero as a known address when the input provides it (D-engines7-037).

@@ -401,6 +401,10 @@ def build_coverage_data(
 
     # Pre-build section index for O(log n) VA lookups
     sec_sorted_starts, sec_info = _build_section_index(sections)
+    walk_extents = {name: _walk_extent(name, data, _bin_info) for name, data in sections.items()}
+    function_starts = sorted(
+        unique_vas | funcs_by_va.keys() | (registry or {}).keys() | thunk_offsets.keys()
+    )
 
     # The summary must reconcile with the emitted functions dict below: some
     # fn_vas entries get dropped (no section, no resolvable size), so counts
@@ -408,7 +412,7 @@ def build_coverage_data(
     emitted_fn_count = 0
     emitted_matched = 0
     # Functions skipped because there is no binary layout at all (missing/
-    # unloadable binary ⇒ image_base 0) — without sections every annotated VA
+    # unloadable binary) — without sections every annotated VA
     # would land outside the fallback section and be silently dropped.
     layout_omitted = 0
 
@@ -436,7 +440,7 @@ def build_coverage_data(
         # rebuild) and slicing the binary from a negative index reads from the
         # file END.  Skip it.
         if not found_in_section:
-            if not image_base:
+            if _bin_info is None:
                 layout_omitted += 1
                 continue
             file_off = va - image_base
@@ -461,15 +465,17 @@ def build_coverage_data(
             continue
 
         fn_hash = ""
-        if _bin_data is not None:
-            # Clamp to avoid overlapping next function
-            raw = _bin_data[
-                file_off : file_off + min(canonical_size, max(0, _bin_data.__len__() - file_off))
-            ]
-            # Trim trailing CC/90 padding (same as extract_dll_bytes)
-            raw = raw[: trim_trailing_padding(raw)] if raw else b""
-            if raw:
-                fn_hash = hashlib.sha256(raw).hexdigest()
+        if _bin_info is not None and sec_result is not None and sec_name in _bin_info.sections:
+            backed_size, zero_fill = walk_extents[sec_name]
+            if not zero_fill and file_off >= 0 and text_off < backed_size:
+                hash_size = min(canonical_size, backed_size - text_off)
+                next_index = bisect.bisect_right(function_starts, va)
+                if next_index < len(function_starts):
+                    hash_size = min(hash_size, function_starts[next_index] - va)
+                raw = _bin_info.data[file_off : file_off + hash_size]
+                raw = raw[: trim_trailing_padding(raw)]
+                if raw:
+                    fn_hash = hashlib.sha256(raw).hexdigest()
 
         functions[f"0x{va:08x}"] = {
             "name": e["name"],
@@ -513,7 +519,7 @@ def build_coverage_data(
     for sec_name, sec_data in sections.items():
         sec_va = sec_data["va"]
         # The walk bound, not the claimed size: sec_data["size"] keeps the claim.
-        sec_size, zero_fill = _walk_extent(sec_name, sec_data, _bin_info)
+        sec_size, zero_fill = walk_extents[sec_name]
         if zero_fill:
             unit_bytes = _BSS_CELL_BYTES
         elif sec_name == ".text":

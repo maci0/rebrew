@@ -1,5 +1,6 @@
 """Tests for catalog/grid.build_coverage_data — absorption, gap classification, cells."""
 
+import hashlib
 import struct
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -505,6 +506,32 @@ class TestGenerateDataJsonGrid:
         data = build_coverage_data(entries, [], text_size=size, bin_path=bin_path)
         fn = data["functions"][f"0x{TEXT_VA + 0xE0:08x}"]
         assert fn["size"] == 0x20
+
+    @pytest.mark.parametrize("next_function", [False, True])
+    def test_function_digest_uses_backed_bytes_before_next_function(
+        self, monkeypatch, tmp_path: Path, next_function: bool
+    ) -> None:
+        binary = tmp_path / "backed.exe"
+        for fill in (b"\x01", b"\x02"):
+            text = b"\xc3" * 16
+            inventory = []
+            expected = text[8:]
+            if next_function:
+                inventory.append({"va": TEXT_VA + 12, "size": 4, "name": "neighbor"})
+                text = text[:12] + fill * 4
+                expected = expected[:4]
+            image = text + fill * 16
+            binary.write_bytes(image)
+            _patch_binary(monkeypatch, image, sections_size=len(text))
+            data = build_coverage_data(
+                [_ann(TEXT_VA + 8, "at_end", "STUB", 16)],
+                inventory,
+                len(text),
+                binary,
+            )
+            function = data["functions"][f"0x{TEXT_VA + 8:08x}"]
+            assert function["sha256"] == hashlib.sha256(expected).hexdigest()
+            assert function["size"] == 16
 
 
 class TestGenerateDataJsonNoBinary:
