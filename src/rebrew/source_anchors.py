@@ -16,7 +16,7 @@ lazy from rebrew.cli import (
     require_config,
     run_cli,
 )
-lazy from rebrew.config import ProjectConfig
+lazy from rebrew.config import ProjectConfig, address_comments_for_file
 lazy from rebrew.metadata.anchors import add_address_anchor, parse_address_anchors
 lazy from rebrew.metadata.binding_history import retired_binding
 lazy from rebrew.metadata.bindings import function_rows_for_file, source_bindings
@@ -62,6 +62,7 @@ def materialize_anchors(
     bindings = []
     for path in paths:
         text, encoding = read_source_text(path)
+        syntax = address_comments_for_file(path, project_root=cfg.root)
         source_bindings(
             text,
             path,
@@ -75,7 +76,7 @@ def materialize_anchors(
         rows = function_rows_for_file(path, cfg.metadata_dir, entries, project_root=cfg.root)
         active = {(module, va): row for module, va, row in rows if not retired_binding(row)}
         seen = set()
-        for anchor in parse_address_anchors(text):
+        for anchor in parse_address_anchors(text, syntax=syntax):
             key = (preset_module_key(anchor.module), anchor.va)
             if key in seen:
                 raise ValueError(
@@ -96,7 +97,7 @@ def materialize_anchors(
             if len(lines) != 1:
                 raise ValueError(f"{path}: {module}.{va:#x} requires one definition of {name!r}")
             if (preset_module_key(module), va) not in seen:
-                updated = add_address_anchor(updated, module, va, name)
+                updated = add_address_anchor(updated, module, va, name, syntax=syntax)
             bindings.append({"file": str(path), "module": module, "va": va, "name": name})
             edits.append(SourceEdit(lines[0], 1, "address anchor"))
         # Every generated anchor is checked against canonical identities,

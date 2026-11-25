@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Anchor materialization previews and writes the address-comment syntax configured for each source file (D-engines7-016).
 - Remote compiles accept recompile artifacts through the service's 32 MiB limit (D2-recompile7-004).
 - Intake prunes untouched named stubs when rediscovery replaces their functions, and preserves edited source and its metadata (D-engines7-004).
 - Archive imports exchange an existing workspace atomically. A failed or interrupted publication keeps a complete project at the canonical path (D-engines7-008).

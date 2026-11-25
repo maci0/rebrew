@@ -121,7 +121,10 @@ def test_retired_identity_is_not_reactivated(tmp_path: Path) -> None:
     assert b"ADDRESS: A" not in source.read_bytes()
 
 
-def test_cli_preview_and_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("custom_syntax", [False, True])
+def test_cli_preview_and_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, custom_syntax: bool
+) -> None:
     import json
 
     from typer.testing import CliRunner
@@ -129,14 +132,31 @@ def test_cli_preview_and_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     from rebrew.source_anchors import app
 
     cfg, source = _project(tmp_path)
+    if custom_syntax:
+        (tmp_path / "rebrew-project.toml").write_text(
+            "[project]\ndefault_target = 'a'\n"
+            "[project.address_comments]\n"
+            "regex = 'NATIVE (?P<module>\\S+)@(?P<va>0x[0-9a-fA-F]+)'\n"
+            "template = '/* NATIVE $module@$va */'\n"
+            "[targets.a]\nmodule = 'A'\nreversed_dir = 'src'\nbinary = 'original/a.exe'\n",
+            encoding="utf-8",
+        )
+    anchor = b"/* NATIVE A@0x00401000 */" if custom_syntax else b"/* ADDRESS: A 0x00401000 */"
     monkeypatch.setattr("rebrew.source_anchors.require_config", lambda **kwargs: cfg)
     runner = CliRunner()
     result = runner.invoke(app, [str(source), "--dry-run", "--json"])
     assert result.exit_code == 0, result.output
-    digest = json.loads(result.output)["input_digest"]
+    preview = json.loads(result.output)
+    assert anchor.decode() in preview["files"][0]["after"]
+    assert anchor not in source.read_bytes()
+    digest = preview["input_digest"]
     result = runner.invoke(app, [str(source), "--expected-digest", digest, "--json"])
     assert result.exit_code == 0, result.output
     assert not json.loads(result.output)["verdicts_changed"]
+    assert anchor in source.read_bytes()
+    result = runner.invoke(app, [str(source), "--dry-run", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["files"] == []
 
 
 def test_duplicate_anchors_refused_without_writes(tmp_path: Path) -> None:
