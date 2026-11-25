@@ -139,7 +139,11 @@ holdGlobals = true;
 setView("globals");
 el("gq").value = "g_flag";
 el("gq").onkeydown({ key: "Enter" });
-assert.equal(typeof releaseGlobals, "function", "the Globals request is in flight");
+assert.equal(
+	typeof releaseGlobals,
+	"function",
+	"the Globals request is in flight",
+);
 setView("history");
 releaseGlobals({
 	ok: false,
@@ -148,7 +152,19 @@ releaseGlobals({
 });
 await new Promise((resolve) => setImmediate(resolve));
 holdGlobals = false;
-assert.equal(el("dashboard-error").hidden, true, "the abandoned failure is not shown");
-assert.equal(el("retry-view").hidden, true, "History offers no unrelated retry");
-assert.equal(el("history-results").hidden, false, "History keeps its loaded rows");
+assert.equal(
+	el("dashboard-error").hidden,
+	true,
+	"the abandoned failure is not shown",
+);
+assert.equal(
+	el("retry-view").hidden,
+	true,
+	"History offers no unrelated retry",
+);
+assert.equal(
+	el("history-results").hidden,
+	false,
+	"History keeps its loaded rows",
+);
 assert.match(el("history-rows").innerHTML, /WinMain/);

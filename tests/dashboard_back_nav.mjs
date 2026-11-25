@@ -116,8 +116,16 @@ for (let i = 0; i < 50 && boots === beforeBack; i++) {
 	await new Promise((resolve) => setTimeout(resolve, 0));
 }
 await new Promise((resolve) => setTimeout(resolve, 0));
-assert.equal(el("status").value, "", "Back clears a status absent from the restored hash");
-assert.equal(el("module").value, "", "Back clears a module absent from the restored hash");
+assert.equal(
+	el("status").value,
+	"",
+	"Back clears a status absent from the restored hash",
+);
+assert.equal(
+	el("module").value,
+	"",
+	"Back clears a module absent from the restored hash",
+);
 assert.equal(el("q").value, "Win", "Back keeps the restored search");
 
 globalThis.location.hash = "#target=a&status=EXACT&module=GAME&q=Other";

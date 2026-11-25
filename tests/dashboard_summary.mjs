@@ -88,7 +88,11 @@ for (const staleFailure of [false, true]) {
 	assert.doesNotMatch(element("status").innerHTML, /EXACT|STUB/);
 	assert.match(element("cards").innerHTML, /Loading coverage summary/);
 	assert.doesNotMatch(element("cards").innerHTML, /data-status/);
-	assert.equal(element("status-reference").hidden, true, "a stale legend hides while loading");
+	assert.equal(
+		element("status-reference").hidden,
+		true,
+		"a stale legend hides while loading",
+	);
 	assert.match(oldResponse.path, /target=old_target$/);
 	assert.match(newResponse.path, /target=new_target$/);
 	assert.equal(newResponse.aborted, false);
@@ -97,8 +101,14 @@ for (const staleFailure of [false, true]) {
 	assert.match(element("status").innerHTML, /EXACT/);
 	assert.equal(element("status").disabled, false);
 	assert.match(element("cards").innerHTML, /EXACT/);
-	assert.match(element("cards").innerHTML, /<span class=label>Matched coverage<\/span>/);
-	assert.match(element("cards").innerHTML, /<span class=label>Identified coverage<\/span>/);
+	assert.match(
+		element("cards").innerHTML,
+		/<span class=label>Matched coverage<\/span>/,
+	);
+	assert.match(
+		element("cards").innerHTML,
+		/<span class=label>Identified coverage<\/span>/,
+	);
 	assert.equal(element("status-reference").hidden, false);
 	assert.match(
 		element("status-reference-list").innerHTML,
@@ -438,8 +448,14 @@ assert.doesNotMatch(element("cards").innerHTML, /class='card active'/);
 assert.doesNotMatch(element("cards").innerHTML, /aria-pressed='true'/);
 element("status").value = "UNKNOWN";
 renderSummary(withUnknown);
-assert.match(element("cards").innerHTML, /class='card active'[^>]*data-status='UNKNOWN'/);
-assert.match(element("cards").innerHTML, /data-status='UNKNOWN'[^>]*aria-pressed='true'/);
+assert.match(
+	element("cards").innerHTML,
+	/class='card active'[^>]*data-status='UNKNOWN'/,
+);
+assert.match(
+	element("cards").innerHTML,
+	/data-status='UNKNOWN'[^>]*aria-pressed='true'/,
+);
 
 // A card is visibly unpressed outside Functions. Clicking the status that the
 // hidden Functions view already had selected must apply it, not toggle it off.
