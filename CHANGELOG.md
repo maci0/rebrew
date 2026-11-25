@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.80.0] - 2026-11-25
+
 ### Fixed
 
 - **Breaking:** The published `ops.OPS` address contracts accept only the members the handlers use. Use `ops.AddressRequest` for describe, `ops.SizedAddressRequest` for `ops.control_flow_graph` and `ops.instruction_listing`, and `ops.XrefsRequest` for `ops.xrefs`. The former `ops.AddressRequest.size` belongs to `ops.SizedAddressRequest.size`. Clients must use the regenerated `ops.DISPATCH_SCHEMA_SHA256` (D-engines7-009).
