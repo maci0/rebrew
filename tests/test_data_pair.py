@@ -1,10 +1,19 @@
 """Cross-target data operand pairing (``rebrew data pair``)."""
 
+import struct
+from pathlib import Path
+
 import capstone
 import pytest
+from bin_util import append_pe_section, make_pe
+from cli_json import cli_payload
+from typer.testing import CliRunner
 
+from rebrew.app.main import app
 from rebrew.cast_rewrite import declare_externs
+from rebrew.config import ProjectConfig
 from rebrew.data_pair import OperandPair, pair_data_operands, plan_pairs
+from rebrew.metadata.data import load_data_metadata, record_data_rows
 
 X86 = (capstone.CS_ARCH_X86, capstone.CS_MODE_32)
 
@@ -15,6 +24,76 @@ def _in_data(va: int) -> bool:
 
 def _section(_va: int) -> str:
     return ".data"
+
+
+@pytest.fixture
+def targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, tuple[ProjectConfig, int, int]]:
+    configs = {}
+    for module, base in (("A", 0x400000), ("B", 0x500000)):
+        directory = tmp_path / "src" / module
+        directory.mkdir(parents=True)
+        (directory / "rebrew-functions.toml").write_text("format = 3\n", encoding="utf-8")
+        binary = tmp_path / f"{module}.exe"
+        address = base + 0x2000
+        code = b"\xa1" + struct.pack("<I", address) + b"\xc3"
+        binary.write_bytes(append_pe_section(make_pe(code, image_base=base), ".data", bytes(4)))
+        cfg = ProjectConfig(
+            root=tmp_path,
+            target_name=module,
+            module=module,
+            reversed_dir=directory,
+            target_binary=binary,
+        )
+        assert cfg.metadata_dir == directory
+        configs[module] = (cfg, base + 0x1000, address)
+    monkeypatch.setattr(
+        "rebrew.data_pair.require_config", lambda *, target, **kwargs: configs[target][0]
+    )
+    return configs
+
+
+def _seed_data(cfg: ProjectConfig, address: int) -> None:
+    record_data_rows(
+        cfg.metadata_dir,
+        [
+            {
+                "module": cfg.module,
+                "va": address,
+                "identity": {"name": "shared", "kind": "GLOBAL"},
+                "fill": {"size": 4, "type": "int", "section": ".data"},
+            }
+        ],
+    )
+
+
+@pytest.mark.parametrize("existing", ["A", "B"])
+def test_pair_writes_the_missing_row_to_its_target_store(targets, existing: str) -> None:
+    other = "B" if existing == "A" else "A"
+    known_cfg, _, known_va = targets[existing]
+    missing_cfg, _, missing_va = targets[other]
+    _seed_data(known_cfg, known_va)
+    result = CliRunner().invoke(
+        app,
+        [
+            "data",
+            "pair",
+            hex(targets["A"][1]),
+            hex(targets["B"][1]),
+            "--from",
+            "A",
+            "--target",
+            "B",
+            "--size",
+            "6",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output or repr(result.exception)
+    assert cli_payload(result)["created"] == 1
+    assert set(load_data_metadata(known_cfg.metadata_dir)) == {(existing, known_va)}
+    assert load_data_metadata(missing_cfg.metadata_dir)[other, missing_va]["name"] == "shared"
 
 
 class TestPairDataOperands:

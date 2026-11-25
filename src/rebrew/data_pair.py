@@ -312,20 +312,24 @@ def pair(
         _section_name(info_b),
         _section_name(info_a),
     )
-    writes_by_identity = {
-        (
-            mod_b if p["action"] == "create-b" else mod_a,
-            p["b_row" if p["action"] == "create-b" else "a_row"],
-        ): {
-            "module": mod_b if p["action"] == "create-b" else mod_a,
-            "va": int(p["b_row" if p["action"] == "create-b" else "a_row"], 16),
+    writes: dict[Path, dict[tuple[str, int], dict[str, Any]]] = {}
+    destinations = {
+        "create-a": (cfg_a.metadata_dir.resolve(), mod_a, "a_row"),
+        "create-b": (cfg_b.metadata_dir.resolve(), mod_b, "b_row"),
+    }
+    for p in plan:
+        destination = destinations.get(p["action"])
+        if destination is None:
+            continue
+        directory, module, key = destination
+        va = int(p[key], 16)
+        writes.setdefault(directory, {})[(module, va)] = {
+            "module": module,
+            "va": va,
             "identity": {"kind": p["kind"], "name": p["name"]},
             "fill": {k: p[k] for k in ("size", "type", "section") if p.get(k)},
         }
-        for p in plan
-        if p["action"] in ("create-a", "create-b")
-    }
-    writes = list(writes_by_identity.values())
+    created = sum(len(rows) for rows in writes.values())
     calls = []
     if call_pairs:
         functions_a = load_metadata(cfg_a.metadata_dir, deepcopy=False)
@@ -343,22 +347,23 @@ def pair(
     rewrites: list[dict[str, Any]] = []
     if rewrite is not None:
         rewrites = _rewrite_source(rewrite, plan, dry_run=dry_run)
-    if not dry_run and writes:
-        record_data_rows(cfg_a.metadata_dir, writes)
+    if not dry_run:
+        for directory, rows in writes.items():
+            record_data_rows(directory, list(rows.values()))
     report = {
         "from": mod_a,
         "target": mod_b,
         "dry_run": dry_run,
         "pairs": plan,
         "calls": calls,
-        "created": len(writes),
+        "created": created,
         "rewrites": rewrites,
     }
     if json_output:
         json_print(report)
         return
     verb = "Would create" if dry_run else "Created"
-    console.print(f"{len(plan)} data operand pair(s); {verb} {len(writes)} row(s).")
+    console.print(f"{len(plan)} data operand pair(s); {verb} {created} row(s).")
     for p in plan:
         console.print(
             f"  {p['action']:9} {p['a']} <-> {p['b']} {p.get('name') or p.get('name_a') or ''}"

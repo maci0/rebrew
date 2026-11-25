@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Cross-target data pairing writes each new row to the target metadata store that owns it (D-engines7-055).
 - Verification requires the complete requested reference extent before comparing a function (D-engines7-053).
 - `verify --fix-sizes` preserves an extent that earned a comparison verdict in the current run (D-engines7-051).
 - Verification keeps its measured diagnostic and leaves canonical status alone when the comparison inputs change before publication (D-engines7-050).
