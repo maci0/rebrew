@@ -328,17 +328,21 @@ class TestCatalogCliSummary:
         assert "Ghidra only:  1" in result.output
         assert "Both tools:   1" in result.output
 
-    def test_export_ghidra_labels(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize("text_va", [0, 0x1000])
+    def test_export_ghidra_labels(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text_va: int
+    ) -> None:
         import json as _json
 
         cfg = _patch(monkeypatch, tmp_path)
+        cfg.target_binary.touch()
         monkeypatch.setattr(
             catalog_pipeline,
             "build_coverage_data",
             lambda *a, **k: {
                 "sections": {
                     ".text": {
-                        "va": 0x1000,
+                        "va": text_va,
                         "cells": [
                             {"start": 0, "end": 64, "state": "data", "label": "jpt"},
                             {"start": 64, "end": 96, "state": "thunk"},
@@ -355,9 +359,9 @@ class TestCatalogCliSummary:
         assert labels_path.exists()
         labels = _json.loads(labels_path.read_text(encoding="utf-8"))
         assert labels[0]["label"] == "jpt"
-        assert labels[1]["va"] == 0x1000 + 64
+        assert labels[1]["va"] == text_va + 64
         # label defaults to switchdata_<va> when missing
-        assert labels[1]["label"] == f"switchdata_{0x1000 + 64:08x}"
+        assert labels[1]["label"] == f"switchdata_{text_va + 64:08x}"
 
 
 def _write_project(tmp_path: Path) -> Path:

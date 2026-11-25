@@ -388,7 +388,7 @@ def data_symbols(cfg: Any) -> list[DataSymbol]:
     by_va: dict[int, DataSymbol] = {}
     scan = scan_globals(cfg.reversed_dir, cfg=cfg, record_roles=False)
     for entry in scan.globals.values():
-        if not entry.va or entry.storage_kind == "span" or entry.va in by_va:
+        if not entry.has_address or entry.storage_kind == "span" or entry.va in by_va:
             continue
         by_va[entry.va] = DataSymbol(entry.va, entry.name, entry.type_str, entry.size or None)
     for (module, va), fields in load_data_metadata(cfg.metadata_dir, deepcopy=False).items():

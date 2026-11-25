@@ -1080,6 +1080,23 @@ class TestCollectors:
 
 
 class TestRoiOrdering:
+    def test_zero_address_work_counts_as_a_function(self) -> None:
+        from rebrew.todo import CAT_COMPILE_ERROR, TodoItem, _rank_by_impact
+
+        item = TodoItem(
+            category=CAT_COMPILE_ERROR,
+            roi_score=1,
+            va=0,
+            name="entry",
+            size=12,
+            filename="entry.c",
+            description="compile",
+            command="rebrew verify",
+        )
+        assert _rank_by_impact([item]) == [item]
+        assert item.affected_functions == 1
+        assert item.impact_bytes == 12
+
     @staticmethod
     def _item(category: str, size: int, va: int, *, filename: str = "") -> TodoItem:
         return TodoItem(

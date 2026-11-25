@@ -69,7 +69,7 @@ class GlobalEntry:
     """A single discovered global variable."""
 
     name: str
-    va: int = 0  # 0 = no bound address
+    va: int = 0  # Unbound declarations use 0 and leave annotated false.
     type_str: str = ""
     section: str = ""  # .data, .rdata, .bss, or ""
     declared_in: list[str] = field(default_factory=list)
@@ -98,10 +98,15 @@ class GlobalEntry:
             self._declared.add(fname)
             self.declared_in.append(fname)
 
+    @property
+    def has_address(self) -> bool:
+        """A stored binding can explicitly name address zero."""
+        return self.annotated or self.va != 0
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
         d: dict[str, Any] = {"name": self.name, "type": self.type_str}
-        if self.va:
+        if self.has_address:
             d["va"] = f"0x{self.va:08x}"
         if self.section:
             d["section"] = self.section
@@ -268,7 +273,7 @@ def _bind_stored_data_rows(
     is_header: bool,
     extern_vars: dict[str, Any],
     annotated_names: set[str],
-    by_key: dict[tuple[str, int], GlobalEntry],
+    by_key: dict[tuple[str, int | None], GlobalEntry],
     remember: Any,
     type_by_name: dict[str, dict[str, list[str]]],
     mark: Any,
@@ -276,9 +281,9 @@ def _bind_stored_data_rows(
     """Attach ``rebrew-data.toml`` rows for the bindings scanned from this file.
 
     Called only when the source has no address-bound data declaration.  Names are added
-    to *annotated_names* before the extern pass so a ``(name, 0)`` entry is
+    to *annotated_names* before the extern pass so a ``(name, None)`` entry is
     not created for a global the store already placed.  An existing
-    ``(name, 0)`` entry is adopted.  A header does not take a ``.c`` row,
+    ``(name, None)`` entry is adopted.  A header does not take a ``.c`` row,
     and it does not become the reference type.
     """
     for binding in bindings:
@@ -306,7 +311,7 @@ def _bind_stored_data_rows(
         key = (name, va)
         bound = by_key.get(key)
         if bound is None:
-            bound = by_key.pop((name, 0), None)
+            bound = by_key.pop((name, None), None)
             if bound is not None:
                 bound.va = va
                 bound.annotated = True
@@ -912,7 +917,7 @@ def _apply_scan_file_facts(
     *,
     cfg: ProjectConfig | None,
     data_entries: dict[tuple[str, int], dict[str, Any]],
-    by_key: dict[tuple[str, int], GlobalEntry],
+    by_key: dict[tuple[str, int | None], GlobalEntry],
     by_name: dict[str, GlobalEntry],
     entries_by_name: dict[str, list[GlobalEntry]],
     remember: Any,
@@ -980,12 +985,12 @@ def _apply_scan_file_facts(
                             typed_entry.type_str = ev.type_str
             continue
 
-        key = (ev_name, 0)
+        key = (ev_name, None)
         entry = by_key.get(key)
         if entry is None:
             # An earlier file may already hold this name as an annotated
             # entry whose VA is known. Reuse it: creating a duplicate
-            # ``(name, 0)`` key would make the final pass overwrite the
+            # ``(name, None)`` key would make the final pass overwrite the
             # annotated entry with the valueless one (order-dependent:
             # an extern-only file sorted after the annotated one lost it).
             entry = by_name.get(ev_name)
@@ -1039,7 +1044,7 @@ def scan_globals(
     # Globals key by (name, va): the same name bound at two VAs in two
     # files is two globals (a TU-local collision), not one entry whose
     # second binding is skipped.
-    by_key: dict[tuple[str, int], GlobalEntry] = {}
+    by_key: dict[tuple[str, int | None], GlobalEntry] = {}
     # Name → one entry with that name (same as former linear scan over values).
     by_name: dict[str, GlobalEntry] = {}
     # Name → every entry (for conflict marking without rescanning by_key).
@@ -1048,7 +1053,7 @@ def scan_globals(
     if not src_dir.exists():
         return result
 
-    def _remember(entry: GlobalEntry, key: tuple[str, int]) -> None:
+    def _remember(entry: GlobalEntry, key: tuple[str, int | None]) -> None:
         by_key[key] = entry
         by_name[entry.name] = entry
         bucket = entries_by_name[entry.name]
@@ -1161,7 +1166,7 @@ def scan_globals(
         _flush_role_cache(role_cache)
 
     for (name, va), entry in by_key.items():
-        if va and name in result.globals and result.globals[name] is not entry:
+        if va is not None and name in result.globals and result.globals[name] is not entry:
             result.globals[f"{name}@0x{va:x}"] = entry
         else:
             result.globals[name] = entry
@@ -1185,7 +1190,7 @@ def scan_globals(
     # definition owns that identity; the other annotated names are views.
     owners_by_va: dict[int, list[GlobalEntry]] = defaultdict(list)
     for entry in result.globals.values():
-        if entry.va and entry.defined_in:
+        if entry.has_address and entry.defined_in:
             owners_by_va[entry.va].append(entry)
     for entry in result.globals.values():
         owners = owners_by_va.get(entry.va, [])
@@ -1321,7 +1326,7 @@ def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) 
     """Classify each annotated global into its binary section."""
     ranges = _section_ranges(sections)
     for entry in scan.globals.values():
-        if entry.va:
+        if entry.has_address:
             entry.section = _classify_in_ranges(entry.va, ranges)
 
 
@@ -1650,11 +1655,11 @@ def verify_bss_layout(
     missing extern declarations.
     """
     bss = sections.get(".bss", {})
-    bss_va = bss.get("va", 0)
+    bss_va = bss.get("va")
     bss_size = bss.get("size", 0)
 
-    report = BssReport(bss_va=bss_va, bss_size=bss_size)
-    if not bss_va or not bss_size:
+    report = BssReport(bss_va=bss_va if bss_va is not None else 0, bss_size=bss_size)
+    if bss_va is None or not bss_size:
         return report
 
     bss_end = bss_va + bss_size
@@ -1666,7 +1671,7 @@ def verify_bss_layout(
     # Collect BSS globals (those with VAs in the .bss range)
     bss_entries: list[BssEntry] = []
     for entry in scan.globals.values():
-        if entry.va and bss_va <= entry.va < bss_end:
+        if entry.has_address and bss_va <= entry.va < bss_end:
             size_hint = (
                 entry.size
                 if entry.size is not None

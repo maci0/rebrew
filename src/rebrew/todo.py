@@ -1352,7 +1352,10 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
         size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
         if size <= 0:
             return False
-        offset = int(fields.get("va") or 0) - int(sec.va)
+        address = fields.get("va")
+        if address is None:
+            return False
+        offset = int(address) - int(sec.va)
         if offset < 0 or offset >= int(sec.size or sec.raw_size):
             return False
         return bool(offset + size > int(sec.raw_size))
@@ -1672,16 +1675,16 @@ def collect_all(
     # Library rows are never actions (see the docstring): drop them before
     # ranking so they cannot displace real work.
     if exclude_vas:
-        items = [item for item in items if item.va not in exclude_vas]
+        items = [item for item in items if item.category == CAT_SETUP or item.va not in exclude_vas]
 
     # One action per code address, and one per data address. Setup items
-    # (va=0) are category-level, so they skip dedup. A function and a data
+    # are category-level, so they skip dedup. A function and a data
     # symbol can share an address; folding them into one VA dropped the
     # function, because exact-only scores 0 and start-data scores 10.
     best: dict[tuple[str, int], TodoItem] = {}
     non_va_items: list[TodoItem] = []
     for item in items:
-        if item.va == 0:
+        if item.category == CAT_SETUP:
             non_va_items.append(item)
             continue
         key = (_item_domain(item), item.va)
@@ -1719,7 +1722,7 @@ def _rank_by_impact(items: list[TodoItem]) -> list[TodoItem]:
     for item in items:
         item.impact_bytes = max(0, item.size)
         is_code = _item_domain(item) == "code"
-        item.affected_functions = int(bool(item.va) and is_code)
+        item.affected_functions = int(item.category != CAT_SETUP and is_code)
         if item.filename and is_code and item.category in definitions:
             files.setdefault(item.filename, []).append(item)
             if item.category == CAT_COMPILE_ERROR:
@@ -1729,7 +1732,7 @@ def _rank_by_impact(items: list[TodoItem]) -> list[TodoItem]:
         affected = files[filename]
         first = min(failures, key=lambda item: item.va)
         first.impact_bytes = merged_span_bytes(
-            [(item.va, item.va + item.size) for item in affected if item.va and item.size > 0]
+            [(item.va, item.va + item.size) for item in affected if item.size > 0]
         )
         first.affected_functions = len(affected)
         if len(affected) > 1:
@@ -2089,7 +2092,7 @@ def main(
         table.add_row(
             str(i),
             f"[{color}]{cat_label}[/{color}]",
-            f"0x{item.va:08x}" if item.va else "",
+            f"0x{item.va:08x}" if item.category != CAT_SETUP else "",
             f"{item.impact_bytes}B" if item.impact_bytes else "—",
             item.name,
             match_str,

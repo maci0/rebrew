@@ -615,13 +615,13 @@ def execute_data(
         section_ranges = [
             (s["va"], s["va"] + s["size"])
             for s in sections.values()
-            if s.get("va") and s.get("size")
+            if s.get("va") is not None and s.get("size")
         ]
         if section_ranges:
             out_of_range = [
                 (name, g.va)
                 for name, g in scan.globals.items()
-                if g.va and not any(lo <= g.va < hi for lo, hi in section_ranges)
+                if g.has_address and not any(lo <= g.va < hi for lo, hi in section_ranges)
             ]
             if out_of_range:
                 console.print(

@@ -176,8 +176,8 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
             shown += f" (+{len(names) - 3})"
         return shown or "—"
 
-    for entry in sorted(entries, key=lambda e: (e.va or 0xFFFFFFFF, e.name)):
-        va_str = f"0x{entry.va:08x}" if entry.va else "—"
+    for entry in sorted(entries, key=lambda e: (e.va if e.has_address else 0xFFFFFFFF, e.name)):
+        va_str = f"0x{entry.va:08x}" if entry.has_address else "—"
         type_literal = untrusted_literal(entry.type_str)
         type_cell = Syntax(type_literal, "c", theme="ansi_dark").highlight(type_literal)
         type_cell.rstrip()
@@ -240,7 +240,7 @@ def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> li
         # "unknown" invented a fourth section for link stand-ins whose bytes
         # already belong to a named global. A VA that misses every section
         # still lands in unknown.
-        if not entry.va and not entry.section:
+        if not entry.has_address and not entry.section:
             continue
         sec_name = entry.section or "unknown"
         s = per_section.setdefault(
@@ -252,7 +252,7 @@ def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> li
             s["annotated"] += 1
             size_hint = estimate_type_size(entry.type_str) if entry.type_str else 4
             s["declared_bytes"] += size_hint
-            if entry.va and size_hint > 0:
+            if entry.has_address and size_hint > 0:
                 s["ranges"].append((entry.va, entry.va + size_hint))
 
     out: list[dict[str, Any]] = []

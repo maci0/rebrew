@@ -170,7 +170,8 @@ def run_catalog(
         data = bundle["data"]
         labels_path = reversed_dir / "ghidra_data_labels.json"
         text_sec = data.get("sections", {}).get(".text")
-        if not text_sec or not text_sec.get("va"):
+        text_va = text_sec.get("va") if text_sec is not None else None
+        if text_va is None or (text_va == 0 and text_size == 0):
             # Sections are empty when the binary is missing or failed to load
             # (grid.py logs that).  Overwriting here would replace every
             # existing label with [], so an existing file is left alone.

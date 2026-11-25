@@ -319,7 +319,7 @@ def build_name_to_va(
             facts_out=scan_facts_out,
         )
         for name, glob in scan.globals.items():
-            if glob.va:
+            if glob.has_address:
                 name_to_va[name] = glob.va
         # scan_globals only reads the .c sources; the annotated globals in
         # rebrew-data.toml carry the authoritative name↔VA pairs.  Without
