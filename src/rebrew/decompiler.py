@@ -596,6 +596,10 @@ _KUNA_IMPORT_RE = re.compile(
 )
 
 
+class KunaProcessError(RebrewError):
+    """Kuna could not start or finish its invocation."""
+
+
 class KunaNoBodyError(RebrewError, ValueError):
     """kuna reports that the address is an import slot, not a function body."""
 
@@ -617,7 +621,8 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     printed to stdout.  Returns ``None`` when kuna is unavailable or fails (a
     failure is reported as a warning carrying kuna's first stderr line), exactly
     like the other optional backends.  Raises :class:`KunaNoBodyError` when the
-    address is an import slot.
+    address is an import slot, and :class:`KunaProcessError` on launch failure
+    or timeout.
 
     A 16-bit NE executable is not a format kuna loads: ``va`` is the flat address
     ``((segment - 1) << 16) | offset`` and kuna decompiles that segment's bytes, with its
@@ -723,10 +728,13 @@ def _run_kuna(
             f"{detail[0] if detail else 'no message'}",
             stacklevel=3,
         )
-    except subprocess.TimeoutExpired:
-        warnings.warn(f"kuna timed out decompiling 0x{va:08x}", stacklevel=3)
-    except (OSError, subprocess.SubprocessError) as e:
-        warnings.warn(f"kuna failed decompiling 0x{va:08x}: {e}", stacklevel=3)
+    except subprocess.TimeoutExpired as exc:
+        raise KunaProcessError(f"kuna timed out decompiling 0x{va:08x}") from exc
+    except OSError as exc:
+        reason = exc.strerror or type(exc).__name__
+        raise KunaProcessError(f"kuna could not start for 0x{va:08x}: {reason}") from exc
+    except subprocess.SubprocessError as exc:
+        raise KunaProcessError(f"kuna process failed for 0x{va:08x}") from exc
     return None
 
 
@@ -1453,12 +1461,16 @@ def fetch_decompilation(
         with _BACKEND_REFRESH_LOCK:
             backends = _BACKEND_MAP
             auto_probe = _AUTO_PROBE_BACKENDS
+        process_error: KunaProcessError | None = None
         for name in auto_probe:
             fn = backends[name]
             try:
                 result = fn(
                     binary_path, va, root=root, endpoint=endpoint, program_path=program_path
                 )
+            except KunaProcessError as exc:
+                process_error = exc
+                continue
             except Exception:
                 # A raising backend must not abort the probe — degrade to
                 # the next one (a plugin backend is optional; the packaged
@@ -1469,6 +1481,8 @@ def fetch_decompilation(
                 result = None
             if result:
                 return result, name
+        if process_error is not None:
+            raise process_error
         return None, "auto"
 
     with _BACKEND_REFRESH_LOCK:

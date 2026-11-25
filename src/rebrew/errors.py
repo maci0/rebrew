@@ -72,6 +72,7 @@ if TYPE_CHECKING:
     from rebrew.coverage_project import ProjectCoverageError as ProjectCoverageError
     from rebrew.coverage_toml import CoverageTomlError as CoverageTomlError
     from rebrew.decompiler import KunaNoBodyError as KunaNoBodyError
+    from rebrew.decompiler import KunaProcessError as KunaProcessError
     from rebrew.decompme import DecompmeError as DecompmeError
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
@@ -288,6 +289,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
     "IdentifierRenameRefused": ("rebrew.c_rename", "IdentifierRenameRefused"),
     "KunaNoBodyError": ("rebrew.decompiler", "KunaNoBodyError"),
+    "KunaProcessError": ("rebrew.decompiler", "KunaProcessError"),
     "LibraryOverrideError": ("rebrew.metadata.functions", "LibraryOverrideError"),
     "LibIndexUnavailable": ("rebrew.doctor", "LibIndexUnavailable"),
     "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
@@ -396,6 +398,7 @@ __all__ = [
     "FingerprintError",
     "IdentifierRenameRefused",
     "KunaNoBodyError",
+    "KunaProcessError",
     "LibIndexUnavailable",
     "LibraryOverrideError",
     "McpApplyAborted",

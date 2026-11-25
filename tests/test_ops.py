@@ -5412,6 +5412,48 @@ class TestDecompilersOffered:
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", worked)
         monkeypatch.setattr("rebrew.struct_recover.fetch_decompilation", worked, raising=False)
 
+    @pytest.mark.parametrize("backend", ["kuna", "auto"])
+    @pytest.mark.parametrize(
+        ("failure", "status", "code", "detail"),
+        [
+            ("timeout", 500, "engine-error", "kuna timed out"),
+            ("launch", 500, "engine-error", "kuna could not start"),
+            ("empty", 422, "no-decompilation", ""),
+        ],
+    )
+    def test_kuna_process_outcomes(
+        self,
+        world: tuple[WorkerConfig, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        backend: str,
+        failure: str,
+        status: int,
+        code: str,
+        detail: str,
+    ) -> None:
+        self._engine(monkeypatch, kuna=True)
+
+        def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if failure == "timeout":
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+            if failure == "launch":
+                raise PermissionError(13, "Permission denied", argv[0])
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        monkeypatch.setattr("rebrew.decompiler.run_process_group", run)
+        config, project = world
+        request = {
+            "project_dir": str(project),
+            "sha256": SHA256,
+            "va": ENTRY_VA,
+            "backend": backend,
+            "named": False,
+        }
+        refusal = _refusal(config, "rebrew.decompile", json.dumps(request).encode())
+        assert (refusal["status"], refusal["error"]) == (status, code)
+        assert detail in refusal["detail"]
+        assert "/usr/bin/kuna" not in refusal["detail"]
+
     def test_the_production_request_is_refused_before_any_work(
         self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
