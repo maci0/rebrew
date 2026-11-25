@@ -559,6 +559,62 @@ class TestDiffReports:
 
 
 class TestVerifyCli:
+    def test_raw_link_preserves_unmeasured_data_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import append_pe_section, make_pe
+
+        from rebrew import verify
+        from rebrew.metadata.data import load_data_metadata, set_data_fields_batch
+
+        cfg = _cfg(tmp_path)
+        image = append_pe_section(make_pe(b"\xc3"), ".data", bytes(4))
+        cfg.target_binary.write_bytes(image)
+        built = tmp_path / "built.exe"
+        built.write_bytes(image)
+        set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x401000,
+                    "fields": {
+                        "name": "g_code",
+                        "size": 1,
+                        "section": ".text",
+                        "status": "EXACT",
+                    },
+                },
+                {
+                    "module": "SERVER",
+                    "va": 0x402000,
+                    "fields": {
+                        "name": "g_data",
+                        "size": 4,
+                        "section": ".data",
+                    },
+                },
+            ],
+        )
+        old = load_data_metadata(tmp_path)["SERVER", 0x401000]
+        monkeypatch.setattr(verify, "require_config", lambda **kwargs: cfg)
+        result = CliRunner().invoke(
+            verify.app,
+            [
+                "--data",
+                "--raw-link",
+                "--built",
+                str(built),
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output or repr(result.exception)
+        reports = {row["name"]: row for row in cli_payload(result)["data"]["results"]}
+        assert reports["g_code"]["status"] == "UNCHECKED"
+        rows = load_data_metadata(tmp_path)
+        assert rows["SERVER", 0x401000] == old
+        assert rows["SERVER", 0x402000]["status"] == "VERIFIED"
+
     def test_short_reference_cannot_earn_a_match(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

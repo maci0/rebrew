@@ -1321,6 +1321,7 @@ def main(
             data_report["section_copied_warning"] = _dsec
         if not dry_run:
             from rebrew.metadata.data import (
+                DATA_STATUS_UNCHECKED,
                 load_data_metadata,
                 set_data_fields_batch,
             )
@@ -1330,7 +1331,7 @@ def main(
             for row in data_report["results"]:
                 module, va, status = row["module"], int(row["va"], 16), row["status"]
                 entry = entries.get((module, va))
-                if entry is not None:
+                if entry is not None and status != DATA_STATUS_UNCHECKED:
                     status_updates.append(
                         {
                             "module": module,

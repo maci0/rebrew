@@ -164,6 +164,8 @@ def verify_data_bytes(
             if not changed:
                 break
         for row, (_, va, fields) in zip(results, row_meta, strict=True):
+            if not _section_selected(str(fields.get("section") or ""), sections):
+                continue
             key = row["module"], va
             placement = resolved.get(key)
             if (

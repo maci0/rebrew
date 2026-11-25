@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Raw-link data verification leaves stored verdicts intact for rows the selected sections could not establish a verdict for (D-engines7-062).
 - Data verification requires the recorded native symbol for direct placement evidence (D-engines7-061).
 - Data annotation binds only a unique name visible to the requested target (D-engines7-057).
 - Data pairing rolls back source and metadata together if the requested rewrite or row publication fails (D-engines7-056).
