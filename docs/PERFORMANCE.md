@@ -13,7 +13,7 @@ over the workers plus 4.6 s of collection; no single test is the long pole.
 | change | before | after |
 |---|---:|---:|
 | `test_reanalysis_name_binding` builds its analysed SQLite project once per session (59 tests, 3 runs each) | 299 G instructions, 53.8 CPU-s | 154 G, 29.0 CPU-s |
-| `lint` / `test` keep a uv cache of their own (CI) | 46 s / 73 s installing | not measured yet |
+| `lint` / `test` keep a uv cache of their own (CI, one run each) | 46 s / 73 s installing | 1 s / 1 s on a hit; 70 s / 83 s on the run that fills it |
 
 The shared uv cache key held what the first job to finish installed (plain
 `uv sync --locked`), so lmdb, jpype1 and pypcode were built on every run.
