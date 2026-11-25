@@ -16,6 +16,8 @@ lazy import io
 lazy import json
 lazy from pathlib import Path, PureWindowsPath
 
+lazy from rebrew.utils import sha256_file as sha256_file
+
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
     from rebrew.data_scan import ScanResult

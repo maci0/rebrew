@@ -649,11 +649,9 @@ class TestExecutionBackendConfig:
             tc.run_toolchain(
                 TOOLCHAINS["msvc-6.0-sp5"], [], workdir=tmp_path, execution_backend=backend
             )
-        # Timeout only kills the CLI process group; the container was started
-        # with --rm and a named container no longer needs an explicit kill —
-        # the daemon-side container is bound to the CLI's lifetime and the
-        # group kill already covers the wedged-writer case.
-        assert [cmd[:2] for cmd in commands] == [[backend, "run"]]
+        assert commands[0][:2] == [backend, "run"]
+        name = commands[0][commands[0].index("--name") + 1]
+        assert commands[1:] == [[backend, "kill", name]]
 
     def test_daemon_image_memos_are_separate(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.compiler.toolchain as tc
