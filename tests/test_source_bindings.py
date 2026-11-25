@@ -190,6 +190,35 @@ class TestSourceBindings:
 
 
 class TestRegistration:
+    @pytest.mark.parametrize("has_owner", [False, True], ids=["configured-spelling", "other-owner"])
+    def test_registration_uses_the_canonical_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, has_owner: bool
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+        from rebrew.metadata.functions import load_metadata
+
+        module = "GAME" if has_owner else "game"
+        cfg = SimpleNamespace(
+            root=tmp_path, metadata_dir=tmp_path, target_modules={module}, library_modules=set()
+        )
+        if has_owner:
+            _record(tmp_path, module, 0x1000, "owner.c", "owner")
+        source = tmp_path / "other.c"
+        source.write_text(
+            f"/* ADDRESS: {module.swapcase()} 0x1000 */\nint other(void) {{ return 0; }}\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.source_register.require_config", lambda **kwargs: cfg)
+        result = CliRunner().invoke(app, ["source", "register", str(source), "--json"])
+        assert result.exit_code == (2 if has_owner else 0), result.output
+        if has_owner:
+            assert "already belongs to owner.c" in result.output
+        rows = load_metadata(tmp_path)
+        assert set(rows) == {(module, 0x1000)}
+        assert rows[(module, 0x1000)]["file"] == ("owner.c" if has_owner else "other.c")
+
     @pytest.mark.parametrize("module", ["LIB", "lib"])
     def test_library_registration_uses_project_relative_provider_identity(
         self, tmp_path: Path, module: str

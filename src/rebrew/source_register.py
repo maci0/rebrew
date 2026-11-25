@@ -41,15 +41,19 @@ def plan_registration(
     functions = load_metadata(metadata_dir, deepcopy=False)
     data = load_data_metadata(metadata_dir, deepcopy=False)
     seen: dict[tuple[str, int, bool], tuple[Path, str]] = {}
-    library_modules = {preset_module_key(m) for m in (getattr(cfg, "library_modules", ()) or ())}
-    allowed = {
-        preset_module_key(m)
-        for m in (
-            set(getattr(cfg, "target_modules", ()) or ())
-            | library_modules
-            | set(getattr(cfg, "external_libs", ()) or ())
-        )
-    }
+    library_modules = set(getattr(cfg, "library_modules", ()) or ())
+    library_keys = {preset_module_key(module) for module in library_modules}
+    configured: dict[str, set[str]] = {}
+    for module in (
+        set(getattr(cfg, "target_modules", ()) or ())
+        | library_modules
+        | set(getattr(cfg, "external_libs", ()) or ())
+    ):
+        configured.setdefault(preset_module_key(module), set()).add(module)
+    stored: dict[tuple[str, int, bool], list[tuple[str, dict[str, Any]]]] = {}
+    for is_data, entries in ((False, functions), (True, data)):
+        for (module, va), entry in entries.items():
+            stored.setdefault((preset_module_key(module), va, is_data), []).append((module, entry))
     for path in paths:
         text, _ = read_source_text(path)
         syntax = getattr(cfg, "address_comments", None)
@@ -63,23 +67,23 @@ def plan_registration(
             else {}
         )
         for anchor in anchors:
-            if preset_module_key(anchor.module) not in allowed:
+            module_key = preset_module_key(anchor.module)
+            if module_key not in configured:
                 raise ValueError(f"{path}:{anchor.line}: unknown target module {anchor.module!r}")
             is_data = anchor.kind == "DATA"
-            key = (anchor.module, anchor.va, is_data)
+            key = (module_key, anchor.va, is_data)
             owner = (path.resolve(), anchor.name)
             if key in seen:
                 if seen[key] != owner:
                     raise ValueError(f"{anchor.module}.{anchor.va:#x} binds several declarations")
                 continue
             seen[key] = owner
-            entry = (data if is_data else functions).get((anchor.module, anchor.va), {})
+            matches = stored.get(key, [])
+            if len(matches) > 1 or (not matches and len(configured[module_key]) > 1):
+                raise ValueError(f"{path}:{anchor.line}: ambiguous address anchor module")
+            module, entry = matches[0] if matches else (next(iter(configured[module_key])), {})
             default_kind = (
-                "DATA"
-                if is_data
-                else "LIBRARY"
-                if preset_module_key(anchor.module) in library_modules
-                else "FUNCTION"
+                "DATA" if is_data else "LIBRARY" if module_key in library_keys else "FUNCTION"
             )
             kind = str(entry.get("kind") or default_kind)
             relative = (
@@ -88,17 +92,15 @@ def plan_registration(
                 else identity_file(path, metadata_dir)
             )
             if entry.get("file") and not stored_file_matches(str(entry["file"]), relative):
-                raise ValueError(
-                    f"{anchor.module}.{anchor.va:#x} already belongs to {entry['file']}"
-                )
+                raise ValueError(f"{module}.{anchor.va:#x} already belongs to {entry['file']}")
             if entry.get("name") and entry["name"] != anchor.name:
                 raise ValueError(
-                    f"{anchor.module}.{anchor.va:#x} names {entry['name']!r}; use source rename"
+                    f"{module}.{anchor.va:#x} names {entry['name']!r}; use source rename"
                 )
             identity = {"file": relative, "name": anchor.name, "kind": kind}
             if is_data:
                 row: dict[str, Any] = {
-                    "module": anchor.module,
+                    "module": module,
                     "va": anchor.va,
                     "identity": identity,
                 }
@@ -122,9 +124,7 @@ def plan_registration(
                 else:
                     symbol = stored_symbol
                 identity["symbol"] = symbol
-                function_rows.append(
-                    {"module": anchor.module, "va": anchor.va, "identity": identity}
-                )
+                function_rows.append({"module": module, "va": anchor.va, "identity": identity})
     return function_rows, data_rows
 
 
