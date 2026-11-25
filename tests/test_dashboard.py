@@ -50,6 +50,12 @@ from rebrew.dashboard import (
 from rebrew.status_style import STATUS_HEX
 
 
+@pytest.fixture(autouse=True)
+def _request_context_per_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Handler tests run on the pytest thread, which outlives the simulated request.
+    monkeypatch.setattr(dashboard_module, "_REQUEST_LOCAL", threading.local())
+
+
 class _NullWFile:
     """Swallow the response body of a handler built without a socket."""
 
