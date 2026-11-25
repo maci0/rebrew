@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Rebinding a function updates linker response files when its native symbol changes but its C name stays the same (D-engines7-022).
 - Digest-guarded reference edits use coordinated publication and preserve an editor's save if it changes the file during staging (D-engines7-035).
 - Source merge refuses to collapse independently owned file-local storage, even when the declarations are identical (D-engines7-031).
 - Mixed source registration validates data kinds before writing and rolls back both metadata stores on a write failure (D-engines7-021).

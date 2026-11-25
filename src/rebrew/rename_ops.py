@@ -781,8 +781,16 @@ def plan_rebound_references(
     old_name = rename_source_name(str(row.get("name") or ""), str(row.get("symbol") or ""))
     new_name = replacement["name"]
     plan = RenamePlan(kind=KIND_FUNCTION, old_name=old_name, new_name=new_name)
+    old_symbol = str(row.get("symbol") or "_" + old_name)
+    linker_changes = (
+        _linker_reference_changes(cfg, {selected.module: {old_symbol: replacement["symbol"]}})
+        if old_name and old_symbol != replacement["symbol"]
+        else []
+    )
     if not old_name or old_name == new_name:
+        plan.files.extend(linker_changes)
         plan.input_hashes = _rename_source_inputs(project, plan) | _rename_context_inputs(cfg)
+        check_rename_inputs(cfg, plan)
         return plan
     previous = project.path_for_stored(str(row.get("file") or ""))
     if previous is None:
@@ -846,12 +854,7 @@ def plan_rebound_references(
         )
         if change is not None:
             plan.files.append(change)
-    plan.files.extend(
-        _linker_reference_changes(
-            cfg,
-            {selected.module: {str(row.get("symbol") or "_" + old_name): replacement["symbol"]}},
-        )
-    )
+    plan.files.extend(linker_changes)
     plan.input_hashes = _rename_source_inputs(project, plan) | _rename_context_inputs(cfg)
     check_rename_inputs(cfg, plan)
     return plan

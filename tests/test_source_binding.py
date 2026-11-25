@@ -1123,6 +1123,37 @@ def test_apply_rechecks_review_input_after_acquiring_lock(tmp_path: Path) -> Non
 
 
 class TestRetargetReferences:
+    def test_same_c_name_retargets_the_decorated_linker_symbol(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.source_binding import app
+
+        cfg = _project(tmp_path)
+        monkeypatch.setattr("rebrew.source_binding.require_config", lambda **kwargs: cfg)
+        replacement = cfg.reversed_dir / "replacement.c"
+        replacement.write_text("int __stdcall f(void) { return 2; }\n", encoding="utf-8")
+        response = tmp_path / "layout" / (cfg.target_name or cfg.target_binary.name) / "link.rsp"
+        response.parent.mkdir(parents=True)
+        response.write_text("/INCLUDE:_f\n", encoding="utf-8")
+        args = [
+            "rebind",
+            "0x401000",
+            str(replacement),
+            "--reason",
+            "proof",
+            "--retarget-references",
+            "--json",
+        ]
+        preview = CliRunner().invoke(app, [*args, "--dry-run"])
+        assert preview.exit_code == 0, preview.output
+        assert response.read_text(encoding="utf-8") == "/INCLUDE:_f\n"
+        result = CliRunner().invoke(
+            app, [*args, "--expected-digest", cli_payload(preview)["input_digest"]]
+        )
+        assert result.exit_code == 0, result.output
+        assert get_entry(cfg.metadata_dir, 0x401000, "GAME")["symbol"] == "_f@0"
+        assert response.read_text(encoding="utf-8") == "/INCLUDE:_f@0\n"
+
     def setup_twin(self, tmp_path):
         cfg = _project(tmp_path)
         twin = cfg.reversed_dir / "twin.c"
