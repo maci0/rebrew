@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Unscoped baseline comparisons report removed functions, and scoped runs preserve the full baseline (D-engines7-052).
 - Verify stamps live and cached comparisons with the reference revision they read and keeps the baseline when that revision changes (D-engines7-065).
 - A compile that could not start keeps its structured toolchain refusal regardless of diagnostic text (D-engines7-048).
 - Raw-link data verification leaves stored verdicts intact for rows the selected sections could not establish a verdict for (D-engines7-062).

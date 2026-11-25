@@ -559,6 +559,30 @@ class TestDiffReports:
 
 
 class TestVerifyCli:
+    @pytest.mark.parametrize("scoped", [False, True])
+    def test_compare_reports_removals_only_for_full_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scoped: bool
+    ) -> None:
+        from rebrew.verify import app
+        from rebrew.verify_cache import baseline_path, save_baseline
+
+        cfg = _cfg(tmp_path)
+        kept = {"va": "0x00001000", "name": "kept", "status": "EXACT", "passed": True}
+        deleted = {"va": "0x00001010", "name": "deleted", "status": "EXACT", "passed": True}
+        previous = {"results": [kept, deleted]}
+        save_baseline(cfg, previous)
+        path = baseline_path(cfg)
+        original = path.read_bytes()
+        self._patch_flow(monkeypatch, cfg, results=[kept], previous=previous)
+        args = ["--compare", "--json"]
+        if scoped:
+            args.append("--skip-libraries")
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output or repr(result.exception)
+        removed = cli_payload(result)["diff"]["removed"]
+        assert [row["name"] for row in removed] == ([] if scoped else ["deleted"])
+        assert (path.read_bytes() == original) == scoped
+
     def test_raw_link_preserves_unmeasured_data_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

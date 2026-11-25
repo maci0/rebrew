@@ -1631,6 +1631,7 @@ def main(
         fix_sizes=fix_sizes,
         orphans_pruned=orphans_pruned,
         functions_checked=check_functions,
+        scoped=bool(file or batch_dir or origin or nolib),
     )
 
 
@@ -1951,6 +1952,7 @@ def _save_report(
     orphans_pruned: int,
     functions_checked: bool = True,
     no_promote: bool = False,
+    scoped: bool = False,
 ) -> None:
     """Assemble the verify report, save cache + baseline, print, gate."""
     results = batch.results
@@ -2079,7 +2081,11 @@ def _save_report(
     if diff_mode and previous_report is not None:
         # A scope flag leaves the baseline whole-project, so without this the
         # out-of-scope entries read as `removed`.
-        scope = ({str(r.get("va")) for r in results} or None) if functions_checked else set()
+        scope = None
+        if not functions_checked:
+            scope = set()
+        elif scoped:
+            scope = {_va_display(canonical_va_key(r["va"])) for r in results}
         diff_result = diff_reports(previous_report, report, scope=scope)
     data_failed = 0
     if data_report is not None:
@@ -2128,6 +2134,7 @@ def _save_report(
     if (
         functions_checked
         and not dry_run
+        and not scoped
         and not (diff_mode and gate_failed)
         and not batch.excluded_keys
     ):
