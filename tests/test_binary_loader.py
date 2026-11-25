@@ -224,6 +224,17 @@ class TestExtractBytesAtVa:
         monkeypatch.setattr(binary_loader, "load_binary", lambda path: info)
         assert binary_loader.extract_raw_bytes(binary, 0x10001000, len(code)) == code
 
+    def test_raw_read_excludes_overlay_at_unmapped_address(self, tmp_path: Path) -> None:
+        from bin_util import make_pe
+
+        from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
+
+        binary = tmp_path / "test.exe"
+        binary.write_bytes(make_pe(b"\xc3") + b"overlay")
+        section = load_binary(binary).sections[".text"]
+        assert extract_raw_bytes(binary, section.va, 1) == b"\xc3"
+        assert extract_raw_bytes(binary, section.va + section.raw_size, 7) == b""
+
     def test_va_not_in_section(self, tmp_path: Path) -> None:
         f = tmp_path / "test.bin"
         f.write_bytes(b"\x00" * 100)
