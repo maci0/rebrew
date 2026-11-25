@@ -162,6 +162,29 @@ class TestMergeBasic:
         text = out.read_text(encoding="utf-8")
         assert text.find("0x10001000") < text.find("0x10003000")
 
+    def test_consolidate_keeps_typedefs_in_their_function_bodies(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        first = _write(
+            tmp_path / "a.c",
+            _single(0x10001000, "_func_a").replace(
+                "{ return 0; }", "{\n    typedef int T;\n    return (T)1;\n}"
+            ),
+        )
+        second = _write(
+            tmp_path / "b.c",
+            _single(0x10002000, "_func_b").replace(
+                "{ return 0; }", "{\n    typedef double T;\n    return (T)2;\n}"
+            ),
+        )
+        result, output = _invoke(
+            tmp_path, monkeypatch, "--force", "--consolidate", str(first), str(second)
+        )
+        assert result.exit_code == 0, result.output
+        text = output.read_text(encoding="utf-8")
+        assert "int func_a(void) {\n    typedef int T;\n    return (T)1;" in text
+        assert "int func_b(void) {\n    typedef double T;\n    return (T)2;" in text
+
     def test_consolidate_hoists_declarations(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--consolidate hoists per-block includes/externs/typedefs to the top."""
         block_extra = "#include <stdio.h>\nextern int helper(void);\ntypedef int HANDLE;\n"

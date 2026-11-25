@@ -226,7 +226,12 @@ def consolidate_declarations(text: str, *, syntax: Any = None) -> tuple[str, Ext
     externs: list[str] = []
     typedefs: list[str] = []
     pragmas: list[str] = []
+    from rebrew.c_parser import parse_c_structure
     from rebrew.metadata.anchors import parse_address_anchors
+    from rebrew.source_layout import mask_for_parse
+
+    parsed, _, _ = parse_c_structure(mask_for_parse(text.encode("utf-8", "surrogateescape")))
+    file_scope = {node.start_point.row for node in parsed.root_node.named_children}
 
     address_bound_lines = {
         a.definition_line - 1
@@ -237,6 +242,9 @@ def consolidate_declarations(text: str, *, syntax: Any = None) -> tuple[str, Ext
 
     i = 0
     while i < len(lines):
+        if i not in file_scope:
+            i += 1
+            continue
         stripped = lines[i].strip()
         if stripped == '#include "rebrew_types.h"':
             lines_to_remove.add(i)
