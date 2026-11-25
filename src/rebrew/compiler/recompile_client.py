@@ -576,16 +576,16 @@ def _retry_after(value: str | None) -> float | None:
     if value is None:
         return None
     text = value.strip()
-    if text.isdigit():
+    if text.isascii() and text.isdecimal():
         seconds = float(text)
     else:
         try:
             when = parsedate_to_datetime(text)
-        except TypeError, ValueError:
+            if when.tzinfo is None:
+                return None
+            seconds = max(0.0, when.timestamp() - time.time())
+        except TypeError, ValueError, OverflowError, OSError:
             return None
-        if when.tzinfo is None:
-            return None
-        seconds = max(0.0, when.timestamp() - time.time())
     return min(seconds, float(MAX_RETRY_AFTER_SECONDS))
 
 

@@ -1474,6 +1474,24 @@ class TestServicePacing:
 
         return _Replay(None, _Resp(200, content=b"OBJ"))
 
+    def test_invalid_retry_after_preserves_ambiguous_http_result(self) -> None:
+        import time
+
+        client = _FakeClient(_Resp(503, headers={"Retry-After": "²"}))
+        with pytest.raises(RecompileError) as caught:
+            compile_source(
+                "http://svc",
+                "msvc-6.0",
+                "x",
+                [],
+                client=client,
+                deadline=time.monotonic() + 5,
+                sleep=lambda _: None,
+            )
+        assert caught.value.status_code == 503
+        assert caught.value.retry_after is None
+        assert caught.value.cost == "unknown"
+
     def test_holdoff_applies_to_an_attempt_already_queued(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
