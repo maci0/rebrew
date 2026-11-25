@@ -1559,13 +1559,6 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                         raise MetadataStorageError(
                             f"{sidecar}: cannot remove stale SQLite sidecar before restore: {exc}"
                         ) from exc
-            # Restored verify caches make any pre-restore JSON sidecar
-            # stale; its fingerprint would miss anyway, but leaving it
-            # around invites a later stat-collision hit.
-            for _src, _dest in _siblings:
-                if _dest.name in ("verify_cache.toml", "verify_baseline.toml"):
-                    with contextlib.suppress(OSError):
-                        _dest.with_suffix(".json").unlink(missing_ok=True)
             os.replace(tmp, location)
             published = True
             dir_fd = os.open(location.parent, os.O_RDONLY)
@@ -1579,4 +1572,12 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
             if not published:
                 rollback_siblings()
             raise
+        # A restored TOML cache invalidates only a sidecar from the previous live tree.
+        installed = set(_installed)
+        for path in _installed:
+            if path.name in ("verify_cache.toml", "verify_baseline.toml"):
+                sidecar = path.with_suffix(".json")
+                if sidecar not in installed:
+                    with contextlib.suppress(OSError):
+                        sidecar.unlink(missing_ok=True)
     return location

@@ -509,6 +509,21 @@ class TestSqliteBackup:
         assert not _sidecar.exists()
         assert _store.read("test")["GAME.0x1000"]["size"] == 4
 
+    def test_restore_keeps_the_json_cache_when_it_was_backed_up(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        metadata_store(tmp_path / "rebrew-functions.toml").write({"format": 3}, "test")
+        directory = tmp_path / ".rebrew"
+        directory.mkdir()
+        (directory / "verify_cache.toml").write_text("entries = {}\n", encoding="utf-8")
+        cache = directory / "verify_cache.json"
+        cache.write_text('{"schema": 1}\n', encoding="utf-8")
+        backup = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        assert ".rebrew/verify_cache.json" in verify_backup_manifest(backup.parent)
+
+        restored = tmp_path / "restored"
+        restore_metadata_database(backup, restored)
+        assert (restored / ".rebrew" / cache.name).read_bytes() == cache.read_bytes()
+
     def test_missing_database_raises(self, tmp_path: Path) -> None:
         _project(tmp_path)
         with pytest.raises(FileNotFoundError):

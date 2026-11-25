@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- SQLite restore keeps a verified JSON cache from the backup and removes obsolete live sidecars only after publishing the database (D-engines7-027).
 - A stale function anchor cannot let a later contradictory anchor restore a skipped record or its verdict (D-engines7-036).
 - Source rename records moved files relative to the path namespace of each function or data row (D-engines7-034).
 - Source merge consolidation preserves project headers whose names include `rebrew_types`; it drops the retired `rebrew_types.h` include (D-engines7-033).
