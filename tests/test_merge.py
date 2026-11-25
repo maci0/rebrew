@@ -66,6 +66,24 @@ def _invoke(tmp_path: Path, monkeypatch: Any, *args: str) -> tuple[Any, Path]:
 
 
 class TestMergeBasic:
+    def test_merge_rejects_independent_static_objects(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        preamble = "static int counter = 0;\n"
+        first = _write(tmp_path / "a.c", _single(0x10001000, "_func_a", preamble=preamble))
+        second = _write(tmp_path / "b.c", _single(0x10002000, "_func_b", preamble=preamble))
+        metadata = tmp_path / "rebrew-functions.toml"
+        before = {path: path.read_bytes() for path in (first, second, metadata)}
+
+        result, output = _invoke(
+            tmp_path, monkeypatch, "--force", "--delete", "--json", str(first), str(second)
+        )
+
+        assert result.exit_code == 2, result.output
+        assert "independent file-local definitions of counter" in result.output
+        assert not output.exists()
+        assert {path: path.read_bytes() for path in before} == before
+
     def test_merges_two_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_func_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_func_b"))

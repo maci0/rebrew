@@ -455,6 +455,7 @@ class _Piece:
     norm: str
     rows: list[tuple[str, int, str]]
     va: int
+    static: bool
     providers: set[str] = field(default_factory=set)
 
 
@@ -522,6 +523,7 @@ def _make_piece(
         norm=_norm_c(raw[span.start : span.end].decode("utf-8", errors="surrogateescape")),
         rows=rows,
         va=min((row_va for _module, row_va, _old in rows), default=_NO_VA),
+        static=span.static,
     )
 
 
@@ -763,6 +765,11 @@ def _accept_storage(
         seen[piece.name] = piece
         ordered.append(piece)
         return
+    if prior.static or piece.static:
+        error_exit(
+            f"Cannot merge independent file-local definitions of {piece.name}. Nothing was written.",
+            json_mode=json_output,
+        )
     if prior.norm != piece.norm:
         error_exit(
             f"{piece.name} differs between inputs. Nothing was written.",

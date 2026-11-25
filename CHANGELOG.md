@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Source merge refuses to collapse independently owned file-local storage, even when the declarations are identical (D-engines7-031).
 - Mixed source registration validates data kinds before writing and rolls back both metadata stores on a write failure (D-engines7-021).
 - Source registration checks ownership across module spellings and keeps the stored or configured spelling (D-engines7-020).
 - TOML and SQLite restores install only files listed in the verified backup manifest, including when the backup directory was reused (D-engines7-026).
