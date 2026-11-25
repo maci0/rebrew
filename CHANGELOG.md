@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Rehome rejects a second claim to a function definition at a different address in the same target, including claims in one batch (D-engines7-025).
 - Orphan pruning preserves live function records at DOS address zero, including records known only to the inventory (D-engines7-037).
 - Both source rehome modes resolve library provider paths from the project root when the metadata store is nested (D-engines7-024).
 - Rebinding a function updates linker response files when its native symbol changes but its C name stays the same (D-engines7-022).

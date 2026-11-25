@@ -81,6 +81,35 @@ def test_rejects_unknown_row(tmp_path: Path) -> None:
         rehome_functions(cfg, ["0x2000=src/b.c"])
 
 
+@pytest.mark.parametrize("existing_owner", [False, True], ids=["batch", "existing"])
+def test_rehome_refuses_a_second_claim_to_one_definition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing_owner: bool
+) -> None:
+    from rebrew.metadata.functions import record_function_identity
+
+    cfg = _cfg(tmp_path)
+    (tmp_path / "src" / "b.c").write_text("int g(void) { return 0; }\n", encoding="utf-8")
+    record_function_identity(
+        tmp_path,
+        module="SERVER",
+        va=0x2000,
+        file="src/b.c" if existing_owner else "src/c.c",
+        name="g",
+        symbol="_g",
+        kind="FUNCTION",
+    )
+    metadata = tmp_path / "rebrew-functions.toml"
+    before = metadata.read_bytes()
+    monkeypatch.setattr("rebrew.rehome.require_config", lambda **kwargs: cfg)
+    specs = ["0x1000=src/b.c:g"]
+    if not existing_owner:
+        specs.append("0x2000=src/b.c")
+    result = CliRunner().invoke(app, ["source", "rehome", *specs, "--json"])
+    assert result.exit_code == 2, result.output
+    assert "already belongs to SERVER." in result.output
+    assert metadata.read_bytes() == before
+
+
 @pytest.mark.parametrize("whole_file", [False, True], ids=["address", "whole-file"])
 def test_library_rehome_uses_the_project_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, whole_file: bool

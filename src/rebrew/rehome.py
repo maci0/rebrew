@@ -98,6 +98,41 @@ def _split_bind(value: str) -> tuple[str, str | None]:
     return value, None
 
 
+def _check_definition_ownership(cfg: Any, rows: list[dict[str, Any]]) -> None:
+    """Refuse a source definition already claimed at another VA in its target."""
+    from rebrew.metadata.binding_history import retired_binding
+    from rebrew.metadata.bindings import function_rows_for_file
+    from rebrew.metadata.functions import load_metadata
+    from rebrew.utils import preset_module_key
+
+    stored = load_metadata(cfg.metadata_dir, deepcopy=False)
+    changes = {
+        (row["module"], row["va"]): stored.get((row["module"], row["va"]), {}) | row["identity"]
+        for row in rows
+    }
+    if len(changes) != len(rows):
+        raise ValueError("rehome repeats a function address")
+    effective = stored | changes
+    for (module, va), entry in changes.items():
+        root = cfg.root if entry.get("kind") == "LIBRARY" else cfg.metadata_dir
+        providers = function_rows_for_file(
+            root / entry["file"], cfg.metadata_dir, effective, project_root=cfg.root
+        )
+        for other_module, other_va, other in providers:
+            if (
+                other_va != va
+                and preset_module_key(other_module) == preset_module_key(module)
+                and not retired_binding(other)
+                and (
+                    _row_name(other) == _row_name(entry)
+                    or (entry.get("symbol") and other.get("symbol") == entry["symbol"])
+                )
+            ):
+                raise ValueError(
+                    f"replacement definition/symbol already belongs to {other_module}.0x{other_va:x}"
+                )
+
+
 def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> list[dict[str, Any]]:
     """Set each ``0xVA=PATH`` function row's ``file`` to PATH after checking PATH defines it.
 
@@ -151,21 +186,18 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
             row["old_name"] = old_name
             row["symbol"] = redecorated_symbol(old_symbol, bind)
         rows.append(row)
+    updates = [
+        {
+            "module": module,
+            "va": int(r["va"], 16),
+            "identity": {"file": r["file"]}
+            | ({"name": r["name"], "symbol": r["symbol"]} if "symbol" in r else {}),
+        }
+        for r in rows
+    ]
+    _check_definition_ownership(cfg, updates)
     if not dry_run:
-        record_function_rows(
-            cfg.metadata_dir,
-            [
-                {
-                    "module": module,
-                    "va": int(r["va"], 16),
-                    "identity": {"file": r["file"]}
-                    | ({"name": r["name"], "symbol": r["symbol"]} if "symbol" in r else {}),
-                }
-                for r in rows
-            ],
-            overwrite_name=True,
-            updated_by="rehome",
-        )
+        record_function_rows(cfg.metadata_dir, updates, overwrite_name=True, updated_by="rehome")
         for old_path, new_path in evidence_moves:
             _follow_assembly_evidence(cfg, old_path, new_path)
     return rows
@@ -224,19 +256,13 @@ def retarget_file(
         }
         for module, va, entry in data
     ]
+    updates = [
+        {"module": row["module"], "va": int(row["va"], 16), "identity": {"file": row["file"]}}
+        for row in function_rows
+    ]
+    _check_definition_ownership(cfg, updates)
     if not dry_run:
-        record_function_rows(
-            cfg.metadata_dir,
-            [
-                {
-                    "module": row["module"],
-                    "va": int(row["va"], 16),
-                    "identity": {"file": row["file"]},
-                }
-                for row in function_rows
-            ],
-            updated_by="rehome",
-        )
+        record_function_rows(cfg.metadata_dir, updates, updated_by="rehome")
         set_data_fields_batch(
             cfg.metadata_dir,
             [
