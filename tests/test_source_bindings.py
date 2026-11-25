@@ -28,6 +28,20 @@ def _record(root: Path, module: str, va: int, file: str, name: str, size: int = 
 
 
 class TestSourceBindings:
+    @pytest.mark.parametrize("names", [("stale", "right"), ("right", "stale")])
+    def test_conflicting_anchors_refuse_in_either_order(
+        self, tmp_path: Path, names: tuple[str, str]
+    ) -> None:
+        source = tmp_path / "f.c"
+        source.write_text(
+            "".join(
+                f"/* ADDRESS: GAME 0x1000 */\nint {name}(void) {{ return 0; }}\n" for name in names
+            )
+        )
+        _record(tmp_path, "GAME", 0x1000, "f.c", "right")
+        with pytest.raises(ValueError, match="address anchor"):
+            read_source_bindings(source, "GAME", metadata_dir=tmp_path)
+
     def test_anchor_module_case_cannot_bypass_stored_source_conflict(self, tmp_path: Path) -> None:
         source = tmp_path / "other.c"
         source.write_text("// ADDRESS: game 0x1000\nint other(void) { return 0; }\n")
