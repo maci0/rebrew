@@ -1465,6 +1465,98 @@ class TestPromoteToShared:
         assert tree_digest(tmp_path) == before
         assert not (cfg.shared_dir / "src").exists()
 
+    @pytest.mark.parametrize("shared_relative", [False, True])
+    def test_promote_retry_repairs_identity_after_the_move(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shared_relative: bool
+    ) -> None:
+        """A crash after the move but before metadata publication is repairable."""
+        cfg = self._cfg(tmp_path)
+        cfg.metadata_dir = tmp_path
+        src = cfg.reversed_dir / "f1.c"
+        src.write_text("int f1(void){ return 1; }\n", encoding="utf-8")
+        from tree_snapshot import digest as tree_digest
+
+        from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
+
+        old_file = identity_file(src, tmp_path)
+        record_function_identity(
+            tmp_path,
+            module="SRC",
+            va=0x401000,
+            file=old_file,
+            kind="FUNCTION",
+            name="f1",
+            symbol="_f1",
+        )
+        retarget = ci._retarget_moved_identity
+
+        def fail_publication(*_args: Any, **_kwargs: Any) -> None:
+            raise OSError("metadata publication interrupted")
+
+        monkeypatch.setattr(ci, "_retarget_moved_identity", fail_publication)
+        with pytest.raises(OSError, match="metadata publication interrupted"):
+            ci.promote_to_shared(cfg, "f1.c")
+
+        moved = cfg.shared_dir / "f1.c"
+        assert moved.is_file()
+        assert not src.exists()
+        assert get_entry(tmp_path, 0x401000, "SRC")["file"] == old_file
+
+        monkeypatch.setattr(ci, "_retarget_moved_identity", retarget)
+        retry_path = os.path.relpath(moved, cfg.reversed_dir) if shared_relative else "f1.c"
+        retried = ci.promote_to_shared(cfg, retry_path)
+
+        assert retried["action"] == "already-shared"
+        assert get_entry(tmp_path, 0x401000, "SRC")["file"] == identity_file(moved, tmp_path)
+        converged = tree_digest(tmp_path)
+        assert ci.promote_to_shared(cfg, retry_path)["action"] == "already-shared"
+        assert tree_digest(tmp_path) == converged
+
+    def test_promote_retry_finishes_an_interrupted_cross_filesystem_copy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Equal source and destination bytes are a copy waiting for its unlink."""
+        import shutil
+
+        cfg = self._cfg(tmp_path)
+        cfg.metadata_dir = tmp_path
+        src = cfg.reversed_dir / "f1.c"
+        src.write_text("int f1(void){ return 1; }\n", encoding="utf-8")
+        from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
+
+        record_function_identity(
+            tmp_path,
+            module="SRC",
+            va=0x401000,
+            file=identity_file(src, tmp_path),
+            kind="FUNCTION",
+            name="f1",
+            symbol="_f1",
+        )
+        move, retarget = ci.shutil.move, ci._retarget_moved_identity
+
+        def copy_without_unlink(source: Any, destination: Any) -> None:
+            shutil.copyfile(source, destination)
+
+        def fail_publication(*_args: Any, **_kwargs: Any) -> None:
+            raise OSError("metadata publication interrupted")
+
+        monkeypatch.setattr(ci.shutil, "move", copy_without_unlink)
+        monkeypatch.setattr(ci, "_retarget_moved_identity", fail_publication)
+        with pytest.raises(OSError, match="metadata publication interrupted"):
+            ci.promote_to_shared(cfg, "f1.c")
+
+        moved = cfg.shared_dir / "f1.c"
+        assert src.is_file() and moved.is_file()
+        monkeypatch.setattr(ci.shutil, "move", move)
+        monkeypatch.setattr(ci, "_retarget_moved_identity", retarget)
+
+        retried = ci.promote_to_shared(cfg, "f1.c")
+
+        assert retried["action"] == "promoted"
+        assert not src.exists()
+        assert get_entry(tmp_path, 0x401000, "SRC")["file"] == identity_file(moved, tmp_path)
+
     def test_promote_moves_across_filesystems(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1603,6 +1695,27 @@ class TestPromoteToShared:
         assert result.exit_code == 0, result.output
         assert (tmp_path / "src" / "shared" / "f1.c").is_file()
         assert not (tmp_path / "src" / "SRC" / "f1.c").exists()
+
+        # Recreate the state left by a crash between the move and metadata
+        # publication. The retry must repair it even though the shared file
+        # already exists and the import itself is mocked as successful.
+        from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
+
+        moved = tmp_path / "src" / "shared" / "f1.c"
+        record_function_identity(
+            tmp_path,
+            module="SRC",
+            va=A_F1,
+            file=identity_file(tmp_path / "src" / "SRC" / "f1.c", tmp_path),
+            kind="FUNCTION",
+            name="f1",
+            symbol="_f1",
+        )
+        retried = runner.invoke(
+            umbrella, ["source", "import-related", "--from", "SRC", "--shared", "--target", "DST"]
+        )
+        assert retried.exit_code == 0, retried.output
+        assert get_entry(tmp_path, A_F1, "SRC")["file"] == identity_file(moved, tmp_path)
 
 
 class TestSharedSupersede:

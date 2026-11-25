@@ -51,6 +51,7 @@ lazy from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
+    sha256_file,
     split_source_lines,
 )
 lazy from rebrew.workspace.status import MATCHED_STATUSES
@@ -598,13 +599,16 @@ def promote_to_shared(
     targets' scans. This moves ``<reversed_dir>/<src_file>`` to
     ``<shared_dir>/<src_file>`` (creating parent dirs), refusing when the
     shared dir is disabled, the source is missing, or the destination already
-    exists. ``(module, va)`` keys stay put. Rows whose ``file`` named the old
-    path are retargeted at the shared path, in both metadata stores.
+    exists with different bytes. ``(module, va)`` keys stay put. Rows whose
+    ``file`` named the old path are retargeted at the shared path, in both
+    metadata stores.
 
     Returns a result dict with ``action`` ``promoted`` / ``would-promote`` /
     ``already-shared`` / ``error`` and the shared-relative ``filepath``. A source
     already under the shared root is a successful no-op, so replaying the
-    promotion cannot move it into a nested shared tree or overwrite itself.
+    promotion cannot move it into a nested shared tree or overwrite itself. If
+    the move landed but its metadata update did not, the replay finishes that
+    update instead of leaving rows pointed at the vanished per-target path.
     """
     shared_root = getattr(cfg_src, "shared_dir", None)
     if shared_root is None:
@@ -614,7 +618,17 @@ def promote_to_shared(
             "filepath": src_file,
             "message": "shared_dir is disabled — set project.shared_dir first",
         }
+    shared_path = Path(shared_root).resolve()
     src_path = contained_path(source_roots(cfg_src), src_file)
+    shared_candidate = contained_path(shared_path, src_file)
+    if (
+        (src_path is None or not src_path.is_file())
+        and shared_candidate is not None
+        and shared_candidate.is_file()
+    ):
+        # The original relative name still resolves after a completed move.
+        # Accept the shared copy so a retry can finish an interrupted retarget.
+        src_path = shared_candidate
     if src_path is None:
         return {
             "action": "error",
@@ -629,7 +643,11 @@ def promote_to_shared(
             "filepath": src_file,
             "message": f"source not found: {src_path}",
         }
-    if src_path.is_relative_to(Path(shared_root).resolve()):
+    if src_path.is_relative_to(shared_path):
+        if not dry_run and getattr(cfg_src, "metadata_dir", None) is not None:
+            previous = Path(cfg_src.reversed_dir).resolve() / src_path.relative_to(shared_path)
+            if not previous.exists():
+                _retarget_moved_identity(cfg_src, previous, src_path)
         return {
             "action": "already-shared",
             "status": "",
@@ -645,6 +663,36 @@ def promote_to_shared(
             "message": f"file escapes its tree: {src_file!r}",
         }
     if dst_path.exists():
+        if not dry_run:
+            try:
+                interrupted_copy = (
+                    src_path.is_file()
+                    and dst_path.is_file()
+                    and sha256_file(src_path) == sha256_file(dst_path)
+                )
+            except OSError:
+                interrupted_copy = False
+            if interrupted_copy:
+                # A cross-filesystem move copies before unlinking its source.
+                # If it stopped between those steps, equal bytes prove the
+                # destination is that copy, so finish the move instead of
+                # refusing every later retry as a conflict.
+                try:
+                    src_path.unlink()
+                except OSError as exc:
+                    return {
+                        "action": "error",
+                        "status": "WRITE_ERROR",
+                        "filepath": src_file,
+                        "message": str(exc),
+                    }
+                _retarget_moved_identity(cfg_src, src_path, dst_path)
+                return {
+                    "action": "promoted",
+                    "status": "",
+                    "filepath": src_file,
+                    "message": f"completed interrupted move from {src_path} to {dst_path}",
+                }
         return {
             "action": "error",
             "status": "TARGET_CONFLICT",
@@ -683,8 +731,8 @@ def _retarget_moved_identity(cfg: Any, old_path: Path, new_path: Path) -> None:
 
     Identity is the row's ``file``, not a binding that travels with the bytes.
     A path the store refuses (absolute, or a ``..`` segment) is left as it
-    was: the move already landed, and a failed rewrite must not report the
-    promote as a write error.
+    was. Publication errors propagate so a replay can retry the unfinished
+    retarget after the move.
     """
     meta = getattr(cfg, "metadata_dir", None)
     if meta is None:
@@ -1964,24 +2012,19 @@ def main(
             res.update({"dst_va": f"0x{dst_va:08x}", "src_va": f"0x{src_va:08x}", "score": score})
             results.append(res)
             continue
-        if shared:
+        if shared and getattr(cfg_src, "shared_dir", None) is not None:
             # The shared tree only works when the file lives under the shared
             # root. Auto-promote a per-target source there first so the
-            # recorded row names the one file every target scans.
-            shared_root = getattr(cfg_src, "shared_dir", None)
-            shared_candidate = (
-                contained_path(shared_root, src_file) if shared_root is not None else None
-            )
-            if shared_root is not None and not (
-                shared_candidate is not None and shared_candidate.is_file()
-            ):
-                promo = promote_to_shared(cfg_src, src_file, dry_run=dry_run)
-                if promo["action"] == "error":
-                    promo.update(
-                        {"dst_va": f"0x{dst_va:08x}", "src_va": f"0x{src_va:08x}", "score": score}
-                    )
-                    results.append(promo)
-                    continue
+            # recorded row names the one file every target scans. An existing
+            # shared copy still goes through this call: it may be a move whose
+            # metadata publication was interrupted.
+            promo = promote_to_shared(cfg_src, src_file, dry_run=dry_run)
+            if promo["action"] == "error":
+                promo.update(
+                    {"dst_va": f"0x{dst_va:08x}", "src_va": f"0x{src_va:08x}", "score": score}
+                )
+                results.append(promo)
+                continue
         try:
             res = (
                 import_shared_function(
