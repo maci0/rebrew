@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Orphan pruning preserves live function records at DOS address zero, including records known only to the inventory (D-engines7-037).
 - Both source rehome modes resolve library provider paths from the project root when the metadata store is nested (D-engines7-024).
 - Rebinding a function updates linker response files when its native symbol changes but its C name stays the same (D-engines7-022).
 - Digest-guarded reference edits use coordinated publication and preserve an editor's save if it changes the file during staging (D-engines7-035).

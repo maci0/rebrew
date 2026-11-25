@@ -79,9 +79,9 @@ def find_orphans(
     live: set[tuple[str, int]] = set()
     for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg, scanned=scanned):
         module = getattr(entry, "module", "") or ""
-        va = int(getattr(entry, "va", 0) or 0)
-        if module and va:
-            live.add((module, va))
+        va = getattr(entry, "va", None)
+        if module and va is not None:
+            live.add((module, int(va)))
     # known_vas is the safety net that keeps unreversed-but-real functions
     # from looking like orphans.  An unreadable inventory must fail closed —
     # treating it as empty would make every metadata-only block look prunable
@@ -90,9 +90,7 @@ def find_orphans(
     structure_path = inventory_path_for(cfg.reversed_dir, cfg)
     if structure_path.is_file():
         try:
-            for struct_func in load_function_structure(structure_path):
-                if struct_func.va:
-                    known_vas.add(struct_func.va)
+            known_vas.update(func.va for func in load_function_structure(structure_path))
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             raise OrphanInventoryError(
                 f"Cannot read function inventory {structure_path.name}: {exc}. "
@@ -102,8 +100,7 @@ def find_orphans(
             ) from exc
     for va in getattr(cfg, "dll_exports", {}) or {}:
         try:
-            if int(va):
-                known_vas.add(int(va))
+            known_vas.add(int(va))
         except TypeError, ValueError:
             continue
     target_module_name = target_module(cfg)

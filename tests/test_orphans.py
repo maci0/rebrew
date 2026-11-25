@@ -96,6 +96,50 @@ class TestOrphansList:
 
 
 class TestOrphansPrune:
+    @pytest.mark.parametrize("evidence", ["source", "inventory"])
+    def test_prune_keeps_a_live_dos_address_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, evidence: str
+    ) -> None:
+        import shutil
+        from pathlib import Path
+
+        from rebrew.app.main import app
+        from rebrew.config import inventory_path_for, load_config
+        from rebrew.metadata.functions import get_entry, record_function_identity
+
+        reference = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
+        shutil.copyfile(reference, tmp_path / "hello.exe")
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "DOS"\nshared_dir = ""\n'
+            '[targets.DOS]\nbinary = "hello.exe"\nreversed_dir = "src"\nmodule = "DOS"\n'
+            'arch = "x86_16"\nformat = "mz"\n',
+            encoding="utf-8",
+        )
+        source = tmp_path / "src" / "entry.c"
+        source.parent.mkdir()
+        cfg = load_config(tmp_path)
+        if evidence == "source":
+            source.write_text("/* ADDRESS: DOS 0x0 */\nint entry(void) { return 0; }\n")
+        else:
+            inventory = inventory_path_for(source.parent, cfg)
+            inventory.parent.mkdir(parents=True, exist_ok=True)
+            inventory.write_text('[{"va": 0, "size": 4, "name": "entry"}]')
+        record_function_identity(
+            cfg.metadata_dir,
+            module="DOS",
+            va=0,
+            file="src/entry.c",
+            name="entry",
+            symbol="_entry",
+            kind="FUNCTION",
+            size=4,
+        )
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["orphans", "prune", "--json"])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["pruned"] == 0
+        assert get_entry(cfg.metadata_dir, 0, "DOS")["size"] == 4
+
     def test_prune_deletes_only_orphan(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
