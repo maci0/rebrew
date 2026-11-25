@@ -746,7 +746,7 @@ def _recompile(
 
     An object and a ``toolchain_failure`` (the compiler's rejection) are verdicts
     recompile bills.  Each compile request's headers go to *seen*.
-    *artifact* says how the object download answers: ``served``, ``refused``
+    *artifact* says how the object download answers: ``served``, ``empty``, ``refused``
     (410 ``artifact_expired``), ``truncated`` (the connection closes short of its Content-Length) or
     ``lost`` (the connection closes before any reply).  *answers* script the first
     compiles: ``"lost"`` closes the connection unanswered, ``(status, body)`` answers
@@ -817,8 +817,8 @@ def _recompile(
                 ]
                 self._reply(200, json.dumps(rows).encode(), "application/json")
                 return
-            if artifact == "served":
-                self._reply(200, obj, "application/octet-stream")
+            if artifact in {"served", "empty"}:
+                self._reply(200, obj if artifact == "served" else b"", "application/octet-stream")
                 return
             self.close_connection = True
             if artifact == "refused":
@@ -882,7 +882,7 @@ def test_a_candidate_reports_its_remote_compiles_and_forwards_the_attribution(
     assert json.loads(seen[0]["X-Relumea-Attribution"]) == ATTRIBUTION
 
 
-@pytest.mark.parametrize("artifact", ["refused", "truncated", "lost"])
+@pytest.mark.parametrize("artifact", ["refused", "truncated", "lost", "empty"])
 def test_a_compile_whose_download_fails_is_billed_without_a_verdict(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, artifact: str
 ) -> None:

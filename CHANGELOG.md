@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- An empty remote artifact counts as a billed compile without a delivered verdict, and no object is written (D-engines7-039).
 - Contradictory remote compile replies leave billing unsettled and never produce a verdict (D-engines7-038).
 - SQLite restore keeps a verified JSON cache from the backup and removes obsolete live sidecars only after publishing the database (D-engines7-027).
 - A stale function anchor cannot let a later contradictory anchor restore a skipped record or its verdict (D-engines7-036).

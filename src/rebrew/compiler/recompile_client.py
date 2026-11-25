@@ -784,6 +784,8 @@ def _download_artifact(
                 kind="protocol",
             )
         obj_bytes = art.content
+        if not obj_bytes:
+            raise RecompileError("recompile delivered an empty artifact", kind="protocol")
         if len(obj_bytes) > _MAX_ARTIFACT_BYTES:
             raise RecompileError(
                 f"recompile artifact exceeds {_MAX_ARTIFACT_BYTES} bytes",
