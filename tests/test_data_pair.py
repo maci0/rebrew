@@ -96,6 +96,60 @@ def test_pair_writes_the_missing_row_to_its_target_store(targets, existing: str)
     assert load_data_metadata(missing_cfg.metadata_dir)[other, missing_va]["name"] == "shared"
 
 
+@pytest.mark.parametrize("failure", ["metadata", "source", None])
+def test_pair_rewrite_and_rows_publish_together(
+    targets, monkeypatch: pytest.MonkeyPatch, failure: str | None
+) -> None:
+    cfg_a, va_a, address_a = targets["A"]
+    cfg_b, va_b, address_b = targets["B"]
+    source = cfg_a.reversed_dir / "f.c"
+    original = f"\r\nint f(void) {{ return *(int *)0x{address_a:x}; }}\r\n".encode()
+    source.write_bytes(original)
+    source.chmod(0o640)
+    _seed_data(cfg_a, address_a)
+    before = (cfg_a.metadata_dir / "rebrew-data.toml").read_bytes()
+
+    def fail_after_recording(directory, rows):
+        record_data_rows(directory, rows)
+        raise OSError("forced metadata failure")
+
+    def fail_to_publish(stage, path, content):
+        raise OSError("forced source failure")
+
+    if failure == "metadata":
+        monkeypatch.setattr("rebrew.metadata.data.record_data_rows", fail_after_recording)
+    elif failure == "source":
+        monkeypatch.setattr("rebrew.metadata.coordinated.CoordinatedStage.publish", fail_to_publish)
+    result = CliRunner().invoke(
+        app,
+        [
+            "data",
+            "pair",
+            hex(va_a),
+            hex(va_b),
+            "--from",
+            "A",
+            "--target",
+            "B",
+            "--size",
+            "6",
+            "--rewrite",
+            str(source),
+            "--json",
+        ],
+    )
+    assert (cfg_a.metadata_dir / "rebrew-data.toml").read_bytes() == before
+    assert source.stat().st_mode & 0o777 == 0o640
+    if failure is not None:
+        assert isinstance(result.exception, OSError), result.output or repr(result.exception)
+        assert source.read_bytes() == original
+        assert not load_data_metadata(cfg_b.metadata_dir)
+    else:
+        assert result.exit_code == 0, result.output or repr(result.exception)
+        assert b"*(int *)&shared" in source.read_bytes()
+        assert load_data_metadata(cfg_b.metadata_dir)["B", address_b]["name"] == "shared"
+
+
 class TestPairDataOperands:
     @pytest.mark.parametrize("opcode", ["e8", "e9"])
     def test_external_destinations_are_reported(self, opcode: str) -> None:

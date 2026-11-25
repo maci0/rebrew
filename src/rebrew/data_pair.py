@@ -273,7 +273,8 @@ def pair(
     """Pair two targets' copies of one function and give their data operands one name."""
     from rebrew.config import target_module
     from rebrew.formats.binary_loader import capstone_config_for, extract_bytes_at_va, load_binary
-    from rebrew.metadata.data import record_data_rows
+    from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
+    from rebrew.metadata.data import DATA_METADATA_FILENAME, record_data_rows
     from rebrew.metadata.functions import load_metadata
     from rebrew.utils import parse_int_literal
 
@@ -305,17 +306,27 @@ def pair(
         )
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
+    directory_a = cfg_a.metadata_dir.resolve()
+    directory_b = cfg_b.metadata_dir.resolve()
+    watched = [directory / DATA_METADATA_FILENAME for directory in {directory_a, directory_b}]
+    source = rewrite.absolute() if rewrite is not None else None
+    sources = [source] if source is not None else []
+    expected = (
+        coordinated_inputs(cfg_a.root, sources, watched=watched)
+        if not dry_run and (source is not None or directory_a != directory_b)
+        else None
+    )
     plan = plan_pairs(
         pairs,
-        _module_rows(cfg_a.metadata_dir, mod_a),
-        _module_rows(cfg_b.metadata_dir, mod_b),
+        _module_rows(directory_a, mod_a),
+        _module_rows(directory_b, mod_b),
         _section_name(info_b),
         _section_name(info_a),
     )
     writes: dict[Path, dict[tuple[str, int], dict[str, Any]]] = {}
     destinations = {
-        "create-a": (cfg_a.metadata_dir.resolve(), mod_a, "a_row"),
-        "create-b": (cfg_b.metadata_dir.resolve(), mod_b, "b_row"),
+        "create-a": (directory_a, mod_a, "a_row"),
+        "create-b": (directory_b, mod_b, "b_row"),
     }
     for p in plan:
         destination = destinations.get(p["action"])
@@ -345,11 +356,30 @@ def pair(
             for p in call_pairs
         ]
     rewrites: list[dict[str, Any]] = []
-    if rewrite is not None:
-        rewrites = _rewrite_source(rewrite, plan, dry_run=dry_run)
+    content: bytes | None = None
+    if source is not None:
+        rewrites, content = _plan_rewrite(source, plan)
     if not dry_run:
-        for directory, rows in writes.items():
-            record_data_rows(directory, list(rows.values()))
+        if expected is not None and (content is not None or len(writes) > 1):
+            if not all(path.is_relative_to(cfg_a.root.resolve()) for path in watched):
+                raise ValueError(
+                    "coordinated data pairing requires both metadata stores in the project"
+                )
+            with coordinated_transaction(
+                cfg_a.root,
+                sources,
+                stage=sources if content is not None else [],
+                watched=watched,
+                expected_inputs=expected,
+                allow_unconfigured=True,
+            ) as staged:
+                for directory, rows in writes.items():
+                    record_data_rows(directory, list(rows.values()))
+                if source is not None and content is not None:
+                    staged.publish(source, content)
+        else:
+            for directory, rows in writes.items():
+                record_data_rows(directory, list(rows.values()))
     report = {
         "from": mod_a,
         "target": mod_b,
@@ -375,13 +405,13 @@ def pair(
         )
 
 
-def _rewrite_source(
-    path: Path, plan: list[dict[str, Any]], *, dry_run: bool
-) -> list[dict[str, Any]]:
-    """Replace raw --from address casts with ``&name`` and declare the names."""
+def _plan_rewrite(
+    path: Path, plan: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], bytes | None]:
+    """Prepare the address-cast rewrite without publishing it."""
     from rebrew.c_parser import pointer_cast_literals
     from rebrew.cast_rewrite import declare_externs, rewrite_casts
-    from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
+    from rebrew.utils import is_safe_c_ident, read_source_text
 
     # Row starts only: an interior operand needs ``(char *) &name + off`` and is left for review.
     names = {
@@ -392,7 +422,7 @@ def _rewrite_source(
         and is_safe_c_ident(p["name"])
         and p["a"] == p["a_row"]
     }
-    text, _ = read_source_text(path)
+    text, encoding = read_source_text(path)
     targets: dict[str, dict[int, str]] = {}
     for lit in pointer_cast_literals(text):
         if lit.value in names:
@@ -400,6 +430,5 @@ def _rewrite_source(
     new_text, rows = rewrite_casts(text, targets, set())
     used = sorted({names[v] for fn in targets.values() for v in fn})
     new_text, declared = declare_externs(new_text, used)
-    if not dry_run and new_text != text:
-        atomic_write_text(path, new_text)
-    return [*rows, *({"declared": d} for d in declared)]
+    content = new_text.encode(encoding) if new_text != text else None
+    return [*rows, *({"declared": d} for d in declared)], content
