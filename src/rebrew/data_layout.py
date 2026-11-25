@@ -730,6 +730,8 @@ def insert_definition(
     init_text: str | None,
     dry_run: bool,
     is_array: bool = True,
+    *,
+    array_suffix: str = "",
 ) -> bool:
     """Define ``ctype name = init;`` / ``ctype name[size] = init;`` in *f*.
 
@@ -747,7 +749,8 @@ def insert_definition(
         return True
     lines = split_source_lines(text)
     extern_re = _name_line_re(name, is_array=is_array, extern=True)
-    def_line = f"{ctype} {name}[{size}]" if is_array else f"{ctype} {name}"
+    suffix = (array_suffix or f"[{size}]") if is_array else ""
+    def_line = f"{ctype} {name}{suffix}"
     if init_text:
         def_line += f" = {init_text}"
     def_line += ";"
@@ -1020,9 +1023,11 @@ _STUB_DEF_RE = re.compile(
 )
 
 
-def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None]]:
-    """``name -> (type, declared array size or None for scalars)`` from a stubs TU."""
-    out: dict[str, tuple[str, int | None]] = {}
+def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None, str]]:
+    """Base type, element count, and retained multidimensional suffix of each stub."""
+    from rebrew.c_parser import array_type_shape
+
+    out: dict[str, tuple[str, int | None, str]] = {}
     text, _ = read_source_text(stub_file)
     for line in split_source_lines(text):
         m = _STUB_DEF_RE.match(line)
@@ -1032,12 +1037,13 @@ def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None]]:
         if typ == "extern":
             continue
         brackets = m.group(3)
-        count = _element_count_or_none(brackets)
+        _, dimensions = array_type_shape(f"char _{brackets}") if brackets else ("", ())
+        count = _element_count_or_none(dimensions)
         # A declarator whose bounds are not all constants (``g[]``, ``g[N]``)
         # has no element count.  Storing None would materialize it as a scalar.
         if brackets and count is None:
             continue
-        out[m.group(2)] = (typ, count)
+        out[m.group(2)] = (typ, count, brackets if len(dimensions) > 1 else "")
     return out
 
 
@@ -1104,19 +1110,14 @@ def _bound_value(bound: int | str | None) -> int | None:
     return value if value >= 0 else None
 
 
-def _element_count_or_none(brackets: str) -> int | None:
-    """Element count of a C array declarator, or None when *brackets* is empty.
+def _element_count_or_none(dimensions: Sequence[int | str | None]) -> int | None:
+    """Element count of a C array declarator, or None when there are no bounds.
 
     Every ``[N]`` counts: ``[2][4]`` is 8 elements, not 2.  ``010`` is octal
     (8).  A complete constant expression (``[2 + 2]``, ``[0x300 * 0x21c]``)
     folds the same way :func:`estimate_type_size` does.  A bound that is not
     a constant (``[N]``) leaves the count unknown.
     """
-    if not brackets:
-        return None
-    from rebrew.c_parser import array_type_shape
-
-    _base, dimensions = array_type_shape(f"char _{brackets}")
     if not dimensions:
         return None
     total = 1
@@ -1416,7 +1417,7 @@ def own_data_globals(
     stubs = _parse_stub_globals(stub_file)
     owned = 0
     skipped: list[str] = []
-    for name, (ctype, decl_n) in sorted(stubs.items()):
+    for name, (ctype, decl_n, array_suffix) in sorted(stubs.items()):
         if name not in toml:
             skipped.append(name)
             continue
@@ -1450,14 +1451,19 @@ def own_data_globals(
         else:
             # array placeholder — NUL-terminate char arrays, honor declared
             # element counts, else fill the gap to the next symbol.
-            data_end = orig.find(b"\x00", off, off + cap)
-            if elemsize == 1 and data_end >= 0:
-                size = data_end - off + 1
-            elif decl_n is not None:
+            if array_suffix:
+                # The fixed shape needs a complete initializer, including any
+                # zeros in an inner array.
                 size = decl_n * elemsize
+                if size > cap or off + size > len(orig):
+                    skipped.append(name)
+                    continue
             else:
-                size = cap
-            size = min(size, cap)
+                data_end = orig.find(b"\x00", off, off + cap)
+                size = min(
+                    cap,
+                    data_end - off + 1 if elemsize == 1 and data_end >= 0 else decl_n * elemsize,
+                )
             data = orig[off : off + size]
             if not data:
                 skipped.append(name)
@@ -1479,7 +1485,9 @@ def own_data_globals(
             # in this TU would redeclare the symbol with conflicting types.
             skipped.append(name)
             continue
-        if insert_definition(owner, name, ctype, dim, value, dry_run, is_array=is_array):
+        if insert_definition(
+            owner, name, ctype, dim, value, dry_run, is_array=is_array, array_suffix=array_suffix
+        ):
             owned += 1
     return {"owned": owned, "skipped": skipped}
 

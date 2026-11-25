@@ -409,6 +409,33 @@ def test_insert_definition_scalar(tmp_path: Path) -> None:
     assert "int g_a = 42;" in f.read_text(encoding="utf-8")
 
 
+def test_own_data_keeps_existing_multidimensional_indexing(tmp_path: Path) -> None:
+    from rebrew.data_layout import own_data_globals
+
+    data_base = 0x10027000
+    _write_layout(tmp_path, data_base, 16, 16)
+    binary = tmp_path / "original.exe"
+    binary.write_bytes(_make_pe(bytes.fromhex("01000000020000000300000004000000")))
+    src = tmp_path / "src"
+    src.mkdir()
+    owner = src / "a.c"
+    body = "int use(void) { return g_grid[1][1]; }"
+    owner.write_text(f"extern int g_grid[2][2];\n{body}\n")
+    stub = src / "link_stubs.c"
+    stub.write_text("int g_grid[2][2] = {{0}};\n")
+    meta = tmp_path / "rebrew-data.toml"
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_grid"\nsection = ".data"\nsize = 16\n',
+        encoding="utf-8",
+    )
+
+    assert own_data_globals(tmp_path, meta, binary, src, stub)["owned"] == 1
+    rewritten = owner.read_text()
+    assert "int g_grid[2][2] =" in rewritten and body in rewritten
+    assert "1, 2, 3, 4," in rewritten
+
+
 def test_parse_stub_globals(tmp_path: Path) -> None:
     from rebrew.data_layout import _parse_stub_globals
 
@@ -421,9 +448,9 @@ def test_parse_stub_globals(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     parsed = _parse_stub_globals(stub)
-    assert parsed["g_count"] == ("int", None)
-    assert parsed["s_x"] == ("char", 1)
-    assert parsed["g_big"] == ("char", 0x264264)
+    assert parsed["g_count"] == ("int", None, "")
+    assert parsed["s_x"] == ("char", 1, "")
+    assert parsed["g_big"] == ("char", 0x264264, "")
     assert "foo" not in parsed  # functions are not global defs
 
 
@@ -435,7 +462,7 @@ def test_parse_stub_globals_counts_zero_length_array_as_one(tmp_path: Path) -> N
 
     stub = tmp_path / "link_stubs.c"
     stub.write_text("int g_flex[0] = {0};\n", encoding="utf-8")
-    assert _parse_stub_globals(stub)["g_flex"] == ("int", 1)
+    assert _parse_stub_globals(stub)["g_flex"] == ("int", 1, "")
 
 
 def test_parse_stub_globals_folds_constant_expression_bounds(tmp_path: Path) -> None:
@@ -457,10 +484,11 @@ def test_parse_stub_globals_folds_constant_expression_bounds(tmp_path: Path) -> 
         base = type_str.split("[", 1)[0].strip()
         return estimate_type_size(type_str) // c_type_size(base)
 
-    assert parsed["g_map"] == ("unsigned char", elements("unsigned char[0x300 * 0x21c]"))
+    assert parsed["g_map"] == ("unsigned char", elements("unsigned char[0x300 * 0x21c]"), "")
     assert parsed["g_rows"] == (
         "unsigned short",
         elements("unsigned short[(2 + 1) * 4][2]"),
+        "[(2 + 1) * 4][2]",
     )
     assert "g_named" not in parsed
 
@@ -480,8 +508,8 @@ def test_parse_stub_globals_accepts_nested_bracket_bound(tmp_path: Path) -> None
         encoding="utf-8",
     )
     parsed = _parse_stub_globals(stub)
-    assert parsed["g_wide"] == ("char", 6)
-    assert parsed["g_ints"] == ("int", 8)
+    assert parsed["g_wide"] == ("char", 6, "")
+    assert parsed["g_ints"] == ("int", 8, "")
 
 
 # ---------------------------------------------------------------------------
