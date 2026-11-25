@@ -44,7 +44,7 @@ Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
 served client drops its full-line comments (they stay in the source). The
-entry checkpoint measured 12092 B zstd / 12713 B gzip against a 13600 B budget;
+entry checkpoint measured 12121 B zstd / 12743 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -798,9 +798,9 @@ function renderSummary(s) {
   const cards = [
     ["Functions", s.function_stats.total, null,
       "Total functions for this target"],
-    ["Matched bytes", (s.coverage_pct ?? 0).toFixed(1) + "%", null,
+    ["Matched coverage", (s.coverage_pct ?? 0).toFixed(1) + "%", null,
       "Share of .text bytes in byte-matched functions and identified libraries. Alignment padding is not included."],
-    ["Identified bytes", (s.identified_pct ?? 0).toFixed(1) + "%", null,
+    ["Identified coverage", (s.identified_pct ?? 0).toFixed(1) + "%", null,
       "Share of .text bytes covered by any known function, including stubs"],
   ];
   // Same order as the Status select.
@@ -1373,16 +1373,20 @@ async function init() {
     "<option value='" + esc(t) + "'>" + esc(t) + "</option>").join("");
   $("target").disabled = false;
   const saved = new URLSearchParams(location.hash.slice(1));
-  if (targets.includes(saved.get("target"))) $("target").value = saved.get("target");
+  const savedTarget = saved.get("target");
+  const targetRestored = targets.includes(savedTarget);
+  $("target").value = targetRestored ? savedTarget : targets[0];
   // The hash is the whole navigation state, so a hash without a view names the
   // first one: Back to an entry written before the reader switched views
   // returns to Functions rather than keeping the view they left.
   currentView = VIEWS.includes(saved.get("view")) ? saved.get("view") : "functions";
-  pendingStatus = saved.get("status") || "";
-  pendingModule = saved.get("module") || "";
-  pendingModuleBlank = saved.has("module") && !saved.get("module");
-  $("q").value = saved.get("q") || "";
-  $("gq").value = saved.get("gq") || "";
+  // Filters belong to the named target. A stale link must not silently apply
+  // them to the first target in the list.
+  pendingStatus = targetRestored ? saved.get("status") || "" : "";
+  pendingModule = targetRestored ? saved.get("module") || "" : "";
+  pendingModuleBlank = targetRestored && saved.has("module") && !saved.get("module");
+  $("q").value = targetRestored ? saved.get("q") || "" : "";
+  $("gq").value = targetRestored ? saved.get("gq") || "" : "";
   // The hash is authoritative. Drop values left by the entry being navigated
   // away from before the summary restores the saved options.
   $("status").value = "";

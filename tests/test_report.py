@@ -841,7 +841,10 @@ class TestReportPayloadShape:
 
         inline, _, spilled = report_mod._render_graph(cfg)
         assert spilled is None
-        assert "(3 nodes, 1 direct edges, 0 dispatch edges)" in inline
+        assert "(3 nodes, 1 direct edge, 0 dispatch edges)" in inline
+        assert "Mermaid source below can be rendered" in inline
+        assert "This is Mermaid source, not a rendered diagram." in inline
+        assert "diagram above" not in inline
 
         many = {
             f"va:0x{i:08x}": {"symbol": f"func_{i}", "status": "STUB", "va": i} for i in range(900)
@@ -853,6 +856,9 @@ class TestReportPayloadShape:
         over, _, spilled = report_mod._render_graph(cfg)
         assert spilled is not None
         assert "(900 nodes, 899 direct edges, 0 dispatch edges)" in over
+        assert "to keep the page small" in over
+        assert "This is Mermaid source, not a rendered diagram." in over
+        assert "diagram above" not in over
 
     def test_table_intros_agree_with_their_counts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -97,8 +97,8 @@ for (const staleFailure of [false, true]) {
 	assert.match(element("status").innerHTML, /EXACT/);
 	assert.equal(element("status").disabled, false);
 	assert.match(element("cards").innerHTML, /EXACT/);
-	assert.match(element("cards").innerHTML, /<span class=label>Matched bytes<\/span>/);
-	assert.match(element("cards").innerHTML, /<span class=label>Identified bytes<\/span>/);
+	assert.match(element("cards").innerHTML, /<span class=label>Matched coverage<\/span>/);
+	assert.match(element("cards").innerHTML, /<span class=label>Identified coverage<\/span>/);
 	assert.equal(element("status-reference").hidden, false);
 	assert.match(
 		element("status-reference-list").innerHTML,

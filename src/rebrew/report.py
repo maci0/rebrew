@@ -1273,31 +1273,37 @@ def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch
         "aria-describedby='mermaid-alt'>"
         f"<pre class='mermaid'>{html.escape(_mermaid_preview(mermaid) if spilled else mermaid)}</pre></div>"
     )
+    counts = ", ".join(
+        (
+            _count_phrase(nodes, "node", "nodes"),
+            _count_phrase(edges, "direct edge", "direct edges"),
+            _count_phrase(dispatch, "dispatch edge", "dispatch edges"),
+        )
+    )
     if not spilled:
         return (
             "<h2>Call graph</h2>"
-            f"<p>Call graph over reversed functions ({nodes} nodes, {edges} direct edges, "
-            f"{dispatch} dispatch edges). The mermaid source below renders in any "
-            "mermaid-compatible viewer. A <a href='adjacency.txt'>plain-text adjacency list</a> "
-            "(screen-reader accessible) is available as a separate download.</p>"
+            f"<p>Call graph over reversed functions ({counts}). "
+            "The Mermaid source below can be rendered in a Mermaid-compatible viewer. "
+            "A <a href='adjacency.txt'>plain-text adjacency list</a> is also available "
+            "for reading without Mermaid.</p>"
             "<h2 id='mermaid-heading'>Mermaid source</h2>"
-            "<p id='mermaid-alt'>The diagram above is code, not a picture: "
-            "use the <a href='adjacency.txt'>adjacency list</a> for a text "
+            "<p id='mermaid-alt'>This is Mermaid source, not a rendered diagram. "
+            "Use the <a href='adjacency.txt'>adjacency list</a> for a plain-text "
             "reading of the same call graph.</p>"
             f"{pre}"
         )
     nbytes = len(mermaid.encode("utf-8"))
     return (
         "<h2>Call graph</h2>"
-        "<p>Call graph over reversed functions "
-        f"({nodes} nodes, {edges} direct edges, {dispatch} dispatch edges). "
-        f"The full Mermaid source is {nbytes} bytes; this page shows the opening lines so it "
-        "can paint, and the rest is <a href='callgraph.mmd'>callgraph.mmd</a>. "
-        "A <a href='adjacency.txt'>plain-text adjacency list</a> "
-        "(screen-reader accessible) is available as a separate download.</p>"
+        f"<p>Call graph over reversed functions ({counts}). "
+        f"The full Mermaid source is {nbytes} bytes; this page shows only the opening lines "
+        "to keep the page small, and the rest is <a href='callgraph.mmd'>callgraph.mmd</a>. "
+        "A <a href='adjacency.txt'>plain-text adjacency list</a> is also available "
+        "for reading without Mermaid.</p>"
         "<h3 id='mermaid-heading'>Mermaid source (opening lines)</h3>"
-        "<p id='mermaid-alt'>The diagram above is code, not a picture: "
-        "use the <a href='adjacency.txt'>adjacency list</a> for a text "
+        "<p id='mermaid-alt'>This is Mermaid source, not a rendered diagram. "
+        "Use the <a href='adjacency.txt'>adjacency list</a> for a plain-text "
         "reading of the same call graph.</p>"
         f"{pre}"
         "<p><a href='callgraph.mmd'>Full Mermaid source (callgraph.mmd)</a></p>"

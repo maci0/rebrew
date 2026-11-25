@@ -88,3 +88,34 @@ assert.ok(
 	paths.some((p) => p.startsWith("/api/functions") && /target=a/.test(p)),
 	"functions reload for the new target when the tab is shown",
 );
+
+// A link whose target was removed still opens the dashboard, but its filters
+// belong to that missing target. Applying them to the fallback target would
+// silently replace the intended result set with an unrelated empty one.
+globalThis.location.hash =
+	"#target=removed&view=globals&status=EXACT&module=GAME&q=Win&gq=g_";
+el("target").value = "";
+paths.length = 0;
+hashes.length = 0;
+await init();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(el("target").value, "a", "a stale target falls back to the first target");
+assert.equal(el("status").value, "", "stale status is not applied to the fallback target");
+assert.equal(el("module").value, "", "stale module is not applied to the fallback target");
+assert.equal(el("q").value, "", "stale function search is not applied");
+assert.equal(el("gq").value, "", "stale globals search is not applied");
+assert.equal(el("view-globals").hidden, false, "the saved view still opens");
+assert.ok(
+	paths.some((p) => p.startsWith("/api/globals") && !p.includes("q=")),
+	"globals load without the stale target's search",
+);
+assert.ok(
+	!paths.some((p) => p.startsWith("/api/functions") && /status=|module=|q=/.test(p)),
+	"no request carries the stale target's filters",
+);
+const fallback = new URLSearchParams(hashes.at(-1).slice(1));
+assert.equal(fallback.get("target"), "a");
+assert.equal(fallback.get("view"), "globals");
+for (const key of ["status", "module", "q", "gq"]) {
+	assert.equal(fallback.has(key), false, `${key} is removed from the stale link`);
+}
