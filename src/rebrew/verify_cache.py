@@ -1604,7 +1604,9 @@ def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None
     return loaded, None
 
 
-def save_baseline(cfg: ProjectConfig, report: dict[str, Any]) -> None:
+def save_baseline(
+    cfg: ProjectConfig, report: dict[str, Any], *, reference_id: str | None = None
+) -> None:
     """Persist *report* as the --compare baseline (with cache identity).
 
     Advances only on passing gates — the caller enforces that; this just
@@ -1613,8 +1615,13 @@ def save_baseline(cfg: ProjectConfig, report: dict[str, Any]) -> None:
     """
     baseline = dict(report)
     baseline["compiler_hash"] = compiler_config_hash(cfg)
-    baseline["binary_id"] = binary_id(cfg)
+    baseline["binary_id"] = binary_id(cfg) if reference_id is None else reference_id
     path = baseline_path(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(path):
+        if binary_id(cfg) != baseline["binary_id"]:
+            logging.warning(
+                "Keeping the verify baseline because the reference changed before publication"
+            )
+            return
         atomic_write_text(path, _dump_verify_baseline(baseline), encoding="utf-8")

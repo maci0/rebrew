@@ -308,6 +308,7 @@ def verify_entry(
 
     from rebrew.formats.binary_loader import extract_raw_bytes
 
+    reference_id = binary_id(cfg)
     target_bytes = extract_raw_bytes(cfg.target_binary, entry.va, entry.size)
     if not target_bytes:
         # Extraction failure is a binary/tooling problem, not a source
@@ -372,7 +373,7 @@ def verify_entry(
                 "context_hash": context.sha256 if context is not None else None,
                 "size": entry.size,
                 "module": getattr(entry, "module", ""),
-                "binary_id": binary_id(cfg),
+                "binary_id": reference_id,
             }
             if measured_inputs
             else {}
@@ -389,7 +390,7 @@ def verify_entry(
                 "context_hash": context.sha256 if context is not None else None,
                 "size": entry.size,
                 "module": getattr(entry, "module", ""),
-                "binary_id": binary_id(cfg),
+                "binary_id": reference_id,
             }
             if entry.comparison_inputs is not None
             else {}
@@ -2132,13 +2133,20 @@ def _save_report(
     ):
         from rebrew.verify_cache import save_baseline
 
-        try:
-            save_baseline(cfg, report)
-        except (OSError, TypeError, ValueError) as exc:
-            # Baseline I/O must not abort after a successful verify — the
-            # report was already earned; losing the baseline only weakens
-            # the next --compare gate.
-            log.warning("Could not write verify baseline: %s", exc)
+        reference_id = binary_id(cfg)
+        if any(
+            isinstance(entry.verify_snapshot, dict)
+            and entry.verify_snapshot.get("binary_id") != reference_id
+            for entry in batch.entries
+        ):
+            log.warning(
+                "Keeping the verify baseline because the reference changed during verification"
+            )
+        else:
+            try:
+                save_baseline(cfg, report, reference_id=reference_id)
+            except (OSError, TypeError, ValueError) as exc:
+                log.warning("Could not write verify baseline: %s", exc)
 
     # `-o` is an explicit export of the report just computed, independent of
     # the baseline: it was nested in the baseline guard above, so every
@@ -2956,7 +2964,7 @@ def prepare_entries(
             "context_hash": context.sha256 if context is not None else None,
             "size": entry.size,
             "module": getattr(entry, "module", ""),
-            "binary_id": binary_id(cfg),
+            "binary_id": getattr(verify_cache_obj, "binary_id", ""),
         }
         # A cached row ran no compile in this run: no compile record.
         results.append(

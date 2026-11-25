@@ -647,15 +647,16 @@ class TestVerifyCli:
         assert "requested 8 bytes, read 4" in row["message"]
         assert get_entry(cfg.metadata_dir, va, "SERVER")["status"] != "EXACT"
 
-    @pytest.mark.parametrize("edit_during_compile", [True, False])
+    @pytest.mark.parametrize("edit_at", ["compile", "publish", "reference-read"])
     def test_stale_result_is_reported_without_publishing_status(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit_during_compile: bool
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit_at: str
     ) -> None:
         from bin_util import make_coff_obj, make_pe
 
         from rebrew import verify
         from rebrew.compiler import compile as compiler
         from rebrew.compiler.toolchain import RunResult
+        from rebrew.formats import binary_loader
         from rebrew.metadata import functions
 
         va = 0x401000
@@ -679,25 +680,39 @@ class TestVerifyCli:
             assert "return 1;" in (workdir / source.name).read_text()
             basename = next(arg[3:] for arg in args if arg.startswith("/Fo"))
             (workdir / basename).write_bytes(make_coff_obj(code, func_symbol="_my_func"))
-            if edit_during_compile:
+            if edit_at == "compile":
                 save_edit()
             return RunResult(0, "", "", "docker")
 
         update = functions.update_statuses_batch
 
         def publish(*args, **kwargs):
-            if not edit_during_compile:
+            if edit_at == "publish":
                 save_edit()
             return update(*args, **kwargs)
+
+        extract = binary_loader.extract_raw_bytes
+
+        def replace_after_read(path, address, size):
+            reference = extract(path, address, size)
+            replacement = path.with_suffix(".new")
+            replacement.write_bytes(make_pe(b"\x31\xc0\x48\xc3"))
+            replacement.replace(path)
+            return reference
 
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
         monkeypatch.setattr(verify, "require_config", lambda **kwargs: cfg)
         monkeypatch.setattr(compiler, "cached_image_digest", lambda *args, **kwargs: "")
         monkeypatch.setattr(compiler, "run_toolchain", build)
         monkeypatch.setattr(functions, "update_statuses_batch", publish)
+        if edit_at == "reference-read":
+            monkeypatch.setattr(binary_loader, "extract_raw_bytes", replace_after_read)
         result = CliRunner().invoke(verify.app, ["--json", "--no-cache"])
         assert cli_payload(result)["results"][0]["status"] == "EXACT"
-        assert "return 2;" in source.read_text()
+        if edit_at == "reference-read":
+            assert not (cfg.root / ".rebrew" / "verify_baseline.toml").exists()
+        else:
+            assert "return 2;" in source.read_text()
         assert functions.get_entry(cfg.metadata_dir, va, "SERVER")["status"] == "STUB"
 
     def test_data_only_never_starts_function_verification_or_checks_runner(
