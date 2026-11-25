@@ -24,6 +24,7 @@ from __future__ import annotations
 
 lazy import bisect
 lazy import collections
+lazy from itertools import accumulate
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -75,6 +76,7 @@ class NameIndex:
     def __init__(self, rows: list[tuple[int, int, str]]) -> None:
         self.rows = sorted(rows)
         self._starts = [va for va, _, _ in self.rows]
+        self._max_ends = list(accumulate((va + max(size, 1) for va, size, _ in self.rows), max))
 
     def nearest(self, va: int) -> str | None:
         """``name`` or ``name+0xN`` for the last row at or below *va*, sizes ignored."""
@@ -85,12 +87,14 @@ class NameIndex:
         return name if va == start else f"{name}+{va - start:#x}"
 
     def covering(self, va: int) -> str | None:
-        """Like :meth:`nearest`, but only when *va* is inside that row's size (at least 1)."""
+        """The latest-starting row whose extent covers *va*."""
         i = bisect.bisect_right(self._starts, va) - 1
-        if i < 0:
-            return None
-        start, size, _ = self.rows[i]
-        return self.nearest(va) if va < start + max(size, 1) else None
+        while i >= 0 and self._max_ends[i] > va:
+            start, size, name = self.rows[i]
+            if va < start + max(size, 1):
+                return name if va == start else f"{name}+{va - start:#x}"
+            i -= 1
+        return None
 
 
 def link_map_index(text: str) -> NameIndex:

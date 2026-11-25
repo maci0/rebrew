@@ -80,6 +80,15 @@ def _run(args: list[str]) -> tuple[int, dict]:
     return result.exit_code, cli_payload(result)
 
 
+def test_covering_data_row_can_extend_past_an_interior_view() -> None:
+    from rebrew.reloc_diff import NameIndex
+
+    names = NameIndex([(0x1010, 8, "g_owner"), (0x1012, 1, "g_view")])
+    assert names.covering(0x1012) == "g_view"
+    assert names.covering(0x1017) == "g_owner+0x7"
+    assert names.covering(0x1018) is None
+
+
 class TestRelocsCommand:
     def test_zero_limit_hides_sites_without_changing_totals(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

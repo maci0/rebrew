@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Resolve relocation targets against covering allocations past shorter interior views (D-engines7-087).
 - Insert generated externs before any trailing line comment (D-engines7-080).
 - Match CMake link outputs exactly and refuse missing or ambiguous named outputs (D-engines7-076).
 - Check text alignment before metadata-only postlink runs (D-engines7-084).
