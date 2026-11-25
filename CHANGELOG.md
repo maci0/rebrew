@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.79.0] - 2026-11-25
+
 ### Fixed
 
 - Preserve the public archive hash import and exercise timeout cleanup through explicit Docker and Podman selection (D-engines7-042, D-engines7-060).
