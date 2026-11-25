@@ -2516,6 +2516,47 @@ class TestCompareBaseline:
 class TestFixSizes:
     """--fix-sizes corrects stale annotation SIZE from the binary-derived size."""
 
+    def test_cli_keeps_an_extent_that_just_matched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import make_coff_obj, make_pe
+
+        from rebrew import verify
+        from rebrew.compiler import compile as compiler
+        from rebrew.compiler.toolchain import RunResult
+        from rebrew.metadata.functions import get_entry
+
+        cfg = _cfg(tmp_path, compiler_profile="msvc-6.0", compile_timeout=3)
+        code = b"\x31\xc0\x40\xc3"
+        cfg.target_binary.write_bytes(make_pe(code))
+        write_source(
+            cfg.reversed_dir / "f.c",
+            "/* ADDRESS: SERVER 0x401000 */\nint my_func(void) { return 1; }\n",
+            metadata_fields={"SERVER.0x401000": {"size": len(code), "status": "STUB"}},
+            metadata_dir=cfg.metadata_dir,
+        )
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            json.dumps([{"va": 0x401000, "size": 11, "name": "my_func"}]), encoding="utf-8"
+        )
+
+        def build(spec, args, *, workdir, **kwargs):
+            output = next(arg[3:] for arg in args if arg.startswith("/Fo"))
+            (workdir / output).write_bytes(make_coff_obj(code, func_symbol="_my_func"))
+            return RunResult(0, "", "", "docker")
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(verify, "require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr(compiler, "cached_image_digest", lambda *args, **kwargs: "")
+        monkeypatch.setattr(compiler, "run_toolchain", build)
+        result = CliRunner().invoke(verify.app, ["--json", "--no-cache", "--fix-sizes"])
+        assert result.exit_code == 0, result.output or repr(result.exception)
+        report = cli_payload(result)
+        assert report["results"][0]["status"] == "EXACT"
+        assert report["sizes_fixed"] == 0
+        row = get_entry(cfg.metadata_dir, 0x401000, "SERVER")
+        assert row["size"] == len(code)
+        assert row["verification"]["reference_size"] == str(len(code))
+
     def test_applies_size_fix(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import get_entry
         from rebrew.verify import _apply_size_fixes

@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- `verify --fix-sizes` preserves an extent that earned a comparison verdict in the current run (D-engines7-051).
 - Verification keeps its measured diagnostic and leaves canonical status alone when the comparison inputs change before publication (D-engines7-050).
 - Local in-place compiles with declarations use an isolated workdir and publish only the finished object (D-engines7-046).
 - Partial batch compilation returns fresh objects only and keeps any earlier object in the source tree untouched (D-engines7-045).

@@ -1951,6 +1951,29 @@ def _save_report(
     library_passed = sum(1 for r in library_results if r["passed"])
     passed, failed, total = batch.passed, batch.failed, batch.total
     size_divergences, missing_sizes = batch.size_divergences, batch.missing_sizes
+    earned_sizes = {
+        (
+            canonical_va_key(row["va"]),
+            preset_module_key(row.get("module") or cfg.module),
+            row.get("size"),
+        ): row["status"]
+        for row in results
+        if row.get("status") in EARNED_STATUSES
+    }
+    size_divergences = [
+        {
+            **row,
+            "status": earned_sizes.get(
+                (
+                    canonical_va_key(row["va"]),
+                    preset_module_key(row.get("module") or cfg.module),
+                    row["annotation_size"],
+                ),
+                row.get("status", ""),
+            ),
+        }
+        for row in size_divergences
+    ]
     report = build_report(
         cfg,
         results,
