@@ -1384,9 +1384,10 @@ explicitly without asserting source ownership.
 Function reference binding (`PLACEHOLDER MODULE.0xVA`) previews an `input_digest`
 and `input_hashes` with `--dry-run --json`. Repeat with `--expected-digest DIGEST`
 to guard the reviewed references, destination source, source/header inventory,
-managed stores, configuration, target binaries and linker edits. Changed inputs
-refuse before writes. Binding changes references only; the destination definition,
-identity and verdict remain unchanged. Apply without a digest remains supported.
+managed stores, configuration, target binaries and linker edits. Binding checks
+each source again as it is staged and publishes only to a vacant path. An editor
+save detected during publication is preserved. The destination keeps its
+definition, identity and verdict. Apply without a digest remains supported.
 
 When independent definitions coexist in the same target, module membership cannot
 attribute shared declarations or callers. Use `--reference-owner` only after

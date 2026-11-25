@@ -1919,6 +1919,50 @@ class TestProtectedSpans:
 
 
 class TestReferenceBindingDigest:
+    @pytest.mark.parametrize("when", ["after-validation", "at-stage-rename"])
+    def test_apply_preserves_a_concurrent_editor_save(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str
+    ) -> None:
+        import os
+
+        from rebrew.metadata import source_provenance
+
+        self._project(tmp_path, monkeypatch)
+        preview = self._invoke("--dry-run")
+        assert preview.exit_code == 0, preview.output
+        digest = cli_payload(preview)["input_digest"]
+        path = tmp_path / "caller.c"
+        edited = path.read_bytes() + b"/* concurrent editor save */\n"
+        replace = os.replace
+
+        def editor_save() -> None:
+            replacement = path.with_suffix(".editor-save")
+            replacement.write_bytes(edited)
+            replace(replacement, path)
+
+        if when == "after-validation":
+            check = source_provenance.rename_source_provenance
+
+            def save_after_preview(*args: Any, **kwargs: Any) -> Any:
+                result = check(*args, **kwargs)
+                if kwargs.get("dry_run"):
+                    editor_save()
+                return result
+
+            monkeypatch.setattr(source_provenance, "rename_source_provenance", save_after_preview)
+        else:
+
+            def save_at_stage(source: Path, target: Path) -> None:
+                if Path(source) == path and Path(target).name.startswith(".rebrew-stage-"):
+                    editor_save()
+                replace(source, target)
+
+            monkeypatch.setattr(os, "replace", save_at_stage)
+
+        result = self._invoke("--expected-digest", digest)
+        assert path.read_bytes() == edited, result.output
+        assert result.exit_code == 2, result.output
+
     def _project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         from rebrew.metadata.functions import save_metadata
 

@@ -1854,8 +1854,11 @@ def _apply_coordinated_rename(cfg: ProjectConfig, plan: RenamePlan, metadata_dir
     from rebrew.metadata.storage import input_digest, managed_metadata_filenames, metadata_store
     from rebrew.type_metadata import load_types
 
-    if metadata_store(metadata_dir / "rebrew-functions.toml").name not in {"toml", "sqlite"}:
-        raise RenameError("coordinated rename requires the TOML or SQLite backend", files=[])
+    supported_backends = (
+        {"toml", "sqlite"} if plan.rows or plan.move else {"toml", "sqlite", "pgsql"}
+    )
+    if metadata_store(metadata_dir / "rebrew-functions.toml").name not in supported_backends:
+        raise RenameError("coordinated rename requires one supported metadata backend", files=[])
 
     changes = {c.path.absolute(): c for c in plan.files}
     if len(changes) != len(plan.files):
@@ -1930,8 +1933,8 @@ def _apply_coordinated_rename(cfg: ProjectConfig, plan: RenamePlan, metadata_dir
     ]
 
     def validate() -> None:
-        if metadata_store(metadata_dir / "rebrew-functions.toml").name not in {"toml", "sqlite"}:
-            raise ValueError("coordinated rename requires the TOML or SQLite backend")
+        if metadata_store(metadata_dir / "rebrew-functions.toml").name not in supported_backends:
+            raise ValueError("coordinated rename requires one supported metadata backend")
         if move and any(
             row["file"] == identity_file(move[0], metadata_dir) for row in load_types(metadata_dir)
         ):
@@ -2017,7 +2020,7 @@ def _apply_coordinated_rename(cfg: ProjectConfig, plan: RenamePlan, metadata_dir
 def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
     """Apply a rename and return the number of source files rewritten.
 
-    Moves and owner-row changes use coordinated exception rollback. Concurrent
+    Guarded edits, moves and owner-row changes use coordinated exception rollback. Concurrent
     replacements may require manual reconciliation; crash recovery is not implied.
     """
     if plan.input_hashes:
@@ -2044,7 +2047,7 @@ def apply_rename_plan(cfg: ProjectConfig, plan: RenamePlan) -> int:
     except (OSError, ValueError) as exc:
         raise RenameError(f"source provenance prevents rename: {exc}", files=[]) from exc
 
-    if plan.rows or plan.move:
+    if plan.rows or plan.move or (plan.input_hashes and plan.files):
         return _apply_coordinated_rename(cfg, plan, Path(metadata_dir))
 
     written: list[FileChange] = []

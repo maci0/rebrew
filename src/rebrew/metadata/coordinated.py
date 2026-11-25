@@ -302,7 +302,19 @@ def coordinated_transaction(
                     os.close(fd)
                     backup = Path(name)
                     try:
-                        os.replace(path, backup)
+                        with path.open("rb") as original_file:
+                            original_stat = os.fstat(original_file.fileno())
+                            digest = hashlib.file_digest(original_file, "sha256").hexdigest()
+                            live = path.lstat()
+                            if (
+                                digest != expected
+                                or not os.path.samestat(original_stat, live)
+                                or live.st_mtime_ns != original_stat.st_mtime_ns
+                                or live.st_ctime_ns != original_stat.st_ctime_ns
+                                or oct(live.st_mode & 0o777) != expected_mode
+                            ):
+                                raise ValueError(f"source changed during staging: {path}")
+                            os.replace(path, backup)
                     except BaseException:
                         backup.unlink(missing_ok=True)
                         raise
@@ -310,6 +322,7 @@ def coordinated_transaction(
                     if (
                         backup.is_symlink()
                         or not backup.is_file()
+                        or not os.path.samestat(original_stat, backup.lstat())
                         or hashlib.sha256(backup.read_bytes()).hexdigest() != expected
                         or oct(backup.stat().st_mode & 0o777) != expected_mode
                     ):

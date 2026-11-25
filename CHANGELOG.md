@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Digest-guarded reference edits use coordinated publication and preserve an editor's save if it changes the file during staging (D-engines7-035).
 - Source merge refuses to collapse independently owned file-local storage, even when the declarations are identical (D-engines7-031).
 - Mixed source registration validates data kinds before writing and rolls back both metadata stores on a write failure (D-engines7-021).
 - Source registration checks ownership across module spellings and keeps the stored or configured spelling (D-engines7-020).
