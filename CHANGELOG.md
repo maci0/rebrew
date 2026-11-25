@@ -12,6 +12,7 @@
 ### Breaking
 
 - **Breaking:** `rebrew.link_anchors` no longer exports `console`; use the shared console from `rebrew.utils` for normal CLI output.
+- **Breaking:** `rebrew.app.builtins.DOMAIN_COMPONENTS` adds a `--json` example to the `build objdiff-driver` epilog.
 
 ### Fixed
 
