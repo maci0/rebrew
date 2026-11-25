@@ -4967,6 +4967,35 @@ def _import(config: WorkerConfig, filestore: Path, archive: bytes) -> tuple[int,
 
 
 class TestImportArchive:
+    def test_failed_replacement_preserves_the_installed_project(
+        self, analysed_project: tuple[WorkerConfig, Path, Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import ctypes
+        import errno
+
+        config, filestore, project = analysed_project
+        archive = _tar_bytes(_project_members(project))
+        status, reply = _import(config, filestore, archive)
+        assert status == 200, reply
+        installed = Path(reply["project"])
+        original = (installed / "rebrew-project.toml").read_bytes()
+        rename = Path.rename
+
+        def fail_new_install(source: Path, target: Path) -> Path:
+            if target == installed and not target.exists():
+                raise OSError(errno.EIO, "replacement write failed")
+            return rename(source, target)
+
+        def fail_exchange(*_args: Any) -> int:
+            ctypes.set_errno(errno.EIO)
+            return -1
+
+        monkeypatch.setattr(Path, "rename", fail_new_install)
+        monkeypatch.setattr(ctypes.CDLL, "renameat2", staticmethod(fail_exchange), raising=False)
+        status, reply = _import(config, filestore, archive)
+        assert status == 500, reply
+        assert (installed / "rebrew-project.toml").read_bytes() == original
+
     def test_imports_the_matching_target_with_its_statuses_and_capture(
         self, analysed_project: tuple[WorkerConfig, Path, Path]
     ) -> None:

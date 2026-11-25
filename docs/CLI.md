@@ -7255,9 +7255,10 @@ Op details the contract leaves open:
   `rebrew.project_targets` and retained snapshots; a capture over the
   readset bounds is 422 `readset-too-large`.
   Unpacked files are written 0644 and directories with the worker's default
-  mode; no mode, owner or link from the archive is kept. The binary's earlier
-  project leaves the directory before the import takes it and is then deleted;
-  a file the worker may not delete stays under `<workspace>/.scratch/replaced-*`
+  mode; no mode, owner or link from the archive is kept. Replacing an existing
+  project requires atomic directory exchange support on the workspace filesystem.
+  The canonical path holds a complete project throughout the exchange.
+  A displaced file the worker may not delete stays under `<workspace>/.scratch/replaced-*`
   with a warning in the worker log and does not fail the import.
 - `rebrew.metadata_describe`, `rebrew.metadata_diff` and `rebrew.metadata_carry`
   read and carry metadata file sets; the client never parses or names

@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Archive imports exchange an existing workspace atomically. A failed or interrupted publication keeps a complete project at the canonical path (D-engines7-008).
 - Re-analysis repairs a function name using the address anchor for its own module, even when a shared source reuses the address in another module (D-engines7-001).
 
 ## [6.78.0] - 2026-11-25

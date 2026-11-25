@@ -53,6 +53,7 @@ from typing import override  # decorator and base class: definition-time use
 lazy import base64
 lazy import binascii
 lazy import dataclasses
+lazy import errno
 lazy import functools
 lazy import hashlib
 lazy import hmac
@@ -3649,6 +3650,21 @@ def _remove_replaced_project(path: Path) -> None:
     shutil.rmtree(path, onexc=keep)
 
 
+def _exchange_project_directories(staged: Path, project: Path) -> None:
+    """Publish a replacement without exposing a gap at the canonical project path."""
+    import ctypes
+
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except AttributeError:
+        raise OSError(errno.ENOSYS, "atomic project directory exchange is unavailable") from None
+    at_fdcwd = -100
+    rename_exchange = 2
+    if renameat2(at_fdcwd, os.fsencode(staged), at_fdcwd, os.fsencode(project), rename_exchange):
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
 def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str, Any]:
     """Install an uploaded rebrew project archive as a stored binary's project and report it.
 
@@ -3718,15 +3734,18 @@ def import_archive(config: WorkerConfig, req: ImportArchiveRequest) -> dict[str,
         project.parent.mkdir(parents=True, exist_ok=True)
         if _inside(workspace, relative, "analysis project") != project:
             raise _invalid("analysis project must not traverse symlinks")
-        # The earlier project leaves the scoped path before the new one takes it, and outside the
-        # temporary directory: a file the worker may not unlink must not fail the finished import.
-        replaced = None
-        if project.exists():
+        try:
+            root.rename(project)
+        except OSError as exc:
+            if exc.errno not in {errno.EEXIST, errno.ENOTEMPTY}:
+                raise
             replaced = Path(tempfile.mkdtemp(prefix="replaced-", dir=scratch))
-            project.rename(replaced / project.name)
-        root.rename(project)
-    if replaced is not None:
-        _remove_replaced_project(replaced)
+            try:
+                # Keep the displaced tree outside the temporary directory's automatic cleanup.
+                staged = root.rename(replaced / project.name)
+                _exchange_project_directories(staged, project)
+            finally:
+                _remove_replaced_project(replaced)
     for item in report["targets"]:
         for part in ("document", "path"):
             if item[part]:
