@@ -2613,8 +2613,18 @@ def compile_to_obj(
     # The workdir gets the keyed text, never a second read of *source_path*:
     # a rewrite between the two reads (GA splice, editor save under
     # ``verify --watch``) would store the new object under the old key.
+    in_place = context is None and local_src.resolve() == source_path.resolve()
+
+    def source_changed() -> bool:
+        if not in_place:
+            return False
+        try:
+            return source_path.read_bytes() != source_bytes
+        except OSError:
+            return True
+
     try:
-        if context is not None or local_src.resolve() != source_path.resolve():
+        if not in_place:
             local_src.write_bytes(compile_text.encode("utf-8", errors="surrogateescape"))
     except OSError as e:
         return _not_run(
@@ -2701,6 +2711,13 @@ def compile_to_obj(
             args = all_flags + inc_flags + [f"-I{src_parent!s}", "-c", "-o", obj_name, src_name]
         else:
             args = all_flags + [f"/Fo{obj_name}", src_name]
+        if source_changed():
+            return _not_run(
+                backend_errors,
+                "Source changed during compilation",
+                kind="invocation",
+                name=active,
+            )
         try:
             backend = getattr(cfg, "execution_backend", "")
             execution_options = {"execution_backend": backend} if backend else {}
@@ -2717,6 +2734,13 @@ def compile_to_obj(
             if backend_errors is not None:
                 backend_errors.append(exc)
             return None, str(exc)
+        if source_changed():
+            return _not_run(
+                backend_errors,
+                "Source changed during compilation",
+                kind="invocation",
+                name=active,
+            )
         obj_file = workdir / obj_name
         if arg_style == "dos" and not obj_file.exists():
             # The DOSBox wrappers FAT-uppercase the object (T.OBJ).

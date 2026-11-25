@@ -361,6 +361,9 @@ def verify_entry(
                 "headers_hash": measured_inputs["headers_hash"],
                 "toolchain": measured_inputs["toolchain"],
                 "cflags": measured_inputs["cflags"],
+                "defines": measured_inputs["defines"],
+                "compiler_hash": measured_inputs["compiler_hash"],
+                "context_hash": context.sha256 if context is not None else None,
                 "size": entry.size,
                 "module": getattr(entry, "module", ""),
                 "binary_id": binary_id(cfg),
@@ -375,6 +378,9 @@ def verify_entry(
                 "headers_hash": entry.comparison_inputs["headers_hash"],
                 "toolchain": entry.comparison_inputs["toolchain"],
                 "cflags": entry.comparison_inputs["cflags"],
+                "defines": entry.comparison_inputs["defines"],
+                "compiler_hash": entry.comparison_inputs["compiler_hash"],
+                "context_hash": context.sha256 if context is not None else None,
                 "size": entry.size,
                 "module": getattr(entry, "module", ""),
                 "binary_id": binary_id(cfg),
@@ -2817,6 +2823,21 @@ def prepare_entries(
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )
+    from rebrew.verify_hash import compiler_config_hash
+
+    snapshot_compiler_hash = (
+        compiler_config_hash(cfg)
+        if all(
+            hasattr(cfg, field)
+            for field in (
+                "compiler_command",
+                "base_cflags",
+                "compiler_includes",
+                "compiler_libs",
+            )
+        )
+        else getattr(verify_cache_obj, "compiler_hash", "")
+    )
     cached_count = 0
 
     for entry in unique_entries:
@@ -2900,6 +2921,9 @@ def prepare_entries(
             "headers_hash": fp.headers_fp,
             "toolchain": fp.toolchain,
             "cflags": fp.cflags,
+            "defines": fp.defines,
+            "compiler_hash": snapshot_compiler_hash,
+            "context_hash": context.sha256 if context is not None else None,
             "size": entry.size,
             "module": getattr(entry, "module", ""),
             "binary_id": binary_id(cfg),

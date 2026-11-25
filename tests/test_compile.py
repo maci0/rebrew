@@ -311,6 +311,51 @@ class TestCompileToObj:
         assert compiled == [old]
         assert len(stored) == 1
 
+    def test_in_place_source_edit_during_compile_is_not_cached(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """An in-place compile must not return or store bytes from a rewritten source."""
+        import rebrew.compiler.compile as C
+
+        stored: dict[str, bytes] = {}
+
+        class _FakeCache:
+            def get(self, key: str) -> None:
+                return None
+
+            def put(self, key: str, data: bytes) -> None:
+                stored[key] = data
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None, image_id=None):
+            del spec, args, timeout, mounts, image_id
+            source.write_text("int f(void){return 2;}\n", encoding="utf-8")
+            (workdir / "f.obj").write_bytes(b"new-source")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(C, "cached_image_digest", lambda *_a, **_k: "sha256:" + "ab" * 32)
+        monkeypatch.setattr(C, "run_toolchain", _fake_run)
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+            msvc_env=dict,
+        )
+        source = tmp_path / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+
+        obj_path, err = compile_to_obj(
+            cast("ProjectConfig", cfg), source, ["/O2"], tmp_path, cache=_FakeCache()
+        )
+        assert obj_path is None
+        assert "Source changed during compilation" in err
+        assert stored == {}
+
     def test_header_edit_during_compile_is_not_cached(self, tmp_path: Path, monkeypatch) -> None:
         """A header saved while the compiler runs must not be stored under the old key.
 

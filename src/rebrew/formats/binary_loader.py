@@ -546,7 +546,9 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         The returned ``BinaryInfo`` is shared: a cache hit (same resolved
         path, format, mtime, change time, size, and inode) hands back the
         identical object, so a change one caller makes in place is visible to
-        every other holder.  A rebuilt binary re-parses on its own.
+        every other holder.  A rebuilt binary re-parses on its own.  A replacement
+        during parsing or before the first lazy byte read raises ``ValueError``
+        rather than combining one image's sections with another image's bytes.
 
     """
     path = Path(path)
@@ -643,6 +645,15 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     # Every branch above either assigned a BinaryInfo or raised; narrow for
     # the cache tagging below (mypy cannot see through the bare `raise`).
     assert result is not None
+
+    current = path.stat()
+    if (
+        current.st_mtime_ns != mtime_ns
+        or current.st_ctime_ns != ctime_ns
+        or current.st_size != fsize
+        or current.st_ino != ino
+    ):
+        raise ValueError(f"Binary changed while it was loaded: {path}")
 
     # Tag with mtime, change time, size, and inode for the stale-check on next lookup.
     result._cache_mtime_ns = mtime_ns

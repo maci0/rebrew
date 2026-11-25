@@ -675,6 +675,46 @@ class TestCallReferences:
             assert all(future.result(timeout=2)[0] == 200 for future in futures)
         assert calls == 1
 
+    def test_slow_scan_waiter_does_not_start_a_second_scan(
+        self,
+        world: tuple[WorkerConfig, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import rebrew.ops
+
+        config, project = world
+        cfg = rebrew.ops.target_config(rebrew.ops.project_root(config, str(project)), "")
+        digest = hashlib.sha256(Path(cfg.target_binary).read_bytes()).hexdigest()
+        answer = {"references": [], "import_slots": []}
+
+        class SingleWait:
+            def __init__(self) -> None:
+                self.started = threading.Event()
+                self.release = threading.Event()
+                self.waits = 0
+
+            def wait(self, timeout: float | None = None) -> bool:
+                self.waits += 1
+                assert self.waits == 1, "a singleflight waiter retried while its leader was active"
+                self.started.set()
+                if timeout is not None:
+                    return False
+                return self.release.wait()
+
+        event = SingleWait()
+        monkeypatch.setattr(rebrew.ops, "_call_scans", {})
+        monkeypatch.setattr(rebrew.ops, "_call_scan_inflight", {digest: event})
+        body = json.dumps({"project_dir": str(project)}).encode()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(dispatch, config, "rebrew.call_references", body)
+            assert event.started.wait(timeout=2)
+            with rebrew.ops._call_scans_lock:
+                rebrew.ops._call_scans[digest] = answer
+                rebrew.ops._call_scan_inflight.pop(digest)
+            event.release.set()
+            assert future.result(timeout=2)[0] == 200
+        assert event.waits == 1
+
     def test_binary_call_scan(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         reply = _call(config, "rebrew.call_references", {"project_dir": str(project)})

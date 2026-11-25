@@ -467,6 +467,52 @@ class TestLoadBinaryCache:
         assert info2.data == bytes(swapped)
         assert info2.data != old
 
+    def test_lazy_data_refuses_bytes_from_a_replaced_image(self, tmp_path: Path) -> None:
+        """Lazy bytes must belong to the image whose sections were parsed."""
+        import os
+
+        from rebrew.formats.binary_loader import load_binary
+
+        binary = make_pe_stub(tmp_path / "test.exe")
+        stale = load_binary(binary)
+        assert stale._data is None
+        changed = bytearray(binary.read_bytes())
+        changed[-1] ^= 0xFF
+        replacement = tmp_path / "replacement.exe"
+        replacement.write_bytes(changed)
+        os.replace(replacement, binary)
+
+        with pytest.raises(ValueError, match="changed after it was loaded"):
+            _ = stale.data
+        current = load_binary(binary)
+        assert current is not stale
+        assert current.data == bytes(changed)
+
+    def test_load_binary_rejects_an_image_replaced_during_parse(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A parse that straddled a rebuild must not be published under the old identity."""
+        import os
+
+        from rebrew.formats import binary_loader
+
+        binary = make_pe_stub(tmp_path / "test.exe")
+        parse = binary_loader._parse_regular
+
+        def replace_after_parse(path: Path, fmt: str) -> BinaryInfo:
+            result = parse(path, fmt)
+            changed = bytearray(path.read_bytes())
+            changed[-1] ^= 0xFF
+            replacement = tmp_path / "replacement.exe"
+            replacement.write_bytes(changed)
+            os.replace(replacement, path)
+            return result
+
+        monkeypatch.setattr(binary_loader, "_parse_regular", replace_after_parse)
+        with pytest.raises(ValueError, match="changed while it was loaded"):
+            binary_loader.load_binary(binary)
+        assert (str(binary.resolve()), "auto") not in binary_loader._load_binary_cache
+
     def test_load_binary_never_publishes_a_foreign_fingerprint(self, tmp_path: Path) -> None:
         """An entry a racing loader published for another image is not reused.
 

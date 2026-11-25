@@ -27,4 +27,5 @@ Externals (the only packages this one may import): `errors`, `registry`, `utils`
 ## Contracts
 
 - **LIEF first.** The root `AGENTS.md` Code Style section owns which formats LIEF parses and why `pe_headers`, `pe_image`, `ne_loader` and `omf16` exist.
+- **Loaded images are coherent snapshots.** `load_binary` rejects a file replaced during parsing. `BinaryInfo.data` rejects a replacement before its lazy read and an in-place rewrite during that read, rather than pairing one image's sections with another image's bytes.
 - **Parsers do not reach upward.** Nothing here imports a command, the compile path, or the metadata stores; a helper that needs them belongs to its caller.

@@ -20,6 +20,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+lazy import os
 lazy from pathlib import Path
 
 from rebrew.utils import BYTES_PER_MIB
@@ -36,6 +37,11 @@ MAX_BINARY_SIZE = 512 * BYTES_PER_MIB  # 512 MiB
 # entries and in practice a run touches one target binary, so contention is
 # a non-issue.  Make it per-instance if that ever stops being true.
 _data_load_lock = threading.Lock()
+
+
+def _stat_identity(stat: os.stat_result) -> tuple[int, int, int, int]:
+    """The file identity fields used by :func:`rebrew.formats.binary_loader.load_binary`."""
+    return (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_ino)
 
 
 #: Conventional code names used only when the loader supplies no explicit flag.
@@ -128,9 +134,10 @@ class BinaryInfo:
     def data(self) -> bytes:
         """Raw file bytes, loaded lazily.
 
-        Uses a single ``read_bytes()`` call so that the size check is
-        performed on the bytes we actually read, not a separate ``stat()``
-        that could race with a file replacement between the two syscalls.
+        The opened file must match the identity recorded by ``load_binary``.
+        A lazy read after a rebuild otherwise pairs the old section map with
+        the new file's bytes. Reads are capped at the bytes actually returned,
+        and an in-place rewrite during the read is rejected.
 
         ``BinaryInfo`` instances are shared across worker threads via
         ``_load_binary_cache``, so the lazy fill is guarded: without the
@@ -142,14 +149,25 @@ class BinaryInfo:
             with _data_load_lock:
                 # Re-check: another thread may have filled it while we waited.
                 if self._data is None:
-                    # Check the size on disk first: read_bytes() would already
-                    # have allocated the whole file the cap exists to bound.
-                    size = self.path.stat().st_size
-                    if size > MAX_BINARY_SIZE:
-                        raise ValueError(
-                            f"Binary file too large ({size / BYTES_PER_MIB:.0f} MiB): {self.path}"
-                        )
-                    raw = self.path.read_bytes()
+                    expected = (
+                        self._cache_mtime_ns,
+                        self._cache_ctime_ns,
+                        self._cache_fsize,
+                        self._cache_ino,
+                    )
+                    bound = any(expected)
+                    with self.path.open("rb") as stream:
+                        opened = os.fstat(stream.fileno())
+                        if bound and _stat_identity(opened) != expected:
+                            raise ValueError(f"Binary changed after it was loaded: {self.path}")
+                        if opened.st_size > MAX_BINARY_SIZE:
+                            raise ValueError(
+                                f"Binary file too large "
+                                f"({opened.st_size / BYTES_PER_MIB:.0f} MiB): {self.path}"
+                            )
+                        raw = stream.read(MAX_BINARY_SIZE + 1)
+                        if bound and _stat_identity(os.fstat(stream.fileno())) != expected:
+                            raise ValueError(f"Binary changed after it was loaded: {self.path}")
                     if len(raw) > MAX_BINARY_SIZE:
                         raise ValueError(
                             f"Binary file too large "

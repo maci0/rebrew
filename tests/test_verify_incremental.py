@@ -2172,6 +2172,102 @@ class TestStaleSaveIsDropped:
         assert loaded is not None
         assert "0x00002000" not in loaded.entries
 
+    @pytest.mark.parametrize("changed_input", ["defines", "compiler", "context"])
+    def test_changed_compile_identity_after_measurement_is_not_stored(
+        self, tmp_path: Path, changed_input: str
+    ) -> None:
+        cfg = _make_cfg(tmp_path)
+        cfg.defines = ["MODE=1"]
+        entries, results = _func_b_row(cfg)
+        entry = entries[0]
+        measured = entry_fingerprint(cfg, entry)
+        assert measured is not None
+        entry.verify_snapshot = {
+            "source_hash": measured.source_hash,
+            "headers_hash": measured.headers_fp,
+            "toolchain": measured.toolchain,
+            "cflags": measured.cflags,
+            "defines": measured.defines,
+            "compiler_hash": compiler_config_hash(cfg),
+            "context_hash": "measured-context",
+            "size": entry.size,
+            "module": "",
+            "binary_id": binary_id(cfg),
+        }
+        if changed_input == "defines":
+            cfg.defines = ["MODE=2"]
+        elif changed_input == "compiler":
+            cfg.check_known_bindings = True
+        else:
+            results[0]["context_hash"] = "different-context"
+
+        save_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg, results, entries)
+        loaded = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg)
+        assert loaded is not None
+        assert "0x00002000" not in loaded.entries
+
+    def test_matching_context_is_stored(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        entries, results = _func_b_row(cfg)
+        entry = entries[0]
+        measured = entry_fingerprint(cfg, entry)
+        assert measured is not None
+        entry.verify_snapshot = {
+            "source_hash": measured.source_hash,
+            "headers_hash": measured.headers_fp,
+            "toolchain": measured.toolchain,
+            "cflags": measured.cflags,
+            "defines": measured.defines,
+            "compiler_hash": compiler_config_hash(cfg),
+            "context_hash": "matching-context",
+            "size": entry.size,
+            "module": "",
+            "binary_id": binary_id(cfg),
+        }
+        results[0]["context_hash"] = "matching-context"
+
+        cache_path = cfg.root / ".rebrew" / "verify_cache.toml"
+        save_verify_cache(cache_path, cfg, results, entries)
+        loaded = load_verify_cache(cache_path, cfg)
+        assert loaded is not None
+        assert loaded.entries["0x00002000"].context_hash == "matching-context"
+
+    def test_compiler_change_while_waiting_for_write_lock_drops_save(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import contextlib
+
+        import rebrew.verify_cache as verify_cache
+
+        cfg = _make_cfg(tmp_path)
+        entries, results = _func_b_row(cfg)
+        entry = entries[0]
+        measured = entry_fingerprint(cfg, entry)
+        assert measured is not None
+        entry.verify_snapshot = {
+            "source_hash": measured.source_hash,
+            "headers_hash": measured.headers_fp,
+            "toolchain": measured.toolchain,
+            "cflags": measured.cflags,
+            "defines": measured.defines,
+            "compiler_hash": compiler_config_hash(cfg),
+            "context_hash": None,
+            "size": entry.size,
+            "module": "",
+            "binary_id": binary_id(cfg),
+        }
+
+        @contextlib.contextmanager
+        def change_before_lock(path: Path):
+            del path
+            cfg.base_cflags = "/Od"
+            yield
+
+        monkeypatch.setattr(verify_cache, "_verify_cache_write_lock", change_before_lock)
+        cache_path = cfg.root / ".rebrew" / "verify_cache.toml"
+        save_verify_cache(cache_path, cfg, results, entries)
+        assert not cache_path.exists()
+
     def test_changed_source_after_hit_validation_is_not_stored(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         entries, results = _func_b_row(cfg)

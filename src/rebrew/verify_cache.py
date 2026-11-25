@@ -1345,13 +1345,20 @@ def load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | Non
     return data
 
 
-def _measurement_matches_snapshot(entry: Any, fp: Any, binary_id: str) -> bool:
+def _measurement_matches_snapshot(
+    entry: Any,
+    fp: Any,
+    binary_id: str,
+    compiler_hash: str,
+    context_hash: str | None = None,
+) -> bool:
     """True while *fp* still describes the state *entry*'s verdict measured.
 
     ``verify_entry`` stamps ``verify_snapshot`` before compiling and the cache
     hit path stamps it when the row is validated.  A source, header, flag,
-    toolchain, target binary, size or module edit after that point makes the fingerprint move,
-    and the measured verdict no longer belongs under the new fingerprint.  An
+    define, compiler-policy, context, target binary, size or module edit after
+    that point makes the fingerprint move, and the measured verdict no longer
+    belongs under the new fingerprint.  An
     entry without a stamp (a direct writer/test caller) keeps the old
     behaviour: store what the caller supplied.
     """
@@ -1363,6 +1370,9 @@ def _measurement_matches_snapshot(entry: Any, fp: Any, binary_id: str) -> bool:
         and snapshot.get("headers_hash") == fp.headers_fp
         and snapshot.get("toolchain") == fp.toolchain
         and snapshot.get("cflags") == fp.cflags
+        and snapshot.get("defines", fp.defines) == fp.defines
+        and snapshot.get("compiler_hash", compiler_hash) == compiler_hash
+        and snapshot.get("context_hash", context_hash) == context_hash
         and snapshot.get("size") == (getattr(entry, "size", 0) or 0)
         and snapshot.get("module", "") == (getattr(entry, "module", "") or "")
         and snapshot.get("binary_id", binary_id) == binary_id
@@ -1393,20 +1403,27 @@ def save_verify_cache(
     """
     filepath_info: dict[str, tuple[int, str]] = {}
     fp_by_va: dict[str, Any] = {}
+    entries_by_va: dict[str, Any] = {}
     current_binary_id = binary_id(cfg)
+    current_compiler_hash = compiler_config_hash(cfg)
     for entry in entries:
         va_key = f"0x{entry.va:08x}"
         # One shared computation of every identity input (resolved flags,
         # toolchain, defines, size, header closure, source hash) — the hit
         # check in prepare_entries compares against these same values.
         fp = fresh_entry_fingerprint(cfg, entry, require_same_stat=True)
-        if fp is None or not _measurement_matches_snapshot(entry, fp, current_binary_id):
+        snapshot = getattr(entry, "verify_snapshot", None)
+        snapshot_context = snapshot.get("context_hash") if isinstance(snapshot, dict) else None
+        if fp is None or not _measurement_matches_snapshot(
+            entry, fp, current_binary_id, current_compiler_hash, snapshot_context
+        ):
             continue
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:
             continue
         filepath_info[relative_path] = (fp.mtime_ns, fp.source_hash)
         fp_by_va[va_key] = fp
+        entries_by_va[va_key] = entry
 
     cache_entries: dict[str, dict[str, Any]] = {}
     for result in results:
@@ -1425,12 +1442,19 @@ def save_verify_cache(
         mtime, source_hash = file_info
 
         # The stored row IS the report row (verdict fields) plus the
-        # cache-identity inputs alongside — one shape, no nesting.
-        # filepath_info is keyed by path and fp_by_va by VA, so a row whose own
-        # annotation has no fingerprint (fp is None above) can still find a
-        # sibling's entry under a shared filepath.  Uncacheable, not fatal.
+        # cache-identity inputs alongside, one shape with no nesting.
+        # A row whose own annotation has no current fingerprint is uncacheable.
         fp_entry = fp_by_va.get(str(va_key))
-        if fp_entry is None:
+        measured_entry = entries_by_va.get(str(va_key))
+        if fp_entry is None or measured_entry is None:
+            continue
+        if not _measurement_matches_snapshot(
+            measured_entry,
+            fp_entry,
+            current_binary_id,
+            current_compiler_hash,
+            result.get("context_hash"),
+        ):
             continue
         res_dict = {k: result.get(k) for k in RESULT_FIELDS}
         res_dict["va"] = va_key
@@ -1468,6 +1492,15 @@ def save_verify_cache(
     # from it; the rows are the other target's to keep.
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(cache_path):
+        if (
+            binary_id(cfg) != current_binary_id
+            or compiler_config_hash(cfg) != current_compiler_hash
+        ):
+            logging.warning(
+                "Verify cache %s identity changed while results were being saved; dropping this write",
+                cache_path,
+            )
+            return
         previous_path = cache_path
         if cache_path == cache_path_for(cfg):
             previous_path = cache_path_for(cfg, for_read=True)

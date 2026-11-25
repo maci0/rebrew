@@ -15,6 +15,10 @@
 
 - JSON-mode detection no longer treats a separate option value such as `--cflags --json` as a request for JSON. Parsed Typer context supplies the command's actual output choice, while root `--output json` still wins.
 - `rebrew binary extract batch` exits 1 after processing the whole batch when any selected function fails, instead of reporting failures in its JSON or terminal output and exiting 0.
+- Binary parsing rejects an image replaced during the parse, and a lazy byte read refuses replacement bytes that do not belong to the cached section map.
+- Concurrent cold call-reference scans wait for the active scan instead of starting duplicate disassembly passes after a timeout.
+- An in-place compile refuses an object when its source changed during the run, instead of returning or caching bytes under the previous source key.
+- Verification-cache saves drop rows whose defines, compiler policy, or comparison context changed after measurement, and refuse a write when the target or compiler identity changes before the lock is acquired.
 - The CLI reference documents field projection, placement pagination, retained decomp.me ledger overrides, and the remaining source/coverage option tables. A documentation test now compares every registered argument and long option with its reference table.
 - The coverage dashboard restores removed Status and Module filters on Back navigation, reloads function rows with saved filters after a summary retry, and cancels pending search debounces when an immediate filter change loads the list.
 - The coverage dashboard applies a status card clicked from another view instead of clearing the hidden Functions filter, cancels abandoned view requests before they can overwrite the active view, and explains each displayed status with the report's shared reference.

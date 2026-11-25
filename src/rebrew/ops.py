@@ -2364,9 +2364,9 @@ _call_scans: dict[str, dict[str, Any]] = {}
 _call_scans_lock = threading.Lock()
 #: One live scan per binary digest.  Concurrent cold requests otherwise each
 #: repeat the full disassembly and import parse before any can publish a row.
+#: Waiters stay with the leader until its ``finally`` publishes the outcome;
+#: timing out and claiming the key would duplicate a slow scan.
 _call_scan_inflight: dict[str, threading.Event] = {}
-#: Bounds one wait, not the scan: a slow leader keeps owning the work.
-_CALL_SCAN_WAIT_TIMEOUT_S = 30.0
 
 
 def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]:
@@ -2394,7 +2394,7 @@ def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]
                 event = threading.Event()
                 _call_scan_inflight[digest] = event
                 break
-        event.wait(timeout=_CALL_SCAN_WAIT_TIMEOUT_S)
+        event.wait()
     try:
         references = scan_references(load_binary(binary))
         calls = sorted(
