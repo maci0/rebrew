@@ -3522,7 +3522,7 @@ rebrew metadata restore --file backups/db.sqlite3
 `rebrew metadata reconcile [OPTIONS]`
 
 Catch up recovered metadata replicas and report unavailable destinations.
-`rebrew metadata reconcile --dry-run --json` previews the queued replication.
+`rebrew metadata reconcile --dry-run --json` previews the queued replication. Each item lists `diverged`: the documents whose replica text differs from the reconciled state, for example after a replica file was reset outside rebrew. Reconcile rewrites them; the dry run only lists them.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -3585,7 +3585,9 @@ stores and the project config must parse as TOML; SQLite backups also pass
 database schema and integrity checks. Parsing does not establish TOML
 domain-record validity. The current stores, GA log and baselines, if any, are
 preserved as `.before-restore` sidecars; then the backup, GA log, baselines and
-the rest of the `.rebrew/` extras are installed.
+the rest of the `.rebrew/` extras are installed. With several configured
+read/write backends, the restored backend then replaces the other replicas, so
+the replicas end equal and a later reconcile does not undo the restore.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |

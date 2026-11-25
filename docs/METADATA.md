@@ -275,6 +275,10 @@ rebrew metadata reconcile --json
 Preview and ordinary reads do not create storage or perform repair writes.
 Reconciliation validates document schemas, catches up reachable writers and
 reports unavailable ones as `pending`; it does not change the configured lists.
+Each item also lists `diverged` documents, those whose replica text differs from the
+reconciled state. A replica edited outside rebrew (a `git checkout` of the TOML file)
+wins over the others, and reads keep using the first read backend until reconcile runs.
+`metadata restore` publishes the restored backend to the other replicas.
 There is no background retry daemon. Use `metadata migrate` to prepare a single
 backend before enabling the lists; use `metadata reconcile` after enabling them.
 

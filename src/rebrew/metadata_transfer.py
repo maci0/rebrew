@@ -76,6 +76,23 @@ def reconcile_metadata(cfg: ProjectConfig, *, dry_run: bool = False) -> dict[str
     return selected.reconcile(dry_run=dry_run, validate=validate_store_document)
 
 
+def adopt_restored_replicas(cfg: ProjectConfig, backend: str) -> bool:
+    """After restoring *backend*'s stores, make every other configured replica equal to them.
+
+    Without this the replicas the restore did not touch keep their later
+    state, which reconciliation then prefers over the restored one. Returns
+    False when the project has no replicated backends or *backend* is not one
+    of them.
+    """
+    from rebrew.metadata.replication import RoutedStore
+
+    selected = metadata_store(cfg.root.resolve() / "rebrew-functions.toml")
+    if not isinstance(selected, RoutedStore) or backend not in selected.factories:
+        return False
+    selected.adopt(backend)
+    return True
+
+
 #: The stores whose records are keyed MODULE.0xVA; module scoping drops the other modules' records from these.
 MODULE_KEYED_STORES = frozenset({"rebrew-functions.toml", "rebrew-data.toml"})
 
