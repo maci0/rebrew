@@ -1908,6 +1908,39 @@ def test_fill_data_keeps_one_pad_per_address(tmp_path: Path) -> None:
     assert text_after_first in (src / "a.c").read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize("known", [True, False])
+def test_fill_data_leaves_global_allocations_unmodified(tmp_path: Path, known: bool) -> None:
+    from rebrew.data_layout import fill_data
+
+    data_base = 0x10027000
+    raw = bytes(range(128))
+    _write_layout(tmp_path, data_base, len(raw), len(raw))
+    binary = tmp_path / "original.exe"
+    binary.write_bytes(_make_pe(raw))
+    src = tmp_path / "src"
+    src.mkdir()
+    source = src / "a.c"
+    original = "unsigned char g_owner[16] = {1};\n"
+    source.write_text(original)
+    sized = "size = 16\n" if known else ""
+    meta = tmp_path / "rebrew-data.toml"
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x10027000"]\nname = "g_owner"\nsection = ".data"\n'
+        + sized
+        + '["SERVER.0x10027002"]\nname = "g_view"\nsection = ".data"\nsize = 1\n',
+        encoding="utf-8",
+    )
+    result = fill_data(tmp_path, meta, binary, src)
+    assert result["init_pads"] == int(known)
+    output = source.read_text()
+    assert output.startswith(original)
+    if known:
+        assert "unsigned char _dpad_10027010[112]" in output
+    else:
+        assert output == original
+
+
 def test_fill_data_emits_bss_pads(tmp_path: Path) -> None:
     """`.bss` globals live past the raw end and must become zero-init pads.
 

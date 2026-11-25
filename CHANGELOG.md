@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Fill only the unallocated gaps between known data and BSS extents (D-engines7-078).
 - Resolve relocation targets against covering allocations past shorter interior views (D-engines7-087).
 - Insert generated externs before any trailing line comment (D-engines7-080).
 - Match CMake link outputs exactly and refuse missing or ambiguous named outputs (D-engines7-076).

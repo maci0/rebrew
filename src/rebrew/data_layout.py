@@ -941,18 +941,20 @@ def fill_data(
     """
     data_base, raw_end, section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
-    # Both sections: `.bss` globals (section=".bss" in the metadata) live past
-    # raw_end and become the zero-init pads — a `.data`-only read dropped them,
-    # so BSS pads were never emitted and `--bss-only` was a no-op.
-    toml = data_symbols(
-        metadata,
-        (".data", ".bss"),
-        module=_target_module(root, _converge_target(root, target)),
+    module = _target_module(root, _converge_target(root, target))
+    module_key = preset_module_key(module) if module is not None else None
+    arch = load_binary(bin_path).arch
+    by_addr = sorted(
+        (va, str(fields["name"]), data_symbol_size(fields, arch=arch))
+        for row_module, va, fields in iter_data_symbols(load_data_document(metadata), None)
+        if fields.get("name")
+        and fields.get("section") in (".data", ".bss")
+        and (module_key is None or preset_module_key(row_module) == module_key)
+        and va < section_end
     )
-    files = scan_files(src_dir, shared_dir)
-    by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     if not by_addr:
         return {"init_pads": 0, "bss_pads": 0}
+    files = scan_files(src_dir, shared_dir)
     references = reference_counts(files)
     known_pads = _existing_pad_names(files)
 
@@ -966,59 +968,31 @@ def fill_data(
 
     n_bss = n_pad = 0
 
-    # leading pad: raw section start -> first symbol
-    first_name, first_addr = by_addr[0]
-    lead = first_addr - data_base
-    if lead > 0 and first_addr < raw_end and not bss_only:
-        owner = owner_of([first_name], files, references)
-        if owner:
-            data = orig[:lead]
-            init = hex_list(data)
-            if insert_definition(
-                owner, f"_dpad_{data_base:x}", "unsigned char", lead, init, dry_run
-            ):
-                n_pad += 1
-
-    for i, (name, addr) in enumerate(by_addr):
-        if addr < data_base:
-            # Below the section base there are no bytes in ``orig``: slicing
-            # with a negative start would copy the section's tail into the pad.
-            continue
-        nxt_addr = by_addr[i + 1][1] if i + 1 < len(by_addr) else section_end
-        gap = nxt_addr - addr
-        if gap <= 0x40:
-            continue  # small alignment gaps only
-        owner = owner_of(
-            [name] + ([by_addr[i + 1][0]] if i + 1 < len(by_addr) else []),
-            files,
-            references,
-        )
-        if owner is None:
-            continue
-        if addr >= raw_end:
-            # BSS region: anonymous zero-init pad (named symbols keep their
-            # scalar/field identity; the array region is the gap itself)
-            if emit_pad(owner, f"_dpad_{addr:x}", gap, None):
-                n_bss += 1
-        elif raw_end < nxt_addr:
-            # The gap straddles raw_end: the byte-exact run stops there and the
-            # remainder past it is a zero-init pad, which --bss-only still wants.
-            if not bss_only:
-                start = addr - data_base
-                data = orig[start : raw_end - data_base]
-                init = hex_list(data)
-                if emit_pad(owner, f"_dpad_{addr:x}", raw_end - addr, init):
-                    n_pad += 1
-            if emit_pad(owner, f"_dpad_{raw_end:x}", nxt_addr - raw_end, None):
-                n_bss += 1
-        elif not bss_only:
-            # initialized region: byte-exact run from the original
-            start = addr - data_base
-            end = nxt_addr - data_base
-            data = orig[start:end]
-            init = hex_list(data)
-            if emit_pad(owner, f"_dpad_{addr:x}", end - start, init):
-                n_pad += 1
+    start = data_base
+    previous = ""
+    for addr, name, size in [*by_addr, (section_end, "", 0)]:
+        if addr > start and (addr - start > 0x40 if previous else addr < raw_end):
+            neighbors = [item for item in (previous, name) if item]
+            owner = owner_of(neighbors, files, references)
+            if owner is not None:
+                raw_stop = min(addr, raw_end)
+                if not bss_only and raw_stop > start:
+                    data = orig[start - data_base : raw_stop - data_base]
+                    if len(data) == raw_stop - start and emit_pad(
+                        owner, f"_dpad_{start:x}", len(data), hex_list(data)
+                    ):
+                        n_pad += 1
+                bss_start = max(start, raw_end)
+                if addr > bss_start and emit_pad(
+                    owner, f"_dpad_{bss_start:x}", addr - bss_start, None
+                ):
+                    n_bss += 1
+        # An unbounded allocation may extend over later rows. Keep the rest
+        # of the section unmodified until the missing extent is recorded.
+        stop = min(addr + size, section_end) if size else section_end
+        if stop > start:
+            start = stop
+            previous = name
     return {"init_pads": n_pad, "bss_pads": n_bss}
 
 
