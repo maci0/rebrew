@@ -321,6 +321,47 @@ class TestSplitBasic:
             {"SERVER.0x10001000": {"kind": "FUNCTION"}},
         ) in existing.read_text(encoding="utf-8")
 
+    @pytest.mark.parametrize("restore_fails", [False, True], ids=["restored", "backup-retained"])
+    def test_failed_forced_split_preserves_previous_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restore_fails: bool
+    ) -> None:
+        source = _write(tmp_path / "multi.c", _multi_two())
+        original = source.read_bytes()
+        metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
+        dest = tmp_path / "output"
+        dest.mkdir()
+        first = dest / "func_a.c"
+        first.write_bytes(b"previous output\n")
+        first.chmod(0o600)
+        second = dest / "func_b.c"
+        second.mkdir()
+        if restore_fails:
+            replace = Path.replace
+
+            def fail_output_restore(path: Path, target: Path) -> Path:
+                if target == first:
+                    raise PermissionError("cannot restore previous output")
+                return replace(path, target)
+
+            monkeypatch.setattr(Path, "replace", fail_output_restore)
+
+        result, _ = _invoke(tmp_path, monkeypatch, "--force", "--json", "--output", str(dest))
+
+        assert result.exit_code == 2, result.output
+        assert "Split did not finish" in result.output
+        assert source.read_bytes() == original
+        if restore_fails:
+            [backup] = dest.glob(".rebrew-split-*/func_a.c")
+            assert str(backup.parent) in result.output
+            assert "Output rollback failed" in result.output
+            preserved = backup
+        else:
+            assert set(dest.iterdir()) == {first, second}
+            preserved = first
+        assert preserved.read_bytes() == b"previous output\n"
+        assert preserved.stat().st_mode & 0o777 == 0o600
+        assert (tmp_path / "rebrew-functions.toml").read_bytes() == metadata
+
     def test_json_output_structure(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
         payloads: list[dict[str, Any]] = []

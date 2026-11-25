@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- A failed forced source split restores previous output files in place and retains their backups if restoration fails (D-engines7-023).
 - Retained source operations follow renamed candidate anchors using the source's configured address-comment syntax (D-engines7-019).
 - Whole-binary verification reports a layout mismatch when the recorded fingerprint is malformed or unreadable (D-engines7-018).
 - Anchor materialization recognizes existing bindings for modules configured in lowercase (D-engines7-017).

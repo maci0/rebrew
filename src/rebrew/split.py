@@ -13,6 +13,7 @@ from __future__ import annotations
 lazy import bisect
 lazy import os
 lazy import shutil
+lazy import tempfile
 lazy import unicodedata
 lazy from pathlib import Path
 lazy from typing import Any
@@ -481,15 +482,27 @@ def _split_definitions(
         )
 
     if not dry_run:
-        created: list[Path] = []
+        written: dict[Path, Path | None] = {}
+        backups: Path | None = None
+        keep_backups = True
         source_bytes = source_path.read_bytes()
+        source_mode = source_path.stat().st_mode & 0o777
         bak_path = source_path.with_suffix(source_path.suffix + ".bak")
         bak_created = False
         try:
             for plan, content in rendered:
                 plan["dir"].mkdir(parents=True, exist_ok=True)
-                atomic_write_text(plan["path"], content, encoding=encoding)
-                created.append(plan["path"])
+                path = plan["path"]
+                backup = None
+                if path.is_symlink() or path.is_file():
+                    if not force:
+                        raise FileExistsError(f"Output file already exists: {path}")
+                    if backups is None:
+                        backups = Path(tempfile.mkdtemp(prefix=".rebrew-split-", dir=path.parent))
+                    backup = backups / path.name
+                    shutil.copy2(path, backup, follow_symlinks=False)
+                atomic_write_text(path, content, encoding=encoding)
+                written[path] = backup
             if drop_source:
                 if not bak_path.exists():
                     shutil.copy2(source_path, bak_path)
@@ -508,24 +521,38 @@ def _split_definitions(
                 for module, row_va, _entry in plan["rows"]
             ]
             record_function_rows(meta, identity_rows)
+            keep_backups = False
         except Exception as exc:
             import logging
 
-            if bak_created:
-                bak_path.unlink(missing_ok=True)
             # Restore atomically: the source is read by other commands while
             # this runs, and a crash mid-restore must not leave it truncated.
             # A restore failure must not mask the original error, and the
             # created outputs must still be cleaned up.
             restore_exc: Exception | None = None
             try:
-                atomic_write_bytes(source_path, source_bytes)
-            except OSError as restore_exc:
+                atomic_write_bytes(source_path, source_bytes, mode=source_mode)
+            except OSError as error:
+                restore_exc = error
                 logging.getLogger(__name__).warning(
-                    "split: could not restore %s after failure: %s", source_path, restore_exc
+                    "split: could not restore %s after failure: %s", source_path, error
                 )
-            for path in created:
-                path.unlink(missing_ok=True)
+            else:
+                if bak_created:
+                    try:
+                        bak_path.unlink(missing_ok=True)
+                    except OSError as error:
+                        logging.getLogger(__name__).warning("split: %s", error)
+            output_errors = []
+            for path, backup in reversed(written.items()):
+                try:
+                    if backup is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        backup.replace(path)
+                except OSError as output_exc:
+                    output_errors.append(str(output_exc))
+            keep_backups = bool(output_errors)
             if restore_exc is not None:
                 detail = (
                     f" The source could not be restored ({restore_exc}); "
@@ -533,10 +560,17 @@ def _split_definitions(
                 )
             else:
                 detail = " The source was restored."
+            if output_errors:
+                detail += f" Output rollback failed: {', '.join(output_errors)}."
+                if backups is not None:
+                    detail += f" Previous outputs remain in {backups}."
             error_exit(
                 f"Split did not finish ({exc}).{detail}",
                 json_mode=json_output,
             )
+        finally:
+            if backups is not None and not keep_backups:
+                shutil.rmtree(backups, ignore_errors=True)
 
     if json_output:
         json_print(
