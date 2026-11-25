@@ -98,7 +98,7 @@ version = { attr = "rebrew.__version__" }
 # (docs/codegen/README.md#machine-readable-corpus-codegen_corpusjson).
 # ``compiler/toolchains.json`` is the vendored recompile-toolchains release
 # manifest the toolchain source pins come from (docs/TOOLCHAIN.md).
-rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "codegen_corpus.json", "compiler/*.c", "compiler/toolchains.json", "**/py.typed", "py.typed"]
+rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "codegen_corpus.json", "rebrew.schema.json", "compiler/*.c", "compiler/toolchains.json", "**/py.typed", "py.typed"]
 
 # Contributor-only AGENTS.md under subpackages (app/, matcher/, compiler/, formats/, metadata/, catalog/, ghidra/,
 # binsync/, workspace/) must not

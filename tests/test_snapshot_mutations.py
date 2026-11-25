@@ -13,6 +13,30 @@ from source_util import write_source
 from rebrew import ops
 from rebrew.metadata.data import set_data_fields_batch
 
+_VARIANT_RESULT = {
+    "source": "src/add.c",
+    "symbol": "_add",
+    "mode": "ga",
+    "generations": 1,
+    "pop_size": 1,
+    "best_score": 1.0,
+    "exact": True,
+    "elapsed_sec": 0.0,
+    "stagnant_gens": 0,
+    "restarts": 0,
+    "seed": 1,
+}
+_DECOMPME_PREVIEW = {
+    "dry_run": True,
+    "compiler": "msvc6.0",
+    "platform": "win32",
+    "flags": "/O2",
+    "context_bytes": 0,
+    "source_file": "src/add.c",
+    "va": "0x00401000",
+    "target_obj_bytes": 11,
+}
+
 
 def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> None:
     monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")
@@ -66,14 +90,30 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
         seen.append(root)
         if args[:2] == ["source", "rename"]:
             (root / "src/add.c").write_text("int renamed;\n")
-        elif args[:2] == ["export", "decompme"]:
+            return {
+                "kind": "function",
+                "old_name": "add",
+                "new_name": "renamed",
+                "files": [],
+                "rows": [],
+                "move": None,
+                "notes": [],
+                "files_updated": 1,
+                "dry_run": False,
+            }
+        if args[:2] == ["export", "decompme"]:
             assert "--dry-run" in args
             assert (root / "src/add.c").read_text() == "int candidate;\n"
-        elif args[:2] == ["match", "run"]:
+            return dict(_DECOMPME_PREVIEW)
+        if args[:2] == ["match", "run"]:
             best = root / "output/ga_runs/best.c"
             best.parent.mkdir(parents=True)
             best.write_text("int best;\n")
-            return {"best_source_path": str(best), "source": str(root / "src/add.c")}
+            return {
+                **_VARIANT_RESULT,
+                "best_source_path": str(best),
+                "source": str(root / "src/add.c"),
+            }
         return {}
 
     real_run = ops.run_rebrew
@@ -115,7 +155,7 @@ def test_retained_proposals_and_candidate(tmp_path: Path, monkeypatch: Any) -> N
     )
     assert status == 200, body
     assert json.loads(body) == {
-        "result": {},
+        "result": _DECOMPME_PREVIEW,
         "remote_compile": {"count": 0, "billed_undelivered": 0, "unsettled": 0, "wait_ms": 0},
     }
     request.update(operation="variants", generations=1, population=1)
@@ -406,7 +446,7 @@ def test_a_variant_search_of_a_renamed_candidate_scans_and_keeps_the_renamed_reg
 
     def run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
         seen.append(build_name_to_va(load_config(root, target="mini")))
-        return {}
+        return dict(_VARIANT_RESULT)
 
     monkeypatch.setattr(ops, "run_rebrew", run)
     status, body = ops.dispatch(

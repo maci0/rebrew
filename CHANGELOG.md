@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- Validate every successful worker reply against the packaged dispatch schema before sending it (D-engines7-002).
+
 ## [6.79.0] - 2026-11-25
 
 ### Fixed

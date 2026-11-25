@@ -54,6 +54,21 @@ WAIT_SECONDS = 120
 #: The `remote_compile` of a compiling op that called no recompile service.
 NO_REMOTE_COMPILES = {"count": 0, "billed_undelivered": 0, "unsettled": 0, "wait_ms": 0}
 
+_EXACT_VERIFY = {
+    "source": "src/add.c",
+    "symbol": "_add",
+    "va": f"0x{ENTRY_VA:08x}",
+    "size": ENTRY_SIZE,
+    "status": "EXACT",
+    "match_count": ENTRY_SIZE,
+    "total": ENTRY_SIZE,
+    "reloc_count": 0,
+    "obj_size": ENTRY_SIZE,
+    "context_hash": None,
+    "mismatches": [],
+    "compile": None,
+}
+
 _CONTRACT = json.loads((FIXTURES / "dispatch" / "rebrew.schema.json").read_text())
 
 #: What ``rebrew data list --json`` prints for a target with no data.
@@ -355,6 +370,36 @@ class TestTargetName:
 class TestContract:
     def test_every_contract_op_is_served(self) -> None:
         assert set(OPS) == set(_CONTRACT["ops"])
+
+    @pytest.mark.parametrize("missing", ["code", "backend"])
+    def test_dispatch_refuses_reply_missing_required_member(
+        self, monkeypatch: pytest.MonkeyPatch, missing: str
+    ) -> None:
+        name = "rebrew.decompile"
+        reply = {"code": "return 0;", "backend": "kuna"}
+        del reply[missing]
+        monkeypatch.setitem(OPS, name, dataclasses.replace(OPS[name], run=lambda *_: reply))
+        request = {
+            "project_dir": "project",
+            "sha256": SHA256,
+            "va": ENTRY_VA,
+            "backend": "kuna",
+            "named": False,
+        }
+        status, raw = dispatch(WorkerConfig(), name, json.dumps(request).encode())
+        assert (status, json.loads(raw)["error"]) == (500, "engine-error")
+
+    @pytest.mark.parametrize("member", ["name", "state"])
+    def test_dispatch_refuses_reply_with_unknown_nested_enum(
+        self, monkeypatch: pytest.MonkeyPatch, member: str
+    ) -> None:
+        name = "rebrew.vocabulary"
+        config = WorkerConfig()
+        reply = _call(config, name, {})
+        reply["decompilers"][0][member] = "unknown-value"
+        monkeypatch.setitem(OPS, name, dataclasses.replace(OPS[name], run=lambda *_: reply))
+        status, raw = dispatch(config, name, b"{}")
+        assert (status, json.loads(raw)["error"]) == (500, "engine-error")
 
     def test_request_fields_match_contract(self) -> None:
         import dataclasses
@@ -2504,7 +2549,7 @@ class TestReconstructionOps:
             assert (root / "src/add.c").read_text() == "int add(int a, int b) { return a+b; }\n"
             assert "--va=0x401000" in args and "--size=11" in args and "--no-promote" in args
             seen.append(root)
-            return {"status": "EXACT"}
+            return dict(_EXACT_VERIFY)
 
         monkeypatch.setattr(ops, "run_rebrew", run)
         config = WorkerConfig(filestore.resolve(), workspace.resolve())
@@ -2534,7 +2579,7 @@ class TestReconstructionOps:
 
         def record(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
             argv.append(list(args))
-            return {"status": "EXACT"}
+            return dict(_EXACT_VERIFY)
 
         monkeypatch.setattr(ops, "run_rebrew", record)
         status, _ = dispatch(config, "rebrew.verify_function", json.dumps(request).encode())
@@ -2556,7 +2601,7 @@ class TestReconstructionOps:
         def project_run(args: Any, root: Path, *unused: Any, **kwargs: Any) -> dict[str, Any]:
             seen_project.append((root / "rebrew-project.toml").read_text())
             assert not any(a.startswith("--cflags") for a in args)
-            return {"status": "EXACT"}
+            return dict(_EXACT_VERIFY)
 
         monkeypatch.setattr(ops, "run_rebrew", project_run)
         status, body = dispatch(
@@ -3873,7 +3918,7 @@ class TestOpDeadlines:
         def outlives_the_deadline(*args: Any, **kwargs: Any) -> dict[str, Any]:
             time.sleep(1.5)
             ran.append(time.monotonic())
-            return {"status": "EXACT"}
+            return dict(_EXACT_VERIFY)
 
         monkeypatch.setattr("rebrew.test.run_test", outlives_the_deadline)
         source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
@@ -3881,7 +3926,7 @@ class TestOpDeadlines:
         status, reply = dispatch(config, "rebrew.verify_function", body.encode())
         assert (status, json.loads(reply)) == (
             200,
-            {"status": "EXACT", "remote_compile": NO_REMOTE_COMPILES},
+            {**_EXACT_VERIFY, "source": source, "remote_compile": NO_REMOTE_COMPILES},
         )
         assert len(ran) == 1
 
@@ -3894,7 +3939,10 @@ class TestOpDeadlines:
         config, project = world
         seen = tmp_path / "deadline"
         child = tmp_path / "reporting-python"
-        child.write_text(f'#!/bin/sh\necho "$REBREW_CALL_DEADLINE" > "{seen}"\necho "{{}}"\n')
+        child.write_text(
+            f'#!/bin/sh\necho "$REBREW_CALL_DEADLINE" > "{seen}"\n'
+            f"echo '{json.dumps(_EMPTY_DATA_LIST)}'\n"
+        )
         child.chmod(0o755)
         monkeypatch.setattr(sys, "executable", str(child))
         body = json.dumps({"project_dir": str(project)}).encode()

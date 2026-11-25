@@ -274,7 +274,20 @@ def test_candidate_anchor_is_canonical_for_verify_and_apply(
         seen.append(text)
         if op == "rebrew.apply_candidate":
             update_source_status(root, "EXACT", "NOTEPAD", va, force=True)
-        return {"status": "EXACT"}
+        return {
+            "source": "src/stub.c",
+            "symbol": "_fcn_01004116",
+            "va": f"0x{va:08x}",
+            "size": 11,
+            "status": "EXACT",
+            "match_count": 11,
+            "total": 11,
+            "reloc_count": 0,
+            "obj_size": 11,
+            "context_hash": None,
+            "mismatches": [],
+            "compile": None,
+        }
 
     monkeypatch.setattr(ops, "run_rebrew", run)
     status, reply = dispatch(

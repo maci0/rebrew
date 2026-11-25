@@ -56,7 +56,7 @@ def _call(config: WorkerConfig, op: str, request: dict[str, Any]) -> tuple[int, 
 
 
 def _analyse(config: WorkerConfig) -> dict[str, Any]:
-    """Analyse without the contract check: the version 1 helper patches the metadata out."""
+    """Analyse the selected project through the current worker."""
     status, raw = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
     reply: dict[str, Any] = json.loads(raw)
     assert status == 200, reply
@@ -133,7 +133,9 @@ def _v1_target_with_applied_name(config: WorkerConfig) -> dict[str, bytes]:
     """The tree of a target published from a version 1 capture, after a rename was applied."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(ops, "_fresh_sqlite_metadata", lambda *_args: None)
-        capture = _analyse(config)["analysis_capture"]
+        # Build an old capture for the migration test outside the current wire contract.
+        request = ops.parse_request(ops.AnalyseRequest, _analyse_request())
+        capture = ops.analyse(config, request)["analysis_capture"]
     captured = _captured(capture)
     assert DATABASE_FILENAME not in captured and REGISTRY in captured
     status, proposal = _call(

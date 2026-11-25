@@ -11,8 +11,13 @@ A reply that carries the verdict of a remote compile that never ran names why wi
 (:class:`NotRunError`), never the compile client's message.
 """
 
+import base64
+import binascii
+import json
 import logging
 import types
+from functools import cache
+from importlib.resources import files
 from typing import (
     Annotated,
     Any,
@@ -28,6 +33,99 @@ from typing import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class _ReplySchemaError(ValueError):
+    """A reply cannot be published under the engine's dispatch schema."""
+
+
+_SCHEMA_KEYWORDS = frozenset(
+    {
+        "$schema",
+        "type",
+        "required",
+        "properties",
+        "additionalProperties",
+        "items",
+        "minItems",
+        "maxItems",
+        "oneOf",
+        "enum",
+        "contentEncoding",
+        "format",
+    }
+)
+_JSON_TYPES = {
+    "object": (dict,),
+    "array": (list,),
+    "string": (str,),
+    "integer": (int,),
+    "number": (int, float),
+    "boolean": (bool,),
+    "null": (type(None),),
+}
+
+
+@cache
+def _response_schemas() -> dict[str, object]:
+    contract = json.loads(files("rebrew").joinpath("rebrew.schema.json").read_bytes())
+    return {name: op["response"] for name, op in contract["ops"].items()}
+
+
+def reply_schema_error(name: str, reply: bytes) -> str | None:
+    """Check the emitted JSON and describe any schema violation without exposing values."""
+    try:
+        _validate(_response_schemas()[name], json.loads(reply), "$")
+    except _ReplySchemaError as exc:
+        return str(exc)
+    return None
+
+
+def _validate(schema: Any, value: Any, where: str) -> None:
+    if schema is True:
+        return
+    if schema is False or schema.keys() - _SCHEMA_KEYWORDS:
+        raise _ReplySchemaError(f"{where}: unsupported or forbidden schema")
+    if "type" in schema:
+        kinds = schema["type"]
+        if isinstance(kinds, str):
+            kinds = [kinds]
+        if not any(type(value) in _JSON_TYPES[kind] for kind in kinds):
+            raise _ReplySchemaError(f"{where}: expected {' or '.join(kinds)}")
+    if "enum" in schema and value not in schema["enum"]:
+        raise _ReplySchemaError(f"{where}: value outside enum")
+    if "oneOf" in schema:
+        matches = 0
+        for choice in schema["oneOf"]:
+            try:
+                _validate(choice, value, where)
+            except _ReplySchemaError:
+                continue
+            matches += 1
+        if matches != 1:
+            raise _ReplySchemaError(f"{where}: expected exactly one schema alternative")
+    if schema.get("contentEncoding") == "base64":
+        try:
+            base64.b64decode(value, validate=True)
+        except binascii.Error, TypeError, ValueError:
+            raise _ReplySchemaError(f"{where}: invalid base64") from None
+    if isinstance(value, dict):
+        missing = set(schema.get("required", ())) - value.keys()
+        if missing:
+            raise _ReplySchemaError(f"{where}: missing {', '.join(sorted(missing))}")
+        properties = schema.get("properties", {})
+        additional = schema.get("additionalProperties", True)
+        for key, item in value.items():
+            if key in properties:
+                _validate(properties[key], item, f"{where}.{key}")
+            elif additional is not True:
+                _validate(additional, item, f"{where}.*")
+    if isinstance(value, list):
+        if not schema.get("minItems", 0) <= len(value) <= schema.get("maxItems", len(value)):
+            raise _ReplySchemaError(f"{where}: array length outside bounds")
+        if "items" in schema:
+            for index, item in enumerate(value):
+                _validate(schema["items"], item, f"{where}[{index}]")
 
 
 class SkippedRecords(TypedDict):

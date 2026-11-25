@@ -102,9 +102,15 @@ def _sample(
     config = WorkerConfig(filestore.resolve(), workspace.resolve())
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(rebrew.ops, "_run_intake", _copied_intake(*intake))
-        status, body = dispatch(config, "rebrew.analyse", json.dumps(_analyse_request()).encode())
-    assert status == 200, body
-    result = json.loads(body)
+        if legacy:
+            request = rebrew.ops.parse_request(rebrew.ops.AnalyseRequest, _analyse_request())
+            result = rebrew.ops.analyse(config, request)
+        else:
+            status, body = dispatch(
+                config, "rebrew.analyse", json.dumps(_analyse_request()).encode()
+            )
+            assert status == 200, body
+            result = json.loads(body)
     capture = result["analysis_capture"]
     analysis_entries = []
     analysis_files = []

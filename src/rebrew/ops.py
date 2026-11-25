@@ -5585,6 +5585,17 @@ def dispatch(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
             _trace_id(),
         )
         return 500, error_body(ENGINE_ERROR, f"reply exceeds {MAX_REPLY_BYTES} bytes", 500)
+    from rebrew.ops_replies import reply_schema_error
+
+    if violation := reply_schema_error(name, reply):
+        logger.error(
+            "%s %s produced a reply outside its schema (%s) trace_id=%s",
+            _request_id(),
+            name,
+            violation,
+            _trace_id(),
+        )
+        return 500, error_body(ENGINE_ERROR, f"{name} produced a reply outside its schema", 500)
     return 200, reply
 
 

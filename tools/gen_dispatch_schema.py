@@ -41,6 +41,7 @@ def _project_root() -> Path:
 
 
 SCHEMA = _project_root() / "tests" / "fixtures" / "dispatch" / "rebrew.schema.json"
+WORKER_SCHEMA = _project_root() / "src" / "rebrew" / SCHEMA.name
 
 #: The schema of a reply member naming a path in the engine's workspace
 #: (``rebrew.ops_replies.WORKSPACE_PATHS``), written inline on each: the backend's
@@ -147,7 +148,11 @@ def main() -> int:
         if rendered != current:
             print(f"{SCHEMA} differs from the sets rebrew enforces", file=sys.stderr)
             return 1
+        if WORKER_SCHEMA.read_bytes() != SCHEMA.read_bytes():
+            print(f"{WORKER_SCHEMA} differs from {SCHEMA}", file=sys.stderr)
+            return 1
         return 0
+    WORKER_SCHEMA.write_text(rendered, encoding="utf-8")
     SCHEMA.write_text(rendered, encoding="utf-8")
     return 0
 
