@@ -159,6 +159,31 @@ def test_cli_preview_and_apply(
     assert json.loads(result.output)["files"] == []
 
 
+def test_cli_preview_keeps_an_existing_lowercase_module_anchor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from typer.testing import CliRunner
+
+    from rebrew.source_anchors import app
+
+    source = tmp_path / "unit.c"
+    original = "/* ADDRESS: mobile 0x00401000 */\nint f(void) { return 1; }\n"
+    source.write_text(original, encoding="utf-8")
+    cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="mobile")
+    record_function_identity(
+        tmp_path, module="mobile", va=0x401000, file="unit.c", name="f", symbol="_f", kind="FUNCTION"
+    )
+    monkeypatch.setattr("rebrew.source_anchors.require_config", lambda **kwargs: cfg)
+    result = CliRunner().invoke(app, [str(source), "--dry-run", "--json"])
+    assert result.exit_code == 0, result.output
+    preview = json.loads(result.output)
+    assert preview["files"] == []
+    assert [binding["module"] for binding in preview["bindings"]] == ["mobile"]
+    assert source.read_text(encoding="utf-8") == original
+
+
 def test_duplicate_anchors_refused_without_writes(tmp_path: Path) -> None:
     cfg, source = _project(tmp_path)
     marker = b"/* ADDRESS: A 0x00401000 */\r\n"

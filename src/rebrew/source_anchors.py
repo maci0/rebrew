@@ -74,7 +74,11 @@ def materialize_anchors(
         )
         definitions = find_c_function_definitions(text)
         rows = function_rows_for_file(path, cfg.metadata_dir, entries, project_root=cfg.root)
-        active = {(module, va): row for module, va, row in rows if not retired_binding(row)}
+        active = {
+            (preset_module_key(module), va): row
+            for module, va, row in rows
+            if not retired_binding(row)
+        }
         seen = set()
         for anchor in parse_address_anchors(text, syntax=syntax):
             key = (preset_module_key(anchor.module), anchor.va)
