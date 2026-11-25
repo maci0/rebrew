@@ -1815,20 +1815,25 @@ def main(
 
         from rebrew.metadata.data import load_data_metadata
 
-        if (
-            (update_symbol and specials is None)
-            or build_cmd
-            or log
-            or source_dir
-            or library_csv
-            or footer
-            or exclude_file
-            or cmake_stub_var
-            or module
-            or reference
-        ):
+        selector = "--update-symbol" if update_symbol else "--update-data-symbol"
+        if update_symbol and specials is None:
+            error_exit("--update-symbol requires --specials", json_mode=json_output)
+        build_inputs = {
+            "--build-cmd": build_cmd,
+            "--log": log,
+            "--source-dir": source_dir,
+            "--library-csv": library_csv,
+            "--footer": footer,
+            "--exclude-file": exclude_file,
+            "--cmake-stub-var": cmake_stub_var,
+            "--module": module,
+            "--reference": reference,
+        }
+        conflicting = [flag for flag, value in build_inputs.items() if value]
+        if conflicting:
             error_exit(
-                "selected updates require --specials and exclude build inputs",
+                f"{', '.join(conflicting)} cannot be combined with {selector}"
+                " (selected updates take only --specials and the output TU)",
                 json_mode=json_output,
             )
         target = output if output.is_absolute() else root / output
