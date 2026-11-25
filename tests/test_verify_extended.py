@@ -208,7 +208,7 @@ class TestVerifyEntryBranches:
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
         monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _near_matching_result)
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        result = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         assert result.status == "NEAR_MATCHING"
         assert "fenced naked" in (result.message or "")
         assert "REBREW_ALLOW_NAKED" in (result.message or "")
@@ -225,7 +225,7 @@ class TestVerifyEntryBranches:
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
         monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _near_matching_result)
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        result = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         assert "fenced naked" not in (result.message or "")
 
     def test_fenced_naked_note_tracks_in_process_edit(
@@ -243,7 +243,7 @@ class TestVerifyEntryBranches:
             rebrew.formats.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8
         )
         monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _near_matching_result)
-        first = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        first = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         assert "fenced naked" not in (first.message or "")
 
         cfile.write_text(
@@ -254,7 +254,7 @@ class TestVerifyEntryBranches:
             "#endif\n",
             encoding="utf-8",
         )
-        second = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        second = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         assert "fenced naked" in (second.message or "")
 
     def _verify_with_diff(
@@ -283,7 +283,7 @@ class TestVerifyEntryBranches:
             "diff_functions",
             lambda *a, **k: {"summary": summary, "instructions": []},
         )
-        return verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        return verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
 
     def test_effective_match_note(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A NEAR_MATCHING whose ENTIRE delta is register allocation is a
@@ -329,7 +329,7 @@ class TestVerifyEntryBranches:
             return _ok_result()
 
         monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _compare)
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        result = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         assert result.status == "EXACT"
         assert seen["symbol"] == "_my_func"
         assert seen["cflags"] == "/O2"
@@ -365,7 +365,7 @@ class TestVerifyEntryBranches:
             return {"summary": {"structural": 2, "reg": 0}}
 
         monkeypatch.setattr(rebrew.matcher, "diff_functions", _fake_diff)
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        result = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         assert result.diff_lines == 2
         assert result.reg_delta == 0
 
@@ -394,7 +394,7 @@ class TestVerifyEntryBranches:
                 calls.__setitem__("n", calls["n"] + 1) or {"summary": {"structural": 1}}
             ),
         )
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        result = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         assert result.diff_lines is None
         assert calls["n"] == 0  # diff_functions never invoked
 
@@ -419,7 +419,7 @@ class TestVerifyEntryBranches:
             return _ok_result()  # matched EXACT, obj = 8 NOP bytes
 
         monkeypatch.setattr(rebrew.compiler.compile, "compile_and_compare", _compare)
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        result = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         assert result.similarity == 100.0  # target == obj == 8 NOPs
 
     def test_unmatched_populates_similarity(self, tmp_path: Path, monkeypatch) -> None:
@@ -451,7 +451,7 @@ class TestVerifyEntryBranches:
                 message="NEAR_MATCHING: 2 byte diffs",
             ),
         )
-        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        result = verify_mod.verify_entry(_ann(0x1000, size=8), cfg)  # type: ignore[arg-type]
         # target is all-NOPs; candidate is mostly-NOPs. They differ in bytes but
         # share identical structure in normalized assembly, so the score is high.
         assert isinstance(result.similarity, float)
@@ -559,6 +559,38 @@ class TestDiffReports:
 
 
 class TestVerifyCli:
+    def test_short_reference_cannot_earn_a_match(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import make_pe
+
+        from rebrew import verify
+        from rebrew.compiler import compile as compiler
+        from rebrew.metadata.functions import get_entry
+
+        cfg = _cfg(tmp_path, compiler_profile="msvc-6.0", compile_timeout=3)
+        va = 0x4011FC
+        cfg.target_binary.write_bytes(make_pe(b"\xcc" * 508 + b"\x31\xc0\x40\xc3"))
+        write_source(
+            cfg.reversed_dir / "f.c",
+            f"/* ADDRESS: SERVER 0x{va:x} */\nint my_func(void) {{ return 1; }}\n",
+            metadata_fields={f"SERVER.0x{va:x}": {"size": 8, "status": "STUB"}},
+            metadata_dir=cfg.metadata_dir,
+        )
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(verify, "require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr(compiler, "cached_image_digest", lambda *args, **kwargs: "")
+        monkeypatch.setattr(
+            compiler,
+            "run_toolchain",
+            lambda *args, **kwargs: pytest.fail("a partial reference must prevent compilation"),
+        )
+        result = CliRunner().invoke(verify.app, ["--json", "--no-cache"])
+        row = cli_payload(result)["results"][0]
+        assert row["status"] == "EXTRACT_ERROR"
+        assert "requested 8 bytes, read 4" in row["message"]
+        assert get_entry(cfg.metadata_dir, va, "SERVER")["status"] != "EXACT"
+
     @pytest.mark.parametrize("edit_during_compile", [True, False])
     def test_stale_result_is_reported_without_publishing_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit_during_compile: bool

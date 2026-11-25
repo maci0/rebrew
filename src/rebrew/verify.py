@@ -334,6 +334,12 @@ def verify_entry(
             # the diagnostic worse than no hint at all.
             log.debug("verify hint lookup failed: %s", exc)
         return _failed_result("EXTRACT_ERROR", "Cannot extract DLL bytes" + hint)
+    if len(target_bytes) != entry.size:
+        return _failed_result(
+            "EXTRACT_ERROR",
+            f"Incomplete reference at 0x{entry.va:x}: requested {entry.size} bytes, "
+            f"read {len(target_bytes)}",
+        )
 
     from rebrew.verify_hash import comparison_inputs
 
