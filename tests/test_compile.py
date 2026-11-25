@@ -2479,6 +2479,46 @@ class TestBatchGroupKey:
 
 
 class TestPrecompileBatchCleanup:
+    def test_partial_batch_returns_only_objects_emitted_by_this_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compiler import compile as compiler
+        from rebrew.compiler.toolchain import RunResult
+
+        rev = tmp_path / "src"
+        rev.mkdir()
+        (rev / "failed.c").write_text("#error failed\n", encoding="utf-8")
+        (rev / "ok.c").write_text("int ok(void) { return 0; }\n", encoding="utf-8")
+        stale = rev / "failed.obj"
+        stale.write_bytes(b"previous compile")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=rev,
+            compiler_profile="msvc-6.0",
+            compiler_includes="",
+            compile_timeout=3,
+            base_cflags="/nologo /c",
+        )
+        failed = SimpleNamespace(filepath="failed.c", module="GAME", cflags="", toolchain="")
+        ok = SimpleNamespace(filepath="ok.c", module="GAME", cflags="", toolchain="")
+
+        def build(spec, args, *, workdir, **kwargs):
+            assert not (workdir / stale.name).exists()
+            (workdir / "ok.obj").write_bytes(b"new object")
+            return RunResult(2, "", "failed.c: fatal error C1189", "docker")
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(compiler, "cached_image_digest", lambda *args, **kw: "")
+        monkeypatch.setattr(compiler, "run_toolchain", build)
+        lasting: list[Path] = []
+        try:
+            results = compiler.precompile_batch(cfg, [failed, ok], lasting=lasting)
+            assert set(results) == {id(ok)}
+            assert Path(results[id(ok)]).read_bytes() == b"new object"
+            assert stale.read_bytes() == b"previous compile"
+        finally:
+            compiler.cleanup_batch_obj_dirs(only=lasting)
+
     def test_group_workdir_removed_after_compile(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

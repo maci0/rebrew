@@ -3357,6 +3357,13 @@ def precompile_batch(
                                 pre_keys[id(entry)] = staged_key
             if tree_snapshot() != staged_snapshot:
                 return group_out
+            # Faulty TUs may emit no object. Discard copies of old outputs
+            # from this private staging tree before collecting partial results.
+            ext = ".o" if spec.effective_arg_style == "posix" else ".obj"
+            output_names = {fold_ident(Path(name).stem + ext) for name in staged}
+            for path in workdir.iterdir():
+                if fold_ident(path.name) in output_names and path.is_file():
+                    path.unlink()
             objs, err = compile_batch_objs(
                 spec,
                 sorted(staged),
