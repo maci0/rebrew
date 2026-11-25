@@ -1715,6 +1715,41 @@ class TestMissingSizeHint:
         assert result.exit_code == 2, result.output
         assert "inventory has SIZE" not in result.output
 
+    def test_no_promote_compares_at_the_inventory_size(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+        from rebrew.compiler.compile import CompareResult
+
+        self._project(tmp_path, monkeypatch)
+        extracted: list[tuple[int, int]] = []
+
+        def extract(binary: Path, va: int, size: int) -> bytes:
+            extracted.append((va, size))
+            return b"\x90" * size
+
+        monkeypatch.setattr("rebrew.test.extract_raw_bytes", extract)
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\x90" * 32,
+                reloc_offsets=[],
+                message="",
+            ),
+        )
+        result = CliRunner().invoke(
+            umbrella, ["test", "src/x/f.c", "--va", "0x1000", "--no-promote", "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        assert extracted == [(0x1000, 32)]
+        assert "Specify either" not in result.output
+
 
 class TestPrintTestSummary:
     """Batch summary must mirror should_promote_status (SKIP parked, PROVEN not)."""

@@ -6,6 +6,7 @@
 - `rebrew metadata backup --dir` and `restore --file` resolve relative paths instead of failing with "relative paths can't be expressed as file URIs" on the SQLite backend.
 - `metadata reconcile` lists the documents whose replica differs from the reconciled state (`diverged`), so a TOML replica reset by `git checkout` is no longer reported as clean. `metadata restore` now publishes the restored backend to the other replicas; before, the untouched replica kept its later state and the next reconcile reverted the restore.
 - `rebrew build symbol-stubs` names the option that conflicts with `--update-symbol` or `--update-data-symbol` (for example `--module`) instead of reporting that `--specials` is missing when it is given.
+- `rebrew test --va ... --no-promote` compares at the function inventory's SIZE when the row records none, instead of asking for `--size`. Promoting runs still require a size.
 
 ## [6.80.0] - 2026-11-25
 

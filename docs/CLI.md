@@ -282,6 +282,10 @@ change STATUS, or contribute matched bytes; `match_count` remains positional.
 Promoting test/verify writes the percent as the protected function-row
 `similarity`, with counts in `verification`; `--no-promote` records neither.
 
+When `--va` selects a function with no recorded SIZE, `--no-promote` compares at
+the function inventory's SIZE for that address and says so. A promoting run still
+asks for `--size`, since it would otherwise record an inventory size as metadata.
+
 `test --json --instructions` (one function) adds `instructions`, the
 instruction-level comparison of the target bytes and the rebuild
 (`rebrew.instruction_diff`), unless the rebuild is `EXACT` (then it is the

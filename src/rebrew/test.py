@@ -1358,6 +1358,22 @@ def _lint_preamble(
     return lint_annos, name_to_va
 
 
+def _inventory_size(cfg: ProjectConfig, va_str: str, json_output: bool) -> int | None:
+    """The function inventory's SIZE for *va_str*, or None when absent or unreadable."""
+    try:
+        from rebrew.catalog import cached_function_list
+
+        va_int = parse_va(va_str, json_mode=json_output)
+        for f in cached_function_list(cfg):
+            if int(f["va"]) == va_int and int(f.get("size") or 0) > 0:
+                return int(f["size"])
+    except (ValueError, OSError, KeyError, TypeError) as exc:
+        # The size is the only thing that turns a missing-size error into a
+        # comparison or a named fix; losing it leaves a bare "no size".
+        logging.getLogger(__name__).debug("inventory size lookup for VA %s failed: %s", va_str, exc)
+    return None
+
+
 def _run_test_impl(
     cfg: ProjectConfig,
     source: str,
@@ -1468,6 +1484,13 @@ def _run_test_impl(
     if cm_pin_tc and not toolchain_name:
         toolchain_name = cm_pin_tc
 
+    if size_val is None and no_promote and not target_bin and va_str is not None:
+        # Nothing is written back under --no-promote, so the inventory's SIZE
+        # is safe to compare against; a promoting run must record a size the
+        # caller or the metadata supplied.
+        size_val = _inventory_size(cfg, va_str, json_output)
+        if size_val is not None and not json_output:
+            console.print(f"[dim]no SIZE given: using inventory SIZE {size_val} for {va_str}[/dim]")
     section_va: int | None = None
     if target_bin:
         no_promote = True
@@ -1503,24 +1526,12 @@ def _run_test_impl(
         target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
     else:
         hint = ""
-        if va_str is not None:
-            try:
-                from rebrew.catalog import cached_function_list
-
-                va_int = parse_va(va_str, json_mode=json_output)
-                for f in cached_function_list(cfg):
-                    if int(f["va"]) == va_int and int(f.get("size") or 0) > 0:
-                        hint = (
-                            f" (the inventory has SIZE {int(f['size'])} for this VA — "
-                            "pass `--size`, or backfill with `rebrew coverage catalog --fix-sizes`)"
-                        )
-                        break
-            except (ValueError, OSError, KeyError, TypeError) as exc:
-                # The hint is the only part of the error that names the known
-                # size; losing it turns a backfillable gap into a bare "no size".
-                logging.getLogger(__name__).debug(
-                    "inventory size hint lookup for VA %s failed: %s", va_str, exc
-                )
+        inventory_size = _inventory_size(cfg, va_str, json_output) if va_str is not None else None
+        if inventory_size is not None:
+            hint = (
+                f" (the inventory has SIZE {inventory_size} for this VA - "
+                "pass `--size`, or backfill with `rebrew coverage catalog --fix-sizes`)"
+            )
         error_exit(
             "Specify either target_bin or (VA and SIZE) via args or source metadata" + hint,
             json_mode=json_output,
