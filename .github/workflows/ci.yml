@@ -164,6 +164,7 @@ jobs:
         # lint; do not float).
         uses: ./.github/actions/uv-env
         with:
+          cache-suffix: all-extras
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install JPype source-build prerequisites
         # CPython 3.15 builds JPype from its official sdist.
@@ -215,6 +216,7 @@ jobs:
         uses: ./.github/actions/uv-env
         with:
           python-version: ${{ matrix.python-version }}
+          cache-suffix: all-extras
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install JPype source-build prerequisites
         # CPython 3.15 builds JPype from its official sdist.

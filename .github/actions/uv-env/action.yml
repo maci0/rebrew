@@ -33,6 +33,15 @@ inputs:
       uses --no-default-groups --no-install-project (no path dep needed).
     required: false
     default: "true"
+  cache-suffix:
+    description: >-
+      Separates the uv cache of jobs that sync another dependency set. Jobs
+      share one cache key otherwise, a saved key is never overwritten, and the
+      jobs running plain `uv sync --locked` finish first: their cache lacked the
+      extras' source builds (lmdb, jpype1, pypcode), so the `--all-extras` jobs
+      rebuilt them on every run (46 s in lint, 73 s in test).
+    required: false
+    default: ""
   github-token:
     description: >-
       Mapped onto the clone step only (authenticated git rate limits), so the
@@ -63,6 +72,7 @@ runs:
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: true
+        cache-suffix: ${{ inputs.cache-suffix }}
         # Also cache the managed CPython itself (cache-python, off by default).
         # The interpreter is pinned to an exact patch, so the cached install is
         # byte-identical to the download it replaces, and every job in both

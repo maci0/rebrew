@@ -143,7 +143,11 @@ down past that needs a manual re-run. Re-run the workflow or failed job to
 invoke those helpers again; a job-only re-run does not guarantee a fresh
 runner image. `setup-uv` runs with
 `enable-cache` and `cache-python`, so the pinned managed CPython is cached
-alongside the uv cache. Workflow `permissions` are `contents: read` only:
+alongside the uv cache. The `lint` and `test` jobs sync `--all-extras`, so
+they pass `cache-suffix: all-extras` to `uv-env` and keep their own cache: a
+saved key is never overwritten, and with one shared key the plain
+`uv sync --locked` jobs saved first, so the extras' source builds (lmdb,
+jpype1, pypcode) ran again on every run. Workflow `permissions` are `contents: read` only:
 `setup-uv`'s `enable-cache` saves through the runner's cache token, not
 `GITHUB_TOKEN`. It does **not**
 require a target binary or MSVC toolchain.
