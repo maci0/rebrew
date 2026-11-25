@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Refuse moving data rows whose source still carries a case-equivalent address anchor (D-engines7-075).
 - Require complete delay slots when measuring terminating branch extents (D-engines7-070).
 - Detect PE headers after DOS stubs larger than 64 KiB (D-engines7-068).
 - Ignore nonallocated ELF section relocations when digesting linked functions (D-engines7-089).

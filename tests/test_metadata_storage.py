@@ -584,6 +584,25 @@ class TestStorageBoundary:
 
 
 class TestBackendIntegration:
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_data_move_refuses_a_case_variant_of_the_live_anchor(
+        self, tmp_path: Path, dry_run: bool
+    ) -> None:
+        from rebrew.metadata.data import move_data_entry, set_data_fields_batch
+
+        _project(tmp_path, "sqlite")
+        source = tmp_path / "src" / "a.c"
+        source.write_text("/* ADDRESS: game 0x4000 */\nint g_count = 1;\n")
+        set_data_fields_batch(
+            tmp_path,
+            [{"module": "GAME", "va": 0x4000, "fields": {"file": "src/a.c", "name": "g_count"}}],
+        )
+        database = tmp_path / DATABASE_FILENAME
+        old = database.read_bytes()
+        with pytest.raises(ValueError, match="still binds"):
+            move_data_entry(tmp_path, "GAME", 0x4000, 0x5000, dry_run=dry_run)
+        assert database.read_bytes() == old
+
     def test_sqlite_previews_do_not_create_or_touch_storage(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

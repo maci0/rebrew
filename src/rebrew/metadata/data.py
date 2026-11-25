@@ -819,6 +819,7 @@ def move_data_entry(
     """
     from rebrew.config import address_comments_for_file
     from rebrew.metadata.bindings import address_pairs
+    from rebrew.utils import preset_module_key
 
     module = unicodedata.normalize("NFC", module)
     if not module:
@@ -849,10 +850,12 @@ def move_data_entry(
         if (
             entry.get("file")
             and source.is_file()
-            and (module, old_va)
-            in address_pairs(
-                source.read_text(encoding="utf-8", errors="replace"),
-                syntax=address_comments_for_file(source, module=module),
+            and any(
+                va == old_va and preset_module_key(anchor_module) == preset_module_key(module)
+                for anchor_module, va in address_pairs(
+                    source.read_text(encoding="utf-8", errors="replace"),
+                    syntax=address_comments_for_file(source, module=module),
+                )
             )
         ):
             raise ValueError(
