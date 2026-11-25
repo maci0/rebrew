@@ -16,8 +16,6 @@ lazy import io
 lazy import json
 lazy from pathlib import Path, PureWindowsPath
 
-lazy from rebrew.utils import sha256_file
-
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
     from rebrew.data_scan import ScanResult
@@ -212,15 +210,15 @@ def cached_data_archives(cfg: ProjectConfig) -> dict[str, Path]:
 
 
 def _common_definitions(
-    archive: Path, selected: set[str], names: set[str], static_names: set[str] | None = None
+    archive: Path, selected: set[str], names: set[str], static_names: set[str], data: bytes
 ) -> dict[str, list[str]]:
     """Data definitions in the archive members this map demonstrably selected."""
     import lief
 
-    from rebrew.formats.archives import parse_archive
+    from rebrew.formats.archives import parse_archive_bytes
 
     found: dict[str, list[str]] = {}
-    for member, body in parse_archive(str(archive)):
+    for member, body in parse_archive_bytes(data, str(archive)):
         basename = PureWindowsPath(member).name
         if basename.casefold() not in selected:
             continue
@@ -232,7 +230,7 @@ def _common_definitions(
                 continue
             if symbol.name not in names or (
                 symbol.storage_class != lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL
-                and symbol.name not in (static_names or set())
+                and symbol.name not in static_names
             ):
                 continue
             # A zero-valued undefined symbol is a reference. Nonzero COMMON
@@ -317,13 +315,14 @@ def enrich_library_owners(
         if not members or not (common_names | explicit_names):
             continue
         try:
+            archive_bytes = archive.read_bytes()
             definitions = _common_definitions(
-                archive, members, common_names | explicit_names, explicit_names
+                archive, members, common_names | explicit_names, explicit_names, archive_bytes
             )
         except (OSError, ValueError, RuntimeError) as exc:
             log.warning("cannot read data ownership from %s: %s", archive, exc)
             continue
-        archive_hash = sha256_file(archive)
+        archive_hash = hashlib.sha256(archive_bytes).hexdigest()
         for name, defining_members in definitions.items():
             common.setdefault(name, []).extend(
                 (library_names[library], member, archive_hash) for member in defining_members

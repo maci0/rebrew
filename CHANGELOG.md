@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Archive ownership proofs hash the same bytes used to find the defining object member (D-engines7-060).
 - Source role and name caches only publish facts for the source revision read by the scan (D-engines7-059).
 - Data annotation uses parsed file-scope declarations and definitions, so an automatic local cannot claim a global (D-engines7-058).
 - The structure pass keeps valid address-zero functions and excludes jump-table case labels using both names (D-engines7-054, D-engines7-037).

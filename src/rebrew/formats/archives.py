@@ -17,7 +17,11 @@ def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
     table) members are skipped. COFF NUL-terminated and GNU ``/\n``-terminated
     long names are resolved before yielding their object bodies.
     """
-    data = Path(lib_path).read_bytes()
+    yield from parse_archive_bytes(Path(lib_path).read_bytes(), lib_path)
+
+
+def parse_archive_bytes(data: bytes, lib_path: str) -> Iterator[tuple[str, bytes]]:
+    """Read members from the same archive bytes a caller can fingerprint."""
 
     if not data.startswith(b"!<arch>\n"):
         raise ValueError(f"{lib_path} is not a valid archive")

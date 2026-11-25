@@ -129,7 +129,7 @@ def test_library_key_collision_keeps_last_map_spelling_for_common_owner(
     )
     monkeypatch.setattr(data_ownership, "cached_data_archives", lambda cfg: {"crt": archive})
 
-    def definitions(path, members, names, explicit):
+    def definitions(path, members, names, explicit, data):
         assert members == {"one.obj", "two.obj"}
         return {"_g": ["one.obj"]}
 
@@ -303,15 +303,37 @@ def test_explicit_native_label_does_not_depend_on_reference_va(tmp_path: Path) -
     assert entry.library_owners[0]["member"] == "file.obj"
 
 
-def test_unmapped_explicit_archive_symbol_needs_selected_unique_provider(tmp_path: Path) -> None:
+@pytest.mark.parametrize("replace_archive", [False, True])
+def test_unmapped_explicit_archive_symbol_needs_selected_unique_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, replace_archive: bool
+) -> None:
+    import hashlib
+
+    from rebrew import data_ownership
+
     archive = tmp_path / "crt.lib"
-    archive.write_bytes(make_lib_archive([("runtime.obj", _common_object("_private", 4))]))
+    original = make_lib_archive([("runtime.obj", _common_object("_private", 4))])
+    archive.write_bytes(original)
+    if replace_archive:
+        parse = data_ownership._common_definitions
+
+        def replace_after_parse(*args, **kwargs):
+            definitions = parse(*args, **kwargs)
+            replacement = archive.with_suffix(".new")
+            replacement.write_bytes(
+                make_lib_archive([("runtime.obj", _common_object("_other", 4))])
+            )
+            replacement.replace(archive)
+            return definitions
+
+        monkeypatch.setattr(data_ownership, "_common_definitions", replace_after_parse)
     link_map = tmp_path / "game.map"
     link_map.write_text(" 0001:00000000 _init 10001000 f CRT:runtime.obj\n")
     entry = GlobalEntry("historical_name", link_symbol="_private")
     cfg = _cfg(tmp_path, external_libs={"CRT": "./crt.lib"})
     enrich_library_owners(ScanResult(globals={entry.name: entry}), cfg, link_map)
     assert entry.library_owners[0]["evidence"] == "link-map+archive-symbol"
+    assert entry.library_owners[0]["archive_hash"] == hashlib.sha256(original).hexdigest()
     assert "linked_va" not in entry.library_owners[0]
     link_map.write_text("")
     enrich_library_owners(ScanResult(globals={entry.name: entry}), cfg, link_map)
