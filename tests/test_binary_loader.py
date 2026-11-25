@@ -376,6 +376,28 @@ class TestPeTextSection:
 
 
 class TestDetectFormat:
+    def test_pe_header_beyond_the_first_64_kib(self, tmp_path: Path) -> None:
+        import struct
+
+        from bin_util import make_pe
+
+        from rebrew.formats.binary_loader import load_binary
+
+        binary = tmp_path / "large-dos-stub.exe"
+        raw = bytearray(make_pe(b"\xc3"))
+        pe = struct.unpack_from("<I", raw, 0x3C)[0]
+        optional = pe + 24
+        section = optional + struct.unpack_from("<H", raw, pe + 20)[0]
+        padding = bytes(0x10000)
+        for offset in (0x3C, optional + 60, section + 20):
+            old = struct.unpack_from("<I", raw, offset)[0]
+            struct.pack_into("<I", raw, offset, old + len(padding))
+        binary.write_bytes(raw[:pe] + padding + raw[pe:])
+
+        assert detect_format_and_arch(binary) == ("pe", "x86_32")
+        info = load_binary(binary)
+        assert extract_bytes_at_va(info, info.text_va, 1, trim_padding=False) == b"\xc3"
+
     def test_pe(self, tmp_path: Path) -> None:
         f = make_pe_stub(tmp_path / "test.exe")
         fmt, arch = detect_format_and_arch(f)

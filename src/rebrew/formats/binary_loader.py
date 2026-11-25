@@ -1665,18 +1665,16 @@ def is_mz(path: str | Path) -> bool:
     try:
         with open(path, "rb") as f:
             head = f.read(0x40)
+            if head[:2] != b"MZ":
+                return False
+            if len(head) == 0x40:
+                offset = int.from_bytes(head[0x3C:0x40], "little")
+                if 0 < offset <= os.fstat(f.fileno()).st_size - 4:
+                    f.seek(offset)
+                    if f.read(4)[:2] in (b"NE", b"PE", b"LE", b"LX"):
+                        return False
     except OSError:
         return False
-    if len(head) < 2 or head[:2] != b"MZ":
-        return False
-    if len(head) >= 0x40:
-        e_lfanew = int.from_bytes(head[0x3C:0x40], "little")
-        if e_lfanew + 4 <= 0x10000:
-            with open(path, "rb") as f:
-                f.seek(e_lfanew)
-                sig = f.read(4)
-            if sig[:2] in (b"NE", b"PE", b"LE", b"LX"):
-                return False
     return True
 
 
