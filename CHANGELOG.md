@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Data annotation binds only a unique name visible to the requested target (D-engines7-057).
 - Data pairing rolls back source and metadata together if the requested rewrite or row publication fails (D-engines7-056).
 - Cross-target data pairing writes each new row to the target metadata store that owns it (D-engines7-055).
 - Verification requires the complete requested reference extent before comparing a function (D-engines7-053).

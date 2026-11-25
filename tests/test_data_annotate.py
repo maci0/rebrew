@@ -258,9 +258,7 @@ def test_annotate_uses_configured_source_ext(tmp_path: Path) -> None:
 
 
 def test_annotate_duplicate_names_are_not_reported_unnamed(tmp_path: Path) -> None:
-    """Two metadata entries sharing a name collapse in the symbol map; the
-    skipped count must be the number of name-less entries, not the arithmetic
-    difference."""
+    """Ambiguous names are left unbound and do not count as unnamed rows."""
     src = tmp_path / "src"
     src.mkdir()
     (src / "mod.c").write_text("int g_a;\n", encoding="utf-8")
@@ -272,7 +270,35 @@ def test_annotate_duplicate_names_are_not_reported_unnamed(tmp_path: Path) -> No
     )
     per_file, skipped = annotate_globals(src, meta, dry_run=True)
     assert skipped == 0
-    assert per_file == {"mod.c": 1}
+    assert per_file == {}
+
+
+def test_cli_data_annotation_scopes_same_name_to_selected_target(tmp_path, monkeypatch) -> None:
+    from cli_json import cli_payload
+    from typer.testing import CliRunner
+
+    from rebrew import data
+    from rebrew.config import ProjectConfig
+    from rebrew.metadata.data import load_data_metadata
+
+    src = tmp_path / "src" / "SERVER"
+    src.mkdir(parents=True)
+    (src / "owner.c").write_text("int g_counter = 1;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    write_store_fixture(
+        meta,
+        'format = 2\n["SERVER.0x502000"]\nname = "g_counter"\nsection = ".data"\n'
+        '["CLIENT.0x503000"]\nname = "g_counter"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    cfg = ProjectConfig(root=tmp_path, target_name="SERVER", module="SERVER", reversed_dir=src)
+    cfg.target_modules = {"SERVER", "CLIENT"}
+    monkeypatch.setattr(data, "require_config", lambda **kwargs: cfg)
+    result = CliRunner().invoke(data.app, ["annotate", "--target", "SERVER", "--json"])
+    assert cli_payload(result)["bound"] == 1
+    records = load_data_metadata(tmp_path)
+    assert records["SERVER", 0x502000]["file"] == "src/SERVER/owner.c"
+    assert "file" not in records["CLIENT", 0x503000]
 
 
 def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:

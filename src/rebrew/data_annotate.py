@@ -92,22 +92,24 @@ def annotate_globals(
     with no ``name``: the declaration is what locates them.
     """
 
-    from rebrew.metadata.data import record_data_rows
+    from rebrew.metadata.data import module_visible_to_target, record_data_rows
     from rebrew.metadata.functions import identity_file
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
     db = load_data_document(metadata)
     skipped_unnamed = 0
-    symbols: dict[str, tuple[str, int, bool]] = {}
+    candidates: dict[str, list[tuple[str, int, bool]]] = {}
     for module, addr, val in iter_data_symbols(db, section=None):
-        # Count by the entry itself, not by ``total - len(symbols)``: two
-        # metadata entries sharing a name collapse in ``symbols`` and would be
-        # misreported as missing a ``name`` field.
+        if not module_visible_to_target(module, cfg):
+            continue
         if not val.get("name"):
             skipped_unnamed += 1
             continue
-        symbols[str(val["name"])] = (module, addr, bool(str(val.get("file") or "").strip()))
+        candidates.setdefault(str(val["name"]), []).append(
+            (module, addr, bool(str(val.get("file") or "").strip()))
+        )
+    symbols = {name: matches[0] for name, matches in candidates.items() if len(matches) == 1}
 
     meta_dir = metadata.parent
     claimed: set[str] = set()
