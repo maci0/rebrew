@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Require complete delay slots when measuring terminating branch extents (D-engines7-070).
 - Detect PE headers after DOS stubs larger than 64 KiB (D-engines7-068).
 - Ignore nonallocated ELF section relocations when digesting linked functions (D-engines7-089).
 - Refuse postlink data and relocation geometry that would overlap raw sections (D-engines7-086).

@@ -186,13 +186,8 @@ class TestExtentWalker:
         assert self._extent(tmp_path, monkeypatch, "x86_32", "pe", b"\xb8\x01\x00\x00\x00\xc3") == 6
 
     def test_mips_jr_ra(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # `nop; jr $ra` (00000000 03e00008) — extent ends after the jr.
-        assert (
-            self._extent(
-                tmp_path, monkeypatch, "mips32", "elf", b"\x00\x00\x00\x00\x03\xe0\x00\x08"
-            )
-            == 8
-        )
+        raw = bytes.fromhex("00000000 03e00008 00000000")  # nop; jr $ra; nop
+        assert self._extent(tmp_path, monkeypatch, "mips32", "elf", raw) == 12
 
     def test_ppc_blr(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # `nop; blr` (60000000 4e800020).
@@ -202,8 +197,8 @@ class TestExtentWalker:
         )
 
     def test_sh2_rts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # `rts` is 0x000b.  Without CS_MODE_BIG_ENDIAN capstone decodes nothing.
-        assert self._extent(tmp_path, monkeypatch, "sh2", "elf", b"\x00\x0b") == 2
+        raw = bytes.fromhex("000b0009")  # Big-endian RTS followed by its delay slot.
+        assert self._extent(tmp_path, monkeypatch, "sh2", "elf", raw) == 4
 
     def test_ppc_capstone_decodes_blr_big_endian(self) -> None:
         import capstone
@@ -246,9 +241,9 @@ class TestExtentWalker:
         assert [(insn.mnemonic, insn.op_str) for insn in insns] == [("jr", "$ra")]
 
     def test_mips_tail_jump(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # `j 0x2000` (08000800) — unconditional jump = tail terminator.
-        ext, kind = self._extent_kind(tmp_path, monkeypatch, "mips32", "elf", b"\x08\x00\x08\x00")
-        assert ext == 4
+        raw = bytes.fromhex("08000800 00000000")  # j 0x2000; nop
+        ext, kind = self._extent_kind(tmp_path, monkeypatch, "mips32", "elf", raw)
+        assert ext == 8
         assert kind == "jmp"
 
     def _extent_kind(

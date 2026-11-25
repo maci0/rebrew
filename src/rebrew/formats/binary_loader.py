@@ -1088,7 +1088,9 @@ def function_extent_from_bytes(
             if is_return and insn.address >= forward_target:
                 # Delayed terminators keep the following instruction,
                 # which can restore the stack or finish computing a result.
-                extent = min(offset + insn.size + delay_slot, len(data))
+                extent = offset + insn.size + delay_slot
+                if extent > len(data):
+                    return None
                 return (extent, "ret") if with_kind else extent
             if mnem == "int3" and insn.address >= forward_target:
                 extent = offset + insn.size
@@ -1097,7 +1099,9 @@ def function_extent_from_bytes(
                 # Unconditional jump: tail call / thunk terminator (a backward
                 # loop jump underestimates the extent — callers refuse, which is
                 # the safe direction).
-                extent = min(offset + insn.size + delay_slot, len(data))
+                extent = offset + insn.size + delay_slot
+                if extent > len(data):
+                    return None
                 return (extent, "jmp") if with_kind else extent
             if mnem in ("ud2", "hlt"):
                 extent = offset + insn.size

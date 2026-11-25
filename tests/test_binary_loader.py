@@ -708,6 +708,22 @@ class TestFunctionExtentFromDisasm:
     """function_extent_from_disasm finds the authoritative function end —
     the disassembly terminator — independent of discovery-derived sizes."""
 
+    @pytest.mark.parametrize(("operation", "opcode"), [("ret", "0800e003"), ("jmp", "00080008")])
+    def test_mips_needs_the_entire_delay_slot(
+        self, tmp_path: Path, operation: str, opcode: str
+    ) -> None:
+        from rebrew.formats.binary_loader import function_extent_from_bytes
+
+        info = BinaryInfo(tmp_path / "program.elf", "elf", arch="mips32", endian="little")
+        terminator = bytes.fromhex(opcode)
+        assert function_extent_from_bytes(info, terminator + bytes(4), 0x1000, with_kind=True) == (
+            8,
+            operation,
+        )
+        assert (
+            function_extent_from_bytes(info, terminator + bytes(2), 0x1000, with_kind=True) is None
+        )
+
     def _run(self, monkeypatch, text: bytes, tmp_path: Path) -> int | None:
         from types import SimpleNamespace as NS
 
