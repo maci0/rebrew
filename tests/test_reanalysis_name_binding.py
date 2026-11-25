@@ -65,31 +65,59 @@ def _store_name(metadata_dir: Path, name: str) -> None:
     clear_metadata_cache()
 
 
-def _sqlite_project(root: Path) -> tuple[WorkerConfig, Path, Any]:
-    """An analysed project moved to SQLite, whose 0x401010 record has comparison history."""
-    filestore, workspace = _worker_dirs(root)
-    config = WorkerConfig(filestore.resolve(), workspace.resolve())
-    project = Path(_analyse(config)["project"])
-    cfg = load_config(project, target="mini")
-    migrate_metadata(cfg, "sqlite", expected_digest=migration_input_digest(cfg, "sqlite"))
+#: ``(worker root, project path relative to it)`` of a session-built project.
+Template = tuple[Path, Path]
+
+
+@pytest.fixture(scope="module")
+def _analysed(tmp_path_factory: pytest.TempPathFactory) -> Template:
+    """An analysed project moved to SQLite, whose 0x401010 record has comparison history.
+
+    Built once per session for every xdist worker (an ``analyse`` op is a child
+    process of about two seconds); tests work on :func:`_sqlite_project`'s copy.
+    """
+    from session_cache import build_once
+
+    def build(root: Path) -> str:
+        filestore, workspace = _worker_dirs(root)
+        project = Path(_analyse(WorkerConfig(filestore.resolve(), workspace.resolve()))["project"])
+        cfg = load_config(project, target="mini")
+        migrate_metadata(cfg, "sqlite", expected_digest=migration_input_digest(cfg, "sqlite"))
+        cfg = load_config(project, target="mini")
+        import_status_history(cfg.metadata_dir, MODULE, [{"va": VA, **HISTORY}])
+        return project.resolve().relative_to(root.resolve()).as_posix()
+
+    root, rel = build_once(tmp_path_factory, "reanalysis-sqlite-project", build)
+    return root, Path(rel)
+
+
+def _sqlite_project(analysed: Template, root: Path) -> tuple[WorkerConfig, Path, Any]:
+    """A worker over a copy of *analysed* at *root*, the copy's project and its config.
+
+    The ``.rebrew`` caches are left behind; they name the template's paths.
+    """
+    template, rel = analysed
+    shutil.copytree(template, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
+    clear_metadata_cache()
+    root = root.resolve()
+    project = root / rel
     cfg = load_config(project, target="mini")
     assert cfg.metadata_backend == "sqlite"
-    import_status_history(cfg.metadata_dir, MODULE, [{"va": VA, **HISTORY}])
-    return config, project, cfg
+    return WorkerConfig(root / "files", root / "workspace"), project, cfg
 
 
-def _unbound_free_text(root: Path) -> tuple[WorkerConfig, Path]:
+def _unbound_free_text(analysed: Template, root: Path) -> tuple[WorkerConfig, Path]:
     """Before production's re-analysis: the record names free text and has no source."""
-    config, project, cfg = _sqlite_project(root)
+    config, project, cfg = _sqlite_project(analysed, root)
     (cfg.reversed_dir / f"{PLACEHOLDER}.c").unlink()
     clear_identity_fields(cfg.metadata_dir, VA, MODULE, "file", "symbol", "kind")
     _store_name(cfg.metadata_dir, FREE_TEXT)
     return config, project
 
 
-def _disagreeing_stub(root: Path) -> tuple[WorkerConfig, Path]:
+def _disagreeing_stub(analysed: Template, root: Path) -> tuple[WorkerConfig, Path]:
     """After production's re-analysis: the stub defines the placeholder, the record names free text."""
-    config, project, cfg = _sqlite_project(root)
+    config, project, cfg = _sqlite_project(analysed, root)
     _store_name(cfg.metadata_dir, FREE_TEXT)
     return config, project
 
@@ -122,14 +150,18 @@ def _assert_consistent(project: Path) -> dict[str, Any]:
     return record
 
 
-def test_reanalysis_leaves_a_record_its_stub_agrees_with(tmp_path: Path) -> None:
-    config, project = _unbound_free_text(tmp_path)
+def test_reanalysis_leaves_a_record_its_stub_agrees_with(
+    tmp_path: Path, _analysed: Template
+) -> None:
+    config, project = _unbound_free_text(_analysed, tmp_path)
     _analyse(config)
     _assert_consistent(project)
 
 
-def test_reanalysis_keeps_an_identifier_name_in_the_stub(tmp_path: Path) -> None:
-    config, project, cfg = _sqlite_project(tmp_path)
+def test_reanalysis_keeps_an_identifier_name_in_the_stub(
+    tmp_path: Path, _analysed: Template
+) -> None:
+    config, project, cfg = _sqlite_project(_analysed, tmp_path)
     (cfg.reversed_dir / f"{PLACEHOLDER}.c").unlink()
     clear_identity_fields(cfg.metadata_dir, VA, MODULE, "file", "symbol", "kind")
     _store_name(cfg.metadata_dir, "lib_cont")
@@ -140,10 +172,12 @@ def test_reanalysis_keeps_an_identifier_name_in_the_stub(tmp_path: Path) -> None
     assert "note" not in record
 
 
-def test_reanalysis_repairs_a_record_its_stub_disagrees_with(tmp_path: Path) -> None:
+def test_reanalysis_repairs_a_record_its_stub_disagrees_with(
+    tmp_path: Path, _analysed: Template
+) -> None:
     from rebrew.metadata.bindings import binding_conflicts
 
-    config, project = _disagreeing_stub(tmp_path)
+    config, project = _disagreeing_stub(_analysed, tmp_path)
     with binding_conflicts() as skipped:
         _analyse(config)
     # The intake repairs the record before it reads the bindings: no read skipped it.
@@ -156,10 +190,12 @@ def test_reanalysis_repairs_a_record_its_stub_disagrees_with(tmp_path: Path) -> 
     assert _record(project) == repaired
 
 
-def test_reanalysis_repairs_the_anchor_for_its_own_module(tmp_path: Path) -> None:
+def test_reanalysis_repairs_the_anchor_for_its_own_module(
+    tmp_path: Path, _analysed: Template
+) -> None:
     from rebrew.metadata.bindings import binding_conflicts, read_source_bindings
 
-    config, project = _disagreeing_stub(tmp_path)
+    config, project = _disagreeing_stub(_analysed, tmp_path)
     cfg = load_config(project, target="mini")
     source = cfg.reversed_dir / f"{PLACEHOLDER}.c"
     source.write_text(
@@ -180,9 +216,9 @@ def test_reanalysis_repairs_the_anchor_for_its_own_module(tmp_path: Path) -> Non
 
 @pytest.mark.parametrize("op", ["rebrew.data_list", "rebrew.identify_library"])
 def test_project_reads_skip_a_disagreeing_record(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, op: str
+    tmp_path: Path, _analysed: Template, caplog: pytest.LogCaptureFixture, op: str
 ) -> None:
-    config, project = _disagreeing_stub(tmp_path)
+    config, project = _disagreeing_stub(_analysed, tmp_path)
     with caplog.at_level(logging.WARNING):
         status, raw = dispatch(config, op, json.dumps({"project_dir": str(project)}).encode())
     assert status == 200, json.loads(raw)
@@ -197,10 +233,10 @@ def test_project_reads_skip_a_disagreeing_record(
     assert _record(project)["name"] == FREE_TEXT
 
 
-def test_doctor_reports_a_disagreeing_record(tmp_path: Path) -> None:
+def test_doctor_reports_a_disagreeing_record(tmp_path: Path, _analysed: Template) -> None:
     from rebrew.doctor import check_function_bindings
 
-    _, project = _disagreeing_stub(tmp_path)
+    _, project = _disagreeing_stub(_analysed, tmp_path)
     result = check_function_bindings(load_config(project, target="mini"))
     assert result.status == "warn"
     assert KEY in result.message and FREE_TEXT not in result.message
@@ -223,11 +259,13 @@ def _retained_files(config: WorkerConfig, project: Path) -> list[dict[str, Any]]
     return files
 
 
-def test_a_write_touching_a_disagreeing_record_refuses_as_invalid_project(tmp_path: Path) -> None:
+def test_a_write_touching_a_disagreeing_record_refuses_as_invalid_project(
+    tmp_path: Path, _analysed: Template
+) -> None:
     from test_ops import KEY as BINARY_KEY
     from test_ops import SHA256
 
-    config, project = _disagreeing_stub(tmp_path)
+    config, project = _disagreeing_stub(_analysed, tmp_path)
     request = {
         "files": _retained_files(config, project),
         "rebrew_target": "mini",
@@ -251,8 +289,10 @@ def test_a_write_touching_a_disagreeing_record_refuses_as_invalid_project(tmp_pa
 
 
 @pytest.mark.parametrize("op", ["rebrew.data_list", "rebrew.identify_library"])
-def test_a_clean_projects_read_names_no_skipped_record(tmp_path: Path, op: str) -> None:
-    config, project, _cfg = _sqlite_project(tmp_path)
+def test_a_clean_projects_read_names_no_skipped_record(
+    tmp_path: Path, _analysed: Template, op: str
+) -> None:
+    config, project, _cfg = _sqlite_project(_analysed, tmp_path)
     status, raw = dispatch(config, op, json.dumps({"project_dir": str(project)}).encode())
     assert status == 200, json.loads(raw)
     assert "skipped_records" not in json.loads(raw)
@@ -271,14 +311,16 @@ def test_skipped_records_past_the_bound_keep_their_count() -> None:
     assert _skipped_records({(MODULE, VA)}) == {"count": 1, "keys": [KEY], "truncated": False}
 
 
-def test_note_skipped_records_fills_every_open_collector_from_a_generator(tmp_path: Path) -> None:
+def test_note_skipped_records_fills_every_open_collector_from_a_generator(
+    tmp_path: Path, _analysed: Template
+) -> None:
     from rebrew.metadata.bindings import binding_conflicts, note_skipped_records
 
     with binding_conflicts() as outer, binding_conflicts() as inner:
         note_skipped_records(item for item in [(MODULE, VA)])
     assert outer == inner == {(MODULE, VA)}
 
-    config, project = _disagreeing_stub(tmp_path)
+    config, project = _disagreeing_stub(_analysed, tmp_path)
     with binding_conflicts() as caller:
         status, raw = dispatch(
             config, "rebrew.data_list", json.dumps({"project_dir": str(project)}).encode()
@@ -289,12 +331,15 @@ def test_note_skipped_records_fills_every_open_collector_from_a_generator(tmp_pa
 
 
 def test_undeclared_skipped_records_guard(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: Path,
+    _analysed: Template,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An op outside ``SKIPPED_RECORD_OPS`` that skips a record fails under strict replies."""
     from rebrew import ops
 
-    config, project = _disagreeing_stub(tmp_path)
+    config, project = _disagreeing_stub(_analysed, tmp_path)
     monkeypatch.setattr(ops, "SKIPPED_RECORD_OPS", ops.SKIPPED_RECORD_OPS - {"rebrew.data_list"})
     body = json.dumps({"project_dir": str(project)}).encode()
 
@@ -314,11 +359,13 @@ def test_undeclared_skipped_records_guard(
 
 
 @pytest.fixture(scope="module")
-def _contradicted_template(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
+def _contradicted_template(
+    tmp_path_factory: pytest.TempPathFactory, _analysed: Template
+) -> tuple[Path, Path]:
     from session_cache import build_once
 
     def build(root: Path) -> str:
-        _cfg, project = _disagreeing_stub(root)
+        _cfg, project = _disagreeing_stub(_analysed, root)
         return project.resolve().relative_to(root.resolve()).as_posix()
 
     root, rel = build_once(tmp_path_factory, "contradicted-project-walk", build)
