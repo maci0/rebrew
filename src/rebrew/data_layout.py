@@ -114,7 +114,6 @@ _DEF_LINE_RE = re.compile(
     r"\s*" + _DEF_PARAMS + r"\s*="
 )
 #: Global name out of a generated definition line, e.g. ``"int g_table[4] = "``.
-_ADDED_NAME_RE = re.compile(r"\s(\w+)(?:\[|\s*=)")
 _PAD_INSERT_RE = re.compile(r"(\n)(?=\s*(?:extern|static|__declspec|(?://|/\*) ADDRESS:))")
 
 
@@ -1770,7 +1769,8 @@ def fix_ownership(
     owner: dict[str, Path] = {}
     # The scan decides every later edit, so an unreadable TU fails here and
     # writes nothing.
-    for f, text in _read_sources_or_fail(files):
+    source_text = dict(_read_sources_or_fail(files))
+    for f, text in source_text.items():
         for ln in split_source_lines(text):
             m = _DEF_LINE_RE.match(ln.strip())
             defined = (m.group(1) or m.group(2)) if m else None
@@ -1804,12 +1804,24 @@ def fix_ownership(
                 new_owner[n] = data_tus[seg]
 
     removals: dict[Path, list[str]] = defaultdict(list)
-    additions: dict[Path, list[str]] = defaultdict(list)
+    additions: dict[Path, list[tuple[str, str, bool]]] = defaultdict(list)
     for name, (addr, typ) in sorted(toml.items(), key=lambda kv: kv[1][0]):
-        tu = new_owner.get(name) or owner.get(name)
+        cur = original_owner.get(name)
+        tu = new_owner.get(name) or cur
         if tu is None:
             continue
-        if addr < raw_end:
+        if cur is not None:
+            text = source_text[cur]
+            definition = _find_definition(text, name)
+            if definition is None:
+                continue
+            start, end, source_type, _suffix = definition
+            if cur != tu and (
+                "static" in source_type.split() or _find_definition(source_text[tu], name)
+            ):
+                continue
+            def_line = text[start:end].strip()
+        elif addr < raw_end:
             if addr < data_base:
                 # Below the section base ``orig`` has no bytes at this
                 # address; a negative offset would read the section tail.
@@ -1831,10 +1843,9 @@ def fix_ownership(
             def_line = f"{typ} {name}[{count}] = {init};"
         else:
             def_line = f"{typ} {name} = 0;"
-        cur = original_owner.get(name)
-        if cur and cur != tu:
+        if cur is not None and cur != tu:
             removals[cur].append(name)
-        additions[tu].append(def_line)
+        additions[tu].append((name, def_line, cur is not None))
 
     n_edit = 0
     # The two passes are one transaction: pass one turns every moved
@@ -1871,17 +1882,13 @@ def fix_ownership(
             text, encoding = read_source_text(tu)
             text = text.rstrip("\n") + "\n"
             appended: list[str] = []
-            for line in lines:
-                name_m = _ADDED_NAME_RE.search(line)
-                if not name_m:
-                    continue
-                name = name_m.group(1)
+            for name, line, moved_definition in lines:
                 if _find_definition(text, name):
                     continue
                 di = _decl_info(text, name)
                 if di and not di[0].startswith("extern"):
                     continue
-                if di:
+                if di and not moved_definition:
                     line = _merged_definition_line(di[0], di[1], name, line)
                 appended.append(line)
                 n_edit += 1

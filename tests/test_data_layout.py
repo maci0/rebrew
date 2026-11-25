@@ -861,6 +861,26 @@ def test_fix_ownership_uses_selected_metadata_and_link_order(tmp_path: Path) -> 
     assert {file: file.read_bytes() for file in src.glob("*.c")} == before
 
 
+def test_fix_ownership_moves_scalar_declarators_and_initializers(tmp_path: Path) -> None:
+    from rebrew.data_layout import fix_ownership
+
+    meta, binary = _fix_ownership_two_tu(tmp_path, '#include "globals.h"\nint g_a = 1;\n')
+    src = tmp_path / "src"
+    (src / "b.c").write_text('#include "globals.h"\nint g_b = 3;\n')
+    (src / "globals.h").write_text("extern int g_a;\nextern int g_b;\n")
+    write_store_fixture(
+        meta,
+        "format = 2\n"
+        '["SERVER.0x10028004"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n'
+        '["SERVER.0x10027000"]\nname = "g_b"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+
+    assert fix_ownership(tmp_path, meta, binary, src)["moved"] == 2
+    assert (src / "a.c").read_text().splitlines()[1:] == ["extern int g_a;", "int g_b = 3;"]
+    assert (src / "b.c").read_text().splitlines()[1:] == ["extern int g_b;", "int g_a = 1;"]
+
+
 def test_fix_ownership_sees_array_of_pointers_to_array(tmp_path: Path) -> None:
     """``int (*table[2])[3] = {0}`` is the definition of ``table``.
 

@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Move an existing global definition with its original declarator and initializer (D-engines7-081).
 - Preserve multidimensional declarators when materializing stub globals (D-engines7-079).
 - Restrict data ownership repair to the selected target metadata and link order (D-engines7-077).
 - Limit reads at virtual addresses to file-backed section bytes (D-engines7-069).
