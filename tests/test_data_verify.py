@@ -605,7 +605,10 @@ class TestPlacement:
         assert res["unplaced"] == 1
         assert res["matched"] == 3
 
-    def test_recorded_link_symbol_wins_over_the_cdecl_name(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize("explicit_present", [True, False])
+    def test_only_the_recorded_link_symbol_can_prove_placement(
+        self, tmp_path: Path, explicit_present: bool
+    ) -> None:
         from rebrew.data_verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
@@ -613,14 +616,18 @@ class TestPlacement:
             meta,
             'format = 2\n["SERVER.0x1000"]\nname = "argc"\nlink_symbol = "___argc"\nsize = 4\nsection = ".data"\n',
         )
+        symbols = {"_argc": 0x9000 if explicit_present else 0x1000}
+        if explicit_present:
+            symbols["___argc"] = 0x1000
         res = verify_data_bytes(
             metadata_path=meta,
             expected={0x1000: bytes(4)},
             actual={0x1000: bytes(4)},
             sizes={0x1000: 4},
-            built_symbols={"_argc": 0x9000, "___argc": 0x1000},
+            built_symbols=symbols,
         )
-        assert res["results"][0]["status"] == "EXACT"
+        assert res["results"][0]["status"] == ("EXACT" if explicit_present else "VERIFIED")
+        assert res["unplaced"] == (0 if explicit_present else 1)
 
     def test_link_map_symbols_includes_import_slots_but_not_functions(self) -> None:
         from rebrew.data_verify import link_map_symbols

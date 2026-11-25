@@ -206,10 +206,10 @@ def verify_data_bytes(
 
 def _built_va(name: str, fields: dict[str, Any], built_symbols: dict[str, int]) -> int | None:
     """The built VA of a data row: its recorded native symbol, else the cdecl name."""
-    for candidate in (str(fields.get("link_symbol") or ""), f"_{name}", name):
-        if candidate and candidate in built_symbols:
-            return built_symbols[candidate]
-    return None
+    link_symbol = fields.get("link_symbol")
+    if link_symbol:
+        return built_symbols.get(str(link_symbol))
+    return built_symbols.get(f"_{name}", built_symbols.get(name))
 
 
 def link_map_symbols(text: str) -> dict[str, int]:
