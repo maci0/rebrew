@@ -1,5 +1,6 @@
 """Register declaration-bound source addresses in the canonical metadata stores."""
 
+lazy from contextlib import nullcontext
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -9,13 +10,16 @@ from rebrew.cli import TargetOption, console, error_exit, json_print, require_co
 lazy from rebrew.c_parser import find_extern_variables
 lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
 lazy from rebrew.metadata.bindings import derive_c_symbol
-lazy from rebrew.metadata.data import load_data_metadata, record_data_rows
+lazy from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
+lazy from rebrew.metadata.data import load_data_metadata, record_data_rows, validate_data_field
 lazy from rebrew.metadata.functions import (
     identity_file,
     load_metadata,
     record_function_rows,
     stored_file_matches,
+    validate_identity_file,
 )
+lazy from rebrew.metadata.locking import file_transaction
 lazy from rebrew.metadata.source_provenance import set_source_file
 lazy from rebrew.sources import iter_sources_and_headers
 lazy from rebrew.utils import preset_module_key, read_source_text
@@ -86,7 +90,9 @@ def plan_registration(
                 "DATA" if is_data else "LIBRARY" if module_key in library_keys else "FUNCTION"
             )
             kind = str(entry.get("kind") or default_kind)
-            relative = (
+            if is_data:
+                kind = validate_data_field("kind", kind)
+            relative = validate_identity_file(
                 path.resolve().relative_to(cfg.root.resolve()).as_posix()
                 if kind == "LIBRARY"
                 else identity_file(path, metadata_dir)
@@ -157,10 +163,22 @@ def main(
                 "dry_run": dry_run,
             }
         else:
-            functions, data = plan_registration(cfg, paths)
-            if not dry_run:
-                record_function_rows(cfg.metadata_dir, functions)
-                record_data_rows(cfg.metadata_dir, data)
+            with nullcontext() if dry_run else file_transaction(cfg.root, "rebrew-project.toml"):
+                expected = (
+                    {} if dry_run else coordinated_inputs(cfg.metadata_dir, [], watched=paths)
+                )
+                functions, data = plan_registration(cfg, paths)
+                if not dry_run:
+                    transaction = (
+                        coordinated_transaction(
+                            cfg.metadata_dir, [], expected_inputs=expected, watched=paths
+                        )
+                        if functions and data
+                        else nullcontext()
+                    )
+                    with transaction:
+                        record_function_rows(cfg.metadata_dir, functions)
+                        record_data_rows(cfg.metadata_dir, data)
             result = {"functions": len(functions), "data": len(data), "dry_run": dry_run}
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)

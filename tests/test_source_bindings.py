@@ -190,6 +190,50 @@ class TestSourceBindings:
 
 
 class TestRegistration:
+    @pytest.mark.parametrize("backend", ["toml", "sqlite"])
+    @pytest.mark.parametrize("invalid_kind", [True, False], ids=["invalid-kind", "writer-failure"])
+    def test_mixed_registration_keeps_both_stores_on_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, invalid_kind: bool
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app
+        from rebrew.metadata.data import load_data_metadata
+        from rebrew.metadata.functions import load_metadata
+        from rebrew.metadata.storage import metadata_store
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            f'[metadata]\nbackend = "{backend}"\n', encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path, metadata_dir=tmp_path, target_modules={"GAME"}, library_modules=set()
+        )
+        _record(tmp_path, "GAME", 0x3000, "old.c", "old")
+        if invalid_kind:
+            metadata_store(tmp_path / "rebrew-data.toml").write(
+                {"format": 2, "GAME.0x2000": {"kind": "FUNCTION"}}, "test"
+            )
+        before_functions = load_metadata(tmp_path)
+        before_data = load_data_metadata(tmp_path)
+        source = tmp_path / "mixed.c"
+        source.write_text(
+            "/* ADDRESS: GAME 0x1000 */\nint function(void) { return 0; }\n"
+            "/* ADDRESS: GAME 0x2000 */\nint variable = 42;\n",
+            encoding="utf-8",
+        )
+
+        def fail_data_write(*args: Any, **kwargs: Any) -> None:
+            raise OSError("data writer failed")
+
+        monkeypatch.setattr("rebrew.source_register.require_config", lambda **kwargs: cfg)
+        if not invalid_kind:
+            monkeypatch.setattr("rebrew.source_register.record_data_rows", fail_data_write)
+        result = CliRunner().invoke(app, ["source", "register", str(source), "--json"])
+        assert result.exit_code == 2, result.output
+        assert ("kind must be" if invalid_kind else "data writer failed") in result.output
+        assert load_metadata(tmp_path) == before_functions
+        assert load_data_metadata(tmp_path) == before_data
+
     @pytest.mark.parametrize("has_owner", [False, True], ids=["configured-spelling", "other-owner"])
     def test_registration_uses_the_canonical_module(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, has_owner: bool

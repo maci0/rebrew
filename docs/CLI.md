@@ -1229,6 +1229,9 @@ Register optional `ADDRESS: MODULE 0xVA` comments immediately above the next C
 function definition, variable or constant in canonical metadata (functions format 3; data format 2). Stacked targets
 bind one declaration. Without SOURCE, scan configured sources and headers.
 Validate the full selection before writing; preserve existing fields and verdicts.
+Registering functions and data together requires one metadata backend that can roll
+back both writes. SQLite and PostgreSQL use a transaction. TOML restores the
+previous store files if a write raises an error.
 With one SOURCE, `--support REASON` records a target-scoped file purpose in
 `rebrew-functions.toml` under `[source.files]`. Old source blocks and older store formats are rejected.
 See [source addresses](ANNOTATIONS.md).
