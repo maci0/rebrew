@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- Explicit IAT thunk addresses, cached data records and BinSync owner lookup distinguish zero from an absent address (D-engines7-037).
 - Data scans, BSS layout, relocation names, symbol exports, Ghidra labels and work queues keep address zero distinct from missing addresses (D-engines7-037).
 - Keep guarded source edits and address-zero report nodes consistent with the types checked by the release gate (D-engines7-035, D-engines7-037).
 - Keep the source-anchor and split-store pairing regression fixtures compatible with the repository's lint and format checks (D-engines7-017, D-engines7-055).

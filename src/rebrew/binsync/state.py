@@ -115,7 +115,9 @@ def load_binsync_state(
         text = comment.comment or ""
         func_addr = comment.func_addr
         if func_addr is None:
-            func_addr = (comment.addr or 0) - 1
+            if comment.addr is None:
+                continue
+            func_addr = comment.addr - 1
         func_entry = funcs.get(int(func_addr))
         if func_entry is None:
             continue

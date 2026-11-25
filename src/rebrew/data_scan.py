@@ -892,7 +892,7 @@ def _collect_scan_file_facts(
                 "data": bool(binding.is_data),
                 "name": binding.name,
                 "module": binding.module,
-                "va": int(binding.va or 0),
+                "va": int(binding.va),
                 "line": int(binding.line or 0),
             }
             for binding in bindings
@@ -933,11 +933,11 @@ def _apply_scan_file_facts(
             is_data=bool(row.get("data")),
             name=str(row.get("name") or ""),
             module=str(row.get("module") or ""),
-            va=int(row.get("va") or 0),
+            va=int(address),
             line=int(row.get("line") or 0),
         )
         for row in facts["bindings"]
-        if isinstance(row, dict)
+        if isinstance(row, dict) and (address := row.get("va")) is not None
     ]
     extern_vars = {
         str(row.get("name") or ""): SimpleNamespace(

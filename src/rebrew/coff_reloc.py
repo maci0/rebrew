@@ -223,9 +223,7 @@ def build_iat_region(cfg: ProjectConfig) -> frozenset[int]:
     if not binary:
         return frozenset()
     thunks = tuple(
-        (va & 0xFFFFFFFF)
-        for va in (getattr(cfg, "iat_thunks", None) or [])
-        if isinstance(va, int) and va
+        (va & 0xFFFFFFFF) for va in (getattr(cfg, "iat_thunks", None) or []) if isinstance(va, int)
     )
     return _iat_region(str(binary), thunks, binary_fingerprint(binary))
 
