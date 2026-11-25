@@ -4087,12 +4087,6 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "kinds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
           "project_dir": {
             "type": "string"
           },
@@ -6102,20 +6096,11 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "kinds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
           "project_dir": {
             "type": "string"
           },
           "sha256": {
             "type": "string"
-          },
-          "size": {
-            "type": "integer"
           },
           "va": {
             "type": "integer"
@@ -8575,12 +8560,6 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
-          "kinds": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
           "project_dir": {
             "type": "string"
           },
@@ -16532,9 +16511,6 @@
           },
           "sha256": {
             "type": "string"
-          },
-          "size": {
-            "type": "integer"
           },
           "va": {
             "type": "integer"

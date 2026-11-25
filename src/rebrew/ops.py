@@ -323,7 +323,7 @@ MAX_SKIPPED_RECORD_KEYS = 256
 #: SHA-256 of the dispatch schema this engine serves
 #: (``tests/fixtures/dispatch/rebrew.schema.json``), answered by ``rebrew.release``;
 #: a test holds it to the file, so a schema change updates it in the same commit.
-DISPATCH_SCHEMA_SHA256 = "2cdda19bea683b8ad444cfce6b0e72fe7563043901c0a7b087e2089af12c7620"
+DISPATCH_SCHEMA_SHA256 = "d14a7f3688a4234dc0d313f5e91c629a6ab2c8ffd4f875221552d603b3e41858"
 
 #: Default of ``--concurrency``: calls ``serve`` runs at once.
 DEFAULT_CONCURRENCY = 4
@@ -1247,7 +1247,15 @@ class AddressRequest:
     project_dir: str
     sha256: str
     va: int
+
+
+@dataclass(frozen=True)
+class SizedAddressRequest(AddressRequest):
     size: int = 0
+
+
+@dataclass(frozen=True)
+class XrefsRequest(AddressRequest):
     kinds: list[str] = field(default_factory=list)
 
 
@@ -2290,7 +2298,7 @@ def disassemble(config: WorkerConfig, req: DisassembleRequest) -> dict[str, Any]
     return _listing_reply(_asm_listing(code, va, cfg.capstone_arch, cfg.capstone_mode, read_image))
 
 
-def instruction_listing(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+def instruction_listing(config: WorkerConfig, req: SizedAddressRequest) -> dict[str, Any]:
     """The comparison of ``[va, va+size)`` with itself, in ``rebrew test --instructions``'s shape.
 
     It stands in for an ``EXACT`` rebuild, whose comparison no verification
@@ -2334,7 +2342,7 @@ def disassemble_bytes(_config: WorkerConfig, req: DisassembleBytesRequest) -> di
 # ---------------------------------------------------------------------------
 
 
-def control_flow_graph(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+def control_flow_graph(config: WorkerConfig, req: SizedAddressRequest) -> dict[str, Any]:
     """Basic-block graph; ``size`` 0 lets rebrew resolve the extent."""
     from rebrew.asm import build_cfg_payload
 
@@ -2344,7 +2352,7 @@ def control_flow_graph(config: WorkerConfig, req: AddressRequest) -> dict[str, A
     return build_cfg_payload(cfg, _address(req.va), req.size)
 
 
-def xrefs(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
+def xrefs(config: WorkerConfig, req: XrefsRequest) -> dict[str, Any]:
     """References to ``va``, narrowed to ``kinds`` when given."""
     from rebrew.analysis import is_xref_kind
     from rebrew.xrefs import build_xrefs_payload
@@ -5285,10 +5293,12 @@ OPS: dict[str, Op] = {
         DisassembleBytesRequest, disassemble_bytes, IN_PROCESS_TIMEOUT_SECONDS
     ),
     "rebrew.instruction_listing": Op(
-        AddressRequest, instruction_listing, IN_PROCESS_TIMEOUT_SECONDS
+        SizedAddressRequest, instruction_listing, IN_PROCESS_TIMEOUT_SECONDS
     ),
-    "rebrew.control_flow_graph": Op(AddressRequest, control_flow_graph, IN_PROCESS_TIMEOUT_SECONDS),
-    "rebrew.xrefs": Op(AddressRequest, xrefs, IN_PROCESS_TIMEOUT_SECONDS),
+    "rebrew.control_flow_graph": Op(
+        SizedAddressRequest, control_flow_graph, IN_PROCESS_TIMEOUT_SECONDS
+    ),
+    "rebrew.xrefs": Op(XrefsRequest, xrefs, IN_PROCESS_TIMEOUT_SECONDS),
     "rebrew.call_references": Op(ProjectRequest, call_references, IN_PROCESS_TIMEOUT_SECONDS),
     "rebrew.describe": Op(AddressRequest, describe, IN_PROCESS_TIMEOUT_SECONDS),
     "rebrew.decompile": Op(DecompileRequest, decompile, IN_PROCESS_TIMEOUT_SECONDS),

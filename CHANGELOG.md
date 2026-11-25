@@ -2,6 +2,7 @@
 
 ### Fixed
 
+- **Breaking:** The published `ops.OPS` address contracts accept only the members the handlers use. Use `ops.AddressRequest` for describe, `ops.SizedAddressRequest` for `ops.control_flow_graph` and `ops.instruction_listing`, and `ops.XrefsRequest` for `ops.xrefs`. The former `ops.AddressRequest.size` belongs to `ops.SizedAddressRequest.size`. Clients must use the regenerated `ops.DISPATCH_SCHEMA_SHA256` (D-engines7-009).
 - Include skipped records in successful re-analysis replies when intake could not repair them (D-engines7-006).
 - Fill only the unallocated gaps between known data and BSS extents (D-engines7-078).
 - Resolve relocation targets against covering allocations past shorter interior views (D-engines7-087).

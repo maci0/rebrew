@@ -1103,6 +1103,32 @@ class TestFunctionOps:
     def _address(self, project: Path, **extra: Any) -> dict[str, Any]:
         return {"project_dir": str(project), "sha256": SHA256, "va": ENTRY_VA, **extra}
 
+    @pytest.mark.parametrize(
+        ("op", "field", "value", "required"),
+        [
+            ("rebrew.describe", "size", ENTRY_SIZE, {}),
+            ("rebrew.describe", "kinds", ["call"], {}),
+            ("rebrew.control_flow_graph", "kinds", ["call"], {}),
+            ("rebrew.instruction_listing", "kinds", ["call"], {"size": ENTRY_SIZE}),
+            ("rebrew.xrefs", "size", ENTRY_SIZE, {}),
+        ],
+    )
+    def test_address_requests_refuse_unused_members(
+        self,
+        world: tuple[WorkerConfig, Path],
+        op: str,
+        field: str,
+        value: Any,
+        required: dict[str, int],
+    ) -> None:
+        config, project = world
+        body = self._address(project, **required, **{field: value})
+        with pytest.raises(AssertionError, match="unexpected"):
+            _validate(_op_schema(op, "request"), body)
+        refusal = _refusal(config, op, json.dumps(body).encode())
+        assert refusal["status"] == 400
+        assert refusal["detail"] == f"request has unknown fields: {field}"
+
     def test_control_flow_graph(self, world: tuple[WorkerConfig, Path]) -> None:
         config, project = world
         reply = _call(config, "rebrew.control_flow_graph", self._address(project, size=11))

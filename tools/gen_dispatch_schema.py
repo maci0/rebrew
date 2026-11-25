@@ -29,7 +29,8 @@ lazy import argparse
 lazy import json
 lazy import sys
 lazy from collections.abc import Collection, Iterator
-lazy from typing import Any, get_args
+lazy from dataclasses import MISSING, fields
+lazy from typing import Any, get_args, get_type_hints
 
 
 def _project_root() -> Path:
@@ -108,6 +109,21 @@ def render(text: str) -> str:
     schema = json.loads(text)
     analyse = schema["ops"]["rebrew.analyse"]["response"]["properties"]
     analyse["skipped_records"] = json_schema(SkippedRecords)
+    for op in (
+        "rebrew.describe",
+        "rebrew.control_flow_graph",
+        "rebrew.instruction_listing",
+        "rebrew.xrefs",
+    ):
+        request = schema["ops"][op]["request"]
+        model = ops.OPS[op].request
+        hints = get_type_hints(model)
+        request["properties"] = {name: json_schema(hint) for name, hint in hints.items()}
+        request["required"] = [
+            spec.name
+            for spec in fields(model)
+            if spec.default is MISSING and spec.default_factory is MISSING
+        ]
     for op, declared in DECLARED.items():
         response = schema["ops"][op]["response"]
         schema["ops"][op]["response"] = {"$schema": response["$schema"], **json_schema(declared)}
