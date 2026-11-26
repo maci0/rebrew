@@ -345,6 +345,23 @@ class TestCompiledSources:
         with pytest.raises(ValueError):
             bind_compiled_source(cfg, SourceBinding(), {"file": stored})
 
+    def test_binding_uses_the_metadata_dir_it_is_given(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _project(tmp_path)
+        monkeypatch.setattr(
+            ProjectConfig,
+            "metadata_dir",
+            property(lambda _self: pytest.fail("metadata_dir was resolved per row")),
+        )
+        entry = bind_compiled_source(
+            cfg,
+            SourceBinding(va=0x1000, kind="FUNCTION"),
+            {"file": "src/f.c", "symbol": "_f", "kind": "FUNCTION"},
+            metadata_dir=tmp_path,
+        )
+        assert (entry.filepath, entry.symbol) == ("f.c", "_f")
+
     def test_binding_rejects_a_symlink_outside_the_project(self, tmp_path: Path) -> None:
         cfg = _project(tmp_path)
         source = tmp_path / "vendor.c"

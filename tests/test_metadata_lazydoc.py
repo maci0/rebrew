@@ -150,3 +150,31 @@ def test_unsplittable_text_falls_back_to_full_parse(store: str, extra: str) -> N
 def test_small_documents_use_a_full_parse() -> None:
     doc = parse_roundtrip('format = 3\n\n["GAME.0x1000"]\nname = "a"\n')
     assert isinstance(doc, tomlkit.TOMLDocument)
+
+
+def test_peek_reads_untouched_records_without_parsing_them(store: str) -> None:
+    lazy = parse_roundtrip(store)
+    assert isinstance(lazy, LazyDocument)
+    full = tomlkit.parse(store)
+    for key in full:
+        if key != "format":
+            assert lazy.peek(key) == full[key].unwrap()
+    assert all(chunk.doc is None for chunk in lazy._chunks)
+    assert lazydoc.peek(lazy, "GAME.0x00001010")["name"] == "fcn_00001"
+
+
+def test_peek_sees_edits_made_through_the_document(store: str) -> None:
+    lazy = parse_roundtrip(store)
+    _edit_existing(lazy)
+    _add_record(lazy)
+    _delete_record(lazy)
+    assert lazy.peek("GAME.0x00001010")["status"] == "EXACT"
+    assert lazy.peek("GAME.0x00001010")["blocker"] == "new field"
+    assert lazy.peek("GAME.0x7fff0000")["name"] == "added"
+    with pytest.raises(KeyError):
+        lazy.peek("GAME.0x00001020")
+
+
+def test_peek_on_a_full_document_is_plain_item_access() -> None:
+    doc = tomlkit.parse('["GAME.0x1000"]\nname = "f"\n')
+    assert lazydoc.peek(doc, "GAME.0x1000")["name"] == "f"

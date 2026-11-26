@@ -25,6 +25,7 @@ lazy from rebrew.metadata.document import (
     stamp_format,
     stamp_now,
 )
+lazy from rebrew.metadata.lazydoc import peek
 lazy from rebrew.metadata.storage import input_digest, metadata_store, metadata_write_lock
 lazy from rebrew.utils import is_safe_c_ident, preset_module_key
 
@@ -261,11 +262,16 @@ def _apply_change(
     if identity is not None:
         replacement_root = project_root if identity["kind"] == "LIBRARY" else directory
         replacement_path = (replacement_root / identity["file"]).resolve()
+        module_key = preset_module_key(module)
         for (other_module, other_va), other_key in build_metadata_key_index(doc).items():
-            other = doc[other_key]
-            if other_va == va or preset_module_key(other_module) != preset_module_key(module):
+            if other_va == va or preset_module_key(other_module) != module_key:
                 continue
-            if not other.get("file"):
+            # peek reads the other rows without tomlkit-parsing each one; the cheap
+            # name and symbol test runs before the history and path checks.
+            other = peek(doc, other_key)
+            if not other.get("file") or (
+                other.get("name") != identity["name"] and other.get("symbol") != identity["symbol"]
+            ):
                 continue
             if other_key not in retired:
                 retired[other_key] = retired_binding(other)
@@ -273,9 +279,7 @@ def _apply_change(
                 continue
             other_root = project_root if other.get("kind") == "LIBRARY" else directory
             other_path = (other_root / validate_identity_file(str(other["file"]))).resolve()
-            if other_path == replacement_path and (
-                other.get("name") == identity["name"] or other.get("symbol") == identity["symbol"]
-            ):
+            if other_path == replacement_path:
                 raise ValueError(
                     f"replacement definition/symbol already belongs to {other_module}.0x{other_va:x}"
                 )

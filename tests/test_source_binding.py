@@ -302,6 +302,38 @@ class TestBindingCommands:
             assert applied.exit_code == 0, applied.output
         assert get_entry(cfg.metadata_dir, 0x402000, "GAME") == original
 
+    def test_retire_skips_the_target_source_scan_that_only_rebind_reads(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.source_binding import app
+
+        cfg = _project(tmp_path)
+        replacement = cfg.reversed_dir / "h.c"
+        replacement.write_text("int h(void) { return 1; }\n")
+        scans: list[str] = []
+
+        def scan(*args: Any, **kwargs: Any) -> tuple[list[Path], list[Path]]:
+            scans.append("scan")
+            return [], []
+
+        with (
+            patch("rebrew.source_binding.require_config", return_value=cfg),
+            patch("rebrew.source_binding.collect_target_sources", side_effect=scan),
+        ):
+            retired = CliRunner().invoke(
+                app, ["retire", "0x401000", "--reason", "wrong", "--dry-run", "--json"]
+            )
+            assert retired.exit_code == 0, retired.output
+            assert scans == []
+            rebound = CliRunner().invoke(
+                app,
+                ["rebind", "0x401000", str(replacement), "--name", "h", "--reason", "proof"]
+                + ["--dry-run", "--json"],
+            )
+            assert rebound.exit_code == 0, rebound.output
+            assert scans == ["scan"]
+        assert cli_payload(rebound)["replacement"]["name"] == "h"
+
     def test_ambiguous_replacement_rejected_without_changes(self, tmp_path: Path) -> None:
         from rebrew.source_binding import app
 

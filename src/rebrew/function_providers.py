@@ -74,21 +74,31 @@ def select_source_bindings(
 
 
 def bind_compiled_source(
-    cfg: ProjectConfig, entry: SourceBinding, metadata: dict[str, Any]
+    cfg: ProjectConfig,
+    entry: SourceBinding,
+    metadata: dict[str, Any],
+    *,
+    metadata_dir: Path | None = None,
 ) -> SourceBinding:
     """Resolve an explicit source identity, retaining its function classification.
 
     Header annotations name reference functions; a managed ``file``/``symbol``
     identity names the translation unit and native symbol we compile. Missing
     files remain candidates so verification fails instead of silently skipping.
+    A loop over many rows passes *metadata_dir* once: resolving it probes the
+    store on every access.
     """
     stored = str(metadata.get("file", ""))
     if not stored or Path(stored).suffix.casefold() not in {".c", ".cpp", ".cc", ".cxx"}:
         return entry
     validate_identity_file(stored)
     # cfg.metadata_dir walks the ancestors for a store: read it only when used.
-    root = Path(cfg.root if hasattr(cfg, "root") else cfg.metadata_dir).resolve()
-    base = root if metadata.get("kind", entry.kind) == "LIBRARY" else Path(cfg.metadata_dir)
+    root = Path(cfg.root if hasattr(cfg, "root") else (metadata_dir or cfg.metadata_dir)).resolve()
+    base = (
+        root
+        if metadata.get("kind", entry.kind) == "LIBRARY"
+        else Path(metadata_dir or cfg.metadata_dir)
+    )
     source = (base / stored.replace("\\", "/")).resolve()
     if not source.is_relative_to(root):
         raise ValueError(f"function source {stored!r} escapes the project")

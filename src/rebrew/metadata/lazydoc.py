@@ -41,10 +41,23 @@ class _Chunk:
 class LazyDocument(MutableMapping[str, Any]):
     """A TOML document whose top-level tables are tomlkit-parsed on first access."""
 
-    def __init__(self, preamble: str, chunks: list[_Chunk]) -> None:
+    def __init__(self, preamble: str, chunks: list[_Chunk], plain: dict[str, Any]) -> None:
         self._preamble = tomlkit.parse(preamble)
         self._chunks = chunks
         self._index = {key: chunk for chunk in chunks for key in chunk.keys}
+        self._plain = plain
+
+    def peek(self, key: str) -> Any:
+        """Read-only view of a top-level record that parses nothing for an untouched one.
+
+        An untouched record answers from the ``tomllib`` values read at load; a record
+        already parsed for writing answers from its tomlkit table. Callers must not
+        mutate the result: edits go through ``doc[key]``.
+        """
+        chunk = self._index.get(key)
+        if chunk is None or chunk.doc is not None:
+            return self[key]
+        return self._plain[key]
 
     @override
     def __getitem__(self, key: str) -> Any:
@@ -197,7 +210,7 @@ def parse_roundtrip(
         plain = {}
     if segmented is not None:
         preamble, chunks = segmented
-        lazy = LazyDocument(preamble, chunks)
+        lazy = LazyDocument(preamble, chunks, plain)
         if list(lazy) == list(plain):
             if validate is not None:
                 validate(plain)
@@ -215,3 +228,8 @@ def render(doc: Any) -> str:
     if isinstance(doc, LazyDocument):
         return doc.render()
     return tomlkit.dumps(doc)
+
+
+def peek(doc: Any, key: str) -> Any:
+    """Read-only record *key* of a round-trip document; see :meth:`LazyDocument.peek`."""
+    return doc.peek(key) if isinstance(doc, LazyDocument) else doc[key]

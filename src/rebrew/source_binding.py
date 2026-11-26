@@ -428,9 +428,12 @@ def _change(
     new_key = _replacement_type_key(identity, source)
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     # A file bound only to another target declares that target's function; the
-    # same placeholder name there is not this binding's caller.
-    _own, foreign = collect_target_sources(cfg, module, sources=sources)
-    foreign_paths = {path.resolve() for path in foreign}
+    # same placeholder name there is not this binding's caller. Only the
+    # prototype check below reads it, and it runs for a replacement alone.
+    foreign_paths: set[Path] = set()
+    if new_key is not None:
+        _own, foreign = collect_target_sources(cfg, module, sources=sources)
+        foreign_paths = {path.resolve() for path in foreign}
     for path in sources:
         text, _ = read_source_text(path)
         if (
