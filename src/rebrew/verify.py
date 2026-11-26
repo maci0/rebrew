@@ -1292,8 +1292,30 @@ def main(
             cfg=cfg,
             built_symbols=built_symbols,
             span_placements=span_data_placements(cfg, built_path),
+            # Only the acknowledged raw link counts: a postlinked image that copied sections
+            # from the reference would place every record by construction.
+            image_identical=raw_link
+            and built_path.read_bytes() == Path(cfg.target_binary).read_bytes(),
         )
         data_report["link_map"] = str(map_path) if built_symbols is not None else None
+        # Library statics are placed from cached stock archives only (a scan never extracts).
+        # An archive that is configured but not cached leaves its records unplaced, so name it
+        # instead of letting the EXACT count drop without a reason.
+        from rebrew.data_ownership import cached_data_archives, library_key
+
+        cached = cached_data_archives(cfg)
+        uncached = sorted(
+            spec
+            for spec in (getattr(cfg, "external_libs", None) or {}).values()
+            if spec and library_key(spec) not in cached
+        )
+        data_report["uncached_archives"] = uncached
+        if uncached and data_report.get("unplaced") and not json_output:
+            console.print(
+                f"[yellow]warning:[/yellow] {data_report['unplaced']} verified record(s) are "
+                f"unplaced, and library archives are not cached: {', '.join(uncached)}. Run "
+                f"`rebrew library inspect <name>` to extract one so its statics can be placed."
+            )
         # A postlinked binary is not evidence.  Where a project's postlink step
         # copies whole sections from the reference (rebrew's own `data` fixer
         # does exactly that), every symbol in them matches by construction and

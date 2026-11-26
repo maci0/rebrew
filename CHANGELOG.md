@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+
+- `rebrew verify --data --raw-link` places every verified record EXACT when the raw link is byte-identical to the reference file (`placement_method` `identical-image`): the image itself puts each record at its reference VA. Before, a record the link map did not name (a CRT static, a field view) stayed VERIFIED on an identical image. A map entry that places a name elsewhere still reports DISPLACED.
+- `rebrew verify --data` lists configured library archives missing from the stock cache (`uncached_archives`) and warns when records stay unplaced, since library statics are placed only from cached archives. Before, the EXACT count dropped with no reason given. `data_ownership.library_key` is public.
+
 ## [6.81.1] - 2026-11-26
 
 ### Fixed
