@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- A source reached through a symlinked checkout path (for example a CMake build dir configured before the checkout moved behind a symlink) keeps its project-relative identity. `identity_file` compared the unresolved source path with the resolved project root, so every anchor reported "address anchor conflicts with the stored source binding" for its own file.
+
 ## [6.81.0] - 2026-11-26
 
 ### Fixed
