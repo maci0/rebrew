@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.81.2] - 2026-11-26
+
 ### Fixed
 
 - `rebrew verify --data --raw-link` places every verified record EXACT when the raw link is byte-identical to the reference file (`placement_method` `identical-image`): the image itself puts each record at its reference VA. Before, a record the link map did not name (a CRT static, a field view) stayed VERIFIED on an identical image. A map entry that places a name elsewhere still reports DISPLACED.
