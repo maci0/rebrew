@@ -351,7 +351,7 @@ ensure-jpype-build:
 	  || ! command -v cc >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then \
 	  echo "ERROR: JDK + Ant + cc/make not on PATH (required to build JPype 1.7.1 from sdist on Python 3.15, same as CI)."; \
 	  echo "The binsync extra (declib -> pyghidra -> jpype1, sdist-only in uv.lock) is in --all-extras,"; \
-	  echo "so `make setup` needs a JDK and Apache Ant before uv sync can build it."; \
+	  echo "so 'make setup' needs a JDK and Apache Ant before uv sync can build it."; \
 	  echo "Install them, then re-run: e.g. apt install default-jdk ant build-essential / pacman -S jdk-openjdk ant make / dnf install java-21-openjdk-devel ant make"; \
 	  echo "Or sync without the binsync extra: make setup UV_SYNC_FLAGS='--locked --group similarity'"; \
 	  exit 1; \
@@ -398,14 +398,14 @@ ensure-go:
 warn-patch:
 	@set -eu; \
 	if ! command -v patch >/dev/null 2>&1; then \
-	  echo "WARNING: GNU patch not on PATH (required for the vendor tests and `rebrew library vendor`, same as CI; the vendor tests fail without it)."; \
+	  echo "WARNING: GNU patch not on PATH (required for the vendor tests and 'rebrew library vendor', same as CI; the vendor tests fail without it)."; \
 	  echo "Install it before running the full suite: e.g. apt install patch / pacman -S patch / dnf install patch"; \
 	fi
 
 ensure-patch:
 	@set -eu; \
 	if ! command -v patch >/dev/null 2>&1; then \
-	  echo "ERROR: GNU patch not on PATH (required for the vendor tests and `rebrew library vendor`, same as CI)."; \
+	  echo "ERROR: GNU patch not on PATH (required for the vendor tests and 'rebrew library vendor', same as CI)."; \
 	  echo "Install it, then re-run: e.g. apt install patch / pacman -S patch / dnf install patch"; \
 	  exit 1; \
 	fi
@@ -420,7 +420,7 @@ ensure-patch:
 ensure-rust:
 	@set -eu; \
 	if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then \
-	  echo "ERROR: Rust toolchain (cargo + rustc) not on PATH (required to build python-flirt from sdist on `make setup`, same as README Development)."; \
+	  echo "ERROR: Rust toolchain (cargo + rustc) not on PATH (required to build python-flirt from sdist on 'make setup', same as README Development)."; \
 	  echo "python-flirt ships sdist-only in uv.lock, so uv sync compiles it with maturin and needs cargo."; \
 	  echo "Install Rust $(RUST_VERSION) + maturin $(MATURIN_VERSION), then re-run: e.g. rustup toolchain install $(RUST_VERSION) / pacman -S rust"; \
 	  exit 1; \
