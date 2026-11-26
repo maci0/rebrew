@@ -3814,7 +3814,18 @@ start) through the locked data writer. Pairs named differently on the two sides,
 conflicting names proposed for the same new row, and overlapping existing or
 proposed extents are `conflict`s and are left alone. Each new extent must fit
 one non-code section. Repeated compatible writes are combined. Pairs named on
-neither side are `unnamed`. Instructions must agree in registers, widths,
+neither side are `unnamed` unless `--name-unnamed` is given. That option
+creates the same row in both targets for an unnamed pair whose instructions
+access memory there: the name is `g_` plus the `--from` address in lowercase
+unpadded hex (the label the project's existing address rows use), `size` is the
+widest access among the paired instructions, and `type` is set only when every
+access has one width (`unsigned char`, `unsigned short`, `int`; `float` or
+`double` when all are x87 operands). The pair's `evidence` lists the widths and
+access count. A pair reached only by address-taking instructions (`push offset`,
+`lea`) evidences no extent and stays `unnamed`; an extent that overlaps an existing
+or proposed row on either side is a `conflict`. The row is a layout label, not
+an ownership or type claim: review it, then rename or retype it with `data set`.
+Instructions must agree in registers, widths,
 addressing modes, prefixes and non-data constants. Internal relative branches
 must retain their offsets. External direct calls and branches may target different
 addresses. The JSON report includes a separate `calls` list: each entry has an
@@ -3841,6 +3852,7 @@ rebrew data pair 0x402320 0x401e50 --from a.exe -t b.exe --dry-run --json
 | `--from` | str | none | Target whose rows and addresses the shared source spells |
 | `--size` | int | none | Body size in bytes (default: the --from function row) |
 | `--rewrite` | path | none | Shared C source: replace raw --from address casts with the names |
+| `--name-unnamed` | flag | `False` | Create a g_<--from address> row in both targets for pairs named on neither side, sized from the instructions' access width |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Select a [project target](#selection-flags) |

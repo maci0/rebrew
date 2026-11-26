@@ -14,7 +14,7 @@ the other side (same name, size, type and kind); disagreements are reported, nev
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 lazy from pathlib import Path
 
@@ -30,6 +30,10 @@ class OperandPair:
     offset: int
     a: int
     b: int
+    #: Bytes the instruction accesses at the address; 0 when it only takes the address.
+    width: int = field(default=0, compare=False)
+    #: The access is an x87 floating-point load, store or arithmetic operand.
+    floating: bool = field(default=False, compare=False)
 
 
 def pair_data_operands(
@@ -91,10 +95,12 @@ def pair_data_operands(
                     if oa.mem.disp != ob.mem.disp:
                         raise ValueError(f"bodies differ at +0x{ia.address - va_a:x}: displacement")
                     continue
+            width, floating = 0, False
             if oa.type == x86.X86_OP_MEM and not (
                 oa.mem.base or oa.mem.index or ob.mem.base or ob.mem.index
             ):
                 a, b = oa.mem.disp & 0xFFFFFFFF, ob.mem.disp & 0xFFFFFFFF
+                width, floating = oa.size, ia.mnemonic.startswith("f")
             elif oa.type == x86.X86_OP_IMM:
                 if any(
                     ia.group(group)
@@ -119,7 +125,7 @@ def pair_data_operands(
             else:
                 continue
             if is_data_a(a) and is_data_b(b):
-                out.append(OperandPair(ia.address - va_a, a, b))
+                out.append(OperandPair(ia.address - va_a, a, b, width, floating))
             elif a != b:
                 raise ValueError(f"bodies differ at +0x{ia.address - va_a:x}: non-data value")
     return out, calls
@@ -168,14 +174,54 @@ def _create(
     }
 
 
+#: C types for a data address read or written at one width by every paired instruction.
+_INTEGER_TYPES = {1: "unsigned char", 2: "unsigned short", 4: "int"}
+_FLOAT_TYPES = {4: "float", 8: "double"}
+
+
+def _address_label(va: int) -> str:
+    """The project's label for an unnamed address: ``g_`` plus lowercase, unpadded hex."""
+    return f"g_{va:x}"
+
+
+def _evidenced_row(label: str, accesses: list[OperandPair]) -> dict[str, Any] | None:
+    """Size and type a row can take from how the paired instructions access its address.
+
+    ``size`` is the widest memory access. ``type`` is set only when every access
+    has one width and is either all x87 or all integer; mixed or address-only
+    uses leave it out. None when no instruction accesses memory there, since an
+    address taken by ``push``/``lea`` evidences no extent.
+    """
+    accessing = [p for p in accesses if p.width > 0]
+    if not accessing:
+        return None
+    widths = {p.width for p in accessing}
+    floating = {p.floating for p in accessing}
+    table = _FLOAT_TYPES if floating == {True} else _INTEGER_TYPES
+    return {
+        "name": label,
+        "size": max(widths),
+        "type": table.get(next(iter(widths))) if len(widths) == 1 and len(floating) == 1 else None,
+        "kind": "GLOBAL",
+        "evidence": {"widths": sorted(widths), "accesses": len(accessing)},
+    }
+
+
 def plan_pairs(
     pairs: list[OperandPair],
     rows_a: dict[int, dict[str, Any]],
     rows_b: dict[int, dict[str, Any]],
     sections_b: Any,
     sections_a: Any,
+    *,
+    name_unnamed: bool = False,
 ) -> list[dict[str, Any]]:
-    """Classify each address pair: agree, conflict, create-a, create-b or unnamed."""
+    """Classify each address pair: agree, conflict, create-a, create-b, create-both or unnamed.
+
+    With *name_unnamed*, a pair named on neither side whose instructions evidence
+    an access width becomes ``create-both``: the same ``g_<address in a>`` row in
+    each target, sized from that width. Without evidence it stays ``unnamed``.
+    """
     starts_a, starts_b = sorted(rows_a), sorted(rows_b)
     out: list[dict[str, Any]] = []
     seen: set[tuple[int, int]] = set()
@@ -183,6 +229,7 @@ def plan_pairs(
         if (p.a, p.b) in seen:
             continue
         seen.add((p.a, p.b))
+        accesses = [q for q in pairs if (q.a, q.b) == (p.a, p.b)]
         ha, hb = _containing(rows_a, starts_a, p.a), _containing(rows_b, starts_b, p.b)
         ha = ha if ha is not None and ha[1].get("name") else None
         hb = hb if hb is not None and hb[1].get("name") else None
@@ -207,6 +254,23 @@ def plan_pairs(
             rec.update(a_row=f"0x{new_start:08x}", b_row=f"0x{hb[0]:08x}")
         else:
             rec["action"] = "unnamed"
+            row = _evidenced_row(_address_label(p.a), accesses) if name_unnamed else None
+            if row is not None:
+                created_a = _create(row, "create-a", p.a, rows_a, sections_a)
+                created_b = _create(row, "create-b", p.b, rows_b, sections_b)
+                fits = created_a["action"] != "conflict" and created_b["action"] != "conflict"
+                rec.update(
+                    action="create-both" if fits else "conflict",
+                    name=row["name"],
+                    size=row["size"],
+                    type=row["type"],
+                    kind=row["kind"],
+                    section_a=created_a["section"],
+                    section_b=created_b["section"],
+                    evidence=row["evidence"],
+                    a_row=f"0x{p.a:08x}",
+                    b_row=f"0x{p.b:08x}",
+                )
         out.append(rec)
     _check_proposals(out)
     return out
@@ -215,7 +279,7 @@ def plan_pairs(
 def _check_proposals(plan: list[dict[str, Any]]) -> None:
     """Reject all colliding proposals before any metadata or source is written."""
     for side in ("a", "b"):
-        proposed = [p for p in plan if p["action"] == "create-" + side]
+        proposed = [p for p in plan if p["action"] in ("create-" + side, "create-both")]
         conflicts: set[int] = set()
         for i, p in enumerate(proposed):
             start = int(p[side + "_row"], 16)
@@ -265,6 +329,12 @@ def pair(
     ),
     rewrite: Path | None = typer.Option(
         None, "--rewrite", help="Shared C source: replace raw --from address casts with the names"
+    ),
+    name_unnamed: bool = typer.Option(
+        False,
+        "--name-unnamed",
+        help="Create a g_<--from address> row in both targets for pairs named on neither "
+        "side, sized from the instructions' access width",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -322,6 +392,7 @@ def pair(
         _module_rows(directory_b, mod_b),
         _section_name(info_b),
         _section_name(info_a),
+        name_unnamed=name_unnamed,
     )
     writes: dict[Path, dict[tuple[str, int], dict[str, Any]]] = {}
     destinations = {
@@ -329,17 +400,25 @@ def pair(
         "create-b": (directory_b, mod_b, "b_row"),
     }
     for p in plan:
-        destination = destinations.get(p["action"])
-        if destination is None:
+        if p["action"] == "create-both":
+            sides = [
+                (directory_a, mod_a, "a_row", p["section_a"]),
+                (directory_b, mod_b, "b_row", p["section_b"]),
+            ]
+        elif p["action"] in destinations:
+            directory, module, key = destinations[p["action"]]
+            sides = [(directory, module, key, p.get("section"))]
+        else:
             continue
-        directory, module, key = destination
-        va = int(p[key], 16)
-        writes.setdefault(directory, {})[(module, va)] = {
-            "module": module,
-            "va": va,
-            "identity": {"kind": p["kind"], "name": p["name"]},
-            "fill": {k: p[k] for k in ("size", "type", "section") if p.get(k)},
-        }
+        for directory, module, key, section in sides:
+            va = int(p[key], 16)
+            fill = {"size": p.get("size"), "type": p.get("type"), "section": section}
+            writes.setdefault(directory, {})[(module, va)] = {
+                "module": module,
+                "va": va,
+                "identity": {"kind": p["kind"], "name": p["name"]},
+                "fill": {k: v for k, v in fill.items() if v},
+            }
     created = sum(len(rows) for rows in writes.values())
     calls = []
     if call_pairs:
@@ -417,7 +496,7 @@ def _plan_rewrite(
     names = {
         int(p["a"], 16): p["name"]
         for p in plan
-        if p["action"] in ("agree", "create-a", "create-b")
+        if p["action"] in ("agree", "create-a", "create-b", "create-both")
         and p.get("name")
         and is_safe_c_ident(p["name"])
         and p["a"] == p["a_row"]

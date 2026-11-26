@@ -249,3 +249,83 @@ class TestDeclareExterns:
         assert declared == ["g_675170"]
         assert out.splitlines()[0] == "extern char g_675170[];"
         assert len(out.splitlines()) == len(text.splitlines())
+
+
+class TestNameUnnamed:
+    def test_operand_pairs_record_the_access_width(self) -> None:
+        # mov eax, [A]; mov byte [A], 1; fld qword [A]; push offset A
+        a = bytes.fromhex("a170516700c605705167 0001".replace(" ", "") + "dd05705167006870516700")
+        b = bytes.fromhex("a1f8105f00c605f8105f0001" + "dd05f8105f0068f8105f00")
+        pairs, _ = pair_data_operands(a, 0x402320, b, 0x401E50, _in_data, _in_data, *X86)
+        assert [(p.width, p.floating) for p in pairs] == [
+            (4, False),
+            (1, False),
+            (8, True),
+            (0, False),
+        ]
+
+    def test_unnamed_pair_gets_one_row_per_target_sized_from_the_access(self) -> None:
+        pairs = [OperandPair(0, 0x675170, 0x5F10F8, 4)]
+        plan = plan_pairs(pairs, {}, {}, _section, _section, name_unnamed=True)
+        assert plan == [
+            {
+                "offset": 0,
+                "a": "0x00675170",
+                "b": "0x005f10f8",
+                "action": "create-both",
+                "name": "g_675170",
+                "size": 4,
+                "type": "int",
+                "kind": "GLOBAL",
+                "section_a": ".data",
+                "section_b": ".data",
+                "evidence": {"widths": [4], "accesses": 1},
+                "a_row": "0x00675170",
+                "b_row": "0x005f10f8",
+            }
+        ]
+
+    def test_default_run_still_reports_unnamed(self) -> None:
+        plan = plan_pairs([OperandPair(0, 0x675170, 0x5F10F8, 4)], {}, {}, _section, _section)
+        assert plan[0]["action"] == "unnamed"
+
+    def test_address_only_use_evidences_no_extent(self) -> None:
+        plan = plan_pairs(
+            [OperandPair(0, 0x675170, 0x5F10F8, 0)], {}, {}, _section, _section, name_unnamed=True
+        )
+        assert plan[0]["action"] == "unnamed"
+
+    def test_mixed_widths_keep_the_widest_and_no_type(self) -> None:
+        pairs = [OperandPair(0, 0x675170, 0x5F10F8, 1), OperandPair(7, 0x675170, 0x5F10F8, 4)]
+        row = plan_pairs(pairs, {}, {}, _section, _section, name_unnamed=True)[0]
+        assert (row["action"], row["size"], row["type"]) == ("create-both", 4, None)
+
+    def test_x87_access_is_typed_as_a_float(self) -> None:
+        pairs = [OperandPair(0, 0x675170, 0x5F10F8, 8, True)]
+        row = plan_pairs(pairs, {}, {}, _section, _section, name_unnamed=True)[0]
+        assert (row["size"], row["type"]) == (8, "double")
+
+    def test_an_occupied_extent_on_either_side_is_a_conflict(self) -> None:
+        pairs = [OperandPair(0, 0x675170, 0x5F10F8, 4)]
+        occupied = {0x5F10F8: {"size": 8}}
+        plan = plan_pairs(pairs, {}, occupied, _section, _section, name_unnamed=True)
+        assert plan[0]["action"] == "conflict"
+
+    def test_command_writes_both_stores_and_dry_run_writes_none(self, targets) -> None:
+        cfg_a, va_a, address_a = targets["A"]
+        cfg_b, va_b, address_b = targets["B"]
+        args = ["data", "pair", hex(va_a), hex(va_b), "--from", "A", "--target", "B"]
+        args += ["--size", "6", "--json"]
+        runner = CliRunner()
+        assert (
+            cli_payload(runner.invoke(app, [*args, "--name-unnamed", "--dry-run"]))["created"] == 2
+        )
+        assert not load_data_metadata(cfg_a.metadata_dir)
+        assert cli_payload(runner.invoke(app, args))["created"] == 0
+        result = runner.invoke(app, [*args, "--name-unnamed"])
+        assert result.exit_code == 0, result.output or repr(result.exception)
+        assert cli_payload(result)["created"] == 2
+        row_a = load_data_metadata(cfg_a.metadata_dir)["A", address_a]
+        row_b = load_data_metadata(cfg_b.metadata_dir)["B", address_b]
+        assert row_a["name"] == row_b["name"] == f"g_{address_a:x}"
+        assert (row_a["size"], row_a["type"]) == (row_b["size"], row_b["type"]) == (4, "int")
