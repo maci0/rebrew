@@ -24,9 +24,17 @@ lazy from typing import Any
 
 from rebrew.errors import RebrewError
 lazy from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir, xdg_cache_home
-lazy from rebrew.utils import container_runtime, file_lock, run_process_group
+lazy from rebrew.utils import atomic_write_text, container_runtime, file_lock, run_process_group
 
-__all__ = ["UnshareError", "backend_identity", "prepare_backend", "run_unshare"]
+__all__ = [
+    "UnshareError",
+    "backend_identity",
+    "forget_image_tag",
+    "prepare_backend",
+    "record_image_tag",
+    "recorded_image_id",
+    "run_unshare",
+]
 
 _PREPARE_LOCK = threading.RLock()
 _SOURCE = Path(__file__).with_name("unshare_runner.c")
@@ -55,6 +63,79 @@ def _cache_root() -> Path:
             "experimental cache path cannot contain comma, colon, backslash or newline"
         )
     return root
+
+
+#: Tag -> image id each tag was last admitted as, so a compile can reuse its
+#: exported image without asking the container runtime again.
+_TAGS_FILE = "image-tags.json"
+
+
+def _tags(root: Path) -> dict[str, str]:
+    try:
+        data = json.loads((root / _TAGS_FILE).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        raise UnshareError(
+            f"invalid experimental image tag record: {root / _TAGS_FILE}: {exc}"
+        ) from exc
+    if not isinstance(data, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in data.items()
+    ):
+        raise UnshareError(f"invalid experimental image tag record: {root / _TAGS_FILE}")
+    return data
+
+
+def _update_tags(change: dict[str, str | None]) -> None:
+    root = _cache_root()
+    with _PREPARE_LOCK, file_lock(root / "prepare.lock"):
+        tags = _tags(root)
+        for tag, image_id in change.items():
+            if image_id is None:
+                tags.pop(tag, None)
+            else:
+                tags[tag] = image_id
+        atomic_write_text(root / _TAGS_FILE, json.dumps(tags, indent=2, sort_keys=True) + "\n")
+
+
+def record_image_tag(tag: str, image_id: str) -> None:
+    """Remember that *tag* was admitted as *image_id*."""
+    _update_tags({tag: image_id})
+
+
+def forget_image_tag(tag: str | None = None) -> None:
+    """Drop the admission record of *tag* (every tag when ``None``) after a retag."""
+    if tag is not None:
+        _update_tags({tag: None})
+        return
+    root = _cache_root()
+    with _PREPARE_LOCK, file_lock(root / "prepare.lock"):
+        (root / _TAGS_FILE).unlink(missing_ok=True)
+
+
+def recorded_image_id(tag: str) -> str:
+    """The id *tag* was last admitted as, when that image is already exported; else ``""``.
+
+    The exported manifest must name the same id and still list *tag*, so a record
+    whose export was removed or belongs to another tag falls back to admission.
+    """
+    root = _cache_root()
+    image_id = _tags(root).get(tag, "")
+    if not image_id.startswith("sha256:"):
+        return ""
+    directory = root / "images-v2" / image_id.removeprefix("sha256:")
+    try:
+        info = json.loads((directory / "image.json").read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return ""
+    if (
+        isinstance(info, dict)
+        and info.get("Id") == image_id
+        and tag in (info.get("RepoTags") or [])
+        and (directory / "rootfs").is_dir()
+    ):
+        return image_id
+    return ""
 
 
 def _command(

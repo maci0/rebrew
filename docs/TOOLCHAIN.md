@@ -257,7 +257,12 @@ only in disposable hosted runners; it does not configure regular installations.
 
 Docker (or the `REBREW_CONTAINER_RUNTIME` frontend) must initially have the
 profile's image. Rebrew admits its immutable SHA-256 image ID and exports its
-filesystem once, preserving archive timestamps. Image preparation initializes a
+filesystem once, preserving archive timestamps. It records which ID each tag was
+admitted as (`image-tags.json` in the cache), so later compiles of an exported
+tag do not ask Docker and run while the daemon is stopped. Retagging through
+rebrew (`rebrew toolchain pull`, image swaps) drops the record; after rebuilding
+a tag outside rebrew, run `rebrew toolchain pull` so the next compile admits the
+new image. Image preparation initializes a
 cached Wine prefix once through the native helper; each compile changes that
 prefix only in its private overlay. Versioned caches leave active older runs
 untouched. Compiler runs then use that cached filesystem directly: a new

@@ -171,6 +171,7 @@ class TestRegistry:
             "swap_toolchain_image",
             "toolchain_from_toml",
             "toolchain_link_candidates",
+            "unshare_image_id",
             "vendored_binary",
             "withdrawn_refusal",
         ]
