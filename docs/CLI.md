@@ -1841,6 +1841,13 @@ Signatures exclude trailing x86 `0x90`/`0xCC` alignment bytes only when a bounde
 
 The import writes pure C and records the destination `MODULE.0xVA` row, including `SIZE`. The destination's existing file for that VA is replaced. Only the matched function is emitted: a multi-function source file imports as that one function, so no co-resident functions leak into the destination tree. With `--shared` the destination row names the shared source instead: the one file then serves both targets, still verified before STATUS promotion. A source still living in the per-target tree is moved under `src/shared` first (same as `--promote`), and rows whose `file` named the old path move with it. A matched shared import deletes the destination's old stub file so the VA is claimed once (an unverified shared import leaves the stub in place). Run with `--dry-run` first to review.
 
+The compare masks a relocation operand the destination cannot bind, so an import can verify as
+`RELOC` while its callees and globals still carry the source target's names. Each result lists
+them under `unresolved_relocations` (offset, symbol, kind), and the table output warns. Such a body
+does not link until those names exist in the destination. `--require-resolved` records an import
+only when every operand binds, otherwise the row is `skipped-unresolved` and nothing is written.
+A retired destination row is refused before verification and leaves its metadata untouched.
+
 A destination inventory entry can merge two functions (discovery joins them across `ret` + alignment padding), so a true twin verifies as `SIZE_MISMATCH`. When the compiled body is shorter than the entry, matches every byte of it (relocations masked), and the destination bytes from its end to the next 16-byte boundary are all `0x90`/`0xCC`, the import re-verifies at the body size; on EXACT/RELOC `SIZE` in `rebrew-functions.toml` becomes that body size, and the result message says `destination inventory entry merges functions: sized to the N-byte body`. Any other `SIZE_MISMATCH` remains a nonmatching verdict. The verified symbol is the one `rebrew test` derives from the function definition, including `__stdcall`/`__fastcall` decoration.
 
 | Argument or option | Type | Default | Meaning |
@@ -1855,6 +1862,7 @@ A destination inventory entry can merge two functions (discovery joins them acro
 | `--promote` | flag | `False` | Move the source file into src/shared (preserving relative path) without importing, the manual step before --shared |
 | `--same-va-preview` | flag | `False` | Read-only byte check only: report exact/reloc-equal/differ/unreadable/unavailable per `--va` against the `--from` target's matched function at the same VA (or `--source-va`), relocation-masked from the linked image's own base-relocation table, with an inputs digest. Writes nothing, never registers or imports. A same-VA row missing from the destination inventory is still compared directly; structural search for a destination VA is out of scope |
 | `--interior-preview` | flag | `False` | Read-only interior-entry evidence only: report the containing inventory head (greatest function start at or below the VA), offset, head end, external call/jmp callers outside the head and prologue per `--va`, with an inputs digest. Writes nothing and records no alias |
+| `--require-resolved` | flag | `False` | Record an import only when every relocation operand binds in the destination; otherwise report it as skipped-unresolved and write nothing |
 | `--candidates-only` | flag | `False` | Report only destination functions with a match: the per-function 'no match' rows for the whole inventory are hidden (use with --dry-run to answer 'is this code already reversed in another target, and where?') |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |

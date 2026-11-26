@@ -10,6 +10,7 @@
 - `source binding rebind` name refusals (generated name of another function, name already declared with other types) give the `rebrew source rename` command to run and the `--name` to rebind with.
 - `source import-related --shared` refuses a retired destination row before verifying and writing. Before, the refusal came after the size write, so every refused row still had its `size` rewritten with `updated_by = "cross-import"`.
 - `rebrew data pair --name-unnamed` creates a `g_<--from address>` row in both targets for operand pairs named on neither side, sized from the paired instructions' access width, so a function with many unnamed operands can be paired in one reviewed run.
+- `source import-related` lists relocation operands the destination cannot bind under `unresolved_relocations` and warns after the table, since the compare masks them without proof. `--require-resolved` records an import only when every operand binds.
 
 ## [6.80.0] - 2026-11-25
 
