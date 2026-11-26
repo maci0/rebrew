@@ -912,6 +912,12 @@ def import_shared_function(
                 name, symbol = ann.name, ann.symbol or ("_" + ann.name)
                 break
     prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
+    from rebrew.metadata.binding_history import retired_binding
+
+    if retired_binding(prior):
+        # Refuse before verifying or writing anything: the identity write
+        # would refuse it later, after the size write had already landed.
+        raise ValueError("retired source bindings require an explicit reviewed rebind")
     if prior.get("symbol") and prior["symbol"] != symbol:
         needs_move = True
 
@@ -992,7 +998,6 @@ def import_shared_function(
     action = "imported-shared" if result.matched else "imported-unverified"
     message = result.message
     if body is not None and not reject:
-        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
     if reject:
         action = "skipped-unverified"
@@ -1020,6 +1025,10 @@ def import_shared_function(
                 message = (
                     f"{message} (retargeted {module} 0x{dst_va:x} onto the 0x{src_va:x} body)"
                 ).strip()
+        if body is not None:
+            update_field(
+                cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import"
+            )
         if cflags and cflags != inherited:
             update_field(
                 cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import"

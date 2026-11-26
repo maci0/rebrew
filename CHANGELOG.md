@@ -8,6 +8,7 @@
 - `rebrew build symbol-stubs` names the option that conflicts with `--update-symbol` or `--update-data-symbol` (for example `--module`) instead of reporting that `--specials` is missing when it is given.
 - `rebrew test --va ... --no-promote` compares at the function inventory's SIZE when the row records none, instead of asking for `--size`. Promoting runs still require a size.
 - `source binding rebind` name refusals (generated name of another function, name already declared with other types) give the `rebrew source rename` command to run and the `--name` to rebind with.
+- `source import-related --shared` refuses a retired destination row before verifying and writing. Before, the refusal came after the size write, so every refused row still had its `size` rewritten with `updated_by = "cross-import"`.
 
 ## [6.80.0] - 2026-11-25
 

@@ -3038,6 +3038,44 @@ class TestMergedInventoryEntry:
         assert row["name"] == "f"
         assert row["symbol"] == "_f"
 
+    @pytest.mark.parametrize("shared", [True, False])
+    def test_retired_destination_row_is_refused_before_any_write(
+        self, tmp_path: Path, monkeypatch, shared: bool
+    ) -> None:
+        """A refused import leaves the row's size and writer alone and never compiles.
+
+        guild-rebrew: a shared import over 130 retired GOLD rows reported each as an
+        error, yet had already rewritten its size (384 to 378) with updated_by
+        cross-import.
+        """
+        from rebrew.metadata.binding_history import change_source_binding
+        from rebrew.metadata.functions import get_entry, record_function_identity
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        if not shared:
+            dst.reversed_dir = tmp_path / "destination"
+            dst.reversed_dir.mkdir()
+        record_function_identity(
+            tmp_path,
+            module="DST",
+            va=_MERGED_VA,
+            file="src/old.c",
+            kind="FUNCTION",
+            name="old",
+            symbol="_old",
+            size=_MERGED_ENTRY,
+        )
+        change_source_binding(tmp_path, "DST", _MERGED_VA, reason="wrong body")
+        before = get_entry(tmp_path, _MERGED_VA, "DST")
+        sizes = self._verify(monkeypatch)
+        importer = ci.import_shared_function if shared else ci.import_function
+        with pytest.raises(ValueError, match="retired source bindings"):
+            importer(dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        after = get_entry(tmp_path, _MERGED_VA, "DST")
+        assert after["size"] == before["size"] == _MERGED_ENTRY
+        assert after.get("updated_by") == before.get("updated_by")
+        assert sizes == []
+
     def test_shared_import_uses_selected_function_flags(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.verify as verify
         from rebrew.metadata.functions import record_function_identity
