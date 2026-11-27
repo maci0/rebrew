@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.92.0] - 2026-11-28
+
 ### Changed
 
 - **Breaking:** Reorganized 81 additional root modules under `src/rebrew/` into domain subpackages (updating `app.builtins.BUILTIN_COMPONENTS`, `app.builtins.DOMAIN_COMPONENTS`, `app.main.BUILTIN_COMPONENTS`, `buildsys.gen_stubs.CALLING_CONVENTION`, `data.annotate.CALLING_CONVENTION`, `data.layout.CALLING_CONVENTION`, `decompiler.CALLING_CONVENTION`, tests, docs, and `tools/check_layering.py` externals):
