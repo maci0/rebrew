@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.87.0] - 2026-11-27
+
 ### Changed
 
 - **Breaking:** `app.builtins.DOMAIN_COMPONENTS` includes `build warm-sessions`.
