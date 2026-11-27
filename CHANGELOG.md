@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew.catalog.scan_reversed_dir(..., similarity=False)` skips checking each stored comparison score against its compile inputs; the bindings carry no `similarity`.
+
+### Changed
+
+- `rebrew source rename-batch` applies a line after the first in 2.6 s instead of 9.2 s (medians over 22 renames on a 5,300-source project with a 25 MB function store replicated to SQLite and TOML; the 25-line batch took 66 s instead of 211 s), with the same sources, stores and JSON report. Each line still commits on its own before the next one plans. One process parses each top-level metadata record once for each exact text, so a write parses and digests only the records the previous write changed, and the reads of a just-written store copy its records instead of parsing it. Rename planning no longer checks comparison scores and reads the source-provenance table once per line.
+- A write to a metadata store of 262,144 characters or more parses it and computes its replication digest record by record in every command; the semantic digest is unchanged. On the 25 MB function store a digest from scratch takes 1.1 s instead of 4.0 s.
+
 ## [6.85.0] - 2026-11-27
 
 ### Added
