@@ -694,7 +694,7 @@ def _collect_prover_candidates(
         # A negative SIZE is truthy, so it survives the `or` chain above and
         # then fails `size == 0` below, which also makes est_diff negative and
         # disarms the too-far-apart gate.  Clamp to 0 so a nonsense extent is
-        # treated as the unknown it is, the way status.py / coverage_toml.py
+        # treated as the unknown it is, the way status.py / coverage/toml.py
         # treat it.
         size = max(size, 0)
         if size > _PROVE_MAX_FUNC_BYTES or size == 0:
@@ -744,12 +744,10 @@ def _collect_prover_candidates(
 
 
 def load_verify_entries(cfg: ProjectConfig) -> dict[str, VerifyCacheEntry]:
-    """Load verify cache entries, returning {} on missing/corrupt cache.
+    """Load compatible verify cache entries keyed by canonical VA.
 
-    Mirrors status.py's target guard: each selected cache still records the
-    ``target`` identity of the run that wrote it.  Another target's
-    entries must never drive todo's categories/deltas — a CLIENT run would
-    otherwise surface SERVER's EXACTs as phantom fix-delta quick-wins.
+    Return an empty mapping if the cache is missing, unreadable, or fails
+    the shared identity check used by status and verify.
     """
     from rebrew.verify.cache import load_verify_cache_raw
 

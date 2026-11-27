@@ -2,7 +2,7 @@
 
 Local dashboards read the project directly. Canonical function/data metadata,
 source bindings, binary sections, discovery inventory and link evidence feed
-`rebrew.coverage_project.load_project_coverage`. Both dashboards use its immutable
+`rebrew.coverage.project.load_project_coverage`. Both dashboards use its immutable
 views; they do not need generated coverage files or a project `db_dir` setting.
 
 ```mermaid
@@ -29,8 +29,8 @@ presentation data.
 | View offline in Recoverage | Set `RECOVERAGE_SNAPSHOTS` to the export directory | Read-only exported state |
 | Preserve older history | `rebrew coverage import-history --snapshots db/ --dry-run` | Preview import; repeat without `--dry-run` to apply |
 
-Comparison writers append status transitions atomically in
-`rebrew-functions.toml`. History survives dashboard restarts, source retirement
+Comparison writers store status transitions with the verdict in the configured
+function metadata backend. History survives dashboard restarts, source retirement
 and export removal. Importing existing snapshot history never changes a current
 STATUS, binding, edit stamp or verification record. An import can succeed with
 unreadable snapshots skipped. Check stderr warnings and the imported targets
@@ -108,11 +108,9 @@ a section's `va` and `fileOffset` and a function's optional numbers come back as
 `None`. A `.bss` section has no file offset. A section's `size` defaults to
 `0`.
 
-**A bare key belongs to the table above it.**  `functions`, `globals`,
-`verify_results` and `history` are therefore written BEFORE the first
-`[sections."…"]` header, so they land at the document's top level.  Written after
-one, they would silently become keys of that last section, and the reader would
-see a document with no functions.
+**A bare key belongs to the table above it.** The writer puts `functions`,
+`globals`, `verify_results` and `history` before the first table header, including
+`[metadata]`, so the reader finds them at the document's top level.
 
 ### Row Shapes
 
@@ -250,7 +248,7 @@ primary key would have given it.
 
 The storable vocabulary is derived, not hand-listed: `KNOWN_STATUSES` lowercased,
 unioned with the gap/label states and the data-metadata verdicts
-(`KNOWN_CELL_STATES` in `coverage_db.py`).  Adding an annotation `STATUS` therefore
+(`KNOWN_CELL_STATES` in `coverage/db.py`).  Adding an annotation `STATUS` therefore
 widens the set without a format change.  The table below is the full set;
 `tests/test_build_db.py::TestCellStateVocabulary` fails if it and the code drift
 apart.
@@ -296,7 +294,7 @@ keeps the states apart.
 ### Derived at Load
 
 Nothing below is stored.  The writer writes facts, and
-`rebrew.coverage_toml`'s reader computes every aggregate once, at load:
+`rebrew.coverage.toml`'s reader computes every aggregate once, at load:
 
 | Field | Computed from | Rule |
 |-------|---------------|------|

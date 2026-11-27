@@ -675,7 +675,7 @@ rebrew receives.
 - `REBREW_TOOLCHAIN_OVERLAY_DIR`: directory of extra toolchain TOML overlays
   (plugin-style profiles without editing host source).
 - `REBREW_OPS_STRICT_REPLIES`: set to a true value by rebrew's test suite: an op whose
-  reply holds a member `rebrew.ops_replies` does not declare fails (500 `engine-error`)
+  reply holds a member `rebrew.ops.replies` does not declare fails (500 `engine-error`)
   instead of dropping it and logging a warning. Unset in a deployment.
 - `REBREW_GHIDRA_MCP_ENDPOINT`: the ReVa MCP endpoint of a Ghidra the `ghidra`
   decompiler uses (an `http(s)` URL with a host and without credentials; anything

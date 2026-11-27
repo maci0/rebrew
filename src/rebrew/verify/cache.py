@@ -1,4 +1,4 @@
-"""verify_cache.py — the verify result cache.
+"""Cache of batch verification results.
 
 The cache row IS the report row: ``VerifyCacheEntry`` carries the same
 verdict fields (``status``, ``va``, ``passed``, ``match_percent``,
@@ -365,11 +365,11 @@ def _invalidate_verify_cache_memo(cache_path: Path) -> None:
 def load_verify_cache_raw(cfg: Any, *, isolate: bool = True) -> dict[str, Any] | None:
     """Load the selected target's verify cache as a raw dict (memoized).
 
-    Returns ``None`` when the file is missing or corrupt.  Target/version
-    validation is the caller's responsibility — readers apply their own
-    guards (status vs todo differ slightly).  Memoized by (path, mtime,
-    size, inode, ctime), so repeated loads within one command are free and a
-    same-size rename-over in one mtime tick is a miss.
+    Returns ``None`` when the file is missing or unreadable. Callers use
+    :func:`cache_identity_matches` to validate the selected document before
+    using its verdicts. The memo includes the inode and change time so a
+    replacement can invalidate it even if the size and mtime match. Parsing
+    the TOML may write a JSON sidecar to speed up the next process's read.
 
     *isolate* returns a deep copy so a caller may mutate the document without
     touching the memo; read-only callers pass ``False`` to skip copying every
@@ -1146,12 +1146,10 @@ def save_verify_cache(
     # wrong shape), refuse to overwrite: falling back to `previous = {}` and
     # writing anyway would wipe every preserved VA with no signal.
     #
-    # A prior cache written for ANOTHER identity is root-scoped, not
-    # target-scoped, so it can hold a sibling target's rows.  Carrying those
-    # into a document about to be stamped with THIS target's identity would
-    # misattribute the other target's verdicts to these VAs, and the stamped
-    # header would then pass the serve-path identity check.  Preserve nothing
-    # from it; the rows are the other target's to keep.
+    # Preserve rows only from a compatible cache. The root-scoped cache can
+    # hold a sibling target's rows, and either path can hold results for an
+    # old compiler or binary. Stamping those rows with the current identity
+    # would make stale verdicts pass the cache identity check.
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(cache_path):
         if (

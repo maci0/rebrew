@@ -120,7 +120,7 @@ Library consumers can pin a minor version to avoid breaking updates.
 
 `src/rebrew/__init__.py` owns `__version__`. Keep it at the last release
 between releases. For a format change, also bump the relevant format version
-(`_TOML_VERSION` in `coverage_toml.py` or `CACHE_SCHEMA_VERSION` in
+(`_TOML_VERSION` in `coverage/toml.py` or `CACHE_SCHEMA_VERSION` in
 `compiler/cache.py`) and document the migration.
 
 ### Cut a release

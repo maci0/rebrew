@@ -84,8 +84,8 @@ Follow the lazy-import and layering rules in [AGENTS.md](../AGENTS.md).
   `verify_entry`); the cycle detector reads module-scope imports, so it cannot
   see a local one.
   Monkeypatch the **source module** (`rebrew.compiler.compile.compile_and_compare`),
-  not the importer: `monkeypatch.setattr("rebrew.verify.compile_and_compare",
-  ...)` fails because the attribute doesn't exist on `rebrew.verify`.
+  not the importer: `monkeypatch.setattr("rebrew.verify.cli.compile_and_compare",
+  ...)` fails because the attribute doesn't exist on `rebrew.verify.cli`.
 - `tools/detect_cycles.py` enforces no module-scope import cycles (pre-commit
   hook); a PEP 810 `lazy import` still counts.  Function bodies and
   `if TYPE_CHECKING:` guards are skipped by the detector.

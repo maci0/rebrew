@@ -7245,7 +7245,7 @@ Binaries are referenced, never sent:
   per file of the site, sidecars (`.gz`, `.zst`) included. `kinds` names what
   the file carries that a reader may be refused, from the closed set
   `call_graph`, `cross_references`, `decompilation`, `ai_derived`,
-  `member_identities`, or `["none"]` alone (`rebrew.report.SITE_DATA_KINDS`);
+  `member_identities`, or `["none"]` alone (`rebrew.coverage.report.SITE_DATA_KINDS`);
   each page declares it where it is generated, and a site file without one
   fails the report (500). `graph.html`, `adjacency.txt` and
   `callgraph.mmd` are `call_graph`, `strings.html` and `strings-pN.html` are
@@ -7390,7 +7390,7 @@ Op details the contract leaves open:
   `not_run_reason` (the compile client's outcome kind: `network`, `http`,
   `validation`, `protocol`, `service` or `deadline`, or `compiler_withdrawn` or
   `compiler_not_installed`, or `toolchain_not_run` for a local toolchain that gave no
-  verdict; `rebrew.ops_replies.NotRunReason`), `error` (the
+  verdict; `rebrew.ops.replies.NotRunReason`), `error` (the
   structured `RecompileError` without its message: `status_code`, `error_code`,
   `retry_after`, `retryable`) and `verdict_valid` false, the same status as a
   `verify_target` row, which carries the same two members; the compile client's
@@ -7429,7 +7429,7 @@ Op details the contract leaves open:
   `aliases` (`{alias, canonical}` spellings `canonical_status` folds after
   trimming and upper-casing). A client reads this table instead of keeping a copy.
   `cache_files` are the exact file names of derived caches rebrew writes in a
-  project (`rebrew.verify_cache.CACHE_FILENAMES`: the verify cache, its JSON
+  project (`rebrew.verify.cache.CACHE_FILENAMES`: the verify cache, its JSON
   sidecar and its lock); a client never retains a file with one of these names
   as project input. `placeholder_name` is
   `rebrew.workspace.names.PLACEHOLDER_NAME_PATTERN`, the one placeholder-name
@@ -7458,7 +7458,7 @@ Op details the contract leaves open:
   whose detail starts with `invalid-cflags:` and names the token.
 - `rebrew.rename_identifier` `{source, renames: [{old, new}]}` answers
   `{source, renames: [{applied, reason, offsets}]}`. Each rename is applied to
-  the previous result, in order, with `rebrew.c_rename.rename_identifier`:
+  the previous result, in order, with `rebrew.source.c_rename.rename_identifier`:
   identifiers, type names and macro-body code are rewritten; comments, string
   and character literals, struct members, labels and tags are not. `offsets`
   are the ascending UTF-8 byte offsets in the text the rename was applied to
@@ -7497,7 +7497,7 @@ Op details the contract leaves open:
   with (`errors`, from `rebrew.ops.PROBLEMS`), and per op the codes that op answers
   (its entry's `errors`: `rebrew.ops.DISPATCH_PROBLEMS`, which every op can answer,
   and its `rebrew.ops.OP_PROBLEMS`). Every reply is a closed object: the ones
-  `rebrew.ops_replies` declares come from its TypedDicts, which the dispatcher
+  `rebrew.ops.replies` declares come from its TypedDicts, which the dispatcher
   projects each reply onto, so a reply carries exactly the members the schema names.
   `tools/gen_dispatch_schema.py` writes all of it.
 - The backend renders the same file independently, from its Go types
@@ -7510,17 +7510,17 @@ Op details the contract leaves open:
   backend lane that its renderer can express a form before the generator writes a
   new one.
 - A path of the engine's host leaves it only in a member the schema marks
-  `"format": "workspace-path"` (`rebrew.ops_replies.WORKSPACE_PATHS`): `analyse`,
+  `"format": "workspace-path"` (`rebrew.ops.replies.WORKSPACE_PATHS`): `analyse`,
   `import-project` and `import_archive`'s `project`, `coverage_dir` and each target's
   `document` and `path`, and `report`'s `out`. Replies withhold the paths the commands
-  they run print (`rebrew.ops_replies.WITHHELD`): `binary` of `verify_target`, `build`,
+  they run print (`rebrew.ops.replies.WITHHELD`): `binary` of `verify_target`, `build`,
   `analyze`, `crypto_scan`, `imports`, `pe_info`, `strings` and `reference_flirt`,
   `build`'s `out`, `reference_flirt`'s `sig_dirs`, `flag_search`'s `source`,
   `structs`' `applied`, and a `verify_target` library's `map`. `verify_function` answers the request's `source`,
   and `security_scan` its `root` and each finding's `file` relative to the project;
   `retained_source_operation` answers `split`'s `source` and `output_dir`, `merge`'s
   `output` and the keys of `rename`'s `input_hashes` as project paths, and projects
-  each operation's result onto its shape (`rebrew.ops_replies.RETAINED_RESULTS`).
+  each operation's result onto its shape (`rebrew.ops.replies.RETAINED_RESULTS`).
 - `rebrew.identify_library` answers `unreadable_signatures`: the paths in the
   project's `flirt_sigs/` of the signature files it skipped because they could not
   be read or parsed (python-flirt's panics included).

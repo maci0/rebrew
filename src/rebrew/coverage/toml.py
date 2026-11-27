@@ -1,4 +1,4 @@
-"""coverage_toml.py – clear-text TOML coverage output for a catalog snapshot.
+"""Read and write TOML coverage documents.
 
 The normalizers live in :mod:`rebrew.coverage.db`, which computed every value in
 pure Python even while it also held a SQLite writer that bound each value to a
@@ -717,12 +717,11 @@ def coverage_document(
     """Return normalized coverage facts without serialization or filesystem I/O.
 
     *data* is one catalog snapshot as ``load_coverage_datasets`` returns it.
-    *previous* is the prior document for the same target (see
-    :func:`_read_previous`); its ``functions`` statuses are this build's
-    history baseline and its ``history`` array is carried forward.  A document
-    that is missing, unreadable or of another :data:`_TOML_VERSION` contributes
-    no history — the replacement for the retired writer's version-check / unlink
-    / ``--force`` dance, and the reason there is no sidecar here to reset.
+    *previous* supplies retained measurements and fallback history for this
+    target. Only a document with the current format version is used.
+    When supplied, *history* is the complete canonical history, even if empty.
+    With *history* set to ``None``, carry the prior history forward and date
+    newly inferred status transitions with *now*.
 
     *verify_rows* is :func:`rebrew.coverage.db.import_verify_rows`'s answer, and it
     keeps that function's three states: ``None`` (the verify cache says nothing
@@ -730,9 +729,6 @@ def coverage_document(
     ``[]`` writes none, and a list writes those rows.  Three states rather than
     a default because a cache that never mentioned the target is not evidence
     that the target's verdicts went away.
-
-    *now* fixes the instant the history rows this render appends record, so
-    two renders of the same scan differ only where the data differs.
 
     Nothing is written and nothing is read, so the same call is what the tests,
     the writer and an in-memory check all use.
@@ -836,12 +832,14 @@ def write_coverage_toml(
     writer has one implementation for each value.  The catalog analysis always
     runs in this process, and each document is replaced whole.
 
-    *now* fixes every instant this build stamps: the history rows it appends
-    and the fallback date for a verify row whose cache mtime cannot be read.
-    A replay of the same scan then writes the same document.
+    Projects with a configuration export history from the function metadata
+    store. If an existing snapshot contains history missing from that store,
+    the writer raises ``CoverageTomlError`` before replacing the snapshot.
+    *now* supplies a deterministic fallback for missing measurement dates.
+    Without a project configuration, it can also date transitions inferred
+    from the previous snapshot.
 
-    Returns the paths written, in dataset order.  Writes nothing else — the
-    caller reports.
+    Returns the paths written, in dataset order.
     """
     from rebrew.config import load_config, target_module
 
@@ -863,15 +861,8 @@ def write_coverage_toml(
 
             cfg = load_config(root_dir, target=target_name)
             history = load_status_history(cfg, target_module(cfg))
-        # The whole read-modify-write holds one write lock per target, like the
-        # other tool-owned stores.  atomic_write_text alone stops a torn file
-        # but not a lost update: two builders for one target (the dashboard
-        # regenerating while a manual `coverage export` runs) each read the same
-        # `previous`, each carry its own delta rows into `history`, and the
-        # second replace drops the first's history and restamps
-        # `verified_at` — a silent reset of every chart, invisible until the
-        # retention window rolls the rows off.  The lock is per target, so
-        # builds of different targets still run concurrently.
+        # Serialize the read and replacement for each target so concurrent
+        # exports carry forward measurements from the latest snapshot.
         with _coverage_write_lock(root_dir, target_name):
             if path.exists():
                 # Explicit export must not destroy retained evidence from an old view.

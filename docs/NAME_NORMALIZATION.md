@@ -137,7 +137,7 @@ If source generation needs a prefix rewrite, extend `sanitize_name()` in
 ### 4. Coverage document
 
 Add a `<tool>_name` field to each row of the `functions` array
-(`coverage_toml.py`'s `_FUNCTION_COLUMNS`, fed by the grid builder in
+(`coverage/toml.py`'s `_FUNCTION_COLUMNS`, fed by the grid builder in
 `catalog/grid.py`).
 
 ### 5. reccmp CSV

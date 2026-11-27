@@ -1461,7 +1461,7 @@ TU equivalence, or proof of a linked provider. Review native evidence and raw
 links separately. The lexical include closure is rescanned after execution;
 edits by writers that evade both observations remain outside its guarantee.
 
-`rebrew.source_preprocessed.parse_msvc_preprocessed` supplies an
+`rebrew.source.preprocessed.parse_msvc_preprocessed` supplies an
 offset-preserving parser view of captured bytes and reports unsupported syntax.
 `reported_source_functions` inventories all definitions attributed to an exact
 reported source path, refusing internal markers, ambiguous names, unexpected

@@ -1,9 +1,8 @@
 """The ``rebrew coverage export`` command.
 
-A thin Typer front over :func:`rebrew.coverage.db.write_coverage`, which does the work.
-The normalizers, catalog loaders and verify-cache import the writer needs live in
-``coverage_db`` so ``coverage_toml`` can import them without depending on a
-console script.
+The CLI delegates to :func:`rebrew.coverage.db.write_coverage`.
+The TOML writer uses the normalizers, catalog loaders, and verify-cache
+reader in :mod:`rebrew.coverage.db`.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Scan the current project tree and write coverage documents for each target."""
+    """Export coverage for the selected target or for all targets when omitted."""
     root_dir = require_root(root, json_mode=json_output)
     from rebrew.cli import error_exit
     from rebrew.errors import RebrewError
