@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Fixed
+
+- Definition scans (`rebrew library bind-source`, source-provenance definition hashes and `function_signatures`) find K&R definitions whose declarator is a pointer, such as zlib's `const char * ZEXPORT zError(err) int err; {...}`. The grammar parsed those as a declaration followed by a top-level block, so `bind-source` refused them as missing.
+
+### Added
+
+- `rebrew.c_parser.mask_old_style_parameters(source)` blanks the parameter declarations of those definitions at unchanged byte offsets, keeping newlines and comments.
+
 ## [6.87.0] - 2026-11-27
 
 ### Changed

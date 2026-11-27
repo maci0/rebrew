@@ -777,6 +777,11 @@ class TestBindSourceWithoutPriorClaim:
             "_f",
             True,
         ),
+        (
+            "const char * f(a, b)\n    int a; /* count */\n    char *b;\n{\n    return b;\n}\n",
+            "_f",
+            True,
+        ),
         ("int __stdcall f(int a) { return a; }\n", "_f@4", True),
         ("int __stdcall f(int a) { return a; }\n", "_f", False),
         (

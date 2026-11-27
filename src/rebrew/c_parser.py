@@ -299,7 +299,7 @@ def _function_trees(source: str) -> Iterator[tuple[Any, bytes, list[tuple[int, i
     # them, so the MSVC masking and structural reparses run once per text.
     cached = recall_source_value("function_trees_memo", source)
     if cached is None:
-        tree, parser_bytes = parse_c_source(mask_msvc_syntax(source))
+        tree, parser_bytes = parse_c_source(mask_old_style_parameters(mask_msvc_syntax(source)))
         raw = source.encode("utf-8", errors="surrogateescape")
         cached = tuple(_structure_trees(tree, raw, parser_bytes))
         store_source_value("function_trees_memo", source, cached)
@@ -1597,8 +1597,11 @@ def extract_function_name_from_line(line: str) -> tuple[str, str] | None:
     return None
 
 
-def _pointer_kr_definition(body: Any, source: bytes) -> tuple[str, int] | None:
-    """Recover a pointer-returning K&R header parsed as parameter declarations."""
+def _pointer_kr_parameters_end(body: Any, source: bytes) -> int | None:
+    """End byte of the identifier list of a pointer-returning K&R header before *body*.
+
+    The grammar parses that header as declarations followed by a top-level block.
+    """
     declaration = body.prev_named_sibling
     while declaration is not None and declaration.type in ("declaration", "comment"):
         declarator = declaration.child_by_field_name("declarator")
@@ -1645,10 +1648,8 @@ def _pointer_kr_definition(body: Any, source: bytes) -> tuple[str, int] | None:
                             "const",
                             "volatile",
                             "register",
-                        ):
-                            name = find_function_name_in_node(node, source)
-                            if name:
-                                return name, declaration.start_point[0] + 1
+                        ) and find_function_name_in_node(node, source):
+                            return int(parameters.end_byte)
                         break
             stack.extend(reversed(node.named_children))
         declaration = declaration.prev_named_sibling
@@ -1681,17 +1682,6 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
             if name:
                 results.append((name, node.start_point[0] + 1))  # 1-based line
         else:
-            if node.type == "compound_statement" and node.parent.type in (
-                "translation_unit",
-                "preproc_if",
-                "preproc_ifdef",
-                "preproc_else",
-                "preproc_elif",
-            ):
-                recovered = _pointer_kr_definition(node, src_bytes)
-                if recovered:
-                    results.append(recovered)
-                    return
             for child in node.children:
                 walk(child)
 
@@ -2643,6 +2633,41 @@ def mask_msvc_syntax(source: str) -> str:
     # scans already masked; the asm token walk is the cost.
     store_source_value("msvc_mask_memo", source, masked)
     return masked
+
+
+_KR_BLOCK_PARENTS = frozenset(
+    {"translation_unit", "preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif"}
+)
+
+
+def mask_old_style_parameters(source: str) -> str:
+    """Same-length copy of *source* whose pointer-returning K&R parameter declarations are blanked.
+
+    The grammar parses ``int f(a) int a; {...}`` but turns ``char *f(a) int a; {...}`` into a
+    declaration followed by a top-level block. For that shape every byte between the identifier
+    list and the block, except newlines and comments, becomes a space, so the definition parses
+    with its identifier list as the parameters. Byte offsets are unchanged.
+    """
+    tree, data = parse_c_source(source)
+    spans = []
+    pending = [tree.root_node]
+    while pending:
+        node = pending.pop()
+        if node.type in _KR_BLOCK_PARENTS:
+            pending.extend(node.named_children)
+        elif node.type == "compound_statement" and node.parent.type in _KR_BLOCK_PARENTS:
+            end = _pointer_kr_parameters_end(node, data)
+            if end is not None:
+                spans.append((end, int(node.start_byte)))
+    if not spans:
+        return source
+    out = bytearray(data)
+    for start, end in spans:
+        out[start:end] = _NON_NEWLINE_RE.sub(b" ", data[start:end])
+    for comment in comment_nodes(tree):
+        if any(start < comment.end_byte and comment.start_byte < end for start, end in spans):
+            out[comment.start_byte : comment.end_byte] = data[comment.start_byte : comment.end_byte]
+    return bytes(out).decode("utf-8", errors="surrogateescape")
 
 
 def mask_va_arg_types(source: str) -> str:

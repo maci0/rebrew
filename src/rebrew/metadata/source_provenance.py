@@ -17,6 +17,7 @@ lazy from rebrew.c_parser import (
     find_function_name_in_node,
     function_definition_bounded,
     mask_msvc_syntax,
+    mask_old_style_parameters,
     mask_va_arg_types,
     parse_c_source,
     recovered_trees,
@@ -68,7 +69,9 @@ def function_definition_hashes(source: str) -> dict[str, str]:
     name, a prototype, or a body or declarator the grammar cannot bound still
     produce no hash. The digest is the original source bytes of the node.
     """
-    tree, parsed = parse_c_source(mask_va_arg_types(mask_msvc_syntax(source)))
+    tree, parsed = parse_c_source(
+        mask_va_arg_types(mask_old_style_parameters(mask_msvc_syntax(source)))
+    )
     raw = source.encode("utf-8", errors="surrogateescape")
     hashes: dict[str, str] = {}
     ambiguous: set[str] = set()
