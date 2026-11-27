@@ -40,6 +40,7 @@ lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 
 from cachetools import LRUCache
+lazy import msgspec
 
 from rebrew.errors import RebrewError
 lazy from rebrew.cli import console
@@ -316,7 +317,7 @@ def _rows_from(columns: tuple[str, ...], row: tuple[Any, ...]) -> dict[str, Any]
     out = dict(zip(columns, row[1:], strict=True))
     for name in _JSON_COLUMNS:
         if name in out:
-            out[name] = json.loads(out[name])
+            out[name] = msgspec.json.decode(out[name])
     return out
 
 
@@ -403,9 +404,9 @@ def _function_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ..
                 int(bool(fn.get("is_thunk", False))),
                 int(bool(fn.get("is_export", False))),
                 fn.get("sha256"),
-                json.dumps(fn.get("files", [])),
-                json.dumps(fn.get("detected_by", [])),
-                json.dumps(fn.get("size_by_tool", {})),
+                msgspec.json.encode(fn.get("files", [])).decode("utf-8"),
+                msgspec.json.encode(fn.get("detected_by", [])).decode("utf-8"),
+                msgspec.json.encode(fn.get("size_by_tool", {})).decode("utf-8"),
                 text_off,
                 fn.get("blocker", ""),
                 blocker_delta,
@@ -456,13 +457,13 @@ def _global_rows(target_name: str, data: dict[str, Any]) -> list[tuple[Any, ...]
                 va_int,
                 str(g.get("name") or ""),
                 str(g.get("decl") or ""),
-                json.dumps(g.get("files", [])),
+                msgspec.json.encode(g.get("files", [])).decode("utf-8"),
                 str(g.get("module") or g.get("origin") or ""),
                 g_size,
                 g_status,
-                json.dumps(g.get("owners", [])),
-                json.dumps(g.get("referenced_in", [])),
-                json.dumps(g.get("declared_in", g.get("files", []))),
+                msgspec.json.encode(g.get("owners", [])).decode("utf-8"),
+                msgspec.json.encode(g.get("referenced_in", [])).decode("utf-8"),
+                msgspec.json.encode(g.get("declared_in", g.get("files", []))).decode("utf-8"),
                 str(g.get("storage_kind") or "object"),
                 str(g.get("backing") or ""),
             )

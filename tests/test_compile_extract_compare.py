@@ -164,7 +164,7 @@ class TestExtractAndCompare:
         )
         import struct
 
-        from rebrew.coff_reloc import smart_reloc_compare
+        from rebrew.compare.coff_reloc import smart_reloc_compare
 
         matched, _, _, valid, invalid = smart_reloc_compare(
             bytes(obj),

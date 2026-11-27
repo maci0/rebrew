@@ -20,8 +20,8 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
-from rebrew.analysis import section_range
-from rebrew.describe import app
+from rebrew.binary.analysis import section_range
+from rebrew.binary.describe import app
 from rebrew.formats.binary_loader import load_binary
 
 IMAGE_BASE = 0x400000
@@ -431,8 +431,8 @@ class TestDescribeCli:
         double-disassembly elimination must be behavior-preserving."""
         _make_project(tmp_path)
         _make_binary(tmp_path)
-        from rebrew.analysis import scan_references
-        from rebrew.describe import _compute_strings
+        from rebrew.binary.analysis import scan_references
+        from rebrew.binary.describe import _compute_strings
         from rebrew.formats.binary_loader import load_binary
 
         info = load_binary(tmp_path / "game.exe")
@@ -459,7 +459,7 @@ class TestContainingNameSmallestRange:
     def test_overlapping_ranges_pick_the_smallest(self) -> None:
         """An oversized outer SIZE overlaps the next function; the resolver
         promises the SMALLEST containing range, not the earliest-starting one."""
-        from rebrew.describe import _name_from_index, _scan_function_ranges
+        from rebrew.binary.describe import _name_from_index, _scan_function_ranges
 
         def resolve(va: int, names: dict[int, str], ranges: list[tuple[int, int, str]]) -> str:
             return _name_from_index(va, names, _scan_function_ranges(ranges))
@@ -487,8 +487,8 @@ class TestDossierRangeScan:
         names stay the smallest enclosing range, with an exact start winning
         over every range.
         """
-        import rebrew.describe as describe_mod
-        from rebrew.analysis import Xref
+        import rebrew.binary.describe as describe_mod
+        from rebrew.binary.analysis import Xref
 
         items = [
             (0x1800, 0x1900, "late"),
@@ -557,8 +557,8 @@ class TestMalformedInventoryEntry:
         """
         import logging
 
-        import rebrew.describe as describe_mod
-        from rebrew.describe import _build_lookup
+        import rebrew.binary.describe as describe_mod
+        from rebrew.binary.describe import _build_lookup
 
         monkeypatch.setattr(describe_mod, "_collect_annotations", lambda cfg: [])
         monkeypatch.setattr(
@@ -571,7 +571,7 @@ class TestMalformedInventoryEntry:
             ],
         )
 
-        with caplog.at_level(logging.WARNING, logger="rebrew.describe"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.binary.describe"):
             names, _ranges = _build_lookup(None)[1:]
 
         assert "malformed" in caplog.text
@@ -588,8 +588,8 @@ class TestDecoratedLookupName:
         and it turned ``__foo`` into ``foo``. A stored name wins. The
         range label is the same C name.
         """
-        import rebrew.describe as describe_mod
-        from rebrew.describe import _build_lookup
+        import rebrew.binary.describe as describe_mod
+        from rebrew.binary.describe import _build_lookup
         from rebrew.metadata.bindings import SourceBinding
 
         anns = [

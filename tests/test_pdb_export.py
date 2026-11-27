@@ -17,10 +17,10 @@ from hypothesis import strategies as st
 from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
-import rebrew.pdb_export as pdb_export
+import rebrew.binary.pdb_export as pdb_export
 from rebrew.app.main import app
-from rebrew.pdb_export import TypeTable, read_debug_identity
-from rebrew.pdb_info import extract_pdb_info
+from rebrew.binary.pdb_export import TypeTable, read_debug_identity
+from rebrew.binary.pdb_info import extract_pdb_info
 
 runner = CliRunner()
 
@@ -239,7 +239,7 @@ class TestReadBackIdentity:
     ) -> None:
         import subprocess
 
-        from rebrew.pdb_export import PdbExportError, read_back_identity
+        from rebrew.binary.pdb_export import PdbExportError, read_back_identity
 
         pdb = tmp_path / "x.pdb"
         pdb.write_bytes(b"")
@@ -262,7 +262,7 @@ class TestReadBackIdentity:
     ) -> None:
         import subprocess
 
-        from rebrew.pdb_export import PdbExportError, read_back_identity
+        from rebrew.binary.pdb_export import PdbExportError, read_back_identity
 
         pdb = tmp_path / "x.pdb"
         pdb.write_bytes(b"")

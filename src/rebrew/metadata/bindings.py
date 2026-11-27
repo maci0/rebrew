@@ -17,7 +17,7 @@ lazy from collections.abc import Callable, Iterable, Iterator
 lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
-lazy from rebrew.c_parser import extract_function_name_from_line
+lazy from rebrew.c_syntax.parser import extract_function_name_from_line
 lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
 lazy from rebrew.utils import (
     fold_ident,
@@ -607,7 +607,7 @@ def _param_is_indirect(param_node: Any) -> bool:
 
 def _param_base_type(param_node: Any, data: bytes) -> str:
     """Normalized non-qualifier base type text of a ``parameter_declaration``."""
-    from rebrew.c_parser import node_text
+    from rebrew.c_syntax.parser import node_text
 
     parts: list[str] = []
     for child in param_node.named_children:
@@ -639,7 +639,7 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
         >>> _calc_stdcall_param_size("void __stdcall noargs(void)")
         0
     """
-    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, node_text, parse_c_source
 
     # Strip C++ template argument lists (e.g. ``std::pair<int, int>``) so
     # nested commas inside angle brackets never split a parameter.
@@ -995,7 +995,7 @@ class _DefinitionPrototypes:
     """Read function prototypes from C definitions, independently of anchors."""
 
     def __init__(self, filepath: Path, text: str | None = None) -> None:
-        from rebrew.c_parser import function_signatures
+        from rebrew.c_syntax.parser import function_signatures
 
         try:
             if text is None:
@@ -1649,26 +1649,11 @@ def grow_function_extent(
     return True
 
 
-def set_function_extent(
-    directory: Path,
-    va: int,
-    new_size: int,
-    *,
-    module: str,
-) -> bool:
-    """Set a stored function SIZE to a reviewed native extent, in either direction.
-
-    ``grow_function_extent`` only widens a row, so a repaired smaller inventory
-    extent could never reach the metadata. This writer is for reviewed repairs:
-    it accepts a shrink as well as a grow.
-    """
-    return set_function_extents(directory, {va: new_size}, module=module) == 1
-
-
 def set_function_extents(directory: Path, sizes: dict[int, int], *, module: str) -> int:
-    """Set many stored function SIZEs to reviewed extents in one store write.
+    """Set stored function SIZEs to reviewed extents in one store write.
 
-    Same rule as :func:`set_function_extent` per VA; returns how many changed.
+    Unlike ``grow_function_extent``, this writer accepts a shrink as well as a
+    grow; returns how many rows changed.
     """
     from rebrew.metadata.functions import get_entry, set_fields_batch
 
@@ -1794,7 +1779,6 @@ __all__ = [
     "report_skipped_records",
     "resolve_symbol",
     "set_binding_field",
-    "set_function_extent",
     "set_function_extents",
     "source_bindings",
     "span_contains_factory",

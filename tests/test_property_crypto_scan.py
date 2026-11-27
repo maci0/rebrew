@@ -1,6 +1,6 @@
 """Hypothesis fuzz for the crypto scanner's untrusted inputs.
 
-``rebrew.crypto_scan`` searches raw section bytes for algorithm constant
+``rebrew.binary.crypto_scan`` searches raw section bytes for algorithm constant
 tables and matches import/function names read out of a target binary.  Both
 inputs come from the file being analyzed, so the harness asserts the
 invariants that make a finding trustworthy: a reported VA must land inside
@@ -14,7 +14,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.crypto_scan import (
+from rebrew.binary.crypto_scan import (
     _HIGH_CONFIDENCE,
     _MEDIUM_CONFIDENCE,
     _TABLE_NEEDLES,

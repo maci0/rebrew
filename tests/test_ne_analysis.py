@@ -7,9 +7,9 @@ import pytest
 from bin_util import make_ne
 from typer.testing import CliRunner
 
+from rebrew.binary.ne_compare import compare_images
 from rebrew.formats.ne_analysis import NeImage, block_set, covered_bytes, segment_refs
 from rebrew.formats.ne_loader import NeParseError
-from rebrew.ne_compare import compare_images
 
 
 class TestNeComparison:

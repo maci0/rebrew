@@ -270,7 +270,7 @@ class TestExtentWalker:
 
 class TestRelocTables:
     def _apply(self, relocs, table: str) -> bytes:
-        from rebrew.coff_reloc import apply_coff_relocations
+        from rebrew.compare.coff_reloc import apply_coff_relocations
 
         return apply_coff_relocations(
             b"\x00\x00\x00\x00",
@@ -281,26 +281,26 @@ class TestRelocTables:
         )
 
     def test_elf_mips_abs32(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord
+        from rebrew.compare.coff_reloc import CoffRelocRecord
 
         out = self._apply([CoffRelocRecord(0, 2, "sym")], "elf-mips")  # R_MIPS_32
         assert out == (0x2000).to_bytes(4, "big")
 
     def test_elf_ppc_abs32(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord
+        from rebrew.compare.coff_reloc import CoffRelocRecord
 
         out = self._apply([CoffRelocRecord(0, 1, "sym")], "elf-ppc")  # R_PPC_ADDR32
         assert out == (0x2000).to_bytes(4, "big")
 
     def test_coff_abs32_stays_little_endian(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord
+        from rebrew.compare.coff_reloc import CoffRelocRecord
 
         out = self._apply([CoffRelocRecord(0, 0x0006, "sym")], "coff-i386")  # DIR32
         assert out == (0x2000).to_bytes(4, "little")
 
     def test_big_endian_addend_is_read_in_target_order(self) -> None:
         """An R_MIPS_32 slot holding addend 0x10 must read as 0x10, not 0x10000000."""
-        from rebrew.coff_reloc import CoffRelocRecord, apply_coff_relocations
+        from rebrew.compare.coff_reloc import CoffRelocRecord, apply_coff_relocations
 
         text = (0x10).to_bytes(4, "big")
         out = apply_coff_relocations(
@@ -312,17 +312,84 @@ class TestRelocTables:
         )
         assert out == (0x2010).to_bytes(4, "big")
 
+    def test_elf_mips_26_jump(self) -> None:
+        from rebrew.compare.coff_reloc import CoffRelocRecord, apply_coff_relocations
+
+        # `jal 0` (0x0C000000) patched to target 0x80012340 -> instr_index = (0x80012340 >> 2) & 0x03FFFFFF = 0x00048D0
+        word = (0x0C000000).to_bytes(4, "big")
+        out = apply_coff_relocations(
+            word,
+            [CoffRelocRecord(0, 4, "callee")],  # R_MIPS_26
+            lambda _sym: 0x80012340,
+            section_va=0x80010000,
+            reloc_table="elf-mips",
+        )
+        assert int.from_bytes(out, "big") == (0x0C000000 | ((0x80012340 >> 2) & 0x03FFFFFF))
+
+    def test_elf_mips_hi16_lo16_pair_with_sign_carry(self) -> None:
+        from rebrew.compare.coff_reloc import CoffRelocRecord, apply_coff_relocations
+
+        # Target 0x80008000 has signed negative low half (-0x8000), so HI16 gets 0x8001
+        # lui $t0, 0 (0x3C080000); lw $t0, 0($t0) (0x8D080000)
+        code = (0x3C080000).to_bytes(4, "big") + (0x8D080000).to_bytes(4, "big")
+        relocs = [
+            CoffRelocRecord(0, 5, "g_buf"),  # R_MIPS_HI16
+            CoffRelocRecord(4, 6, "g_buf"),  # R_MIPS_LO16
+        ]
+        out = apply_coff_relocations(
+            code,
+            relocs,
+            lambda _sym: 0x80008000,
+            section_va=0x80000000,
+            reloc_table="elf-mips",
+        )
+        hi = int.from_bytes(out[:4], "big")
+        lo = int.from_bytes(out[4:8], "big")
+        assert hi == 0x3C088001
+        assert lo == 0x8D088000
+
+    def test_elf_ppc_rel24(self) -> None:
+        from rebrew.compare.coff_reloc import CoffRelocRecord, apply_coff_relocations
+
+        # `nop; bl .+0` at 0x1004 calling 0x1020 -> delta = +0x1C -> 0x4800001D
+        code = (0x60000000).to_bytes(4, "big") + (0x48000001).to_bytes(4, "big")
+        out = apply_coff_relocations(
+            code,
+            [CoffRelocRecord(4, 10, "callee")],  # R_PPC_REL24
+            lambda _sym: 0x1020,
+            section_va=0x1000,
+            reloc_table="elf-ppc",
+        )
+        assert int.from_bytes(out[4:8], "big") == 0x4800001D
+
     def test_unsupported_mips_type_raises(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, apply_coff_relocations
+        from rebrew.compare.coff_reloc import CoffRelocRecord, apply_coff_relocations
 
         with pytest.raises(NotImplementedError):
             apply_coff_relocations(
                 b"\x00\x00\x00\x00",
-                [CoffRelocRecord(0, 4, "sym")],  # R_MIPS_26 — Phase 1
+                [CoffRelocRecord(0, 9, "sym")],  # R_MIPS_GOT16
                 lambda sym: 0x2000,
                 section_va=0x1000,
                 reloc_table="elf-mips",
             )
+
+    def test_mips_scoring_skips_x86_pattern_normalization(self) -> None:
+        import capstone
+
+        from rebrew.matcher.scoring import score_candidate
+
+        # 0x0c100400 (`jal 0x401000`) + `nop` — non-x86 bytes must not be damaged by x86 heuristics
+        target = bytes.fromhex("24820001 0c100400 00000000 03e00008 00000000")
+        cand = bytes.fromhex("24820002 0c100400 00000000 03e00008 00000000")
+        sc = score_candidate(
+            target,
+            cand,
+            cs_arch=capstone.CS_ARCH_MIPS,
+            cs_mode=capstone.CS_MODE_MIPS32 | capstone.CS_MODE_BIG_ENDIAN,
+        )
+        assert sc.reloc_score == 1.0
+        assert sc.mnemonic_score == 0.0
 
     def test_real_ido_reloc_types_mask_in_compare(self) -> None:
         """IDO 7.1 objects carry HI16/LO16 (global data) and GOT16/CALL16
@@ -330,7 +397,7 @@ class TestRelocTables:
         these slots (they hold link-time addresses), never raise.  Verified
         against a real `rebrew/ido:7.1-linux` object: relocs at 0x0/0x4
         (sym 6), 0xc (sym 3), 0x28 (sym 5), 0x3c (sym 3)."""
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         obj = bytearray(0x40)
         target = bytearray(0x40)
@@ -360,7 +427,7 @@ class TestNonX86Gates:
     def test_discover_non_x86_minimal_sweep(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.discover as d
+        import rebrew.binary.discover as d
 
         info = SimpleNamespace(
             arch="mips32",
@@ -379,7 +446,7 @@ class TestNonX86Gates:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An ARM BLX immediate is a direct call. Capstone prints it as ``blx #0xNNNN``."""
-        import rebrew.discover as d
+        import rebrew.binary.discover as d
 
         # BLX at 0x1000, H=0, imm=2: target = 0x1000 + 8 + 8 = 0x1010. Then a callee.
         code = (
@@ -407,7 +474,7 @@ class TestNonX86Gates:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """SH2 BSR is a direct call. The mnemonic is ``bsr``, not ``bl`` or ``jal``."""
-        import rebrew.discover as d
+        import rebrew.binary.discover as d
 
         # bsr from 0x1000 to 0x1008: disp = (0x1008 - (0x1000+4)) / 2 = 2. Opcode B002.
         code = bytes.fromhex("b0020000000000000900")
@@ -441,3 +508,42 @@ class TestNonX86Gates:
         # mips: no prefix skip; the table starts with 0x90909090 (not a .text
         # pointer) → False.
         assert is_jump_table(data, 0x1000, 0x100, arch="mips32") is False
+
+
+class TestMipsElfEndToEnd:
+    """Real checked-in ``tests/fixtures/mini_mips32.elf`` pipeline checks."""
+
+    def test_mips32_fixture_detect_discover_extent_and_cfg(self) -> None:
+        from pathlib import Path as _Path
+
+        import capstone
+
+        from rebrew.binary.cfg_ged import build_cfg, cfg_similarity
+        from rebrew.binary.discover import _capstone_sweep
+        from rebrew.formats.binary_loader import (
+            detect_format_and_arch,
+            extract_bytes_at_va,
+            function_extent_from_disasm,
+            load_binary,
+        )
+
+        fixture = _Path(__file__).parent / "fixtures" / "mini_mips32.elf"
+        fmt, arch = detect_format_and_arch(fixture)
+        assert (fmt, arch) == ("elf", "mips32")
+
+        info = load_binary(fixture)
+        assert info.endian == "big"
+        assert info.text_va == 0x00401000
+
+        swept = _capstone_sweep(fixture)
+        assert [va for va, _s, _n in swept] == [0x00401000]
+        assert function_extent_from_disasm(fixture, 0x00401000) == 12
+        assert function_extent_from_disasm(fixture, 0x00401010) == 28
+
+        fn1 = extract_bytes_at_va(info, 0x00401000, 12)
+        fn2 = extract_bytes_at_va(info, 0x00401010, 28)
+        mode = capstone.CS_MODE_MIPS32 | capstone.CS_MODE_BIG_ENDIAN
+        cfg1 = build_cfg(fn1, 0x00401000, cs_mode=mode, cs_arch=capstone.CS_ARCH_MIPS)
+        assert len(cfg1["blocks"]) == 1
+        sim = cfg_similarity(fn2, fn2, 0x00401010, cs_mode=mode, cs_arch=capstone.CS_ARCH_MIPS)
+        assert sim["overall"] == 100.0

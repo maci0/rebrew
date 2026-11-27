@@ -1,4 +1,4 @@
-"""Unit tests for rebrew.strings — the ``rebrew binary strings`` CLI tool.
+"""Unit tests for rebrew.binary.strings — the ``rebrew binary strings`` CLI tool.
 
 Drives the Typer app via ``CliRunner`` against synthetic PEs built by
 ``bin_util.make_pe`` (a single ``.text`` section), whose code bytes embed
@@ -22,7 +22,7 @@ from bin_util import make_pe
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew.strings import app, collect_strings
+from rebrew.binary.strings import app, collect_strings
 
 TEXT_VA = 0x401000  # make_pe default: image_base 0x400000 + text_va 0x1000
 

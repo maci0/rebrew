@@ -6,10 +6,11 @@ and scans reversed directories for annotated source files.
 
 import threading
 from typing import Any
-lazy import json
 lazy import warnings
 lazy from collections.abc import Sequence
 lazy from pathlib import Path
+
+lazy import msgspec
 
 lazy from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
@@ -61,7 +62,7 @@ def _structure_json(path: Path) -> list[Any]:
     if cached is not None and cached[0] == fp:
         return cached[2]
     text = read_json_text(path)
-    data = json.loads(text)
+    data = msgspec.json.decode(text)
     if not isinstance(data, list):
         raise ValueError(
             f"Corrupt structure JSON at {path}: Expected a JSON array, got {type(data).__name__}"
@@ -101,7 +102,7 @@ def load_function_structure(path: Path) -> list[FunctionEntry]:
             for d in data
             if isinstance(d, dict) and d.get("_generated_by") != "rebrew coverage catalog"
         ]
-    except json.JSONDecodeError as e:
+    except msgspec.DecodeError as e:
         raise ValueError(f"Corrupt structure JSON at {path}: {e}") from e
 
 
@@ -139,7 +140,7 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
         return {}
 
     try:
-        entries = json.loads(read_json_text(path))
+        entries = msgspec.json.decode(read_json_text(path))
         if not isinstance(entries, list):
             warnings.warn(
                 f"Ignoring corrupt Ghidra data labels at {path}: expected JSON array, got {type(entries).__name__}",

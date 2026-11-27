@@ -1,13 +1,13 @@
-"""Tests for rebrew.pdb_info — PDB compiler/flags/function extraction."""
+"""Tests for rebrew.binary.pdb_info — PDB compiler/flags/function extraction."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 lazy from pathlib import Path
 
+from rebrew.binary.pdb_info import extract_pdb_info
 from rebrew.formats.pdb import parse_compile3 as _parse_compile3
 from rebrew.formats.pdb import parse_procs as _parse_procs
-from rebrew.pdb_info import extract_pdb_info
 
 
 class TestParseCompile3:
@@ -92,7 +92,7 @@ class TestExtract:
                 return SimpleNamespace(returncode=0, stdout=mods, stderr="")
             return SimpleNamespace(returncode=0, stdout=syms, stderr="")
 
-        monkeypatch.setattr("rebrew.pdb_info.run_process_group", _fake_run)
+        monkeypatch.setattr("rebrew.binary.pdb_info.run_process_group", _fake_run)
 
     def test_no_pdb_returns_none(self, monkeypatch, tmp_path: Path) -> None:
         monkeypatch.setattr("shutil.which", lambda name: None)
@@ -135,7 +135,7 @@ class TestExtract:
         monkeypatch.setattr(
             "pathlib.Path.exists", lambda self: str(self).endswith(".pdb"), raising=False
         )
-        monkeypatch.setattr("rebrew.pdb_info.run_process_group", _boom)
+        monkeypatch.setattr("rebrew.binary.pdb_info.run_process_group", _boom)
         info = extract_pdb_info(tmp_path / "prog.exe")
         assert info is not None
         assert info.error  # reported unsupported, not raised

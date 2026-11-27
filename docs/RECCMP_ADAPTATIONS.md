@@ -24,7 +24,7 @@ independent island diffed with a plain `SequenceMatcher`, so one big
 mismatch cannot scramble the alignment of surrounding known-good spans.
 
 ```python
-from rebrew.pinned_diff import SequenceMatcherWithPins
+from rebrew.compare.pinned_diff import SequenceMatcherWithPins
 
 m = SequenceMatcherWithPins(target_mnemonics, compiled_mnemonics, pinned_lines=[(4, 4), (12, 11)])
 for op in m.get_opcodes():  # DiffOpcode(tag, a_start, a_end, b_start, b_end, a, b)
@@ -69,7 +69,7 @@ optional constant adjustment, and jump to the base implementation. Three shapes:
 `{disp, +addend}` (14), `{disp, -addend}` (11).
 
 ```python
-from rebrew.vtordisp import find_vtordisps
+from rebrew.c_syntax.vtordisp import find_vtordisps
 
 for t in find_vtordisps(code, base_addr):
     t.disp, t.addend  # MSVC spells this thunk "vtordisp{16, 0}"
@@ -89,7 +89,7 @@ instruction's immediate is not a reference. A pointer is kept when it lands
 in a read-only data region and (optionally) sits at a relocation site.
 
 ```python
-from rebrew.float_const import find_float_consts
+from rebrew.c_syntax.float_const import find_float_consts
 
 consts = find_float_consts(
     code_regions,  # [(va, bytes)] per executable section

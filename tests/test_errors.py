@@ -330,7 +330,7 @@ class TestSerializationRoundTrip:
         )
 
     def test_an_unresolved_symbol_keeps_the_symbol(self) -> None:
-        from rebrew.coff_reloc import UnresolvedSymbolError
+        from rebrew.compare.coff_reloc import UnresolvedSymbolError
 
         original = UnresolvedSymbolError("_missing_label")
         rebuilt = RebrewError.from_dict(original.to_dict())

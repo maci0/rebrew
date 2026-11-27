@@ -224,7 +224,7 @@ def test_candidate_anchor_is_canonical_for_verify_and_apply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, op: str, shape: str, newline: str
 ) -> None:
     from rebrew import ops
-    from rebrew.coff_reloc import build_name_to_va
+    from rebrew.compare.coff_reloc import build_name_to_va
     from rebrew.config import load_config
     from rebrew.metadata.anchors import parse_address_anchors
     from rebrew.metadata.functions import update_source_status
@@ -331,7 +331,7 @@ def test_misplaced_anchor_reaches_real_test_cli(
     op: str,
 ) -> None:
     from rebrew import ops
-    from rebrew.coff_reloc import build_name_to_va
+    from rebrew.compare.coff_reloc import build_name_to_va
     from rebrew.config import load_config
 
     config, entries = _stage(tmp_path)

@@ -50,7 +50,7 @@ lazy from collections.abc import Iterable, Iterator
 
 import typer
 
-from rebrew.c_parser import CALLING_CONVENTION  # noqa: F401
+from rebrew.c_syntax.parser import CALLING_CONVENTION  # noqa: F401
 lazy from rebrew.cli import EXPECTED_DIGEST_HELP, console, error_exit, json_print
 lazy from rebrew.utils import (
     atomic_write_text,
@@ -172,7 +172,7 @@ def _parse_param_list_nodes(
 
     Returns ``None`` when the parameter list cannot be parsed cleanly.
     """
-    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, node_text, parse_c_source
 
     inner = _param_inner(params_str)
     if not inner:
@@ -367,7 +367,7 @@ def _array_size_text(brackets: str) -> str:
     """
     if not brackets:
         return "1"
-    from rebrew.c_parser import array_type_shape
+    from rebrew.c_syntax.parser import array_type_shape
 
     _base, dimensions = array_type_shape(f"char _{brackets}")
     if not dimensions:
@@ -449,7 +449,7 @@ def _parse_declaration_node(
     implicit_int: bool = False,
 ) -> dict[str, typing.Any] | None:
     """Extract extern info from a single tree-sitter ``declaration`` node."""
-    from rebrew.c_parser import declares_function, node_text
+    from rebrew.c_syntax.parser import declares_function, node_text
 
     declarators = decl_node.children_by_field_name("declarator")
     if len(declarators) != 1:
@@ -599,7 +599,7 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     from a ``.c`` in the reviewed tree, and ``generate_stubs`` pastes it into
     a file the build compiles.
     """
-    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, parse_c_source
 
     stripped = decl.strip()
     if not stripped:
@@ -716,7 +716,7 @@ def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
     function bodies are locals, not link symbols, and are skipped (unless
     explicitly ``extern``).
     """
-    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, node_text, parse_c_source
 
     externs: dict[str, dict[str, typing.Any]] = {}
     deferred: dict[str, dict[str, typing.Any]] = {}
@@ -769,7 +769,7 @@ def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
 
 def _called_identifiers_in_source(text: str) -> set[str]:
     """Identifiers directly invoked via ``call_expression`` in *text*."""
-    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, node_text, parse_c_source
 
     tree, data = parse_c_source(mask_msvc_syntax(text))
     called: set[str] = set()
@@ -800,7 +800,7 @@ def collect_called_symbols(src_dir: Path) -> set[str]:
 
 def _write_target(node: typing.Any, data: bytes) -> tuple[str, bool] | None:
     """Return ``(identifier_name, is_pointee_store)`` for an assignment/update LHS, or None."""
-    from rebrew.c_parser import node_text
+    from rebrew.c_syntax.parser import node_text
 
     pointee = False
     cur = node
@@ -849,7 +849,7 @@ def collect_written_symbols(
     store reached only through ``&symbol`` or a buffer passed to a callee
     cannot be seen here.
     """
-    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, parse_c_source
 
     info_by_name = extern_info or {}
     written: set[str] = set()
@@ -936,7 +936,7 @@ def collect_rdata_symbols(
 
 def collect_conditional_callable_aliases(src_dir: Path) -> set[str]:
     """Names that conditional object-like macros may map from called symbols."""
-    from rebrew.c_parser import parse_c_source
+    from rebrew.c_syntax.parser import parse_c_source
 
     aliases: set[str] = set()
     for _path, source in _stripped_sources(src_dir):
@@ -1488,7 +1488,7 @@ def generate_stubs(
 
 def _defined_symbols(text: str) -> set[str]:
     """Names this stub TU defines (functions and file-scope data definitions)."""
-    from rebrew.c_parser import find_c_function_definitions, find_extern_variables
+    from rebrew.c_syntax.parser import find_c_function_definitions, find_extern_variables
 
     funcs = {name for name, _line in find_c_function_definitions(text)}
     data_vars = {
@@ -1660,7 +1660,7 @@ def build_data_definition(row: dict[str, typing.Any]) -> str:
     if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
         raise ValueError(f"{name}: missing or invalid size {size!r}")
     type_text = " ".join(type_text.split())
-    from rebrew.c_parser import array_type_shape
+    from rebrew.c_syntax.parser import array_type_shape
 
     base, dims = array_type_shape(type_text)
     if "[" in type_text and not dims:
@@ -1709,7 +1709,11 @@ def _update_selected_stubs(
     content: str, specs: dict[str, typing.Any], symbols: list[str]
 ) -> tuple[str, list[dict[str, str]]]:
     """Update selected definitions, or append explicitly reviewed functions."""
-    from rebrew.c_parser import find_declarator_name, find_function_name_in_node, parse_c_source
+    from rebrew.c_syntax.parser import (
+        find_declarator_name,
+        find_function_name_in_node,
+        parse_c_source,
+    )
 
     def definitions(source: str) -> dict[str, list[typing.Any]]:
         tree, data = parse_c_source(source)

@@ -1,4 +1,4 @@
-"""Property-based fuzz tests for ``rebrew.vtordisp`` over untrusted code bytes.
+"""Property-based fuzz tests for ``rebrew.c_syntax.vtordisp`` over untrusted code bytes.
 
 ``find_vtordisps`` scans a whole ``.text`` for MI-thunk islands using three
 overlapping lookahead regexes, then decodes each hit with ``struct.unpack``.
@@ -27,7 +27,7 @@ import struct
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.vtordisp import VtordispFunction, find_vtordisps
+from rebrew.c_syntax.vtordisp import VtordispFunction, find_vtordisps
 
 #: The three shapes the scanner claims to recognize.
 _SIZES = (8, 11, 14)

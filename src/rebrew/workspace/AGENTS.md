@@ -11,7 +11,7 @@
 | `status.py` | `KNOWN_STATUSES`, `EARNED_STATUSES`, `MATCHED_STATUSES`, `NEAR_MATCH_CANDIDATE_STATUSES`, `FUZZY_STATUSES`, `COVERAGE_DB_STATUSES`, `comparison_verdict_valid` |
 | `va.py` | `VA_MAX`, `parse_va_candidates` |
 
-Externals (the only package this one may import): `errors`, the leaf module that gives `WorkspaceNotFound` its `RebrewError` base. Submodule imports stay free of tomlkit and rich (`tests/test_workspace_public_api.py::test_submodules_import_without_rebrew_stack`).
+Externals (the only packages this one may import): `errors`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 

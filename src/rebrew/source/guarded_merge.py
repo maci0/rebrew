@@ -6,7 +6,7 @@ lazy from itertools import pairwise
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.c_parser import parse_c_source
+lazy from rebrew.c_syntax.parser import parse_c_source
 lazy from rebrew.source.guard_context import guard_contexts
 lazy from rebrew.source.layout import mask_for_parse, source_layout, span_extent
 

@@ -459,12 +459,11 @@ class Attribution:
 
     def header_value(self) -> str:
         """The JSON object sent in :data:`ATTRIBUTION_HEADER`."""
-        import json
+        import msgspec
 
-        return json.dumps(
-            {"org": self.org, "project": self.project, "user": self.user, "job": self.job},
-            separators=(",", ":"),
-        )
+        return msgspec.json.encode(
+            {"org": self.org, "project": self.project, "user": self.user, "job": self.job}
+        ).decode("utf-8")
 
 
 @dataclass(frozen=True)

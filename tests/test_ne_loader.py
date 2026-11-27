@@ -346,7 +346,7 @@ class TestSegmentSectorZero:
         """NE sector offset 0 means "not present in the file" (the segment is
         allocated zero-filled); reading offset 0 reported the MZ/NE header as
         the segment's content."""
-        from rebrew.analysis import extract_bytes
+        from rebrew.binary.analysis import extract_bytes
         from rebrew.formats.binary_loader import load_binary
 
         raw = bytearray(make_ne(segments=[(_CODE, 0x01)]))

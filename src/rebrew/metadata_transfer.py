@@ -11,6 +11,7 @@ lazy from typing import Any
 
 lazy import tomlkit
 
+lazy from rebrew.c_syntax.type_metadata import validate_type_document
 lazy from rebrew.config import ProjectConfig, project_toml_lock
 lazy from rebrew.metadata.data import DATA_METADATA_FIELDS
 lazy from rebrew.metadata.document import (
@@ -30,7 +31,6 @@ lazy from rebrew.metadata.storage import (
     metadata_store,
     project_metadata_stores,
 )
-lazy from rebrew.type_metadata import validate_type_document
 lazy from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,

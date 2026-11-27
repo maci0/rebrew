@@ -40,8 +40,8 @@ from bin_util import append_pe_section, le32, make_import_call_pe
 from recompile_stub import serve_recompile
 from session_cache import build_once
 
+from rebrew.binary.discover import DISCOVERY_RULE
 from rebrew.coverage.report import SITE_DATA_KINDS
-from rebrew.discover import DISCOVERY_RULE
 from rebrew.ops import COMPILING_OPS, OPS, WorkerConfig, dispatch, target_name
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -515,7 +515,15 @@ class TestContract:
         :data:`rebrew.ops._FINAL_RECOMPILE_REFUSALS` counts each code that table holds."""
         from rebrew import ops
 
-        sites = _refusal_sites("ops/__init__", "ops/snapshot_mutations")
+        sites = _refusal_sites(
+            "ops/__init__",
+            "ops/core",
+            "ops/staging",
+            "ops/handlers_analysis",
+            "ops/handlers_project",
+            "ops/http",
+            "ops/snapshot_mutations",
+        )
         table = {code for code, _detail in ops._FINAL_RECOMPILE_REFUSALS.values()}
 
         def reached(name: str) -> set[str]:
@@ -529,7 +537,10 @@ class TestContract:
                 seen.add(function)
                 definition = sites[function]
                 codes |= {code for _where, code, _status in definition.refusals if code}
-                if "_FINAL_RECOMPILE_REFUSALS" in definition.names:
+                if (
+                    "_FINAL_RECOMPILE_REFUSALS" in definition.names
+                    or "FINAL_RECOMPILE_REFUSALS" in definition.names
+                ):
                     codes |= table
                 todo.extend(definition.calls)
             return codes
@@ -674,7 +685,7 @@ class TestCallReferences:
         world: tuple[WorkerConfig, Path],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import rebrew.analysis
+        import rebrew.binary.analysis as analysis_mod
         import rebrew.ops
 
         config, project = world
@@ -700,7 +711,7 @@ class TestCallReferences:
         lock = ObservedLock()
         release = threading.Event()
         calls = 0
-        scan = rebrew.analysis.scan_references
+        scan = analysis_mod.scan_references
 
         def counted(info: Any) -> Any:
             nonlocal calls
@@ -711,7 +722,7 @@ class TestCallReferences:
         monkeypatch.setattr(rebrew.ops, "_call_scans", {})
         monkeypatch.setattr(rebrew.ops, "_call_scan_inflight", {})
         monkeypatch.setattr(rebrew.ops, "_call_scans_lock", lock)
-        monkeypatch.setattr(rebrew.analysis, "scan_references", counted)
+        monkeypatch.setattr(analysis_mod, "scan_references", counted)
         body = json.dumps({"project_dir": str(project)}).encode()
         with ThreadPoolExecutor(max_workers=4) as pool:
             futures = [
@@ -791,19 +802,19 @@ class TestCallReferences:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        import rebrew.analysis
+        import rebrew.binary.analysis as analysis_mod
         import rebrew.ops
 
         config, project, slot, pe = _import_call_project(import_call_analysis, tmp_path)
         scanned: list[Path] = []
-        scan = rebrew.analysis.scan_references
+        scan = analysis_mod.scan_references
 
         def counted(info: Any) -> Any:
             scanned.append(info.path)
             return scan(info)
 
         monkeypatch.setattr(rebrew.ops, "_call_scans", {})
-        monkeypatch.setattr(rebrew.analysis, "scan_references", counted)
+        monkeypatch.setattr(analysis_mod, "scan_references", counted)
         request = {"project_dir": project}
         first = _call(config, "rebrew.call_references", request)
         assert _call(config, "rebrew.call_references", request) == first
@@ -1078,7 +1089,7 @@ class TestListingRenderer:
     ) -> None:
         """A change to the text of these listings needs a new ``LISTING_RENDERER``,
         recorded here with the new digest."""
-        from rebrew import asm
+        from rebrew.binary import asm
 
         config, project, _ = switch_project
         digest = hashlib.sha256()
@@ -2842,7 +2853,7 @@ class TestReconstructionOps:
         assert _refusal(config, "rebrew.skeleton", json.dumps(request).encode())["status"] == 400
 
     def test_reference_flirt(self, world: tuple[WorkerConfig, Path]) -> None:
-        from rebrew.gen_flirt_pat import bytes_to_pat_line
+        from rebrew.library.gen_flirt_pat import bytes_to_pat_line
 
         config, project = world
         assert config.filestore is not None
@@ -5460,7 +5471,9 @@ class TestDecompilersOffered:
             raise AssertionError("a decompiler ran")
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", worked)
-        monkeypatch.setattr("rebrew.struct_recover.fetch_decompilation", worked, raising=False)
+        monkeypatch.setattr(
+            "rebrew.c_syntax.struct_recover.fetch_decompilation", worked, raising=False
+        )
 
     @pytest.mark.parametrize("backend", ["kuna", "auto"])
     @pytest.mark.parametrize(
@@ -5499,7 +5512,13 @@ class TestDecompilersOffered:
             "backend": backend,
             "named": False,
         }
-        refusal = _refusal(config, "rebrew.decompile", json.dumps(request).encode())
+        ctx = (
+            pytest.warns(UserWarning, match="kuna printed no code")
+            if failure == "empty"
+            else contextlib.nullcontext()
+        )
+        with ctx:
+            refusal = _refusal(config, "rebrew.decompile", json.dumps(request).encode())
         assert (refusal["status"], refusal["error"]) == (status, code)
         assert detail in refusal["detail"]
         assert "/usr/bin/kuna" not in refusal["detail"]

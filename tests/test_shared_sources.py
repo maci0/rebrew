@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from source_util import write_source
 
-from rebrew.config import ProjectConfig
+from rebrew.config import ConfigWarning, ProjectConfig
 
 CC = b"\xcc"
 
@@ -94,10 +94,12 @@ class TestConfig:
         would otherwise become a garbage -DNone flag."""
         from rebrew.config import _parse_defines
 
-        assert _parse_defines(["V2", None, 42, "", "  DEBUG  "], "targets.X.defines") == [
-            "V2",
-            "DEBUG",
-        ]
+        with pytest.warns(ConfigWarning, match="non-string define") as caught:
+            assert _parse_defines(["V2", None, 42, "", "  DEBUG  "], "targets.X.defines") == [
+                "V2",
+                "DEBUG",
+            ]
+        assert len(caught) == 2
 
     def test_base_cflags_default_per_profile(self, tmp_path: Path) -> None:
         """A posix profile (mingw-16.2.0) must NOT default to the MSVC glue
@@ -392,7 +394,7 @@ class TestDefinesCompile:
     def test_ga_cache_key_covers_defines(self) -> None:
         """The GA's per-run build cache key must change when the per-target
         defines change (a version switch alters #ifdef-driven codegen)."""
-        from rebrew.match_ga import _ga_cache_key
+        from rebrew.matching.ga import _ga_cache_key
 
         base = ("src", "-O2", "gcc", "/inc")
         k1 = _ga_cache_key(*base, defines=[])
@@ -474,7 +476,7 @@ class TestGANativeEndToEnd:
         from bin_util import make_pe
 
         from rebrew.formats.binary_loader import extract_raw_bytes
-        from rebrew.match_ga import BinaryMatchingGA
+        from rebrew.matching.ga import BinaryMatchingGA
 
         # mov eax,1; ret — the seed below compiles to exactly this.
         target = bytes.fromhex("b8 01 00 00 00 c3")

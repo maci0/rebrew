@@ -78,6 +78,7 @@ lazy from collections.abc import Callable, Iterator, Sequence
 lazy from pathlib import Path
 
 import diskcache
+lazy import msgspec
 
 from rebrew.utils import (
     BYTES_PER_MIB,
@@ -908,9 +909,12 @@ _DIR_INDEX_LOCK = threading.Lock()
 _DIR_INDEX_RACY_NS = 2_000_000_000
 
 
-def _fold_name(name: str) -> str:
+def fold_name(name: str) -> str:
     """Include-component comparison key: NFC-normalized, then case-folded."""
     return unicodedata.normalize("NFC", name).casefold()
+
+
+_fold_name = fold_name
 
 
 def _folded_children(
@@ -1071,7 +1075,7 @@ def include_closure_cache(path: Path) -> Iterator[None]:
         if len(raw) <= _INCLUDE_CLOSURE_MEMO_MAX_BYTES:
             stamp, checksum, body = raw.split(b"\n", 2)
             if stamp == version and checksum == hashlib.sha256(body).hexdigest().encode():
-                decoded = json.loads(body)
+                decoded = msgspec.json.decode(body)
                 if isinstance(decoded, dict):
                     entries = decoded
     except OSError, ValueError, RecursionError:
@@ -1090,9 +1094,9 @@ def include_closure_cache(path: Path) -> Iterator[None]:
     ):
         return
     entries.update(used)
-    body = json.dumps(entries, separators=(",", ":")).encode()
+    body = msgspec.json.encode(entries)
     if len(body) > _INCLUDE_CLOSURE_MEMO_MAX_BYTES:
-        body = json.dumps(used, separators=(",", ":")).encode()
+        body = msgspec.json.encode(used)
     raw = b"\n".join((version, hashlib.sha256(body).hexdigest().encode(), body))
     if len(raw) <= _INCLUDE_CLOSURE_MEMO_MAX_BYTES:
         with contextlib.suppress(OSError):

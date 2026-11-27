@@ -14,14 +14,15 @@ lazy import binascii
 lazy import contextlib
 lazy import hashlib
 lazy import io
-lazy import json
 lazy import sys
 lazy import tempfile
 lazy from collections.abc import Callable
 lazy from dataclasses import asdict
 lazy from pathlib import Path
 
-lazy from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+lazy import msgspec
+
+lazy from rebrew.c_syntax.parser import mask_msvc_syntax, parse_c_source
 lazy from rebrew.compiler import toolchain
 lazy from rebrew.compiler.cache import (
     CacheBackend,
@@ -37,6 +38,16 @@ lazy from rebrew.config import ConfigError, load_compile_cache_config, source_da
 lazy from rebrew.utils import atomic_write_bytes
 
 log = logging.getLogger(__name__)
+
+
+class _CachedObjectRecord(msgspec.Struct, forbid_unknown_fields=True):
+    """Cached compiler object bytes and diagnostics for CMake CL cache replay."""
+
+    object: str
+    sha256: str
+    stdout: str
+    stderr: str
+
 
 # Deliberately an eligibility whitelist, not another CL command-line parser.
 # Other switches still work, through the original uncached driver.
@@ -191,7 +202,7 @@ def _snapshot(
     }
     return (
         "cmake-cl-v1:"
-        + hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+        + hashlib.sha256(msgspec.json.encode(payload, order="sorted", enc_hook=str)).hexdigest()
     )
 
 
@@ -233,12 +244,10 @@ def run_cached_cl(
     replay: tuple[str, str] | None = None
     if record is not None:
         try:
-            saved = json.loads(record)
-            data = base64.b64decode(saved["object"], validate=True)
-            if not data or hashlib.sha256(data).hexdigest() != saved["sha256"]:
+            saved = msgspec.json.decode(record, type=_CachedObjectRecord)
+            data = base64.b64decode(saved.object, validate=True)
+            if not data or hashlib.sha256(data).hexdigest() != saved.sha256:
                 raise ValueError("invalid cached object")
-            if not isinstance(saved["stdout"], str) or not isinstance(saved["stderr"], str):
-                raise ValueError("invalid cached diagnostics")
             if _snapshot(root, spec, args, source, includes, image) == key:
                 # Validate staged bytes before atomically publishing a fresh object.
                 with tempfile.TemporaryDirectory(
@@ -248,7 +257,7 @@ def run_cached_cl(
                     atomic_write_bytes(candidate, data)
                     if _snapshot(root, spec, args, source, includes, image) == key:
                         candidate.replace(output)
-                        replay = (saved["stdout"], saved["stderr"])
+                        replay = (saved.stdout, saved.stderr)
         except (OSError, ValueError, KeyError, TypeError, binascii.Error) as exc:
             # Corrupt cache record: fall through to a live compile, but say
             # so — a silent pass makes "cache hit, wrong object" and "cache
@@ -286,13 +295,13 @@ def run_cached_cl(
                 )
                 and _snapshot(root, spec, args, source, includes, image) == key
             ):
-                saved = {
-                    "object": base64.b64encode(data).decode(),
-                    "sha256": hashlib.sha256(data).hexdigest(),
-                    "stdout": stdout.getvalue(),
-                    "stderr": stderr.getvalue(),
-                }
-                cache.put(key, json.dumps(saved).encode())
+                saved_record = _CachedObjectRecord(
+                    object=base64.b64encode(data).decode(),
+                    sha256=hashlib.sha256(data).hexdigest(),
+                    stdout=stdout.getvalue(),
+                    stderr=stderr.getvalue(),
+                )
+                cache.put(key, msgspec.json.encode(saved_record))
         except (OSError, ValueError) as exc:
             # Cache write is best-effort (run succeeded), but a persistent
             # failure (read-only cache dir) silently disables caching for

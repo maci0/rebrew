@@ -758,7 +758,7 @@ class TestPackagingMetadata:
         without a source tree beside them.
         """
         from rebrew.binsync.serial import _DECLIB_MISSING_MSG
-        from rebrew.prove import _ANGR_MISSING_MSG
+        from rebrew.matching.prove import _ANGR_MISSING_MSG
 
         git = "@ git+https://github.com/maci0/rebrew.git'"
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

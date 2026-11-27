@@ -1,0 +1,542 @@
+"""match_batch.py — batch stub/near-miss discovery and source updates.
+
+Parses function rows and source bindings into the STUB / NEAR_MATCHING /
+SIZE_MISMATCH work lists and writes the resulting STATUS and CFLAGS back to
+the metadata.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+lazy import shutil
+lazy import tempfile
+lazy from collections.abc import Callable
+lazy from operator import attrgetter
+lazy from typing import Any
+
+from rebrew.limits import NO_DELTA
+lazy from rebrew.cli import console
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.metadata.bindings import (
+    has_skip_annotation,
+    min_valid_va_for,
+    read_source_bindings,
+    resolve_symbol,
+)
+lazy from rebrew.metadata.functions import canonical_status, get_entry, update_source_status
+lazy from rebrew.source.discovery import iter_sources
+lazy from rebrew.source.rename_ops import c_name_from_symbol
+lazy from rebrew.utils import atomic_write_text, read_source_text
+
+log = logging.getLogger(__name__)
+
+#: A smaller binding is usually a size-0/unknown row whose "function" would be
+#: a handful of placeholder bytes.  ``--min-size`` overrides it in either
+#: direction, so a genuine 5-9 byte function is reachable.
+_MIN_STUB_SIZE_FLOOR = 10
+
+
+@dataclass
+class StubInfo:
+    """Parsed binding fields for a STUB or near-miss NEAR_MATCHING function."""
+
+    filepath: Path
+    va: str
+    size: int
+    symbol: str
+    cflags: str
+    status: str
+    module: str
+    delta: int = NO_DELTA
+    #: Per-function TOOLCHAIN metadata (rebrew-functions.toml).  Batch paths
+    #: must resolve it like the single-function path, or a library compiled
+    #: with a different compiler is recompiled with the project default.
+    toolchain: str = ""
+
+
+def _parse_annotations(
+    filepath: Path,
+    *,
+    status_filter: set[str],
+    max_delta: int | None = None,
+    ignored: set[str] | None = None,
+    metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
+    min_size: int = 0,
+) -> list[StubInfo]:
+    """Parse annotations with configurable status and delta filters.
+
+    *metadata_dir* defaults to ``filepath.parent``; batch callers pass
+    ``cfg.metadata_dir`` so rows stored at the project's metadata root are
+    found.
+
+    *min_size* is the caller's explicit size floor (``--min-size``); when it
+    is 0 the default :data:`_MIN_STUB_SIZE_FLOOR` (10) applies.  A smaller
+    explicit floor therefore selects a genuine 5-9 byte function.
+    """
+    from rebrew.metadata.functions import GA_CEILING_PREFIX
+
+    if ignored is None:
+        ignored = set()
+    meta_dir = metadata_dir if metadata_dir is not None else filepath.parent
+
+    entries = read_source_bindings(filepath, metadata_dir=meta_dir)
+    if not entries:
+        return []
+
+    if has_skip_annotation(filepath, metadata_dir=meta_dir, annotations=entries):
+        return []
+
+    stubs: list[StubInfo] = []
+    for ann in entries:
+        parsed_status = ann.status
+        if parsed_status not in status_filter:
+            continue
+
+        # A GA_CEILING blocker means the GA exhausted its budget on a
+        # register-only (effective-match) delta that portable C cannot
+        # reproduce — further GA runs on it are wasted work.  Only `rebrew
+        # prove` can move it to PROVEN (prove's own selectors do not use
+        # this parse path, so ceiling entries stay prove-eligible).
+        if ann.blocker.startswith(GA_CEILING_PREFIX):
+            continue
+
+        if ann.va < min_va:
+            continue
+
+        symbol = resolve_symbol(ann, filepath)
+        # ``hook@@12`` is ignored as ``hook``. ``__foo`` is ``_foo``, not ``foo``.
+        bare = c_name_from_symbol(symbol)
+        if symbol in ignored or bare in ignored:
+            continue
+
+        if ann.size < (min_size if min_size > 0 else _MIN_STUB_SIZE_FLOOR):
+            continue
+
+        # Pass STUB and PROVEN directly.
+        # NEAR_MATCHING functions need delta checks:
+        if parsed_status == "NEAR_MATCHING":
+            d = ann.blocker_delta or NO_DELTA
+            if max_delta is not None and d > max_delta:
+                continue
+            delta = d
+        else:
+            delta = NO_DELTA
+
+        stubs.append(
+            StubInfo(
+                filepath=filepath,
+                va=f"0x{ann.va:x}",
+                size=ann.size,
+                symbol=symbol,
+                cflags=ann.cflags,
+                status=parsed_status,
+                module=ann.module,
+                delta=delta,
+                toolchain=getattr(ann, "toolchain", "") or "",
+            )
+        )
+    return stubs
+
+
+def parse_stub_info(
+    filepath: Path,
+    ignored: set[str] | None = None,
+    metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
+    min_size: int = 0,
+) -> list[StubInfo]:
+    """Extract STUB annotation fields from a reversed .c file."""
+    return _parse_annotations(
+        filepath,
+        status_filter={"STUB"},
+        ignored=ignored,
+        metadata_dir=metadata_dir,
+        min_va=min_va,
+        min_size=min_size,
+    )
+
+
+def parse_matching_info(
+    filepath: Path,
+    ignored: set[str] | None = None,
+    max_delta: int = 10,
+    metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
+    min_size: int = 0,
+) -> list[StubInfo]:
+    """Extract NEAR_MATCHING annotation fields with byte delta <= max_delta."""
+    return _parse_annotations(
+        filepath,
+        status_filter={"NEAR_MATCHING"},
+        max_delta=max_delta,
+        ignored=ignored,
+        metadata_dir=metadata_dir,
+        min_va=min_va,
+        min_size=min_size,
+    )
+
+
+def parse_matching_all(
+    filepath: Path,
+    ignored: set[str] | None = None,
+    metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
+    min_size: int = 0,
+) -> list[StubInfo]:
+    """Extract all NEAR_MATCHING annotations (no delta filter)."""
+    return _parse_annotations(
+        filepath,
+        status_filter={"NEAR_MATCHING"},
+        ignored=ignored,
+        metadata_dir=metadata_dir,
+        min_va=min_va,
+        min_size=min_size,
+    )
+
+
+def _collect_with_dedup(
+    reversed_dir: Path,
+    cfg: ProjectConfig | None,
+    parser_fn: Callable[[Path], list[StubInfo]],
+    sort_key: Callable[[StubInfo], Any],
+    warn_duplicates: bool = True,
+) -> list[StubInfo]:
+    """Collect StubInfo entries from source files, deduplicating by VA."""
+    from rebrew.utils import rel_display_path
+
+    results: list[StubInfo] = []
+    seen_vas: dict[str, str] = {}
+    dup_warnings: list[str] = []
+
+    if not reversed_dir.exists():
+        return results
+
+    for cfile in iter_sources(reversed_dir, cfg):
+        infos = parser_fn(cfile)
+        rel_name = rel_display_path(cfile, reversed_dir)
+        for info in infos:
+            va_str = info.va
+            if va_str in seen_vas:
+                if warn_duplicates:
+                    dup_warnings.append(
+                        f"  [yellow]warning:[/yellow] Duplicate VA {va_str} found in {rel_name} "
+                        f"(already in {seen_vas[va_str]}), skipping"
+                    )
+                continue
+            seen_vas[va_str] = rel_name
+            results.append(info)
+
+    for w in dup_warnings:
+        console.print(w)
+
+    results.sort(key=sort_key)
+    return results
+
+
+def _find_by_status(
+    reversed_dir: Path,
+    status_filter: set[str],
+    sort_key: Callable[[StubInfo], Any],
+    ignored: set[str] | None = None,
+    cfg: ProjectConfig | None = None,
+    warn_duplicates: bool = True,
+    min_size: int = 0,
+    max_delta: int | None = None,
+) -> list[StubInfo]:
+    """Collect every source in *reversed_dir* whose status is in *status_filter*."""
+    md = cfg.metadata_dir if cfg is not None else None
+    min_va = min_valid_va_for(cfg)
+
+    def parse(cfile: Path) -> list[StubInfo]:
+        return _parse_annotations(
+            cfile,
+            status_filter=status_filter,
+            max_delta=max_delta,
+            ignored=ignored,
+            metadata_dir=md,
+            min_va=min_va,
+            min_size=min_size,
+        )
+
+    return _collect_with_dedup(
+        reversed_dir,
+        cfg,
+        parse,
+        sort_key=sort_key,
+        warn_duplicates=warn_duplicates,
+    )
+
+
+def find_all_stubs(
+    reversed_dir: Path,
+    ignored: set[str] | None = None,
+    cfg: ProjectConfig | None = None,
+    warn_duplicates: bool = True,
+    min_size: int = 0,
+) -> list[StubInfo]:
+    """Find all STUB files in reversed/ and return sorted by size."""
+    return _find_by_status(
+        reversed_dir,
+        {"STUB"},
+        attrgetter("size"),
+        ignored=ignored,
+        cfg=cfg,
+        warn_duplicates=warn_duplicates,
+        min_size=min_size,
+    )
+
+
+def find_near_miss(
+    reversed_dir: Path,
+    ignored: set[str] | None = None,
+    max_delta: int = 10,
+    cfg: ProjectConfig | None = None,
+    warn_duplicates: bool = True,
+    min_size: int = 0,
+) -> list[StubInfo]:
+    """Find NEAR_MATCHING functions with small byte deltas, sorted by delta ascending."""
+    return _find_by_status(
+        reversed_dir,
+        {"NEAR_MATCHING"},
+        attrgetter("delta", "size"),
+        ignored=ignored,
+        cfg=cfg,
+        warn_duplicates=warn_duplicates,
+        min_size=min_size,
+        max_delta=max_delta,
+    )
+
+
+def find_all_matching(
+    reversed_dir: Path,
+    ignored: set[str] | None = None,
+    cfg: ProjectConfig | None = None,
+    warn_duplicates: bool = True,
+    min_size: int = 0,
+) -> list[StubInfo]:
+    """Find all NEAR_MATCHING functions, sorted by byte delta then size."""
+    return _find_by_status(
+        reversed_dir,
+        {"NEAR_MATCHING"},
+        attrgetter("delta", "size"),
+        ignored=ignored,
+        cfg=cfg,
+        warn_duplicates=warn_duplicates,
+        min_size=min_size,
+    )
+
+
+def find_size_mismatch(
+    reversed_dir: Path,
+    ignored: set[str] | None = None,
+    cfg: ProjectConfig | None = None,
+    warn_duplicates: bool = True,
+    min_size: int = 0,
+) -> list[StubInfo]:
+    """Find all SIZE_MISMATCH functions (bytes differ in length, not just
+    content), sorted by size.  ``--all`` matches STUBs and
+    ``--improve``/``--near-miss`` NEAR_MATCHING, so this set is what keeps
+    SIZE_MISMATCH functions reachable by a batch mode."""
+    return _find_by_status(
+        reversed_dir,
+        {"SIZE_MISMATCH"},
+        attrgetter("size"),
+        ignored=ignored,
+        cfg=cfg,
+        warn_duplicates=warn_duplicates,
+        min_size=min_size,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Source update helpers
+# ---------------------------------------------------------------------------
+
+
+def update_cflags_annotation(
+    filepath: Path,
+    new_cflags: str,
+    metadata_dir: Path | None = None,
+    *,
+    module: str | None = None,
+    va: int | None = None,
+) -> bool:
+    """Update the ``cflags`` for a function — writes to the metadata.
+
+    When *module* and *va* are provided they identify the function; otherwise
+    *filepath* must carry exactly one function binding, which supplies the
+    identity (single-function callers).  A multi-function file has no unique
+    binding, so the update returns False; callers must pass the matched
+    stub's identity.
+
+    Returns True if the metadata was updated, False when the file has no
+    unique function binding or the CFLAGS were already current (a successful
+    no-op).
+    """
+    from rebrew.metadata.functions import get_entry, update_field
+
+    if module is None or va is None:
+        try:
+            text, _ = read_source_text(filepath)
+        except OSError:
+            return False
+
+        from rebrew.metadata.bindings import read_source_bindings
+
+        candidates = [
+            a
+            for a in read_source_bindings(filepath, metadata_dir=metadata_dir)
+            if a.is_function
+            and (va is None or a.va == va)
+            and (module is None or a.module == module)
+        ]
+        if len(candidates) != 1:
+            return False
+        module, va = candidates[0].module, candidates[0].va
+
+    meta_root = metadata_dir or filepath.parent
+    entry = get_entry(meta_root, va, module=module)
+    if entry.get("cflags", "") == new_cflags:
+        return False
+
+    update_field(meta_root, va, "cflags", new_cflags, module=module, updated_by="match")
+    return True
+
+
+def update_stub_to_matched(
+    filepath: Path, best_src: str, stub: StubInfo, metadata_dir: Path | None = None
+) -> bool:
+    """Replace STUB source with matched source and update STATUS.
+
+    Validates the transformed content before writing, then uses
+    ``atomic_write_text`` with a .bak backup to prevent data loss.
+
+    STATUS promotion happens only after the body splice succeeded AND the
+    post-write parse validation passed — a failed splice or a validation
+    error must not claim RELOC on a file whose body is still a stub.  A
+    STATUS write that then fails restores the stub body and re-raises, so
+    the file and its status never disagree.
+
+    The ``.c.bak`` is written only when absent: a second splice (retry after
+    a STATUS promotion failure, or another stub in the same file) must not
+    overwrite the original stub backup with already-matched content.
+
+    Returns True when the splice landed, the file was rewritten, and STATUS
+    was promoted; False when the stub's VA does not bind to exactly one C
+    definition in the file (the file is left untouched).
+    """
+    bak_path = filepath.with_suffix(".c.bak")
+
+    original, encoding = read_source_text(filepath)
+
+    from rebrew.c_syntax.parser import function_definition_spans
+    from rebrew.metadata.bindings import source_bindings
+
+    candidates = [
+        a
+        for a in source_bindings(original, filepath, None, None, metadata_dir)
+        if a.va == int(stub.va, 16) and a.is_function
+    ]
+    if len(candidates) != 1:
+        return False
+    selected = candidates[0]
+    module, va_int = selected.module, selected.va
+    raw = original.encode("utf-8", errors="surrogateescape")
+    best_raw = best_src.encode("utf-8", errors="surrogateescape")
+    own = [s for s in function_definition_spans(original) if s[0] == selected.name]
+    replacements = function_definition_spans(best_src)
+    if len(own) != 1 or len(replacements) != 1:
+        return False
+    _, start, end = own[0]
+    _, best_start, best_end = replacements[0]
+    updated = (raw[:start] + best_raw[best_start:best_end] + raw[end:]).decode(
+        "utf-8", errors="surrogateescape"
+    )
+    spliced = True
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".c",
+        dir=filepath.parent,
+        delete_on_close=False,
+        encoding=encoding,
+    ) as tmp:
+        scratch = Path(tmp.name)
+        try:
+            tmp.write(updated)
+            tmp.close()
+            annos = source_bindings(updated, filepath, None, None, metadata_dir)
+            if not annos:
+                raise RuntimeError(
+                    f"Post-write validation failed: {filepath} would not re-parse after stub update"
+                )
+        finally:
+            # The scratch copy sits in the reversed dir, so a leftover
+            # tmp*.c is discovered by iter_sources as a real source on the
+            # next run; one per promoted function would accumulate there.
+            scratch.unlink(missing_ok=True)
+
+    # Fail closed: if the stub's VA does not bind to exactly one C definition
+    # (no source row, or a definition the binding parser does not recognise),
+    # do NOT write, backup, promote, or claim a match — the .c still holds a
+    # stub.
+    if not (spliced and module is not None and va_int is not None):
+        return False
+
+    # Promote only when the splice actually landed, the file re-parses, AND
+    # the write succeeded — otherwise the metadata would claim RELOC on an
+    # unchanged stub body (a failed atomic_write_text — disk full, read-only
+    # dir — must not leave rebrew-functions.toml saying RELOC while the .c
+    # still holds the stub).  The promotion therefore runs AFTER the write.
+
+    if not bak_path.exists():
+        shutil.copy2(filepath, bak_path)
+    atomic_write_text(filepath, updated, encoding=encoding)
+
+    meta_root = metadata_dir or filepath.parent
+    promoted = False
+    try:
+        promoted = update_source_status(meta_root, "RELOC", module, va_int, updated_by="match")
+    except (OSError, ValueError) as exc:
+        # The .c now holds a matched body under a STUB status.  The next
+        # test/verify would demote it back and blame the source, so put the
+        # stub back: the pair (body, STATUS) moves together or not at all.
+        atomic_write_text(filepath, original, encoding=encoding)
+        raise RuntimeError(
+            f"promoted {filepath} to RELOC but the STATUS write failed ({exc}); "
+            f"the source was restored to its stub — fix the metadata store "
+            f"({meta_root}) and re-run"
+        ) from exc
+    if not promoted:
+        # False means either "already RELOC" (a re-run: nothing to write) or
+        # "the promotion policy refused" (a parked SKIP, a documented STUB).
+        # Only the second leaves a matched body under a status the next
+        # test/verify would demote, so only that one restores the stub.
+        stored = canonical_status(str(get_entry(meta_root, va_int, module).get("status", "")))
+        if stored == "RELOC":
+            from rebrew.utils import rel_display_path
+
+            display = rel_display_path(filepath, filepath.parent.parent)
+            console.print(
+                f"  [bold green]Updated[/] {display}: already RELOC (backup: {bak_path.name})"
+            )
+            return True
+        atomic_write_text(filepath, original, encoding=encoding)
+        raise RuntimeError(
+            f"{filepath} now compiles to a match, but the promotion policy refused "
+            f"RELOC in {meta_root} (the function is parked or classified as a "
+            f"documented STUB); the source was restored to its stub — unpark it "
+            f"or record STATUS by hand, then re-run"
+        )
+
+    from rebrew.utils import rel_display_path
+
+    display = rel_display_path(filepath, filepath.parent.parent)
+    console.print(f"  [bold green]Updated[/] {display}: STUB → RELOC (backup: {bak_path.name})")
+    return True
+
+
+# ---------------------------------------------------------------------------

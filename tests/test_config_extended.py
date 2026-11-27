@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from rebrew.config import (
+    ConfigWarning,
     _as_str,
     _as_table,
     _parse_int_list,
@@ -42,9 +43,12 @@ class TestParseHelpers:
 
     def test_parse_source_ext_defaults(self) -> None:
         assert _parse_source_ext(None) == ".c"
-        assert _parse_source_ext("") == ".c"
-        assert _parse_source_ext(".") == ".c"
-        assert _parse_source_ext("cpp") == ".cpp"
+        with pytest.warns(ConfigWarning, match="Expected non-empty source_ext"):
+            assert _parse_source_ext("") == ".c"
+        with pytest.warns(ConfigWarning, match="Expected non-empty source_ext"):
+            assert _parse_source_ext(".") == ".c"
+        with pytest.warns(ConfigWarning, match="missing a leading dot"):
+            assert _parse_source_ext("cpp") == ".cpp"
         assert _parse_source_ext(".c") == ".c"
 
     def test_parse_source_ext_invalid_warns(self) -> None:

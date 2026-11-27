@@ -2413,7 +2413,7 @@ class TestCompareLogicHashMembership:
         cache identity actually depends on is the stat fingerprint of every
         source file in the package, so that is what is checked here.
         """
-        import rebrew.coff_reloc
+        import rebrew.compare.coff_reloc
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
         import rebrew.matcher.parsers
@@ -2424,13 +2424,13 @@ class TestCompareLogicHashMembership:
             rebrew.metadata.bindings.source_bindings.__code__.co_filename,
             rebrew.compiler.compile.classify_compare_result.__code__.co_filename,
             rebrew.compiler.compile._extract_and_compare.__code__.co_filename,
-            rebrew.coff_reloc.smart_reloc_compare.__code__.co_filename,
+            rebrew.compare.coff_reloc.smart_reloc_compare.__code__.co_filename,
             rebrew.matcher.parsers.parse_obj_symbol_and_relocs.__code__.co_filename,
             rebrew.formats.binary_loader.extract_raw_bytes.__code__.co_filename,
         }
-        # Sanity: 5 distinct files (classify_compare_result and
-        # _extract_and_compare both live in compiler/compile.py), all under src/.
-        assert len(names) == 5
+        # Sanity: 6 distinct files (classify_compare_result and
+        # _extract_and_compare live in compiler/compile.py and compiler/result.py), all under src/.
+        assert len(names) == 6
         assert all("rebrew" in n for n in names)
         covered = {entry[0] for entry in _package_source_fingerprint()}
         missing = {str(Path(n).resolve()) for n in names} - covered

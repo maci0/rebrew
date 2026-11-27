@@ -13,7 +13,7 @@ lazy from typing import Any
 lazy import tomlkit
 
 from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FIELDS
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     find_function_name_in_node,
     function_definition_bounded,
     mask_msvc_syntax,

@@ -468,7 +468,7 @@ class TestCliComponent:
         ctx = self._context(app)
         component = CliComponent(
             name="lib",
-            module="rebrew.library",
+            module="rebrew.library.cli",
             help="lib",
             panel=Panel.PROJECT_SETUP,
             is_group=True,

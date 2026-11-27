@@ -3,7 +3,7 @@
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     comment_nodes,
     declares_function,
     find_function_name_in_node,

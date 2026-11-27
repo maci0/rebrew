@@ -9,7 +9,7 @@ lazy import os
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     array_type_shape,
     declares_function,
     find_extern_variables,
@@ -18,6 +18,7 @@ lazy from rebrew.c_parser import (
     replace_function_prototype,
     type_from_declaration,
 )
+lazy from rebrew.c_syntax.types import type_size
 lazy from rebrew.compiler.cache import scan_include_closure
 lazy from rebrew.compiler.compile import effective_compile_flags, extract_include_dirs
 lazy from rebrew.compiler.overrides import resolve_compile_overrides_cached
@@ -37,7 +38,6 @@ lazy from rebrew.source.c_rename import (
 )
 lazy from rebrew.source.rename_ops import FileChange, RenamePlan, SourceEdit, apply_rename_plan
 lazy from rebrew.source.selection import collect_target_sources
-lazy from rebrew.types import type_size
 lazy from rebrew.utils import detect_source_encoding, read_source_text, source_newline
 
 # Incomplete contexts named in a reconcile refusal; the rest are counted.

@@ -4,8 +4,8 @@ from typing import Any
 
 import pytest
 
-from rebrew.c_parser import function_source_error
-from rebrew.llm_seed import MAX_SEED_CHARS, valid_c_source
+from rebrew.c_syntax.parser import function_source_error
+from rebrew.matching.llm_seed import MAX_SEED_CHARS, valid_c_source
 
 
 def _large_body() -> str:
@@ -38,7 +38,7 @@ class TestCompleteFunctionValidation:
     def test_oversized_seed_is_rejected_before_the_parser(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import c_parser
+        from rebrew.c_syntax import parser as c_parser
 
         def _unexpected(*args: Any, **kwargs: Any) -> None:
             raise AssertionError("oversized population seed reached the parser")

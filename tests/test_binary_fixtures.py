@@ -14,9 +14,9 @@ from pathlib import Path
 
 import lief
 
-from rebrew.coff_reloc import smart_reloc_compare
+from rebrew.compare.coff_reloc import smart_reloc_compare
 from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
-from rebrew.gen_flirt_pat import (
+from rebrew.library.gen_flirt_pat import (
     _MAX_RELOC_SPAN,
     _reloc_span,
     bytes_to_pat_line,
@@ -251,7 +251,7 @@ class TestThumbSymbolStart:
     """
 
     def test_code_starts_at_the_even_address(self) -> None:
-        from rebrew.gen_flirt_pat import parse_elf_obj
+        from rebrew.library.gen_flirt_pat import parse_elf_obj
 
         fixture = Path(__file__).parent / "fixtures" / "thumb_arm.o"
         functions = list(parse_elf_obj(fixture.read_bytes()))

@@ -1214,7 +1214,7 @@ def iat_slot_vas(binary_path: Path | str) -> frozenset[int]:
     functions, and reloc masking must know their addresses.  Returns
     ``frozenset()`` on any failure (non-PE, unparsable, absent file).
 
-    Shared by ``rebrew.coff_reloc.build_iat_region`` (reloc masking) and the
+    Shared by ``rebrew.compare.coff_reloc.build_iat_region`` (reloc masking) and the
     catalog registry (function filtering) — one LIEF scan, two consumers.
 
     The memo hands back its stored ``frozenset`` unshared, so the per-call
@@ -1223,7 +1223,7 @@ def iat_slot_vas(binary_path: Path | str) -> frozenset[int]:
     Memoized per ``(resolved path, mtime_ns, change time, size, inode)``
     (bounded dict + lock, mirroring ``_load_binary_cache``):
     ``compile_and_compare`` calls this once per function (via
-    :func:`rebrew.coff_reloc.build_iat_region`) even on compile-cache hits, so
+    :func:`rebrew.compare.coff_reloc.build_iat_region`) even on compile-cache hits, so
     a full verify/test batch re-parsed the *same PE* N times (0.05-0.3s each).
     A rebuild at the same path invalidates via any changed stat field.
     """

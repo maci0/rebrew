@@ -10,8 +10,8 @@ lazy import struct
 lazy from collections.abc import Sequence
 lazy from pathlib import Path
 
+lazy from rebrew.binary.sections import has_back_jumps, trim_trailing_padding
 lazy from rebrew.config import ProjectConfig, arch_byte_order, arch_pointer_size
-lazy from rebrew.sections import has_back_jumps, trim_trailing_padding
 
 logger = logging.getLogger(__name__)
 

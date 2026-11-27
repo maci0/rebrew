@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.strict_relocation import StrictRelocationError, strict_pe_relocation
+from rebrew.compare.strict_relocation import StrictRelocationError, strict_pe_relocation
 
 FIXTURE = Path(__file__).parent / "fixtures" / "coverage"
 

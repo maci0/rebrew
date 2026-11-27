@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 lazy import bisect
 lazy from typing import Any
 
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     declares_function,
     find_function_name_in_node,
     node_text,
@@ -209,7 +209,7 @@ def _collect_spans(node: Any, raw: bytes, *, inside_pp: bool, acc: list[SourceSp
 
 def mask_for_parse(raw: bytes) -> bytes:
     """*raw* with MSVC extensions blanked at unchanged byte offsets via ``c_parser``."""
-    from rebrew.c_parser import mask_msvc_syntax
+    from rebrew.c_syntax.parser import mask_msvc_syntax
 
     text = raw.decode("utf-8", errors="surrogateescape")
     return mask_msvc_syntax(text).encode("utf-8", errors="surrogateescape")

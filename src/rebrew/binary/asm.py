@@ -1,0 +1,2379 @@
+"""asm.py – Disassemble and export function bytes from the target binary.
+
+Three output formats controlled by ``--format``:
+
+* ``hex``  (default) — capstone disassembly with hex dump and optional call
+  annotation.  Suitable for quick interactive triage.
+
+* ``nasm`` — NASM-reassembleable source with round-trip verification.
+  Round-trip guarantee: ``nasm -f bin output.asm`` → byte-identical to original.
+  Instructions NASM encodes differently are replaced with ``db`` directives.
+
+* ``cfg`` — the function's basic-block control-flow graph: absolute block
+  VAs, byte spans, instruction counts, and edges flagged as back edges.
+  The segmentation is ``rebrew.binary.cfg_ged.build_cfg_view``; the graph stays in
+  one bounded payload so a reader (or a renderer) gets blocks and edges for
+  the function without a second block segmenter.
+
+``--inline-c`` wraps the NASM output as an exact-bytes naked C skeleton
+(``__asm _emit`` on MSVC / ``__asm__(".byte ...")`` on GCC — raw bytes, no
+assembler-encoding risk) behind the ``REBREW_ALLOW_NAKED`` fence, with a
+plain-C fallback for the comparison build. The command records the file's
+identity and size in the function store, so ``rebrew test`` can compare it
+(iterate with ``--cflags /DREBREW_ALLOW_NAKED``; round-trip uses the naked
+branch via ``rebrew build round-trip --allow-naked``).
+
+Usage:
+    rebrew binary asm show 0x10003ca0 --size 77
+    rebrew binary asm show 0x10003ca0 --format cfg
+    rebrew binary asm show 0x10003ca0 --size 77 --format nasm --output func.asm
+    rebrew binary asm show 0x10003ca0 --size 77 --format nasm --inline-c --output func.c
+    rebrew binary asm batch --output output/asm/
+"""
+
+from __future__ import annotations
+
+import functools
+import logging
+import re
+from pathlib import Path
+from typing import Any, Literal, NamedTuple
+lazy import bisect
+lazy import json
+lazy import shutil
+lazy import subprocess
+lazy import tempfile
+
+import typer
+lazy from rich.markup import escape
+lazy from rich.text import Text
+
+from rebrew.cli import (
+    EXIT_ERROR,
+    EXIT_MISMATCH,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
+lazy from rebrew.binary.analysis import CapstoneUnavailable, direct_call_target, direct_jump_target
+lazy from rebrew.binary.cfg_ged import ImageReader
+lazy from rebrew.catalog import load_function_structure
+lazy from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
+lazy from rebrew.metadata.bindings import read_source_bindings
+lazy from rebrew.source.discovery import iter_sources
+lazy from rebrew.source.rename_ops import c_name_from_symbol
+lazy from rebrew.status_style import DISPLAY_STATUSES
+lazy from rebrew.utils import (
+    atomic_write_text,
+    parse_int_literal,
+    run_process_group,
+    untrusted_ident,
+)
+
+logger = logging.getLogger(__name__)
+
+# Pre-compiled regex for sanitizing NASM labels (used in disassemble_to_nasm).
+_NASM_LABEL_RE = re.compile(r"[^a-zA-Z0-9_]")
+
+#: Version of the listing text the ``rebrew.disassemble`` and
+#: ``rebrew.disassemble_bytes`` ops answer (``nasm``, ``asm``, ``hex``).  The
+#: backend keeps a cached listing while the renderer the op reports
+#: (:func:`listing_renderer`) is unchanged, so any change to that text changes
+#: this.  ``tests/test_ops.py`` ``TestListingRenderer`` hashes the text of its
+#: fixtures beside it.
+LISTING_RENDERER = "1"
+
+#: Compiler families that spell the naked-function attribute
+#: ``__attribute__((naked))``; MSVC-dialect compilers use ``__declspec(naked)``.
+_GCC_NAKED_FAMILIES = frozenset({"gcc", "clang", "mingw"})
+
+# Per-instruction hint patterns (_hint_for runs for every disassembled insn).
+_ESP_HINT_OPS = frozenset({"lea", "cmp", "add", "sub", "mov", "push", "and", "or", "xor", "test"})
+_ESP_REF_RE = re.compile(r"\[esp")
+_IAT_ABS_RE = re.compile(r"dword ptr \[0x[0-9a-fA-F]+\]")
+# `mov reg, [esp+X]` — the load half of the IAT-forwarder push pair.
+_ESP_LOAD_RE = re.compile(r"^[a-z0-9]+, dword ptr \[esp")
+# `push dword ptr [esp+X]` — the compact forwarding form: the argument is
+# pushed straight from the incoming stack slot, no register load needed.
+_ESP_PUSH_RE = re.compile(r"^dword ptr \[esp")
+# `push [esp+X]` without an explicit size — capstone renders the bare form
+# for some encodings of the same stack-slot push.
+_BARE_ESP_PUSH_RE = re.compile(r"^\[esp")
+
+
+def _count_forwarded_pushes(run: list[tuple[str, str]]) -> int:
+    """Count stack-slot argument pushes in an IAT-call prologue *run*.
+
+    Both forwarding forms count: ``mov reg,[esp+X]; push reg`` (loaded then
+    pushed) and ``push [esp+X]`` (pushed straight from the incoming stack
+    slot).  A plain ``push imm`` / ``push reg`` argument call pushes no
+    stack slots and scores 0.
+    """
+    loaded: set[str] = set()
+    pushes = 0
+    for mn, op in run:
+        if mn == "push":
+            arg = op.strip()
+            if arg in loaded or _ESP_PUSH_RE.search(arg) or _BARE_ESP_PUSH_RE.search(arg):
+                pushes += 1
+        elif _ESP_LOAD_RE.search(op):
+            loaded.add(op.split(",")[0].strip())
+    return pushes
+
+
+_JMP_TABLE_RE = re.compile(
+    r"(?:dword ptr \[[a-z0-9]+\s*\*\s*4"
+    r"|dword ptr \[[a-z0-9]+\s*\+\s*[a-z0-9]+\s*\*\s*4"
+    r"|qword ptr \[[a-z0-9]+\s*\*\s*8"
+    r"|qword ptr \[[a-z0-9]+\s*\+\s*[a-z0-9]+\s*\*\s*8"
+    r"|word ptr \[[a-z0-9]+\s*\+\s*0x)"
+)
+_BYTE_TABLE_FETCH_RE = re.compile(r"byte ptr \[[a-z0-9]+\s*\+\s*0x")
+
+# ---------------------------------------------------------------------------
+# Shared disassembly helper
+# ---------------------------------------------------------------------------
+
+
+def disasm_bytes(code_bytes: bytes, va: int, cfg: ProjectConfig | None = None) -> str:
+    """Disassemble *code_bytes* starting at *va* and return a formatted string.
+
+    Each line: ``  {address:08X}  {hex_bytes:20s}  {mnemonic:6s} {operands}``
+
+    Uses ``cfg.capstone_arch``/``cfg.capstone_mode`` when *cfg* is provided;
+    falls back to 32-bit x86.
+
+    Shared by any module that needs a quick human-readable disassembly
+    representation without the full hex-mode output of :func:`_run_hex_mode`.
+    """
+    if cfg is not None and getattr(cfg, "arch", "") == "xtensa":
+        from rebrew.compiler.xtensa import disassemble_xtensa
+
+        return "\n".join(
+            f"  {i.address:08X}  {i.bytes.hex():20s}  {i.mnemonic:6s} {i.op_str}"
+            for i in disassemble_xtensa(cfg, code_bytes, va)
+        )
+
+    try:
+        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
+    except ImportError as exc:
+        raise CapstoneUnavailable("capstone not installed") from exc
+
+    arch = cfg.capstone_arch if cfg is not None else CS_ARCH_X86
+    mode = cfg.capstone_mode if cfg is not None else CS_MODE_32
+    md = Cs(arch, mode)
+    lines = []
+    for insn in md.disasm(code_bytes, va):
+        hex_bytes = insn.bytes.hex()
+        lines.append(f"  {insn.address:08X}  {hex_bytes:20s}  {insn.mnemonic:6s} {insn.op_str}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Hex / capstone mode helpers
+# ---------------------------------------------------------------------------
+
+
+def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
+    """Build a VA → (name, status) lookup from Ghidra JSON and existing .c files."""
+    lookup: dict[int, tuple[str, str]] = {}
+
+    ghidra_json = inventory_path_for(cfg.reversed_dir, cfg)
+    ghidra_funcs = load_function_structure(ghidra_json)
+    for func in ghidra_funcs:
+        if func.name:
+            lookup[func.va] = (func.name, "")
+
+    src_dir = Path(cfg.reversed_dir)
+    if src_dir.is_dir():
+        metadata_dir = cfg.metadata_dir
+        target = target_module(cfg)
+        project_root = getattr(cfg, "root", None)
+        from rebrew.metadata.functions import load_metadata
+
+        function_entries = load_metadata(metadata_dir, deepcopy=False)
+        for cfile in iter_sources(src_dir, cfg):
+            try:
+                entries = read_source_bindings(
+                    cfile,
+                    target_name=target,
+                    metadata_dir=metadata_dir,
+                    project_root=project_root,
+                    function_entries=function_entries,
+                )
+                for entry in entries:
+                    # The C name wins. A missing name uses the symbol:
+                    # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``.
+                    display = entry.name or c_name_from_symbol(entry.symbol) or cfile.stem
+                    lookup[entry.va] = (display, entry.status)
+            except OSError, KeyError, ValueError, TypeError:
+                # The file drops out of the VA map, so calls to it resolve to
+                # the raw Ghidra name with nothing saying the source failed.
+                logger.debug("VA map: skipping %s", cfile, exc_info=True)
+                continue
+
+    return lookup
+
+
+def _build_import_map(bin_path: Path) -> dict[int, str]:
+    """IAT slot VA -> import name, best-effort."""
+    try:
+        from rebrew.formats.import_table import parse_import_table
+
+        return parse_import_table(bin_path)
+    except Exception:  # recon aid, never block disasm
+        logger.debug("import map build failed for %s", bin_path, exc_info=True)
+        return {}
+
+
+def _build_string_map(bin_path: Path) -> dict[int, str]:
+    """String start VA -> decoded text, best-effort (ASCII and UTF-16)."""
+    try:
+        from rebrew.binary.analysis import iter_strings
+        from rebrew.formats.binary_loader import load_binary
+
+        info = load_binary(bin_path)
+        strings = iter_strings(info, min_len=4)
+        if not strings:
+            # Binaries without data sections (synthetic test PEs) keep
+            # strings inside .text — scan it as a fallback.
+            strings = iter_strings(info, min_len=4, section_names=[".text"])
+        return {s.va: s.text for s in strings}
+    except Exception:
+        logger.debug("string map build failed for %s", bin_path, exc_info=True)
+        return {}
+
+
+def _hint_for(insns: list[Any], i: int) -> str | None:
+    """Return a decompiler-relevant annotation for ``insns[i]``, or None.
+
+    These are the codegen idioms that repeatedly cost time during manual
+    decompilation — recognizing them up front avoids trial-and-error C.
+    """
+    insn = insns[i]
+    m = insn.mnemonic
+    ops = insn.op_str
+
+    # EH-ctor prolog: `mov eax, imm32; call <helper>` — the compiler-
+    # generated __eh_ctor registration pattern (58 functions in the mspaint
+    # corpus).  Not C-reproducible: skip or document, don't decompile.
+    if m == "call" and i >= 1:
+        prev = insns[i - 1]
+        if (
+            prev.mnemonic == "mov"
+            and prev.op_str.startswith("eax, ")
+            and prev.op_str.split(",")[1].strip().startswith("0x")
+        ):
+            return (
+                "EH-ctor prolog (compiler-generated __eh_ctor) — not C-reproducible, skip/document"
+            )
+
+    # `lea reg, [esp+X]` / `cmp [esp+X], imm` in naked asm: MASM folds these
+    # into short/disp8 encodings that do NOT match MSVC's `8d 44 24 XX`
+    # disp8 forms — force the bytes with _emit (a recurring naked-asm
+    # mismatch in the mspaint corpus).
+    if m in _ESP_HINT_OPS and _ESP_REF_RE.search(ops):
+        return (
+            "esp-relative disp8 in naked asm — MASM folds to a short form; "
+            "force the exact encoding with _emit if the bytes differ"
+        )
+
+    # Post-decrement loop counter: mov r1,r2 / dec r2 / test r1 / jcc
+    if m in ("je", "jne", "jg", "jle", "ja", "jae", "jb", "jbe") and i >= 3:
+        t = insns[i - 1]
+        d = insns[i - 2]
+        mv = insns[i - 3]
+        if t.mnemonic == "test" and d.mnemonic == "dec" and mv.mnemonic == "mov":
+            t_op = t.op_str.split(",")[0].strip()
+            d_op = d.op_str.split(",")[0].strip()
+            mv_dst = mv.op_str.split(",")[0].strip()
+            mv_src = mv.op_str.split(",")[1].strip()
+            if t_op == mv_dst and d_op == mv_src:
+                return "post-decrement counter — write while(x-- > 0)"
+
+    # SEH prologue: push ebp-frame stuff + push -1 + push handler... mov reg, fs:[0]
+    if m == "mov" and "fs:[0]" in ops and i >= 3:
+        for j in range(max(0, i - 6), i):
+            if insns[j].mnemonic == "push" and insns[j].op_str == "-1":
+                return "SEH prologue (__try/__except) — compiler-generated, not C-reproducible"
+
+    # CRT word-at-a-time strlen/strcpy magic constant
+    if m == "mov" and "0x7efefeff" in ops:
+        return "CRT strlen/strcpy word-at-a-time — asm implementation"
+
+    # movsx = char promoted to int when passed to a function
+    if m == "movsx":
+        return "char promoted to int — callee param is int, not char"
+
+    # Direct memory word increment — requires a declared global symbol in C
+    if m == "inc" and "word ptr" in ops:
+        return "word-global inc — C needs a declared global symbol (cast-deref won't match)"
+
+    # IAT forwarding stub: an indirect call through an IAT slot preceded by
+    # several `mov reg,[esp+X]; push reg` pairs is an N-arg forwarder to an
+    # imported (usually stdcall) function.  The forwarder's own convention
+    # is cdecl (plain ret) while the callee cleans — declare a __stdcall
+    # function pointer for the call or MSVC emits a spurious `add esp,N`.
+    if m == "call" and _IAT_ABS_RE.search(ops):
+        # An IAT forwarder pushes ARGUMENTS RELOADED FROM THE STACK
+        # (`mov reg,[esp+X]; push reg` or `push [esp+X]` — including final
+        # bare pushes of registers loaded earlier).  A plain `push imm` /
+        # `push reg` argument call is not a forwarder and must not be labeled.
+        run: list[tuple[str, str]] = []
+        j = i - 1
+        while j >= 0 and j >= i - 16 and insns[j].mnemonic in ("mov", "push"):
+            run.append((insns[j].mnemonic, insns[j].op_str))
+            j -= 1
+        run.reverse()  # forward order
+        push_count = _count_forwarded_pushes(run)
+        if push_count >= 1:
+            return (
+                f"{push_count}-arg IAT forwarder — declare a __stdcall function "
+                "pointer for the call (the callee cleans; the forwarder is cdecl)"
+            )
+
+    # Jump-table switch dispatch: jmp dword ptr [reg*4 + 0x...] or
+    # [base + index*4], x86-64 jmp qword ptr [reg*8 + 0x...] or
+    # [base + index*8], or 16-bit jmp word ptr [reg + 0x...] (no SIB byte;
+    # a bare [reg] is not a table). Capstone prints the base first.
+    if m == "jmp" and _JMP_TABLE_RE.search(ops):
+        # Two-level (byte-compressed) form: the index is fetched from a
+        # byte table first (mov dl, byte ptr [reg + 0x...]) — MSVC uses
+        # this for sparse switches with shared handlers, and a plain C
+        # switch often does NOT reproduce it (the compiler may pick a
+        # direct table instead).  Warn so the user doesn't chase the
+        # lowering difference after writing the obvious switch.
+        for j in range(max(0, i - 5), i):
+            prev = insns[j]
+            if prev.mnemonic == "mov" and _BYTE_TABLE_FETCH_RE.search(prev.op_str):
+                return (
+                    "byte-compressed switch (two-level dispatch) — decode with "
+                    "`rebrew binary switches <va>`; a plain C switch may not reproduce this"
+                )
+        return "switch dispatch (jump table) — decode the case table with `rebrew binary switches <va>`"
+
+    # `cmp reg,1; sbb reg,reg` (+ optional inc) — MSVC's equality-boolean
+    # lowering (x == 0 → -1/0, or with inc → 0/1 for `!x`).  Plain C
+    # compiles these to a different epilogue under MSVC5 (neg/sbb/neg/dec
+    # or setcc) — a naked-asm function needs the exact bytes.
+    if m == "sbb" and i >= 1:
+        prev = insns[i - 1]
+        if prev.mnemonic == "cmp" and prev.op_str.split(",")[-1].strip() in ("1", "0x1"):
+            return (
+                "equality-boolean idiom (cmp 1/sbb) — `!x`/`x==0` lowering; "
+                "plain C may compile to a different epilogue, write it in naked asm"
+            )
+
+    return None
+
+
+def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
+    """Return the decomp-relevant codegen pattern for the function at *va*,
+    or ``None`` for plain code.  Function-level counterpart to ``_hint_for``:
+    the recognizable categories that decide skip-vs-decompile up front.
+    Best-effort (any disassembly failure → None).  x86-32 only."""
+    if getattr(cfg, "arch", "") != "x86_32" or not cfg.target_binary.exists():
+        return None
+    try:
+        from rebrew.formats.binary_loader import extract_raw_bytes
+
+        raw = extract_raw_bytes(cfg.target_binary, va, 64)
+        if not raw:
+            return None
+        import capstone
+
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        insns = list(md.disasm(raw, va))
+        if not insns:
+            return None
+
+        i0 = insns[0]
+        # Import thunk: jmp [IAT] (1-2 insns total).  A scaled index means the
+        # jmp is a jump-table dispatch (`jmp dword ptr [eax*4 + 0x...]`), which
+        # the switch check below classifies, not linker glue.
+        if i0.mnemonic == "jmp" and "[" in i0.op_str and "0x" in i0.op_str and "*" not in i0.op_str:
+            return "import thunk (jmp [IAT]) — linker glue, not a decomp target"
+        # EH-ctor: mov eax, imm32; call helper.
+        if (
+            len(insns) >= 2
+            and i0.mnemonic == "mov"
+            and i0.op_str.startswith("eax, ")
+            and i0.op_str.split(",")[1].strip().startswith("0x")
+            and insns[1].mnemonic == "call"
+        ):
+            return "EH-ctor prolog (__eh_ctor) — not C-reproducible"
+        # Switch dispatch anywhere in the window.
+        if any(x.mnemonic == "jmp" and _JMP_TABLE_RE.search(x.op_str) for x in insns):
+            return "switch dispatch (jump table)"
+        # IAT forwarder: stack-slot pushes + call [IAT] (+ ret after).  A
+        # plain `push imm`/`push reg` argument call is not a forwarder and
+        # must not be labeled.  Walk once from the end so the call index is
+        # free — ``list.index`` after ``next`` rescanned the same window.
+        ci = next((i for i in range(len(insns) - 1, -1, -1) if insns[i].mnemonic == "call"), None)
+        if ci is not None and _IAT_ABS_RE.search(insns[ci].op_str):
+            run: list[tuple[str, str]] = []
+            j = ci - 1
+            while j >= 0 and j >= ci - 12 and insns[j].mnemonic in ("mov", "push"):
+                run.append((insns[j].mnemonic, insns[j].op_str))
+                j -= 1
+            run.reverse()  # forward order
+            pushes = _count_forwarded_pushes(run)
+            if pushes >= 1:
+                return f"IAT forwarder ({pushes}-arg) — stdcall callee; the forwarder is cdecl"
+    except Exception:  # best-effort pattern tag
+        logger.debug("pattern scan failed at 0x%08x", va, exc_info=True)
+        return None
+    return None
+
+
+def ret_pop_count(op_str: str) -> int:
+    """The immediate of a ``ret N`` operand as a byte-pop count (0 on garbage).
+
+    Capstone renders the operand in hex with a ``0x`` prefix (or plain
+    decimal for small values); a bare ``ret`` yields 0.
+    """
+    try:
+        n = parse_int_literal(op_str)
+    except ValueError:
+        return 0
+    return max(0, n)
+
+
+def calling_convention(
+    insns: list[Any], *, end_va: int | None = None, next_va: int | None = None
+) -> str:
+    """Infer the calling convention from a disassembled function.
+
+    Rules (x86/32, MSVC-flavoured):
+    - ends in a plain ``ret`` → cdecl (caller cleans).
+    - ends in ``ret N`` → stdcall or thiscall; if ECX is used as a pointer
+      (``[ecx`` memory access) or saved to a callee-saved register early
+      (``mov esi, ecx``), before ECX is locally defined or clobbered,
+      → thiscall, else stdcall.
+    - ends in an unconditional ``jmp`` → tail call / thunk; ``mov ecx, imm``
+      opening → thiscall ctor thunk; ``mov ecx, [ebp-X]`` opening → EH-guard
+      thunk; otherwise a generic tail-call thunk.
+    - no terminator found → unknown.
+
+    The window may bleed past the function into the next one.  Pass
+    *next_va* (the next function's start, when known) to trim the bleed:
+    the LAST ret at or before *next_va* ends the function; rets past it
+    belong to the neighbor.  Pass *end_va* (the function's known end
+    address, exclusive) to drop anything at/after it first.  Without
+    either, the last ret in the whole window is used.
+
+    This is the per-function calling-convention answer that every manual
+    decompilation pass re-derives from the epilogue — surfaced here so the
+    C signature (``__stdcall`` vs ``__fastcall``/``__thiscall`` emulation vs
+    naked asm) is known before writing a single line.
+    """
+    if not insns:
+        return "unknown"
+    if end_va is not None:
+        insns = [i for i in insns if i.address < end_va]
+    if next_va is not None:
+        insns = [i for i in insns if i.address < next_va]
+    if not insns:
+        return "unknown"
+    # A dereference of a locally computed ECX (e.g. lea ecx,[edx-4]) is
+    # not evidence of an incoming this pointer. Check reads before writes:
+    # mov ecx,[ecx+4] still dereferences the incoming pointer. Once it has
+    # been saved or dereferenced, subsequent clobbers cannot erase that fact.
+    ecx_as_this = False
+    ecx_registers = {"ecx", "cx", "cl", "ch"}
+    for insn in insns[:10]:
+        operands = [op.strip() for op in insn.op_str.split(",")]
+        if "[ecx" in insn.op_str or (
+            insn.mnemonic == "mov"
+            and len(operands) == 2
+            and operands[1] == "ecx"
+            and operands[0] in ("esi", "edi", "ebx")
+        ):
+            ecx_as_this = True
+            break
+        if (
+            insn.mnemonic == "call"
+            or (operands[0] in ecx_registers and insn.mnemonic not in ("cmp", "test", "push"))
+            or (insn.mnemonic == "xchg" and any(op in ecx_registers for op in operands))
+        ):
+            break
+    # The extraction can run past the function's end into the next one.  A
+    # function ends with its LAST ret inside its own bytes (early returns
+    # precede it); if there is no ret at all it is a tail-jmp thunk (which
+    # has no internal branches).  Use the LAST jmp too: the extent-padded
+    # window can bleed into the next function, and a jmp-table dispatcher
+    # followed by the next function's code yields several jmps with no ret —
+    # the terminal one is the function's true end (matching the rets[-1]
+    # logic above).
+    rets = [insn for insn in insns if insn.mnemonic.startswith("ret")]
+    if rets:
+        last = rets[-1]
+    else:
+        jmps = [insn for insn in insns if insn.mnemonic == "jmp"]
+        if not jmps:
+            return "unknown"
+        last = jmps[-1]
+    m = last.mnemonic
+    if m == "jmp":
+        first = insns[0]
+        if first.mnemonic == "mov" and "ecx" in first.op_str:
+            if "[" in first.op_str and "ebp" in first.op_str:
+                return "thiscall (EH-guard thunk)"
+            if "0x" in first.op_str:
+                return "thiscall (ctor thunk)"
+        # A jmp that ends a REAL body (>2 instructions) is a tail call from
+        # a forwarding function, not a pure thunk — the jmp IS the body only
+        # for 1-2 instruction thunks (e.g. `jmp [IAT]`, `push; jmp`).
+        if len(insns) > 2:
+            return "tail call"
+        return "tail-call thunk"
+    if m.startswith("ret"):
+        n = ret_pop_count(last.op_str)
+        if n == 0:
+            # Plain ret: cdecl, or thiscall with NO stack args (ecx=this only
+            # the caller has nothing to clean).
+            return "thiscall (no stack args)" if ecx_as_this else "cdecl"
+        return "thiscall" if ecx_as_this else "stdcall"
+    return "unknown"
+
+
+def disassembled_extent_window(cfg: ProjectConfig, va: int) -> tuple[list[Any], str | None]:
+    """Disassemble an EXTENT-derived window at *va* for epilogue analysis.
+
+    Shared by ``calling_convention_at`` and skeleton generation.  The window
+    is exact when the extent terminated on a ``ret`` (or a tiny <=16 B
+    ``jmp`` thunk); otherwise it is padded past a branch-merge ``jmp`` so
+    the true epilogue stays visible (a flat 64-byte slice truncated longer
+    functions mid-code and inference said "unknown").  Works for 16-bit
+    DOS/NE targets too.
+
+    Returns ``(insns, extent_kind)`` — empty list and None kind on any
+    failure (unsupported arch, unreadable binary, capstone missing).
+    """
+    arch = getattr(cfg, "arch", "")
+    if arch not in ("x86_32", "x86_16"):
+        return [], None
+    try:
+        from rebrew.formats.binary_loader import extract_raw_bytes, function_extent_from_disasm
+
+        kind = None
+        extent: int | None = None
+        extent_kind = function_extent_from_disasm(cfg.target_binary, va, with_kind=True)
+        if extent_kind is not None:
+            extent, kind = extent_kind
+        if (kind == "jmp" and extent is not None and extent <= 16) or (
+            kind == "ret" and extent is not None
+        ):
+            window = extent
+        else:
+            window = min(max(extent or 0, 48) + 96, 256)
+        raw = extract_raw_bytes(cfg.target_binary, va, window)
+        if not raw:
+            return [], None
+        from rebrew.binary.analysis import capstone_handle
+
+        capstone_arch = getattr(cfg, "capstone_arch", None)
+        capstone_mode = getattr(cfg, "capstone_mode", None)
+        if capstone_arch is None or capstone_mode is None:
+            from rebrew.formats.binary_loader import capstone_config_for
+            from rebrew.formats.binary_model import BinaryInfo
+
+            capstone_arch, capstone_mode = capstone_config_for(
+                BinaryInfo(path=Path(), format="", arch=arch, endian="")
+            )
+        md = capstone_handle(capstone_arch, capstone_mode)
+        return list(md.disasm(raw, va)), kind
+    except Exception:  # best-effort inference
+        logger.debug("instruction window read failed at 0x%08x", va, exc_info=True)
+        return [], None
+
+
+def next_function_va(cfg: ProjectConfig, va: int) -> int | None:
+    """Start VA of the function after *va* in the function list, if known.
+
+    Lets ``calling_convention`` trim a disassembly window that bleeds past
+    the function's end into its neighbor.
+    """
+    from rebrew.catalog import cached_sorted_function_vas
+
+    try:
+        vas = cached_sorted_function_vas(cfg)
+    except OSError, ValueError, KeyError:
+        return None
+    idx = bisect.bisect_right(vas, va)
+    return vas[idx] if idx < len(vas) else None
+
+
+def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
+    """Infer the calling convention of the function at *va* (extent-based).
+
+    Shared by ``rebrew binary function`` and skeleton generation.  Returns
+    ``"unknown"`` on any failure.
+    """
+    insns, _kind = disassembled_extent_window(cfg, va)
+    if not insns:
+        return "unknown"
+    return calling_convention(insns, next_va=next_function_va(cfg, va))
+
+
+_HEX_OPERAND_RE = re.compile(r"0x([0-9a-fA-F]+)")
+_RIP_DISP_RE = re.compile(r"^rip\s*([+-])\s*0x([0-9a-fA-F]+)$")
+
+
+def _extract_hex_operand(op_str: str) -> int | None:
+    """Return the first ``0x...`` absolute operand, or None."""
+    m = _HEX_OPERAND_RE.search(op_str)
+    return int(m.group(1), 16) if m else None
+
+
+def _annotation_for_operand(
+    op_str: str,
+    lookup: dict[int, str],
+    *,
+    address: int | None = None,
+    size: int = 0,
+) -> str | None:
+    """Resolve an absolute operand in *op_str* against *lookup*.
+
+    Absolute immediates match: ``call [0x4130c8]`` and ``push 0x4130c8``.
+    ``[eax+0xc]`` does not (the hex is a register-relative displacement).
+    ``[rip + disp]`` is an address when *address* and *size* are the
+    instruction's VA and length: the target is the next instruction plus the
+    signed displacement. Without those, the RIP form stays unresolved.
+    """
+    if "0x" not in op_str:
+        return None
+    # Skip register-relative forms: any '[' that is not a bare [0x...] or
+    # a RIP-relative displacement.
+    if "[" in op_str:
+        try:
+            inner = op_str[op_str.index("[") + 1 : op_str.index("]")]
+        except ValueError:
+            return None
+        if inner.startswith("0x") and "+" not in inner and "-" not in inner:
+            addr = _extract_hex_operand(inner)
+            return lookup.get(addr) if addr is not None else None
+        if address is not None:
+            rip = _RIP_DISP_RE.match(inner.strip())
+            if rip is not None:
+                disp = int(rip.group(2), 16)
+                if rip.group(1) == "-":
+                    disp = -disp
+                target = (address + size + disp) & 0xFFFFFFFFFFFFFFFF
+                return lookup.get(target)
+        return None
+    addr = _extract_hex_operand(op_str)
+    return lookup.get(addr) if addr is not None else None
+
+
+class _HexRow(NamedTuple):
+    """One hex-mode row: an instruction, or a jump-table entry (``table_start``
+    on a table's first).  ``hint_index`` is the instruction's index in
+    :attr:`_HexView.insn_list` for the pattern hints, ``None`` for an entry."""
+
+    address: int
+    bytes: bytes
+    mnemonic: str
+    op_str: str
+    size: int
+    table_start: bool
+    hint_index: int | None
+
+
+def _hex_rows(insns: list[Any], first_index: int) -> list[_HexRow]:
+    """Decoded instructions as rows; the first is *first_index* in ``insn_list``."""
+    return [
+        _HexRow(i.address, bytes(i.bytes), i.mnemonic, i.op_str, i.size, False, first_index + k)
+        for k, i in enumerate(insns)
+    ]
+
+
+class _HexView(NamedTuple):
+    """Shared hex-mode computation: bytes, disassembly and annotation maps.
+
+    Built once by :func:`_hex_view`; :func:`hex_disassembly` renders it as
+    text and ``_run_hex_mode`` renders it as text or as the ``--json``
+    payload, so the two share one extraction and one disassembly pass.
+    """
+
+    bin_path: Path
+    data: bytes
+    truncated: bool
+    capstone_missing: bool
+    shown: list[_HexRow]
+    insn_list: list[Any]
+    conv: str
+    ne_seg: int | None
+    ne_seg_name: str
+    ne_segment_count: int
+    func_lookup: dict[int, tuple[str, str]]
+    import_map: dict[int, str]
+    string_map: dict[int, str]
+
+
+def _hex_view(
+    cfg: ProjectConfig,
+    va_int: int,
+    size: int,
+    *,
+    annotate: bool,
+    resolve_imports: bool,
+    resolve_strings: bool,
+    pattern_hints: bool,
+    json_output: bool,
+) -> _HexView:
+    """Extract and disassemble the hex-mode window at *va_int*.
+
+    A missing binary or no readable bytes raises (``FileNotFoundError`` /
+    ``ValueError``); a missing capstone returns a view with
+    ``capstone_missing`` set, which callers render as the raw hex dump.  The
+    truncation warning is printed to stderr here, before disassembly, where
+    the CLI printed it.
+    """
+    bin_path = cfg.target_binary
+    if not bin_path.exists():
+        raise FileNotFoundError(f"Binary not found at {bin_path}")
+
+    func_lookup: dict[int, tuple[str, str]] = {}
+    if annotate and not json_output:
+        func_lookup = build_function_lookup(cfg)
+
+    # NE context: the segment containing the requested VA (for the header).
+    ne_seg: int | None = None
+    ne_seg_name = ""
+    ne_segment_count = 0
+    try:
+        from rebrew.formats.binary_loader import load_binary
+
+        info = load_binary(bin_path)
+        if info.ne_header is not None:
+            ne_segment_count = info.ne_header.segment_count
+            for s in info.ne_segments:
+                if s.base_va <= va_int < s.base_va + s.length:
+                    ne_seg = s.index
+                    ne_seg_name = "code" if s.is_code else "data"
+                    break
+    except Exception:  # segment context is cosmetic
+        logger.debug("NE segment context lookup failed at 0x%x", va_int, exc_info=True)
+
+    import_map: dict[int, str] = {}
+    string_map: dict[int, str] = {}
+    if resolve_imports:
+        import_map = _build_import_map(bin_path)
+    if resolve_strings:
+        string_map = _build_string_map(bin_path)
+
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
+    data = extract_raw_bytes(cfg.target_binary, va_int, size)
+    if not data:
+        raise ValueError(f"No code at VA 0x{va_int:08x} — address is outside the binary image")
+    truncated = size > 0 and len(data) < size
+    if truncated:
+        console.print(
+            f"[yellow]warning:[/yellow] requested {size} bytes, got {len(data)} "
+            "(reached end of available file-backed bytes)"
+        )
+
+    if getattr(cfg, "arch", "") == "xtensa":
+        from rebrew.compiler.xtensa import disassemble_xtensa
+
+        decoded = disassemble_xtensa(cfg, data, va_int, binary=cfg.target_binary)
+        return _HexView(
+            bin_path,
+            data,
+            truncated,
+            False,
+            _hex_rows(decoded, 0),
+            decoded,
+            "xtensa",
+            ne_seg,
+            ne_seg_name,
+            ne_segment_count,
+            func_lookup,
+            import_map,
+            string_map,
+        )
+
+    try:
+        from capstone import Cs
+    except ImportError:
+        return _HexView(
+            bin_path=bin_path,
+            data=data,
+            truncated=truncated,
+            capstone_missing=True,
+            shown=[],
+            insn_list=[],
+            conv="unknown",
+            ne_seg=ne_seg,
+            ne_seg_name=ne_seg_name,
+            ne_segment_count=ne_segment_count,
+            func_lookup=func_lookup,
+            import_map=import_map,
+            string_map=string_map,
+        )
+
+    md = Cs(cfg.capstone_arch, cfg.capstone_mode)
+    md.detail = False
+    from capstone import CS_ARCH_X86, CS_MODE_32
+
+    # With --hints, disassemble a small lookbehind window so prologue
+    # patterns (e.g. `push -1` SEH registration a few bytes before the
+    # function start) are visible to the pattern detector.  Only
+    # instructions at/after *va_int* are printed.
+    pre_va = va_int
+    if pattern_hints and va_int > 12:
+        try:
+            from rebrew.binary.analysis import section_range
+            from rebrew.formats.binary_loader import load_binary
+
+            rng = section_range(load_binary(bin_path), ".text")
+            text_start = rng[0] if rng else 0
+            pre_va = max(text_start, va_int - 12)
+        except Exception:  # lookbehind is best-effort
+            logger.debug("lookbehind window probe failed", exc_info=True)
+            pre_va = va_int - 12
+    pre_data = extract_raw_bytes(cfg.target_binary, pre_va, size + (va_int - pre_va))
+    insn_list = list(md.disasm(pre_data, pre_va))
+    shown_offset = next((i for i, insn in enumerate(insn_list) if insn.address >= va_int), 0)
+    shown = _hex_rows(insn_list[shown_offset:], shown_offset)
+    if cfg.capstone_arch == CS_ARCH_X86 and cfg.capstone_mode == CS_MODE_32:
+        shown = _x86_hex_rows(data, va_int, cfg.target_binary, insn_list)
+    # Trim the bleed window at the next function's start so a `ret`
+    # from the neighbor never decides this function's convention.
+    bleed_next = next_function_va(cfg, va_int)
+    code_rows = [row for row in shown if row.hint_index is not None]
+    conv_insns = [i for i in code_rows if i.address < bleed_next] if bleed_next else code_rows
+    return _HexView(
+        bin_path=bin_path,
+        data=data,
+        truncated=truncated,
+        capstone_missing=False,
+        shown=shown,
+        insn_list=insn_list,
+        conv=calling_convention(conv_insns),
+        ne_seg=ne_seg,
+        ne_seg_name=ne_seg_name,
+        ne_segment_count=ne_segment_count,
+        func_lookup=func_lookup,
+        import_map=import_map,
+        string_map=string_map,
+    )
+
+
+def _x86_hex_rows(data: bytes, va: int, binary: Path, insn_list: list[Any]) -> list[_HexRow]:
+    """32-bit x86 rows of *data*: instructions and jump-table entries
+    (:func:`rebrew.binary.cfg_ged.listing_items`), without undecodable bytes."""
+    from capstone import CS_ARCH_X86, CS_MODE_32
+
+    from rebrew.binary.cfg_ged import listing_items
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
+    listing = listing_items(
+        data, va, CS_ARCH_X86, CS_MODE_32, functools.partial(extract_raw_bytes, binary)
+    )
+    index_of = {insn.address: k for k, insn in enumerate(insn_list)}
+    return [
+        _HexRow(
+            row.va,
+            row.raw,
+            row.mnemonic,
+            row.op_str,
+            row.size,
+            row.va in listing.table_starts,
+            None if row.va in listing.table_entries else index_of.get(row.va),
+        )
+        for row in listing.rows
+        if row.va not in listing.undecoded
+    ]
+
+
+def _hex_text(
+    view: _HexView,
+    *,
+    annotate: bool,
+    resolve_imports: bool,
+    resolve_strings: bool,
+    pattern_hints: bool,
+) -> str:
+    """Render a :class:`_HexView` as the hex-mode stdout text (one ``\\n`` per line)."""
+    lines: list[str] = []
+    for insn in view.shown:
+        hex_bytes = insn.bytes.hex()
+        line = f"  0x{insn.address:08x}:  {hex_bytes:<20s}  {insn.mnemonic:<8s} {insn.op_str}"
+        if insn.table_start:
+            line += "  ; jump table"
+        if annotate:
+            # ``call``/``jmp`` print ``0xNNNN``.  ARM and AArch64 print
+            # ``bl``/``b #0xNNNN``.  Both are the same name annotation.
+            target_va = direct_call_target(insn.mnemonic, insn.op_str)
+            if target_va is None:
+                target_va = direct_jump_target(insn.mnemonic, insn.op_str)
+            if target_va is not None and target_va in view.func_lookup:
+                name, status = view.func_lookup[target_va]
+                tag = f" ({status})" if status else ""
+                line += f"  ; {name}{tag}"
+        if annotate and insn.mnemonic == "lcall":
+            # 16-bit far call: annotate the target segment.  Borland index
+            # convention: selectors at or below the segment count equal the
+            # segment index (the \\xNN\\x00 marker); 0x0:0xffff is the
+            # loader-patched system-call pattern.
+            try:
+                parts = [p.strip() for p in insn.op_str.split(",")]
+                if len(parts) == 2:
+                    seg = int(parts[0], 16)
+                    off = int(parts[1], 16)
+                    if seg == 0:
+                        line += "  ; system far call"
+                    elif view.ne_seg is not None and 1 <= seg <= view.ne_segment_count:
+                        line += f"  ; SEG{seg}:0x{off:04x} (far)"
+            except ValueError:
+                pass
+        if resolve_imports and insn.mnemonic in ("call", "jmp"):
+            imp = _annotation_for_operand(
+                insn.op_str, view.import_map, address=insn.address, size=insn.size
+            )
+            if imp:
+                line += f"  ; {imp}"
+        if resolve_strings and insn.mnemonic in ("push", "mov", "lea", "cmp"):
+            s = _annotation_for_operand(
+                insn.op_str, view.string_map, address=insn.address, size=insn.size
+            )
+            if s:
+                line += f'  ; "{s}"'
+        if pattern_hints:
+            hint = None if insn.hint_index is None else _hint_for(view.insn_list, insn.hint_index)
+            if hint:
+                line += f"  ; {hint}"
+        lines.append(line)
+    return "".join(line + "\n" for line in lines)
+
+
+def _hex_dump_text(data: bytes, va_int: int) -> str:
+    """The raw hex-dump text the CLI falls back to when capstone is missing."""
+    lines: list[str] = []
+    for i in range(0, len(data), 16):
+        chunk = data[i : i + 16]
+        hex_str = " ".join(f"{b:02x}" for b in chunk)
+        ascii_str = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"  0x{va_int + i:08x}:  {hex_str:<48s}  {ascii_str}")
+    return "".join(line + "\n" for line in lines)
+
+
+def hex_disassembly(cfg: ProjectConfig, va_int: int, size: int) -> str:
+    """Disassemble *size* bytes at *va_int* and return the ``--format hex`` text.
+
+    The stdout text ``rebrew binary asm show <va> --size N --format hex`` prints: one
+    ``  0xADDR:  BYTES  MNEMONIC OPERANDS`` line per instruction with the
+    default call annotations, or the raw hex dump when capstone is missing.
+    The header and stale-size warning the CLI writes to stderr are not part
+    of the returned text.
+
+    Raises:
+        FileNotFoundError: The target binary does not exist.
+        ValueError: No bytes are readable at *va_int*.
+    """
+    view = _hex_view(
+        cfg,
+        va_int,
+        size,
+        annotate=True,
+        resolve_imports=False,
+        resolve_strings=False,
+        pattern_hints=False,
+        json_output=False,
+    )
+    if view.capstone_missing:
+        return _hex_dump_text(view.data, va_int)
+    return _hex_text(
+        view,
+        annotate=True,
+        resolve_imports=False,
+        resolve_strings=False,
+        pattern_hints=False,
+    )
+
+
+def _write_view_output(output: Path, text: str, *, dry_run: bool, json_output: bool) -> None:
+    """Write an inspection view without changing files during a preview."""
+    if not dry_run:
+        try:
+            atomic_write_text(output, text, encoding="utf-8")
+        except OSError as exc:
+            error_exit(str(exc), json_mode=json_output)
+    action = "Would write" if dry_run else "Written"
+    console.print(f"{action} to {untrusted_ident(str(output))}")
+
+
+def _run_hex_mode(
+    va_int: int,
+    size: int,
+    cfg: ProjectConfig,
+    annotate: bool,
+    json_output: bool,
+    *,
+    resolve_imports: bool = False,
+    resolve_strings: bool = False,
+    pattern_hints: bool = False,
+    stale_size: bool = False,
+    declared_size: int | None = None,
+    output: Path | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Capstone hex-dump disassembly (default format)."""
+    try:
+        view = _hex_view(
+            cfg,
+            va_int,
+            size,
+            annotate=annotate,
+            resolve_imports=resolve_imports,
+            resolve_strings=resolve_strings,
+            pattern_hints=pattern_hints,
+            json_output=json_output,
+        )
+    except (OSError, KeyError, ValueError, TypeError) as e:
+        error_exit(str(e), json_mode=json_output)
+    except Exception as e:  # capstone.CsError and friends
+        # CsError (bad arch/mode config) and capstone internals are not in
+        # the tuple above; report them as clean errors, not tracebacks.
+        error_exit(f"capstone error: {e}", json_mode=json_output)
+
+    if view.capstone_missing:
+        if json_output:
+            error_exit("capstone not installed", json_mode=json_output)
+        console.print("[yellow](capstone not installed, showing hex dump)[/]")
+        text = _hex_dump_text(view.data, va_int)
+        if output is not None:
+            _write_view_output(output, text, dry_run=dry_run, json_output=json_output)
+        else:
+            print(text, end="")
+        return
+
+    if json_output:
+        instr_json = []
+        for insn in view.shown:
+            entry: dict[str, Any] = {
+                "address": f"0x{insn.address:08x}",
+                "bytes": insn.bytes.hex(),
+                "mnemonic": insn.mnemonic,
+                "operands": insn.op_str,
+            }
+            if resolve_imports:
+                entry["import"] = _annotation_for_operand(
+                    insn.op_str, view.import_map, address=insn.address, size=insn.size
+                )
+            if resolve_strings:
+                entry["string"] = _annotation_for_operand(
+                    insn.op_str, view.string_map, address=insn.address, size=insn.size
+                )
+            if pattern_hints:
+                entry["hint"] = (
+                    None if insn.hint_index is None else _hint_for(view.insn_list, insn.hint_index)
+                )
+            instr_json.append(entry)
+        payload = {
+            "va": f"0x{va_int:08x}",
+            "size": len(view.data),
+            "requested_size": declared_size if stale_size else size,
+            "truncated": view.truncated,
+            "stale_size": stale_size,
+            "calling_convention": view.conv,
+            "instruction_count": len(view.shown),
+            "instructions": instr_json,
+        }
+        if output is not None:
+            _write_view_output(
+                output,
+                json.dumps(payload, indent=2) + "\n",
+                dry_run=dry_run,
+                json_output=json_output,
+            )
+        json_print(payload)
+        return
+
+    text = _hex_text(
+        view,
+        annotate=annotate,
+        resolve_imports=resolve_imports,
+        resolve_strings=resolve_strings,
+        pattern_hints=pattern_hints,
+    )
+    if output is not None:
+        _write_view_output(output, text, dry_run=dry_run, json_output=json_output)
+        return
+
+    console.print(
+        f"Dumping [cyan]0x{va_int:08x}[/] ({len(view.data)} bytes) "
+        f"from {untrusted_ident(view.bin_path.name)}:"
+    )
+    if view.ne_seg is not None:
+        console.print(f"  [dim]SEG{view.ne_seg}:0x{va_int & 0xFFFF:04x} ({view.ne_seg_name})[/dim]")
+    if view.conv != "unknown":
+        console.print(f"  [dim]calling convention: {view.conv}[/dim]")
+    console.print()
+    print(text, end="")
+
+
+# ---------------------------------------------------------------------------
+# CFG mode helpers
+# ---------------------------------------------------------------------------
+
+#: ``--format cfg`` note when neither the function list nor the disassembly
+#: walk resolves the function's extent (an empty-blocks answer, never a guess).
+_CFG_NO_EXTENT_NOTE = (
+    "function extent unresolved — pass --size, or list the function in the function list"
+)
+
+
+def build_cfg_payload(cfg: ProjectConfig, va_int: int, size: int = 0) -> dict[str, Any]:
+    """Build the basic-block CFG payload for the function at *va_int*.
+
+    The exact object ``rebrew binary asm show <va> --format cfg --json`` prints.  A
+    positive *size* is the declared extent; otherwise the same function-list
+    / disassembly-walk resolution the CLI does is used.  The ``cfg_ged``
+    view is rendered with addresses as ``0x...`` text, and a missing extent
+    or no readable bytes yields the empty-blocks payload with a ``note``
+    rather than a guess.
+
+    Raises:
+        FileNotFoundError: The target binary does not exist.
+        ValueError: The target architecture is not x86.
+    """
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
+    if not cfg.target_binary.exists():
+        raise FileNotFoundError(f"Binary not found at {cfg.target_binary}")
+    arch = str(getattr(cfg, "arch", ""))
+    if not arch.startswith("x86"):
+        raise ValueError(f"--format cfg supports x86 targets only (target arch is {arch!r})")
+
+    extent = size or _cfg_extent(cfg, va_int)
+    if extent is None:
+        return _cfg_payload(va_int, 0, None, _CFG_NO_EXTENT_NOTE)
+
+    code = extract_raw_bytes(cfg.target_binary, va_int, extent)
+    if not code:
+        return _cfg_payload(va_int, 0, None, f"no bytes readable at 0x{va_int:08x}")
+
+    from rebrew.binary.cfg_ged import build_cfg_view
+
+    # A jump table past the extent (the next inventory entry) is read from the image.
+    view = build_cfg_view(
+        code,
+        va_int,
+        cfg.capstone_mode,
+        read_image=lambda at, n: extract_raw_bytes(cfg.target_binary, at, n),
+    )
+    return _cfg_payload(va_int, len(code), view, None)
+
+
+def _run_cfg_mode(
+    va_int: int,
+    size: int | None,
+    cfg: ProjectConfig,
+    json_output: bool,
+    *,
+    output: Path | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Print the basic-block CFG of the function at *va_int* (``--format cfg``).
+
+    Lives on ``asm`` rather than as a command of its own: ``asm`` already
+    resolves a function's extent and owns the ``--json``/``--target``
+    surface, so the graph and the instruction listing share one VA-resolution
+    path.  :func:`build_cfg_payload` owns the resolution, extraction and
+    formatting; this only maps its failures to ``error_exit`` and renders it.
+    Missing bytes or an unresolvable extent answer empty ``blocks`` with a
+    ``note`` (exit 0) instead of raising or guessing a window.
+    """
+    try:
+        payload = build_cfg_payload(cfg, va_int, size or 0)
+    except (OSError, KeyError, ValueError, TypeError) as e:
+        error_exit(str(e), json_mode=json_output)
+    except Exception as e:  # capstone.CsError and friends
+        error_exit(f"capstone error: {e}", json_mode=json_output)
+    if output is not None:
+        if json_output:
+            text = json.dumps(payload, indent=2) + "\n"
+        else:
+            with console.capture() as capture:
+                _emit_cfg(payload, False)
+            text = Text.from_ansi(capture.get()).plain
+        _write_view_output(output, text, dry_run=dry_run, json_output=json_output)
+        if not json_output:
+            return
+    _emit_cfg(payload, json_output)
+
+
+def _cfg_extent(cfg: ProjectConfig, va_int: int) -> int | None:
+    """The function's byte extent: the disassembly walk, else the function-list size.
+
+    The walk is preferred rather than the larger of the two.  A function-list
+    size is a gap to the *next* entry, so it can overrun the function into
+    inter-function padding -- on guild-rebrew, ``CrashDumpUnhandledExceptionFilter``
+    is declared 2128 bytes but its code ends 116 bytes earlier, and the padding
+    is ``0x09``, which decodes as ``or dword ptr [ecx], ecx`` instead of being
+    skipped.  Taking ``max`` therefore selected the padded span and fabricated
+    about 50 instructions (724 counted against the real 673), which reads as a
+    different calling convention and sent an analysis after that for a round.
+
+    The walk stays conservative -- it stops at the first terminator, so a
+    loop-branch ``jmp`` yields a smaller extent than the truth -- hence the
+    fallback to the declared size only when the walk does not resolve at all.
+    A caller passing an explicit ``--size`` is unaffected: it stated its own.
+    """
+    declared = _list_size_for(cfg, va_int)
+    walked: int | None = None
+    if cfg.target_binary.exists():
+        from rebrew.formats.binary_loader import function_extent_from_disasm
+
+        walked = function_extent_from_disasm(cfg.target_binary, va_int)
+    if walked:
+        return walked
+    return declared
+
+
+def _cfg_payload(
+    va_int: int, size: int, view: dict[str, Any] | None, note: str | None
+) -> dict[str, Any]:
+    """The ``--format cfg`` payload: the ``cfg_ged`` view with addresses as
+    ``0x...`` text (the address convention of the other ``asm --json``
+    fields).  A ``None`` *view* yields the empty payload used when the extent
+    or the bytes are missing."""
+    from rebrew.binary.cfg_ged import MAX_CFG_BLOCKS_PER_FUNCTION
+
+    payload: dict[str, Any] = {
+        "va": f"0x{va_int:08x}",
+        "size": size,
+        "block_count": 0,
+        "block_total": 0,
+        "block_cap": MAX_CFG_BLOCKS_PER_FUNCTION,
+        "truncated": False,
+        "note": note,
+        "blocks": [],
+        "edges": [],
+    }
+    if view is None:
+        return payload
+    payload.update(
+        block_count=view["block_count"],
+        block_total=view["block_total"],
+        block_cap=view["block_cap"],
+        truncated=view["truncated"],
+        note=view["note"],
+        blocks=[
+            {
+                "va": f"0x{block['va']:08x}",
+                "size": block["size"],
+                "instruction_count": block["instruction_count"],
+                "first": block["first"],
+                "last": block["last"],
+            }
+            for block in view["blocks"]
+        ],
+        edges=[
+            {
+                "from": f"0x{edge['from']:08x}",
+                "to": f"0x{edge['to']:08x}",
+                "back_edge": edge["back_edge"],
+                "kind": edge["kind"],
+            }
+            for edge in view["edges"]
+        ],
+    )
+    return payload
+
+
+def _emit_cfg(payload: dict[str, Any], json_output: bool) -> None:
+    """Print a ``--format cfg`` payload as JSON or as a block/edge listing."""
+    if json_output:
+        json_print(payload)
+        return
+    blocks = payload["block_count"]
+    edges = len(payload["edges"])
+    console.print(
+        f"CFG for [cyan]{payload['va']}[/] ({payload['size']} bytes, "
+        f"{blocks} block{'' if blocks == 1 else 's'}, "
+        f"{edges} edge{'' if edges == 1 else 's'})"
+    )
+    for idx, block in enumerate(payload["blocks"]):
+        span = block["first"]
+        if block["last"] != block["first"]:
+            span = f"{block['first']} ... {block['last']}"
+        console.print(
+            f"  [bold]B{idx}[/]  {block['va']}  {block['size']:4d} B  "
+            f"{block['instruction_count']:3d} insns  {escape(span)}"
+        )
+    if payload["edges"]:
+        console.print("  edges:")
+        for edge in payload["edges"]:
+            suffix = "  [yellow]back edge[/]" if edge["back_edge"] else ""
+            console.print(f"    {edge['from']} -> {edge['to']}  {edge['kind']}{suffix}")
+    if payload["truncated"]:
+        console.print(
+            f"  [yellow]capped at {payload['block_cap']} blocks ({payload['block_total']} total)[/]"
+        )
+    if payload["note"]:
+        console.print(f"  [dim]{escape(payload['note'])}[/]")
+
+
+# ---------------------------------------------------------------------------
+# NASM mode helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_capstone_x86() -> tuple[int, int]:
+    """Import the x86 capstone arch and mode lazily."""
+    try:
+        from capstone import CS_ARCH_X86, CS_MODE_32
+    except ImportError as e:
+        raise CapstoneUnavailable("capstone required. Install: uv pip install capstone") from e
+    return CS_ARCH_X86, CS_MODE_32
+
+
+def capstone_to_nasm(mnemonic: str, op_str: str) -> str:
+    """Convert capstone Intel syntax to NASM-compatible syntax."""
+    line = f"{mnemonic} {op_str}".strip() if op_str else mnemonic
+    return line.replace("ptr ", "")
+
+
+def disassemble_to_nasm(
+    code: bytes,
+    base_va: int,
+    label: str | None = None,
+    read_image: ImageReader | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Disassemble bytes to NASM source with round-trip verification.
+
+    A jump table inside *code* (:func:`rebrew.binary.cfg_ged.listing_items`;
+    *read_image* reads one that extends past it) is listed as ``dd``/``db``
+    data under a ``jump_table_<VA>:`` label, and an undecodable stretch as
+    ``db`` bytes; neither counts as an instruction in the stats.
+    """
+    cs_arch_x86, cs_mode_32 = _get_capstone_x86()
+    from rebrew.binary.cfg_ged import listing_items, table_label
+
+    listing = listing_items(code, base_va, cs_arch_x86, cs_mode_32, read_image)
+
+    safe_label = None
+    if label:
+        # ``hook@@12`` is ``hook`` before the NASM sanitizer turns the
+        # rest into underscores. ``__foo`` stays ``_foo``.
+        safe_label = _NASM_LABEL_RE.sub("_", c_name_from_symbol(label))
+        if not safe_label or not (safe_label[0].isalpha() or safe_label[0] == "_"):
+            safe_label = "func_" + safe_label
+
+    rows = listing.rows
+    trailing = b""
+    if rows and rows[-1].va in listing.undecoded:
+        trailing = rows[-1].raw
+        rows = rows[:-1]
+    insn_data: list[dict[str, Any]] = []
+    for row in rows:
+        undecoded = row.va in listing.undecoded
+        insn_data.append(
+            {
+                "addr": row.va,
+                "raw": row.raw,
+                "nasm": (
+                    "db " + ", ".join(f"0x{b:02X}" for b in row.raw)
+                    if undecoded
+                    else capstone_to_nasm(row.mnemonic, row.op_str)
+                ),
+                "offset": row.va - base_va,
+                "size": row.size,
+                "data": undecoded or row.va in listing.table_entries,
+                "label": table_label(row.va) if row.va in listing.table_starts else None,
+            }
+        )
+    total_insns = sum(1 for entry in insn_data if not entry["data"])
+
+    pass1_lines = _build_nasm_lines(insn_data, base_va, safe_label, trailing, set())
+    pass1_src = "\n".join(pass1_lines)
+    pass1_bin = _run_nasm(pass1_src)
+
+    bad_indices: set[int] = set()
+    if pass1_bin is not None and len(pass1_bin) == len(code):
+        for idx, entry in enumerate(insn_data):
+            off = entry["offset"]
+            sz = entry["size"]
+            if not entry["data"] and pass1_bin[off : off + sz] != entry["raw"]:
+                bad_indices.add(idx)
+    else:
+        bad_indices = _find_bad_instructions_individually(insn_data, base_va, code)
+
+    final_lines = (
+        _build_nasm_lines(insn_data, base_va, safe_label, trailing, bad_indices)
+        if bad_indices
+        else pass1_lines
+    )
+
+    db_fallbacks = len(bad_indices)
+    nasm_ok = total_insns - db_fallbacks
+
+    stats = {
+        "total_instructions": total_insns,
+        "nasm_ok": nasm_ok,
+        "db_fallbacks": db_fallbacks,
+        "pct_nasm": (nasm_ok / total_insns * 100) if total_insns else 0.0,
+        "total_bytes": len(code),
+        "base_va": base_va,
+    }
+
+    return "\n".join(final_lines), stats
+
+
+def _find_bad_instructions_individually(
+    insn_data: list[dict[str, Any]],
+    base_va: int,
+    code: bytes,
+) -> set[int]:
+    """Test each instruction by embedding it in a db-padded file.
+
+    Reuses a single temporary directory for all NASM invocations to avoid
+    the overhead of creating/destroying one per instruction.
+    """
+    bad: set[int] = set()
+    total_insn_size = sum(e["size"] for e in insn_data)
+    trailing = code[total_insn_size:]
+    # Every probe differs only at one instruction. Format the db padding once
+    # instead of re-walking and re-hexing the whole function for each NASM call.
+    padded_lines = ["bits 32", f"org 0x{base_va:08X}"]
+    padded_lines.extend(
+        "db " + ", ".join(f"0x{b:02X}" for b in entry["raw"]) for entry in insn_data
+    )
+    if trailing:
+        padded_lines.append("db " + ", ".join(f"0x{b:02X}" for b in trailing))
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for idx, entry in enumerate(insn_data):
+            if entry["data"]:
+                continue
+            src_lines = padded_lines.copy()
+            src_lines[idx + 2] = entry["nasm"]
+            result = _run_nasm("\n".join(src_lines), tmpdir=tmp)
+            if result is None or len(result) != len(code):
+                bad.add(idx)
+                continue
+            off = entry["offset"]
+            sz = entry["size"]
+            if result[off : off + sz] != entry["raw"]:
+                bad.add(idx)
+    return bad
+
+
+def _build_nasm_lines(
+    insn_data: list[dict[str, Any]],
+    base_va: int,
+    safe_label: str | None,
+    trailing: bytes,
+    db_indices: set[int],
+) -> list[str]:
+    lines: list[str] = []
+    lines.append("bits 32")
+    lines.append(f"org 0x{base_va:08X}")
+    lines.append("")
+    if safe_label:
+        lines.append(f"{safe_label}:")
+    for idx, entry in enumerate(insn_data):
+        addr = entry["addr"]
+        raw = entry["raw"]
+        nasm_text = entry["nasm"]
+        if entry["label"]:
+            lines.append(f"{entry['label']}:")
+        if idx in db_indices:
+            db_hex = ", ".join(f"0x{b:02X}" for b in raw)
+            lines.append(f"    db {db_hex:40s} ; {addr:08X}  {nasm_text}")
+        else:
+            lines.append(f"    {nasm_text:40s} ; {addr:08X}  {raw.hex()}")
+    if trailing:
+        db_hex = ", ".join(f"0x{b:02X}" for b in trailing)
+        lines.append(f"    db {db_hex}  ; trailing data")
+    lines.append("")
+    return lines
+
+
+def generate_inline_c(
+    code: bytes,
+    cfg: ProjectConfig,
+    va: int,
+    symbol: str | None,
+) -> str:
+    """Generate a C file with a naked exact-bytes reconstruction.
+
+    The function is emitted behind the ``REBREW_ALLOW_NAKED`` fence: the
+    ``__declspec(naked)``/``__attribute__((naked))`` + raw-byte branch
+    reproduces the target bytes VERBATIM for **round-trip verification**
+    builds (``rebrew build round-trip --allow-naked`` defines it), while the
+    ``#else`` branch is an idiomatic C fallback that keeps the comparison
+    build compiling (``rebrew prove`` can establish it as PROVEN without
+    byte equality).
+
+    Bytes are emitted with ``__asm _emit 0xNN`` (MSVC) / ``__asm__(".byte
+    0xNN, ...")`` (GCC) — never assembler mnemonics: MSVC's inline
+    assembler rejects NASM operand syntax (``dword [x]`` vs ``dword ptr
+    [x]``) and its encodings are not guaranteed to match the original, so
+    the exact-bytes branch must not depend on it.  Mnemonics from a
+    capstone pass over *code* are kept as comments; *code* is the ground
+    truth emitted verbatim.
+
+    Reconstruction source, VA, size and symbol are recorded only in
+    ``rebrew-functions.toml`` when a caller writes the text to a file.
+    Stdout output has no row.
+    """
+    if getattr(cfg, "arch", "") == "xtensa":
+        raise RuntimeError(
+            "Xtensa inline-C emission is unsupported: XCC ignores the naked attribute; recover plain C instead"
+        )
+
+    sym = symbol or f"_func_{va:08x}"
+    # ``hook@@12`` is ``hook`` and ``__foo`` is ``_foo``. One cdecl
+    # underscore still comes off (``_foo`` is ``foo``).
+    func_name = c_name_from_symbol(sym)
+
+    from rebrew.compiler.toolchain import profile_family
+
+    is_gcc = profile_family(cfg.compiler_profile) in _GCC_NAKED_FAMILIES
+    naked_attr = "__attribute__((naked))" if is_gcc else "__declspec(naked)"
+
+    # Disassemble *code* for the per-instruction mnemonic comments (any
+    # trailing bytes capstone cannot decode are emitted as bare data).
+    # The comment follows the target arch: an ARM BL is not an x86 add.
+    from rebrew.binary.analysis import capstone_handle
+    from rebrew.formats.binary_loader import capstone_config_for
+    from rebrew.formats.binary_model import BinaryInfo
+
+    image = BinaryInfo(
+        path=Path(getattr(cfg, "target_binary", "") or ""),
+        format=getattr(cfg, "format", "") or "",
+        arch=getattr(cfg, "arch", "") or "",
+        endian=getattr(cfg, "endian", "") or "",
+    )
+    cs_arch, cs_mode = capstone_config_for(image)
+    insns = list(capstone_handle(cs_arch, cs_mode).disasm(code, va))
+    covered = sum(len(i.bytes) for i in insns)
+    leftover = code[covered:] if covered < len(code) else b""
+
+    lines: list[str] = []
+    lines.append("")
+    lines.append(
+        "// Exact-bytes naked reconstruction (generated by `rebrew binary asm show --inline-c`)."
+    )
+    lines.append("// The guarded branch emits the target bytes verbatim (_emit/.byte) —")
+    lines.append("// byte-exact by construction; implement the real C in the fallback")
+    lines.append("// branch and drop -DREBREW_ALLOW_NAKED once it matches.")
+    lines.append("")
+    lines.append("#ifdef REBREW_ALLOW_NAKED")
+    lines.append(f"{naked_attr} void {func_name}(void)")
+    lines.append("{")
+    if is_gcc:
+        lines.append("    __asm__(")
+        for insn in insns:
+            comment = f" /* {insn.mnemonic} {insn.op_str} */".rstrip()
+            byte_list = ", ".join(f"0x{b:02x}" for b in insn.bytes)
+            lines.append(f'        ".byte {byte_list}{comment}\\n"')
+        if leftover:
+            byte_list = ", ".join(f"0x{b:02x}" for b in leftover)
+            lines.append(f'        ".byte {byte_list} /* data */\\n"')
+        lines.append("    );")
+    else:
+        lines.append("    __asm {")
+        for insn in insns:
+            comment = f" /* {insn.mnemonic} {insn.op_str} */".rstrip()
+            for idx, b in enumerate(insn.bytes):
+                lines.append(f"        _emit 0x{b:02x}{comment if idx == 0 else ''}")
+        if leftover:
+            for idx, b in enumerate(leftover):
+                lines.append(f"        _emit 0x{b:02x}{' /* data */' if idx == 0 else ''}")
+        lines.append("    }")
+    lines.append("}")
+    lines.append("#else")
+    lines.append(f"void {func_name}(void)")
+    lines.append("{")
+    lines.append("    /* TODO: idiomatic C89 fallback for the comparison build — replace with")
+    lines.append("       the real C (rebrew prove can mark it PROVEN); the naked branch above")
+    lines.append("       reproduces the exact bytes for round-trip builds (--allow-naked). */")
+    lines.append("}")
+    lines.append("#endif")
+    lines.append("")
+    from rebrew.metadata.anchors import add_address_anchor
+
+    return add_address_anchor(
+        "\n".join(lines),
+        cfg.module or "TARGET",
+        va,
+        func_name,
+        syntax=getattr(cfg, "address_comments", None),
+    )
+
+
+def _record_inline_c_identity(
+    cfg: ProjectConfig, path: Path, va: int, code: bytes, symbol: str | None
+) -> None:
+    """Record the written naked skeleton. The reconstruction source lives only in metadata."""
+    from rebrew.metadata.binding_history import change_source_binding, retired_binding
+    from rebrew.metadata.functions import get_entry, identity_file, record_function_identity
+
+    sym = symbol or f"_func_{va:08x}"
+    module = cfg.module or "TARGET"
+    previous = get_entry(cfg.metadata_dir, va, module)
+    kind = "LIBRARY" if previous.get("kind") == "LIBRARY" else "FUNCTION"
+    root = (
+        (getattr(cfg, "root", None) or cfg.metadata_dir) if kind == "LIBRARY" else cfg.metadata_dir
+    )
+    identity = {
+        "file": identity_file(path.resolve(), root),
+        "kind": kind,
+        "name": c_name_from_symbol(sym),
+        "symbol": sym,
+    }
+    if (
+        previous.get("file")
+        and not retired_binding(previous)
+        and any(previous.get(key) != value for key, value in identity.items())
+    ):
+        change_source_binding(
+            cfg.metadata_dir,
+            module,
+            va,
+            identity=identity,
+            reason="Requested inline-C artifact replaces the current source provider",
+            project_root=getattr(cfg, "root", None),
+        )
+    record_function_identity(
+        cfg.metadata_dir,
+        module=module,
+        va=va,
+        file=identity["file"],
+        kind=identity["kind"],
+        name=identity["name"],
+        symbol=identity["symbol"],
+        size=len(code),
+        source="naked",
+    )
+
+
+def _run_nasm(source: str, *, tmpdir: Path | None = None) -> bytes | None:
+    """Run nasm on source text, return binary output or None.
+
+    When *tmpdir* is provided the caller owns the directory lifetime and
+    this function reuses it (avoids creating/destroying a temp dir per call).
+    """
+
+    def _assemble(tmp: Path) -> bytes | None:
+        asm_path = tmp / "input.asm"
+        bin_path = tmp / "output.bin"
+        asm_path.write_text(source, encoding="utf-8")
+        try:
+            # run_process_group kills the whole group on timeout; plain
+            # subprocess.run would orphan nasm children after the 5s bound.
+            r = run_process_group(
+                ["nasm", "-f", "bin", "-o", str(bin_path), str(asm_path)],
+                capture_output=True,
+                timeout=5,
+            )
+            if r.returncode != 0:
+                return None
+            if bin_path.exists():
+                return bin_path.read_bytes()
+            return None
+        except subprocess.TimeoutExpired:
+            # None is also "nasm rejected this encoding", so a timeout would
+            # be reported as an encoding mismatch, not a tooling failure.
+            logger.warning("nasm timed out assembling %s", asm_path, exc_info=True)
+            return None
+        except FileNotFoundError:
+            logger.warning("nasm not found on PATH; cannot assemble %s", asm_path)
+            return None
+
+    if tmpdir is not None:
+        return _assemble(tmpdir)
+    with tempfile.TemporaryDirectory() as td:
+        return _assemble(Path(td))
+
+
+@functools.lru_cache(maxsize=1)
+def _nasm_on_path() -> bool:
+    """Whether nasm resolves on ``PATH``; the answer is process-invariant and
+    ``--all`` calls this once per function."""
+    return shutil.which("nasm") is not None
+
+
+@functools.cache
+def listing_renderer() -> str:
+    """The renderer the listing ops report: :data:`LISTING_RENDERER` with the
+    capstone and nasm versions, which change the text without a code change
+    (without nasm every NASM instruction is ``db`` bytes): ``1+capstone-5.0.7+nasm-2.16.03``,
+    ``nasm-none`` when nasm is not on ``PATH`` or does not answer ``-v``."""
+    import capstone
+
+    nasm = "none"
+    if _nasm_on_path():
+        try:
+            out = run_process_group(["nasm", "-v"], capture_output=True, timeout=5)
+        except subprocess.TimeoutExpired, OSError:  # no answer: reported as none
+            out = None
+        words = out.stdout.decode(errors="replace").split() if out and out.returncode == 0 else []
+        if len(words) > 2 and words[:2] == ["NASM", "version"]:
+            nasm = words[2]
+    return f"{LISTING_RENDERER}+capstone-{capstone.__version__}+nasm-{nasm}"
+
+
+def _roundtrip_exit_code(passed: bool, message: str) -> int:
+    """Exit status for one round-trip check.
+
+    A byte mismatch is ``EXIT_MISMATCH``. NASM missing, or NASM producing no
+    bytes, means the checker itself did not run: ``EXIT_ERROR``.
+    """
+    if passed:
+        return 0
+    if message.startswith("nasm not on PATH") or message == "NASM assembly failed":
+        return EXIT_ERROR
+    return EXIT_MISMATCH
+
+
+def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str]:
+    """Assemble NASM source and verify it matches original bytes exactly."""
+    if not _nasm_on_path():
+        return False, "nasm not on PATH (install nasm; required for round-trip verification)"
+    result = _run_nasm(nasm_source)
+    if result is None:
+        return False, "NASM assembly failed"
+    if result == original_bytes:
+        return True, f"PASS: {len(original_bytes)} bytes identical"
+    if len(result) != len(original_bytes):
+        return False, f"FAIL: size mismatch (nasm={len(result)}, original={len(original_bytes)})"
+    diffs = [i for i in range(len(original_bytes)) if result[i] != original_bytes[i]]
+    return False, f"FAIL: {len(diffs)} byte diffs at offsets {diffs[:10]}"
+
+
+def _parse_annotations(
+    filepath: Path, metadata_dir: Path | None = None, target_name: str | None = None
+) -> list[dict[str, Any]]:
+    """Read function metadata bindings for the selected target and source file."""
+    entries = read_source_bindings(filepath, target_name=target_name, metadata_dir=metadata_dir)
+    results: list[dict[str, Any]] = []
+    for entry in entries:
+        if entry.is_data:
+            continue
+        if entry.status not in DISPLAY_STATUSES:
+            continue
+        if not entry.size:
+            continue
+        results.append(
+            {
+                "va": entry.va,
+                "size": entry.size,
+                "symbol": entry.symbol,
+                "status": entry.status,
+                "filepath": filepath,
+            }
+        )
+    return results
+
+
+def _batch_input_roots(cfg: ProjectConfig) -> set[Path]:
+    """Configured source trees that a batch destination must not contain."""
+    configs = [cfg]
+    configs.extend(
+        load_config(cfg.root, target=target)
+        for target in getattr(cfg, "all_targets", [])
+        if target != getattr(cfg, "target_name", "")
+    )
+    return {
+        Path(directory).resolve()
+        for config in configs
+        for directory in (config.reversed_dir, getattr(config, "shared_dir", None))
+        if directory is not None
+    }
+
+
+def batch_extract_nasm(
+    cfg: ProjectConfig,
+    out_dir: Path,
+    verify_flag: bool = False,
+    stubs_only: bool = False,
+    inline_c: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Extract NASM (or naked-C skeletons with ``inline_c``) for all annotated
+    functions in reversed_dir.
+
+    With ``inline_c`` each function is written as a ``source = "naked"``
+    fenced skeleton (``rebrew binary asm show --inline-c`` output) — the whole-binary
+    byte-coverage baseline: every function becomes compileable and iterable
+    through ``rebrew test --cflags /DREBREW_ALLOW_NAKED``, and ``rebrew
+    status``/``todo`` bucket them as naked reconstructions (byte-exact, not
+    decompiled) until the real C bodies land.
+
+    A dry run returns planned paths without creating directories, recording
+    metadata, generating assembly or invoking NASM. The result carries selected
+    total, ok/failed/skipped/planned counts and the planned or written files.
+    The output subtree is excluded from inputs; a destination equal to or
+    containing any configured source root is rejected before scanning or writes.
+    """
+    reversed_dir = cfg.reversed_dir
+    resolved_output = out_dir.resolve()
+    for source_root in sorted(_batch_input_roots(cfg)):
+        if source_root.is_relative_to(resolved_output):
+            raise ValueError(
+                f"Batch output directory {out_dir} must not equal or contain "
+                f"configured source directory {source_root}; choose a dedicated output subdirectory"
+            )
+    if not dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    entries = []
+    for cfile in iter_sources(reversed_dir, cfg):
+        if cfile.resolve().is_relative_to(resolved_output):
+            continue
+        for info in _parse_annotations(
+            cfile, metadata_dir=cfg.metadata_dir, target_name=target_module(cfg)
+        ):
+            if info["size"] < 6:
+                continue
+            if stubs_only and info["status"] != "STUB":
+                continue
+            entries.append(info)
+
+    entries.sort(key=lambda x: x["va"])
+    total = len(entries)
+    ok = 0
+    fail = 0
+    skipped = 0
+    verify_exit = 0
+    files: list[str] = []
+
+    for i, entry in enumerate(entries, 1):
+        va = entry["va"]
+        size = entry["size"]
+        symbol = entry["symbol"] or f"func_{va:08x}"
+        stem = entry["filepath"].name
+
+        try:
+            from rebrew.formats.binary_loader import extract_raw_bytes
+
+            code = extract_raw_bytes(cfg.target_binary, va, size)
+            if code is None:
+                raise ValueError("VA not in any section")
+        except (OSError, KeyError, ValueError) as e:
+            skipped += 1
+            console.print(
+                f"  \\[{i}/{total}] {untrusted_ident(stem)}: [yellow]SKIP[/] "
+                f"(extraction error: {e})"
+            )
+            continue
+
+        ext = ".c" if inline_c else ".asm"
+        out_file = out_dir / f"{stem}.{va:08x}{ext}"
+        files.append(str(out_file))
+        if dry_run:
+            console.print(f"  \\[{i}/{total}] Would write {out_file} ({len(code)}B)")
+            continue
+
+        nasm_src, stats = disassemble_to_nasm(
+            code, va, symbol, functools.partial(extract_raw_bytes, cfg.target_binary)
+        )
+        # Multi-function sources share a file stem — include the VA or the
+        # second function's output would silently overwrite the first's.
+        if inline_c:
+            out_src = generate_inline_c(code, cfg, va, symbol)
+            pct = stats["pct_nasm"]
+            db = stats["db_fallbacks"]
+            status_line = f"naked-c  nasm={pct:5.1f}% db={db:2d}"
+        else:
+            out_src = nasm_src
+            status_line = ""
+        atomic_write_text(out_file, out_src, encoding="utf-8")
+        if inline_c:
+            _record_inline_c_identity(cfg, out_file, va, code, symbol)
+
+        if verify_flag:
+            passed, msg = verify_roundtrip(nasm_src, code)
+            status = "PASS" if passed else f"FAIL ({msg})"
+            step = _roundtrip_exit_code(passed, msg)
+            if step == EXIT_ERROR:
+                verify_exit = EXIT_ERROR
+            elif step and verify_exit != EXIT_ERROR:
+                verify_exit = step
+            if passed:
+                ok += 1
+            else:
+                fail += 1
+        else:
+            status = "OK"
+            ok += 1
+
+        console.print(
+            f"  \\[{i}/{total}] {untrusted_ident(stem):40s} {size:4d}B  "
+            f"{status_line}{untrusted_ident(status)}"
+        )
+
+    if dry_run:
+        console.print(f"\nWould write {len(files)} file(s); {skipped} skipped")
+    else:
+        console.print(
+            f"\nDone: [green]{ok} ok[/], [red]{fail} failed[/], {skipped} skipped, {total} total"
+        )
+    payload = {
+        "output": str(out_dir),
+        "total": total,
+        "ok": ok,
+        "failed": fail,
+        "skipped": skipped,
+        "planned": len(files),
+        "written": 0 if dry_run else len(files),
+        "files": files,
+        "dry_run": dry_run,
+    }
+    if verify_exit:
+        payload["verify_exit"] = verify_exit
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew binary asm show 0x10003ca0 --size 77\n\n"
+    "  rebrew binary asm show 0x10003ca0 --size 77 --format nasm --verify\n\n"
+    "  rebrew binary asm show 0x10003ca0 --format cfg\n\n"
+    "  rebrew binary asm batch --output output/asm/\n\n"
+    "[dim]hex prints disassembly and target names; nasm emits reassemblable source (--verify checks the round trip); cfg reports basic blocks and edges. Reads the binary and architecture from rebrew-project.toml. --inline-c emits assembly evidence, not a reconstructed C implementation.[/dim]\n\n"
+)
+
+app = typer.Typer(
+    help="Inspect function assembly and export single or batch reconstruction artifacts.",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+
+def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
+    """Function-list size for *va_int*, if the list knows it.
+
+    Lets ``rebrew binary asm show <va>`` default to the real function size instead of a
+    hardcoded 32-byte window (which bleeds into the adjacent function).
+    """
+    from rebrew.catalog import cached_function_by_va
+
+    try:
+        entry = cached_function_by_va(cfg).get(va_int)
+    except OSError, ValueError, KeyError:
+        return None
+    if entry is None:
+        return None
+    try:
+        return int(entry["size"])
+    except TypeError, ValueError, KeyError:
+        return None
+
+
+def disassemble(
+    va: str | None = None,
+    size: int | None = None,
+    fmt: str = "hex",
+    annotate: bool = True,
+    resolve_imports: bool = False,
+    resolve_strings: bool = False,
+    pattern_hints: bool = False,
+    bin_file: Path | None = None,
+    label: str | None = None,
+    output: Path | None = None,
+    verify: bool = False,
+    stats: bool = False,
+    inline_c: bool = False,
+    extract_all: bool = False,
+    batch_stubs: bool = False,
+    out_dir: Path | None = None,
+    base_va: str = "0",
+    json_output: bool = False,
+    target: str | None = None,
+    dry_run: bool = False,
+) -> None:
+    """Disassemble a function from the target binary."""
+    # Flag values are checked before the project is loaded, so a typo in
+    # --format or --size names the flag instead of whatever the config
+    # happens to be missing.
+    if fmt not in ("hex", "nasm", "cfg"):
+        # Bad argument value — usage error (2), not "needs code work" (1).
+        error_exit(
+            "--format must be 'hex', 'nasm' or 'cfg'", json_mode=json_output, code=EXIT_ERROR
+        )
+    if size is not None and size <= 0:
+        error_exit("--size must be a positive integer", json_mode=json_output)
+
+    cfg = require_config(target=target, json_mode=json_output)
+
+    if getattr(cfg, "arch", "") == "xtensa" and (fmt != "hex" or inline_c):
+        error_exit(
+            "Xtensa supports hex disassembly; NASM/inline-C and CFG export are unsupported",
+            json_mode=json_output,
+        )
+
+    # --- NASM batch modes ---
+    if fmt == "nasm" and (extract_all or batch_stubs):
+        if out_dir is not None and not out_dir.is_absolute():
+            batch_out_dir = cfg.root / out_dir
+        else:
+            batch_out_dir = out_dir or (cfg.root / "output" / ("naked" if inline_c else "asm"))
+        try:
+            batch_result = batch_extract_nasm(
+                cfg,
+                batch_out_dir,
+                verify_flag=verify,
+                stubs_only=batch_stubs,
+                inline_c=inline_c,
+                dry_run=dry_run,
+            )
+        except (RuntimeError, OSError, ValueError) as e:
+            error_exit(str(e), json_mode=json_output)
+        verify_exit = int(batch_result.pop("verify_exit", 0))
+        if json_output:
+            json_print(batch_result)
+        if verify_exit:
+            raise typer.Exit(code=verify_exit)
+        return
+
+    # --- Resolve VA ---
+    va_str = va
+    if not va_str and not bin_file:
+        error_exit("Specify VA as a positional argument or --bin FILE", json_mode=json_output)
+
+    va_int = parse_va(va_str, json_mode=json_output) if va_str else None
+
+    # --- CFG format ---
+    if fmt == "cfg":
+        if va_int is None:
+            error_exit("--format cfg requires a VA as a positional argument", json_mode=json_output)
+        _run_cfg_mode(va_int, size, cfg, json_output, output=output, dry_run=dry_run)
+        return
+
+    # Default to the known canonical size (function list) when no --size is
+    # given — 32 is only a fallback for functions the list does not know.
+    effective_size = size or (_list_size_for(cfg, va_int) if va_int is not None else None) or 32
+
+    # A stale function-list size truncates the dump mid-instruction and
+    # breaks the calling-convention inference (no `ret` in the truncated
+    # window → "unknown" → wrong skeleton signature).  When the
+    # disassembly extent runs past the declared size, extend the dump to it
+    # with a warning.  An explicit `--size` is user intent: warn, but honor
+    # the request.  x86-32 only — the extent walker is an x86 disassembler.
+    stale_size = False
+    declared_size = effective_size
+    if va_int is not None and getattr(cfg, "arch", "") == "x86_32" and cfg.target_binary.exists():
+        from rebrew.formats.binary_loader import function_extent_from_disasm
+
+        walked = function_extent_from_disasm(cfg.target_binary, va_int, with_kind=True)
+        if walked is not None:
+            disasm_extent, stale_kind = walked
+        else:
+            disasm_extent, stale_kind = None, None
+        if disasm_extent is not None and effective_size < disasm_extent:
+            if size is None:
+                console.print(
+                    f"[yellow]warning:[/yellow] function-list size {effective_size}B is stale — "
+                    f"code continues to at least {disasm_extent}B; extending the dump"
+                )
+                effective_size = disasm_extent
+                stale_size = True
+            else:
+                console.print(
+                    f"[yellow]warning:[/yellow] size {size}B may be stale — "
+                    f"disassembly continues to at least {disasm_extent}B (re-run with --size "
+                    f"{disasm_extent} to see it)"
+                )
+        elif (
+            stale_kind == "ret"
+            and disasm_extent is not None
+            and effective_size > disasm_extent
+            and size is None
+        ):
+            # The other direction, and the more damaging one: a function-list
+            # size is a gap to the NEXT entry, so it can run past this
+            # function's end into inter-function padding.  Decoding it is not
+            # harmless -- on guild-rebrew the padding is 0x09, which disassembles
+            # as `or dword ptr [ecx], ecx`, and a dump of
+            # CrashDumpUnhandledExceptionFilter (declared 2128B, real end 116B
+            # earlier) reported 724 instructions against the real 673, making
+            # the function look like it used a different calling convention.
+            # Truncate to the walked extent so the dump is instructions only.
+            console.print(
+                f"[yellow]warning:[/yellow] function-list size {effective_size}B runs "
+                f"{effective_size - disasm_extent}B past the code (padding); truncating to "
+                f"{disasm_extent}B"
+            )
+            effective_size = disasm_extent
+            stale_size = True
+
+    # --- hex format ---
+    if fmt == "hex":
+        if not va_str:
+            error_exit("--format hex requires a VA as a positional argument", json_mode=json_output)
+        assert va_int is not None  # va_str is truthy above
+        _run_hex_mode(
+            va_int,
+            effective_size,
+            cfg,
+            annotate,
+            json_output,
+            resolve_imports=resolve_imports,
+            resolve_strings=resolve_strings,
+            pattern_hints=pattern_hints,
+            stale_size=stale_size,
+            declared_size=declared_size,
+            output=output,
+            dry_run=dry_run,
+        )
+        return
+
+    # --- nasm format ---
+    read_image: ImageReader | None = None
+    if bin_file:
+        code = bin_file.read_bytes()
+        computed_base_va = parse_va(base_va, json_mode=json_output)
+        computed_label = label or bin_file.stem
+    elif va_str and effective_size:
+        assert va_int is not None  # va_str is truthy above
+        computed_va = va_int
+        from rebrew.formats.binary_loader import extract_raw_bytes
+
+        code = extract_raw_bytes(cfg.target_binary, computed_va, effective_size)
+        read_image = functools.partial(extract_raw_bytes, cfg.target_binary)
+        if code is None:
+            error_exit(
+                f"Could not extract {effective_size} bytes at VA 0x{computed_va:08X}",
+                json_mode=json_output,
+            )
+        computed_base_va = computed_va
+        computed_label = label or f"func_{computed_va:08X}"
+    else:
+        error_exit("Specify VA HEX --size N or --bin FILE for --format nasm", json_mode=json_output)
+
+    if dry_run:
+        preview: dict[str, Any] = {
+            "function": computed_label,
+            "base_va": f"0x{computed_base_va:08X}",
+            "total_bytes": len(code),
+            "output": str(output) if output else None,
+            "written": False,
+            "dry_run": True,
+        }
+        if verify:
+            preview["roundtrip_skipped"] = "Dry run does not invoke NASM"
+        if json_output:
+            json_print(preview)
+        else:
+            destination = str(output) if output else "stdout"
+            console.print(
+                f"Would emit {len(code)}B as {'naked C' if inline_c else 'NASM'} to {destination}"
+            )
+            if verify:
+                console.print("Round-trip verification skipped during dry run")
+        return
+
+    try:
+        nasm_src, run_stats = disassemble_to_nasm(
+            code, computed_base_va, computed_label, read_image
+        )
+    except RuntimeError as e:
+        error_exit(str(e), json_mode=json_output)
+
+    if inline_c:
+        out_src = generate_inline_c(code, cfg, computed_base_va, computed_label)
+    else:
+        out_src = nasm_src
+
+    if output:
+        atomic_write_text(output, out_src, encoding="utf-8")
+        if inline_c:
+            _record_inline_c_identity(cfg, output, computed_base_va, code, computed_label)
+        console.print(f"Written to {output}")
+
+    if stats or json_output:
+        result: dict[str, Any] = {
+            "function": computed_label,
+            "base_va": f"0x{run_stats['base_va']:08X}",
+            "total_bytes": run_stats["total_bytes"],
+            "total_instructions": run_stats["total_instructions"],
+            "nasm_ok": run_stats["nasm_ok"],
+            "pct_nasm": round(run_stats["pct_nasm"], 1),
+            "db_fallbacks": run_stats["db_fallbacks"],
+            "output": str(output) if output else None,
+            "written": output is not None,
+            "dry_run": False,
+        }
+        roundtrip_exit = 0
+        roundtrip_message = ""
+        if verify:
+            passed, roundtrip_message = verify_roundtrip(nasm_src, code)
+            roundtrip_exit = _roundtrip_exit_code(passed, roundtrip_message)
+            if roundtrip_exit == EXIT_ERROR:
+                error_exit(roundtrip_message, json_mode=json_output, code=EXIT_ERROR)
+            result["roundtrip_pass"] = passed
+            result["roundtrip_message"] = roundtrip_message
+        if json_output:
+            json_print(result)
+        else:
+            console.print(f"[bold]Function:[/] {untrusted_ident(computed_label)}")
+            console.print(f"  Base VA: [cyan]0x{run_stats['base_va']:08X}[/]")
+            console.print(f"  Size: {run_stats['total_bytes']} bytes")
+            console.print(f"  Instructions: {run_stats['total_instructions']}")
+            console.print(
+                f"  NASM-compatible: {run_stats['nasm_ok']} ({run_stats['pct_nasm']:.1f}%)"
+            )
+            console.print(f"  db fallbacks: {run_stats['db_fallbacks']}")
+            if verify:
+                console.print(f"\nRound-trip verification: {untrusted_ident(roundtrip_message)}")
+        if roundtrip_exit:
+            raise typer.Exit(code=roundtrip_exit)
+        return
+
+    if not output:
+        print(out_src)
+
+    if verify:
+        passed, msg = verify_roundtrip(nasm_src, code)
+        roundtrip_exit = _roundtrip_exit_code(passed, msg)
+        if roundtrip_exit == EXIT_ERROR:
+            error_exit(msg, json_mode=json_output, code=EXIT_ERROR)
+        console.print(f"\nRound-trip verification: {untrusted_ident(msg)}")
+        if roundtrip_exit:
+            raise typer.Exit(code=roundtrip_exit)
+
+
+@app.command(
+    "show",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary asm show 0x10003ca0 --size 77 --json\n\n"
+        "  rebrew binary asm show 0x401000 -f nasm --inline-c --dry-run\n\n"
+        "Hex/CFG --output writes the selected text or JSON view. NASM --output writes the artifact even with --json or --stats. --inline-c records a written skeleton in metadata. Use --dry-run to preview without writing files, metadata or NASM verification probes."
+    ),
+)
+def show(
+    va: str | None = typer.Argument(None, help="Function VA in hex"),
+    size: int | None = typer.Option(None, "--size", help="Function size in bytes"),
+    fmt: Literal["hex", "nasm", "cfg"] = typer.Option(
+        "hex", "--format", "-f", help="Output format: hex, nasm, cfg", metavar="FORMAT"
+    ),
+    annotate: bool = typer.Option(
+        True, "--annotate/--no-annotate", help="(hex) Annotate calls with known function names"
+    ),
+    resolve_imports: bool = typer.Option(
+        False, "--imports", help=r"(hex) Annotate call/jmp \[IAT] with import names"
+    ),
+    resolve_strings: bool = typer.Option(
+        False, "--strings", help="(hex) Annotate push/mov/lea of string addresses with text"
+    ),
+    pattern_hints: bool = typer.Option(
+        False, "--hints", help="(hex) Annotate decompiler-relevant codegen patterns"
+    ),
+    bin_file: Path | None = typer.Option(None, "--bin", help="(nasm) Raw .bin file"),
+    label: str | None = typer.Option(None, "--label", help="(nasm) Label name for the function"),
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Output file (default: stdout)"
+    ),
+    verify: bool = typer.Option(
+        False, "--verify", help="(nasm) Verify round-trip: assemble and compare"
+    ),
+    stats: bool = typer.Option(
+        False, "--stats", help="(nasm) Print statistics instead of source on stdout"
+    ),
+    inline_c: bool = typer.Option(
+        False,
+        "--inline-c",
+        help=(
+            "(nasm) Output an exact-bytes naked C skeleton: raw _emit/.byte "
+            "emission behind the REBREW_ALLOW_NAKED fence + a plain-C fallback. "
+            "A written file records identity in rebrew-functions.toml; "
+            "source = naked is stored only in metadata"
+        ),
+    ),
+    base_va: str = typer.Option("0", "--base-va", help="(nasm) Base VA for --bin files"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Disassemble one function or a raw byte slice."""
+    disassemble(
+        va=va,
+        size=size,
+        fmt=fmt,
+        annotate=annotate,
+        resolve_imports=resolve_imports,
+        resolve_strings=resolve_strings,
+        pattern_hints=pattern_hints,
+        bin_file=bin_file,
+        label=label,
+        output=output,
+        verify=verify,
+        stats=stats,
+        inline_c=inline_c,
+        base_va=base_va,
+        json_output=json_output,
+        target=target,
+        dry_run=dry_run,
+    )
+
+
+@app.command(
+    "batch",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary asm batch --output output/asm --dry-run --json\n\n"
+        "Preview planned files with --dry-run; no files, metadata or NASM verification probes are written. --json reports counts and file paths; progress goes to stderr. Choose a dedicated output directory: configured source roots and their ancestors are rejected, and the output subtree is excluded from inputs."
+    ),
+)
+def batch(
+    batch_stubs: bool = typer.Option(False, "--stubs", help="(nasm) Batch: STUB functions only"),
+    out_dir: Path | None = typer.Option(
+        None, "--output", "-o", help="Output directory for batch assembly"
+    ),
+    verify: bool = typer.Option(
+        False, "--verify", help="(nasm) Verify round-trip: assemble and compare"
+    ),
+    inline_c: bool = typer.Option(
+        False,
+        "--inline-c",
+        help=(
+            "(nasm) Output an exact-bytes naked C skeleton: raw _emit/.byte "
+            "emission behind the REBREW_ALLOW_NAKED fence + a plain-C fallback. "
+            "Each written file records identity in rebrew-functions.toml; "
+            "source = naked is stored only in metadata"
+        ),
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Export assembly for project functions, optionally restricted to stubs."""
+    disassemble(
+        batch_stubs=batch_stubs,
+        out_dir=out_dir,
+        verify=verify,
+        inline_c=inline_c,
+        dry_run=dry_run,
+        json_output=json_output,
+        target=target,
+        fmt="nasm",
+        extract_all=True,
+    )
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_cli
+
+    run_cli(app)
+
+
+if __name__ == "__main__":
+    main_entry()

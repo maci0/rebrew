@@ -33,7 +33,7 @@ def _object(tmp_path: Path, body: bytes) -> Path:
 
 
 def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, object_path: Path, *args: str):
-    from rebrew.lib_presence import app
+    from rebrew.library.presence import app
 
     monkeypatch.chdir(tmp_path)
     return CliRunner().invoke(app, ["--object", str(object_path), *args])
@@ -95,7 +95,7 @@ class TestPresence:
 
 
 def test_lowered_thresholds_locate_a_short_body() -> None:
-    from rebrew.lib_presence import classify, locate_body
+    from rebrew.library.presence import classify, locate_body
 
     body = b"\x55\x8b\xec\x83\xec\x10\x8b\x45\x08\x85\xc0\x74\x05\x8b\x4d\x0c\x89\x08\x5d\xc3"
     text = b"\xcc" * 32 + body + b"\xcc" * 32

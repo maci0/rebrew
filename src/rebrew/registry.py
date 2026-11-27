@@ -446,7 +446,7 @@ _REFRESH_STEPS: tuple[tuple[str, str, str, str | None], ...] = (
     ("binary_detectors", "rebrew.toolchain_detect", "refresh_detection_tables", "update"),
     ("binary_loaders", "rebrew.formats.binary_loader", "refresh_loaders", "len"),
     ("cache_backends", "rebrew.compiler.cache", "refresh_cache_backends", "len"),
-    ("discoverers", "rebrew.discover", "refresh_discoverers", "len"),
+    ("discoverers", "rebrew.binary.discover", "refresh_discoverers", "len"),
 )
 
 _REFRESH_ALL_LOCK = threading.Lock()

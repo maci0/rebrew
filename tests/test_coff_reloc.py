@@ -16,12 +16,12 @@ lazy from pathlib import Path
 import pytest
 from source_util import write_source
 
-from rebrew.coff_reloc import build_name_to_va
+from rebrew.compare.coff_reloc import build_name_to_va
 from rebrew.config import load_config
 
 
 def test_relocation_keeps_a_zero_address_exact_symbol() -> None:
-    from rebrew.coff_reloc import CoffRelocRecord, apply_coff_relocations
+    from rebrew.compare.coff_reloc import CoffRelocRecord, apply_coff_relocations
 
     symbols = {"_entry": 0, "entry": 0x401000}
     result = apply_coff_relocations(
@@ -100,7 +100,7 @@ def test_duplicate_function_catalog_uses_the_managed_provider(
     )
     with pytest.raises(ValueError, match="stored source binding"):
         read_source_bindings(paths[0], target_name="GAME", base_dir=src, metadata_dir=tmp_path)
-    from rebrew.coff_reloc import CatalogScanError
+    from rebrew.compare.coff_reloc import CatalogScanError
 
     with pytest.raises(CatalogScanError, match="stored source binding"):
         build_name_to_va(load_config(root=tmp_path))
@@ -128,7 +128,7 @@ def test_duplicate_function_catalog_uses_the_managed_provider(
 def test_verified_native_data_symbol_enters_marker_scoped_catalog(
     tmp_path: Path, provided_annotations: bool, native_symbol: str
 ) -> None:
-    from rebrew.coff_reloc import build_symbol_resolver, smart_reloc_compare
+    from rebrew.compare.coff_reloc import build_symbol_resolver, smart_reloc_compare
     from rebrew.metadata.data import set_data_fields_batch
 
     (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
@@ -170,7 +170,7 @@ def test_name_map_does_not_walk_variable_roles(
     map must not call it. The counter is the call, and the annotated global
     still lands in the map.
     """
-    import rebrew.c_parser as c_parser
+    import rebrew.c_syntax.parser as c_parser
 
     (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
     src = tmp_path / "src"
@@ -203,7 +203,7 @@ def test_stored_address_is_not_parsed_again(
     The count is ``find_extern_variables`` calls. It stays zero for a stored
     address and moves when the address is only in the source.
     """
-    import rebrew.c_parser as c_parser
+    import rebrew.c_syntax.parser as c_parser
 
     (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
     src = tmp_path / "src"
@@ -312,7 +312,7 @@ def test_function_catalog_scan_is_marker_scoped(
     """
     from types import SimpleNamespace
 
-    import rebrew.coff_reloc as cr
+    import rebrew.compare.coff_reloc as cr
     import rebrew.data.scan as data_mod
     import rebrew.metadata.bindings as annotation_mod
     import rebrew.metadata.data as dm_mod
@@ -361,7 +361,7 @@ def test_function_catalog_scan_is_marker_scoped(
 
 class TestStrictOperandProof:
     def test_binding_evidence_distinguishes_unknown_masks_and_full_native_checks(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, relocation_binding_evidence
+        from rebrew.compare.coff_reloc import CoffRelocRecord, relocation_binding_evidence
 
         obj = bytes(12)
         native = (0x1000).to_bytes(4, "little") + (0x2000).to_bytes(4, "little") + bytes(4)
@@ -374,7 +374,7 @@ class TestStrictOperandProof:
         assert [row["status"] for row in evidence] == ["VALIDATED", "UNRESOLVED", "UNSUPPORTED"]
 
     def test_extended_binding_check_cannot_hide_a_conflict_beyond_the_old_size(self) -> None:
-        from rebrew.coff_reloc import (
+        from rebrew.compare.coff_reloc import (
             CoffRelocRecord,
             known_bindings_match,
             relocation_binding_evidence,
@@ -391,7 +391,7 @@ class TestStrictOperandProof:
 
     @pytest.mark.parametrize("typed", [False, True])
     def test_known_binding_policy_rejects_conflicts_but_keeps_unresolved(self, typed: bool) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         records = [CoffRelocRecord(0, 6, "_table")] if typed else {0: "_table"}
         obj, native = (4).to_bytes(4, "little"), (0x1204).to_bytes(4, "little")
@@ -408,7 +408,7 @@ class TestStrictOperandProof:
         )[0]
 
     def test_known_binding_policy_preserves_explicit_iat_policy(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         result = smart_reloc_compare(
             bytes(4),
@@ -438,7 +438,7 @@ class TestStrictOperandProof:
     def test_mapped_dir32_requires_the_actual_address(
         self, typed: bool, bound: int, actual: int, expected: bool
     ) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         obj = (4).to_bytes(4, "little")
         native = actual.to_bytes(4, "little")
@@ -452,7 +452,7 @@ class TestStrictOperandProof:
     @pytest.mark.parametrize("typed", [False, True])
     @pytest.mark.parametrize("catalog", [{}, {"_unrelated": 0x9000}])
     def test_unbound_dir32_cannot_claim_a_proof(self, typed: bool, catalog: dict[str, int]) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         records = [CoffRelocRecord(0, 6, "_table")] if typed else {0: "_table"}
         result = smart_reloc_compare(bytes(4), bytes(4), records, catalog, strict=True)
@@ -460,7 +460,7 @@ class TestStrictOperandProof:
         assert result[4] == [0]
 
     def test_wrong_array_end_addend_is_not_masked(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         obj = bytes(4) + (768 * 16).to_bytes(4, "little")
         native = (0x930600).to_bytes(4, "little") + (0x930600 + 32 * 16).to_bytes(4, "little")
@@ -471,7 +471,7 @@ class TestStrictOperandProof:
         assert not result[0] and result[4] == [0, 4]
 
     def test_local_switch_targets_reject_each_wrong_binding(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         catalog = {"$L_map": 0x102C, "$L_table": 0x1024, "$L_zero": 0x1019, "$L_two": 0x101C}
         records = [CoffRelocRecord(i * 4, 6, name) for i, name in enumerate(catalog)]
@@ -485,7 +485,7 @@ class TestStrictOperandProof:
             assert not result[0] and result[4] == [i * 4]
 
     def test_explicit_iat_region_keeps_its_policy(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         records = [CoffRelocRecord(0, 6, "__imp_api")]
         native = (0x1200).to_bytes(4, "little")
@@ -506,7 +506,7 @@ class TestStrictOperandProof:
     def test_unprovable_typed_slots_fail_even_when_raw_bytes_agree(
         self, kind: int, section_va: int | None, catalog: dict[str, int]
     ) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         records = [CoffRelocRecord(0, kind, "_callee")]
         assert smart_reloc_compare(bytes(4), bytes(4), records, catalog, section_va=section_va)[0]
@@ -516,7 +516,7 @@ class TestStrictOperandProof:
         assert not result[0] and result[4] == [0]
 
     def test_strict_rel32_uses_pc_and_addend(self) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         records = [CoffRelocRecord(0, 20, "_callee")]
         obj = (4).to_bytes(4, "little")
@@ -529,7 +529,7 @@ class TestStrictOperandProof:
         )[0]
 
     def test_plain_masks_and_implicit_zero_slots_are_not_a_proof(self) -> None:
-        from rebrew.coff_reloc import smart_reloc_compare
+        from rebrew.compare.coff_reloc import smart_reloc_compare
 
         assert smart_reloc_compare(bytes(4), bytes(4), [0])[0]
         result = smart_reloc_compare(bytes(4), bytes(4), [0], strict=True)
@@ -542,7 +542,7 @@ class TestStrictOperandProof:
     @pytest.mark.parametrize("shape", ["typed", "dict", "offsets"])
     @pytest.mark.parametrize("offset", [-1, 1, 4])
     def test_out_of_extent_claims_fail_strict_proof(self, shape: str, offset: int) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
+        from rebrew.compare.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         records_by_shape: dict[str, list[CoffRelocRecord] | dict[int, str] | list[int]] = {
             "typed": [CoffRelocRecord(offset, 6, "_table")],
@@ -558,7 +558,7 @@ class TestStrictOperandProof:
 @pytest.mark.parametrize("strict", [False, True])
 def test_ambiguous_callee_blocks_only_its_own_operand(tmp_path: Path, strict: bool) -> None:
     """Independent same-symbol providers must not disable unrelated comparisons."""
-    from rebrew.coff_reloc import (
+    from rebrew.compare.coff_reloc import (
         AMBIGUOUS_VA,
         CoffRelocRecord,
         relocation_binding_evidence,
@@ -603,7 +603,7 @@ def test_ambiguous_callee_blocks_only_its_own_operand(tmp_path: Path, strict: bo
 
 
 def test_scan_anchor_error_names_project_relative_file(tmp_path: Path) -> None:
-    from rebrew.coff_reloc import CatalogScanError
+    from rebrew.compare.coff_reloc import CatalogScanError
 
     (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML)
     source = tmp_path / "src/parse_me.c"

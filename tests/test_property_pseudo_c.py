@@ -1,6 +1,6 @@
 """Hypothesis fuzz for the decompiler pseudo-C sanitizer.
 
-``rebrew.pseudo_c.sanitize_tokens`` rewrites decompiler output (Ghidra,
+``rebrew.c_syntax.pseudo_c.sanitize_tokens`` rewrites decompiler output (Ghidra,
 r2ghidra, r2dec, Kuna) into C89 that msvc-6.0 accepts: pseudo-types become
 real types, qualified names lose their scope, junk specifiers go away, and
 literal and macro text must survive byte-for-byte.  The input is another
@@ -27,8 +27,8 @@ import re
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.c_parser import protected_spans
-from rebrew.pseudo_c import _PSEUDO_TYPE_MAP, sanitize_tokens
+from rebrew.c_syntax.parser import protected_spans
+from rebrew.c_syntax.pseudo_c import _PSEUDO_TYPE_MAP, sanitize_tokens
 
 #: Tokens the sanitizer exists to remove; none may survive outside a literal.
 _PSEUDO_WORD_RE = re.compile(

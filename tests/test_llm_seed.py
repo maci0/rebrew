@@ -21,13 +21,14 @@ lazy from pathlib import Path
 import httpx
 import pytest
 
-import rebrew.llm_seed
+import rebrew.matching.llm_seed
 from rebrew.config import (
     DEFAULT_LLM_TIMEOUT,
     MAX_LLM_TIMEOUT,
     ConfigError,
+    ConfigWarning,
 )
-from rebrew.llm_seed import (
+from rebrew.matching.llm_seed import (
     _DEFAULT_MODEL,
     _MAX_COMPLETION_TOKENS,
     _MAX_HTTP_BODY_BYTES,
@@ -61,18 +62,18 @@ from rebrew.llm_seed import (
 @pytest.fixture(autouse=True)
 def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test gets a fresh process budget and seed cache (both are process-wide)."""
-    monkeypatch.setattr("rebrew.llm_seed._request_count", 0)
-    monkeypatch.setattr("rebrew.llm_seed._spent_tokens", 0)
-    monkeypatch.setattr("rebrew.llm_seed._reserved_tokens", 0)
+    monkeypatch.setattr("rebrew.matching.llm_seed._request_count", 0)
+    monkeypatch.setattr("rebrew.matching.llm_seed._spent_tokens", 0)
+    monkeypatch.setattr("rebrew.matching.llm_seed._reserved_tokens", 0)
     # The resolved ceilings llm_config publishes are process-wide too: without
     # this a test that loaded a config would leave its [llm] budget in force for
     # every later test, and a test asserting the env-only fallback would read
     # the previous test's pinned value instead.
-    monkeypatch.setattr("rebrew.llm_seed._resolved_max_requests", None)
-    monkeypatch.setattr("rebrew.llm_seed._resolved_max_tokens", None)
-    monkeypatch.setattr("rebrew.llm_seed._resolved_timeout", None)
-    rebrew.llm_seed._seed_cache.clear()
-    rebrew.llm_seed.reset_last_seed_usage()
+    monkeypatch.setattr("rebrew.matching.llm_seed._resolved_max_requests", None)
+    monkeypatch.setattr("rebrew.matching.llm_seed._resolved_max_tokens", None)
+    monkeypatch.setattr("rebrew.matching.llm_seed._resolved_timeout", None)
+    rebrew.matching.llm_seed._seed_cache.clear()
+    rebrew.matching.llm_seed.reset_last_seed_usage()
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
     monkeypatch.delenv("REBREW_LLM_MAX_TOKENS", raising=False)
     monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
@@ -846,14 +847,14 @@ class TestRequestSeeds:
         client = _FakeClient(
             {"choices": [{"message": {"content": "\n".join(f"```c\n{b}\n```" for b in blocks)}}]}
         )
-        real = rebrew.llm_seed.valid_c_source
+        real = rebrew.matching.llm_seed.valid_c_source
         calls: list[str] = []
 
         def counting(src: str, **kwargs: object) -> bool:
             calls.append(src)
             return real(src, **kwargs)
 
-        monkeypatch.setattr(rebrew.llm_seed, "valid_c_source", counting)
+        monkeypatch.setattr(rebrew.matching.llm_seed, "valid_c_source", counting)
         seeds = request_seeds(_cfg("https://llm/v1"), source, count=2, client=client)
         assert seeds == blocks[:2]
         assert calls == blocks[:2]
@@ -874,7 +875,7 @@ class TestRequestSeeds:
             calls.append(src)
             return False
 
-        monkeypatch.setattr(rebrew.llm_seed, "valid_c_source", counting)
+        monkeypatch.setattr(rebrew.matching.llm_seed, "valid_c_source", counting)
         assert (
             request_seeds(_cfg("https://llm/v1"), "int f(void) { return 0; }", client=client) == []
         )
@@ -1122,7 +1123,7 @@ class TestRequestSeeds:
         so re-sending is free: the recovered answer arrives, and the retry did
         not consume a second request slot or a second token budget.
         """
-        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+        monkeypatch.setattr("rebrew.matching.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
 
         class _ConnRefusedThenOk:
             def __init__(self) -> None:
@@ -1145,14 +1146,14 @@ class TestRequestSeeds:
         assert seeds == ["int f(void){return 0;}"]
         assert client.calls == 2
         # One billed request, however many connects it took.
-        assert rebrew.llm_seed._request_count == 1
+        assert rebrew.matching.llm_seed._request_count == 1
         assert spent_tokens() == 30
 
     def test_connect_failure_gives_up_after_the_attempt_cap(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """An endpoint that stays unreachable fails once, after the capped retries."""
-        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+        monkeypatch.setattr("rebrew.matching.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
 
         class _NeverConnects:
             def __init__(self) -> None:
@@ -1167,8 +1168,8 @@ class TestRequestSeeds:
             assert (
                 request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
             )
-        assert client.calls == rebrew.llm_seed._CONNECT_ATTEMPTS
-        assert rebrew.llm_seed._request_count == 1
+        assert client.calls == rebrew.matching.llm_seed._CONNECT_ATTEMPTS
+        assert rebrew.matching.llm_seed._request_count == 1
         assert "never reached the provider" in caplog.text
 
     def test_billed_failure_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1177,7 +1178,7 @@ class TestRequestSeeds:
         Re-sending it would buy the same prompt twice, so it stays single-shot
         like the overload statuses above.
         """
-        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+        monkeypatch.setattr("rebrew.matching.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
 
         class _TimedOutMidGeneration:
             def __init__(self) -> None:
@@ -1200,8 +1201,8 @@ class TestRequestSeeds:
         attempts at the full ``REBREW_LLM_TIMEOUT`` would run three times as
         long as the budget documents.
         """
-        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
-        monkeypatch.setattr("rebrew.llm_seed._CONNECT_RETRY_WINDOW_S", 0.0)
+        monkeypatch.setattr("rebrew.matching.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+        monkeypatch.setattr("rebrew.matching.llm_seed._CONNECT_RETRY_WINDOW_S", 0.0)
 
         class _Blackholed:
             def __init__(self) -> None:
@@ -1237,7 +1238,7 @@ class TestRequestSeeds:
 
         naps: list[float] = []
         client = _FlakyConnect()
-        seeds = rebrew.llm_seed._send_seeds(
+        seeds = rebrew.matching.llm_seed._send_seeds(
             client,
             {"endpoint": "https://llm/v1/chat/completions", "api_key": ""},
             "int f(void){return 0;}",
@@ -1369,7 +1370,7 @@ class TestTokenBudget:
 
     def test_zero_lifts_the_ceiling(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", "0")
-        rebrew.llm_seed._spent_tokens = 10_000_000
+        rebrew.matching.llm_seed._spent_tokens = 10_000_000
         client = _FakeClient(
             {"choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}]}
         )
@@ -1461,7 +1462,7 @@ class TestTokenBudget:
         assert in_flight == admitted
         assert sum(1 for r in results if r) == admitted
         assert spent_tokens() == admitted * 30
-        assert rebrew.llm_seed._reserved_tokens == 0
+        assert rebrew.matching.llm_seed._reserved_tokens == 0
 
     def test_a_refused_call_ceiling_leaves_the_token_budget_intact(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1470,10 +1471,10 @@ class TestTokenBudget:
         source = "int f(void) { return 0; }"
         monkeypatch.setenv("REBREW_LLM_MAX_TOKENS", "1000000")
         monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "1")
-        monkeypatch.setattr("rebrew.llm_seed._request_count", 1)
+        monkeypatch.setattr("rebrew.matching.llm_seed._request_count", 1)
         assert request_seeds(_cfg("https://llm/v1"), source, client=_FakeClient({})) == []
         assert spent_tokens() == 0
-        assert rebrew.llm_seed._reserved_tokens == 0
+        assert rebrew.matching.llm_seed._reserved_tokens == 0
 
 
 class TestStreamingResponse:
@@ -1574,7 +1575,7 @@ class TestSeedCache:
         calls_lock = threading.Lock()
         claim_calls = 0
         claim_lock = threading.Lock()
-        real_claim = rebrew.llm_seed._claim_seed_request
+        real_claim = rebrew.matching.llm_seed._claim_seed_request
 
         def _claim_counting(key: str) -> bool | None:
             nonlocal claim_calls
@@ -1585,7 +1586,7 @@ class TestSeedCache:
                 second_at_gate.set()
             return real_claim(key)
 
-        monkeypatch.setattr(rebrew.llm_seed, "_claim_seed_request", _claim_counting)
+        monkeypatch.setattr(rebrew.matching.llm_seed, "_claim_seed_request", _claim_counting)
 
         class _Blocking:
             @contextmanager
@@ -1614,8 +1615,8 @@ class TestSeedCache:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A slow leader makes the waiter give up, not become a second sender."""
-        monkeypatch.setattr(rebrew.llm_seed, "_request_timeout", lambda: 0.01)
-        monkeypatch.setattr(rebrew.llm_seed, "_SINGLEFLIGHT_HEADROOM_S", 0.0)
+        monkeypatch.setattr(rebrew.matching.llm_seed, "_request_timeout", lambda: 0.01)
+        monkeypatch.setattr(rebrew.matching.llm_seed, "_SINGLEFLIGHT_HEADROOM_S", 0.0)
         source = "int f(void) { return 0; }"
         entered = threading.Event()
         release = threading.Event()
@@ -1624,7 +1625,7 @@ class TestSeedCache:
         calls_lock = threading.Lock()
         claim_calls = 0
         claim_lock = threading.Lock()
-        real_claim = rebrew.llm_seed._claim_seed_request
+        real_claim = rebrew.matching.llm_seed._claim_seed_request
 
         def _claim_counting(key: str) -> bool | None:
             nonlocal claim_calls
@@ -1635,7 +1636,7 @@ class TestSeedCache:
                 second_at_gate.set()
             return real_claim(key)
 
-        monkeypatch.setattr(rebrew.llm_seed, "_claim_seed_request", _claim_counting)
+        monkeypatch.setattr(rebrew.matching.llm_seed, "_claim_seed_request", _claim_counting)
 
         class _Blocking:
             @contextmanager
@@ -1708,7 +1709,7 @@ class TestSeedCache:
 
     def test_connect_failure_is_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A prompt that never reached the provider remains free to retry later."""
-        monkeypatch.setattr("rebrew.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
+        monkeypatch.setattr("rebrew.matching.llm_seed.retry_backoff_delay", lambda _attempt: 0.0)
 
         class _ConnectFails:
             def __init__(self) -> None:
@@ -1724,11 +1725,11 @@ class TestSeedCache:
         source = "int f(void) { return 0; }"
         assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
         assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
-        assert client.calls == 2 * rebrew.llm_seed._CONNECT_ATTEMPTS
+        assert client.calls == 2 * rebrew.matching.llm_seed._CONNECT_ATTEMPTS
         assert spent_tokens() == 0
 
     def test_cache_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.llm_seed._MAX_CACHED_PROMPTS", 2)
+        monkeypatch.setattr("rebrew.matching.llm_seed._MAX_CACHED_PROMPTS", 2)
         client = self._client("int f(void) { int r = 0; return r; }")
         for i in range(3):
             request_seeds(
@@ -1736,7 +1737,7 @@ class TestSeedCache:
                 f"int f(void) {{ int x = {i}; return x; }}",
                 client=client,
             )
-        assert len(rebrew.llm_seed._seed_cache) == 2
+        assert len(rebrew.matching.llm_seed._seed_cache) == 2
         # The oldest entry was dropped, so its prompt is asked for again.
         request_seeds(_cfg("https://llm/v1"), "int f(void) { int x = 0; return x; }", client=client)
         assert client.calls == 4
@@ -1749,7 +1750,7 @@ class TestSeedCache:
         prompt goes.  Their names differ, so each still has to be asked for.
         """
         monkey = pytest.MonkeyPatch()
-        monkey.setattr("rebrew.llm_seed._MAX_SOURCE_CHARS", 64)
+        monkey.setattr("rebrew.matching.llm_seed._MAX_SOURCE_CHARS", 64)
         client = self._client("int f(void) { int r = 0; return r; }")
         try:
             first = request_seeds(
@@ -1774,7 +1775,7 @@ class TestSeedCache:
         digest the second request would hit the first's cache entry.
         """
         monkey = pytest.MonkeyPatch()
-        monkey.setattr("rebrew.llm_seed._MAX_SOURCE_CHARS", 64)
+        monkey.setattr("rebrew.matching.llm_seed._MAX_SOURCE_CHARS", 64)
         client = self._client("int f(void) { int r = 0; return r; }")
         try:
             first = request_seeds(
@@ -1799,8 +1800,8 @@ class TestSeedCache:
         source = "int f(void) { return 0; }"
         client = self._client("int f(void) { int r = 0; return r; }")
         assert request_seeds(_cfg("https://llm/v1"), source, client=client)
-        rebrew.llm_seed._seed_cache.update(
-            {key: ["int g(void) { return 0; }"] for key in rebrew.llm_seed._seed_cache}
+        rebrew.matching.llm_seed._seed_cache.update(
+            {key: ["int g(void) { return 0; }"] for key in rebrew.matching.llm_seed._seed_cache}
         )
         assert request_seeds(_cfg("https://llm/v1"), source, client=client) == []
         assert client.calls == 1
@@ -2129,14 +2130,14 @@ class TestSeedUsage:
         content = "".join(f"```c\nint f(void) {{ {b} }}\n```\n" for b in bodies)
         client = _FakeClient({"choices": [{"message": {"content": content}}]})
         gated: list[str] = []
-        real = rebrew.llm_seed.valid_c_source
+        real = rebrew.matching.llm_seed.valid_c_source
 
         def counting(src: str, **kwargs: object) -> bool:
             gated.append(src)
             return real(src, **kwargs)
 
         monkey = pytest.MonkeyPatch()
-        monkey.setattr(rebrew.llm_seed, "valid_c_source", counting)
+        monkey.setattr(rebrew.matching.llm_seed, "valid_c_source", counting)
         try:
             seeds = request_seeds(
                 _cfg("https://llm/v1"), "int f(void) { return 0; }", count=2, client=client
@@ -2167,7 +2168,7 @@ class TestSeedUsage:
         paid endpoint looks free.
         """
         client = _EchoingClient("connection reset by peer")
-        with caplog.at_level(logging.WARNING, logger="rebrew.llm_seed"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.matching.llm_seed"):
             assert (
                 request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
             )
@@ -2240,7 +2241,8 @@ class TestRequestTimeout:
 
     def test_above_the_maximum_clamps(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_TIMEOUT", "99999")
-        assert _request_timeout() == float(MAX_LLM_TIMEOUT)
+        with pytest.warns(ConfigWarning, match="clamping to 1800"):
+            assert _request_timeout() == float(MAX_LLM_TIMEOUT)
 
 
 class TestProjectFileBudgetIsEnforced:
@@ -2402,13 +2404,13 @@ class TestRequestDeadline:
                 headers: dict | None = None,
                 timeout: int | None = None,
             ) -> Iterator[_FakeResponse]:
-                real_load = rebrew.llm_seed._load_response_json
+                real_load = rebrew.matching.llm_seed._load_response_json
 
                 def _record(resp: object, *, deadline_s: float | None = None) -> object:
                     seen["deadline_s"] = deadline_s
                     return real_load(resp, deadline_s=deadline_s)
 
-                monkeypatch.setattr(rebrew.llm_seed, "_load_response_json", _record)
+                monkeypatch.setattr(rebrew.matching.llm_seed, "_load_response_json", _record)
                 with super().stream(
                     method, url, json=json, headers=headers, timeout=timeout
                 ) as resp:
@@ -2428,7 +2430,7 @@ class TestMatchGlue:
         """match --seed-llm appends validated LLM snippets to the GA seeds."""
         from types import SimpleNamespace as NS
 
-        from rebrew import match_run as match_mod
+        from rebrew.matching import run as match_mod
 
         captured: dict[str, object] = {}
 
@@ -2447,7 +2449,7 @@ class TestMatchGlue:
 
         monkeypatch.setattr(match_mod, "BinaryMatchingGA", _FakeGA)
         monkeypatch.setattr(
-            "rebrew.llm_seed.request_seeds",
+            "rebrew.matching.llm_seed.request_seeds",
             lambda cfg, source: ["int f(void) { return 42; }"],
         )
 
@@ -2495,8 +2497,8 @@ class TestMatchGlue:
         """The run summary shows what the request cost, not just how many seeds landed."""
         from types import SimpleNamespace as NS
 
-        from rebrew import match_run as match_mod
-        from rebrew.llm_seed import SeedUsage
+        from rebrew.matching import run as match_mod
+        from rebrew.matching.llm_seed import SeedUsage
 
         class _FakeGA:
             rng_seed = 0
@@ -2512,11 +2514,11 @@ class TestMatchGlue:
 
         monkeypatch.setattr(match_mod, "BinaryMatchingGA", _FakeGA)
         monkeypatch.setattr(
-            "rebrew.llm_seed.request_seeds",
+            "rebrew.matching.llm_seed.request_seeds",
             lambda cfg, source: ["int f(void) { return 42; }"],
         )
         monkeypatch.setattr(
-            "rebrew.llm_seed.seed_usage_total",
+            "rebrew.matching.llm_seed.seed_usage_total",
             lambda: SeedUsage(
                 model="gpt-4o-mini-2024-07-18",
                 prompt_version=_PROMPT_VERSION,
@@ -2572,10 +2574,10 @@ class TestMatchGlue:
     ) -> None:
         from types import SimpleNamespace as NS
 
-        from rebrew import match_run as match_mod
+        from rebrew.matching import run as match_mod
 
         monkeypatch.setattr(
-            "rebrew.llm_seed.llm_config",
+            "rebrew.matching.llm_seed.llm_config",
             lambda cfg: None,  # no endpoint
         )
         calls: list[object] = []
@@ -2633,7 +2635,7 @@ class TestLlmSeedDryRun:
     def test_dry_run_shows_prompt_and_skips_ga(self, tmp_path: Path, monkeypatch, capsys) -> None:
         from types import SimpleNamespace as NS
 
-        from rebrew import match_run as match_mod
+        from rebrew.matching import run as match_mod
 
         calls: list[object] = []
         llm_calls: list[object] = []
@@ -2656,7 +2658,7 @@ class TestLlmSeedDryRun:
             llm_calls.append(source)
             raise AssertionError("dry-run must not call the LLM endpoint")
 
-        monkeypatch.setattr("rebrew.llm_seed.request_seeds", _should_not_call)
+        monkeypatch.setattr("rebrew.matching.llm_seed.request_seeds", _should_not_call)
         p = NS(
             cfg=NS(
                 root=tmp_path,
@@ -2708,7 +2710,7 @@ class TestLlmSeedDryRun:
         """A raw ESC or RLO in the source must not reach the operator's terminal."""
         from types import SimpleNamespace as NS
 
-        from rebrew import match_run as match_mod
+        from rebrew.matching import run as match_mod
 
         monkeypatch.setattr(
             match_mod,
@@ -2764,7 +2766,7 @@ class TestLlmSeedDryRun:
 
         from typer.testing import CliRunner
 
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = NS(
             root=tmp_path,
@@ -2775,8 +2777,8 @@ class TestLlmSeedDryRun:
             target_name="S",
             target_binary=tmp_path / "x",
         )
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.match.resolve_source_arg", lambda cfg, s: s)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.resolve_source_arg", lambda cfg, s: s)
         result = CliRunner().invoke(app, ["run", "--dry-run", "f.c"])
         assert result.exit_code == 2  # EXIT_ERROR
         message = " ".join(result.output.split())

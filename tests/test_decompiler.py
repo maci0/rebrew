@@ -1012,7 +1012,7 @@ class TestKunaBackend:
         MAX_SEED_CHARS (8000), and 7368 without.
         """
         import rebrew.decompiler as dc
-        from rebrew.llm_seed import MAX_SEED_CHARS
+        from rebrew.matching.llm_seed import MAX_SEED_CHARS
 
         text = (
             Path(__file__).parent / "fixtures/kuna/test_sse2_sub_401000_kuna_1.994.c"
@@ -1443,7 +1443,8 @@ class TestReSessionReuse:
             lambda prefix="", dir=None, suffix="": str(unsafe / f"{prefix}x"),  # noqa: A006
         )
         try:
-            assert dc._re_init_project(binary, "rz", tmp_path) is None
+            with pytest.warns(UserWarning, match="rz skipped project reuse"):
+                assert dc._re_init_project(binary, "rz", tmp_path) is None
             assert not list(unsafe.iterdir()), "refused project dir leaked"
         finally:
             dc._clear_re_projects()

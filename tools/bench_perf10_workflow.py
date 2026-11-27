@@ -213,7 +213,7 @@ def _make_todo_inputs(rng: random.Random) -> tuple[Any, ...]:
 
 
 def bench_todo_rank() -> dict[str, Any]:
-    from rebrew import prove
+    from rebrew.matching import prove
     from rebrew.todo import _collect_active_functions, _rank_by_impact
 
     # The pinned categories include the GA-ceiling prover lane, which only

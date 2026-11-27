@@ -116,7 +116,7 @@ def _extern_key(decl: str) -> str:
 
 def _extract_extern_name(decl: str) -> str | None:
     """The symbol name from an extern declaration via tree-sitter-c."""
-    from rebrew.c_parser import find_declarator_identifier, mask_msvc_syntax, parse_c_source
+    from rebrew.c_syntax.parser import find_declarator_identifier, mask_msvc_syntax, parse_c_source
 
     text = decl.strip()
     if not text:
@@ -223,7 +223,7 @@ def consolidate_declarations(text: str, *, syntax: Any = None) -> tuple[str, Ext
     externs: list[str] = []
     typedefs: list[str] = []
     pragmas: list[str] = []
-    from rebrew.c_parser import parse_c_structure
+    from rebrew.c_syntax.parser import parse_c_structure
     from rebrew.metadata.anchors import parse_address_anchors
     from rebrew.source.layout import mask_for_parse
 
@@ -988,7 +988,7 @@ def _collect_file_scope_prototypes(text: str) -> list[str]:
     :func:`_resolve_externs` instead, since a prototype type key is None
     for them.
     """
-    from rebrew.c_parser import parse_c_source, prototype_type_key
+    from rebrew.c_syntax.parser import parse_c_source, prototype_type_key
     from rebrew.utils import strip_body
 
     try:
@@ -1026,7 +1026,7 @@ def _prototype_conflicts(text: str) -> dict[str, list[str]]:
     conflicts.  Declarations are reported verbatim, in merged order, so the
     caller can name them without rewriting the output.
     """
-    from rebrew.c_parser import prototype_name_span, prototype_type_key
+    from rebrew.c_syntax.parser import prototype_name_span, prototype_type_key
 
     by_name: dict[str, list[tuple[str, str]]] = {}
     for decl in _collect_file_scope_prototypes(text):

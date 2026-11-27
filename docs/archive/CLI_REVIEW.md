@@ -249,17 +249,17 @@ still reviewed as discovery/ownership boundaries.
 | `verify` | Keep verify | Incremental project/CI verification and regression baselines; separate advanced linked/data scopes in help. | [verify.py](../../src/rebrew/verify/cli.py) |
 | `skeleton` | Keep skeleton | The normal source-creation entry; retain append, batch, and optional decompilation distinctions. | [skeleton.py](../../src/rebrew/skeleton.py) |
 | `sync` | Keep sync; split its operations | Expose named field-sync and MCP structural operations; preserve their different state and transport owners. | [cli.py](../../src/rebrew/ghidra/cli.py) |
-| `lint` | Keep lint | A daily validation command; keep explicit fixing separate from the default check. | [lint.py](../../src/rebrew/lint.py) |
+| `lint` | Keep lint | A daily validation command; keep explicit fixing separate from the default check. | [lint.py](../../src/rebrew/lint/__init__.py) |
 | `register` | source register | Record identities from address anchors, or a support file purpose, through locked metadata APIs. | [source_register.py](../../src/rebrew/source/register.py) |
-| `fix` | source fix | Decompiler-output sanitization is different from lint fixing; make the output file clear. | [fixup.py](../../src/rebrew/fixup.py) |
-| `recover-structs` | types recover | Type recovery belongs with type checking/application; keep inference separate from source writes. | [struct_recover.py](../../src/rebrew/struct_recover.py) |
-| `decompile` | Keep decompile | Useful daily operation; use the same backend-option spelling as skeleton and type recovery. | [name_decomp.py](../../src/rebrew/name_decomp.py) |
-| `match` | match run / batch / flags / toolchains / history | Split mutually scoped algorithms and reporting from the 50-option command; retain shared matcher primitives. | [match.py](../../src/rebrew/match.py) |
-| `diff` | Keep diff | Readable byte/disassembly comparison; do not merge its output with STATUS recording. | [diff.py](../../src/rebrew/diff.py) |
+| `fix` | source fix | Decompiler-output sanitization is different from lint fixing; make the output file clear. | [fixup.py](../../src/rebrew/c_syntax/fixup.py) |
+| `recover-structs` | types recover | Type recovery belongs with type checking/application; keep inference separate from source writes. | [struct_recover.py](../../src/rebrew/c_syntax/struct_recover.py) |
+| `decompile` | Keep decompile | Useful daily operation; use the same backend-option spelling as skeleton and type recovery. | [name_decomp.py](../../src/rebrew/c_syntax/name_decomp.py) |
+| `match` | match run / batch / flags / toolchains / history | Split mutually scoped algorithms and reporting from the 50-option command; retain shared matcher primitives. | [match.py](../../src/rebrew/matching/cli.py) |
+| `diff` | Keep diff | Readable byte/disassembly comparison; do not merge its output with STATUS recording. | [diff.py](../../src/rebrew/compare/diff.py) |
 | `postlink` | build postlink | Mutates a built artifact; retain distinct reference/output paths and dry-run. | [postlink.py](../../src/rebrew/buildsys/postlink.py) |
-| `stack-cmp` | diagnose stack | A specialized byte-mismatch explanation, rather than another top-level workflow. | [stack_cmp.py](../../src/rebrew/stack_cmp.py) |
-| `asm` | binary asm | Keep hex/NASM/CFG output formats; move batch extraction modes behind named operations. | [asm.py](../../src/rebrew/asm.py) |
-| `switch` | binary switches | Jump-table decoding is binary inspection; preserve its VA/window and all-functions scopes. | [switch.py](../../src/rebrew/switch.py) |
+| `stack-cmp` | diagnose stack | A specialized byte-mismatch explanation, rather than another top-level workflow. | [stack_cmp.py](../../src/rebrew/compare/stack_cmp.py) |
+| `asm` | binary asm | Keep hex/NASM/CFG output formats; move batch extraction modes behind named operations. | [asm.py](../../src/rebrew/binary/asm.py) |
+| `switch` | binary switches | Jump-table decoding is binary inspection; preserve its VA/window and all-functions scopes. | [switch.py](../../src/rebrew/binary/switch.py) |
 | `init` | Keep init | Project creation and idempotent scaffold refresh/check remain one cohesive lifecycle command; optional runner setup is available as toolchain install-wibo. | [init.py](../../src/rebrew/init.py) |
 | `intake` | Keep intake | The onboarding orchestrator adds value over manually chaining init, detection, discovery, and documentation. | [intake.py](../../src/rebrew/intake.py) |
 | `gen-layout` | build layout | Linker layout generation belongs with build reconstruction; preserve reference-derived ownership evidence. | [gen_layout.py](../../src/rebrew/buildsys/gen_layout.py) |
@@ -279,37 +279,37 @@ still reviewed as discovery/ownership boundaries.
 | `link-sweep` | build sweep-link-flags | Linker-option search is separate from compiler/source search; retain raw command forwarding. | [link_sweep.py](../../src/rebrew/buildsys/link_sweep.py) |
 | `link-order` | build link-order | An explicit CMake check/apply operation; keep its difference from order-sources output. | [link_order.py](../../src/rebrew/buildsys/link_order.py) |
 | `document-unmatched` | source document-unmatched | Creates skeletons and blocker evidence; do not hand-set earned byte-match status. | [document_unmatched.py](../../src/rebrew/document_unmatched.py) |
-| `pdb-info` | binary pdb show / import-cflags | Inspect compiler evidence separately from importing it into configuration. | [pdb_info.py](../../src/rebrew/pdb_info.py) |
-| `discover-functions` | binary functions | Standalone binary discovery remains useful outside a configured project. | [discover.py](../../src/rebrew/discover.py) |
+| `pdb-info` | binary pdb show / import-cflags | Inspect compiler evidence separately from importing it into configuration. | [pdb_info.py](../../src/rebrew/binary/pdb_info.py) |
+| `discover-functions` | binary functions | Standalone binary discovery remains useful outside a configured project. | [discover.py](../../src/rebrew/binary/discover.py) |
 | `data` | data list / set / dispatch / bss / header / layout | Split inventory, metadata edits, generated declarations, and layout repair; preserve one storage owner per allocation. | [data.py](../../src/rebrew/data/cli.py) |
 | `graph` | source graph | Project/source dependency analysis; keep optional binary/dispatch edges and CU-map output explicit. | [depgraph.py](../../src/rebrew/depgraph.py) |
-| `status` | Keep status | Fast progress/accounting view; its different denominators must remain visible. | [status.py](../../src/rebrew/status.py) |
-| `todo` | Keep todo | Prioritized per-function work; keep it distinct from project-level recommend. | [todo.py](../../src/rebrew/todo.py) |
-| `unpack-lzexe` | binary unpack-lzexe | Standalone binary transformation; state the output path and overwrite behavior. | [lzexe_cli.py](../../src/rebrew/lzexe_cli.py) |
-| `crt-match` | library crt-match | Source cross-reference matching is different evidence from archive-byte or FLIRT matching. | [crt_match.py](../../src/rebrew/crt_match.py) |
-| `lib-match` | library match | Archive byte comparison; retain configured versus verified stock-library provenance. | [lib_match.py](../../src/rebrew/lib_match.py) |
-| `imports` | binary imports | Inspection by default; separate optional stub marking from import-table display. | [imports.py](../../src/rebrew/imports.py) |
-| `fingerprints` | binary fingerprints | Standalone fingerprints are useful; project target is only an optional input fallback. | [fingerprints.py](../../src/rebrew/fingerprints.py) |
-| `pe-info` | binary pe | Format-specific inspection is intentionally PE-only; do not hide that behind generic binary-info. | [pe_info.py](../../src/rebrew/pe_info.py) |
-| `crypto-scan` | binary crypto | Binary constants/imports scan; separate it from source security scanning. | [crypto_scan.py](../../src/rebrew/crypto_scan.py) |
+| `status` | Keep status | Fast progress/accounting view; its different denominators must remain visible. | [status.py](../../src/rebrew/status/__init__.py) |
+| `todo` | Keep todo | Prioritized per-function work; keep it distinct from project-level recommend. | [todo.py](../../src/rebrew/todo/__init__.py) |
+| `unpack-lzexe` | binary unpack-lzexe | Standalone binary transformation; state the output path and overwrite behavior. | [lzexe_cli.py](../../src/rebrew/binary/lzexe.py) |
+| `crt-match` | library crt-match | Source cross-reference matching is different evidence from archive-byte or FLIRT matching. | [crt_match.py](../../src/rebrew/library/crt_match.py) |
+| `lib-match` | library match | Archive byte comparison; retain configured versus verified stock-library provenance. | [lib_match.py](../../src/rebrew/library/match.py) |
+| `imports` | binary imports | Inspection by default; separate optional stub marking from import-table display. | [imports.py](../../src/rebrew/binary/imports.py) |
+| `fingerprints` | binary fingerprints | Standalone fingerprints are useful; project target is only an optional input fallback. | [fingerprints.py](../../src/rebrew/binary/fingerprints.py) |
+| `pe-info` | binary pe | Format-specific inspection is intentionally PE-only; do not hide that behind generic binary-info. | [pe_info.py](../../src/rebrew/binary/pe_info.py) |
+| `crypto-scan` | binary crypto | Binary constants/imports scan; separate it from source security scanning. | [crypto_scan.py](../../src/rebrew/binary/crypto_scan.py) |
 | `security-scan` | source security | C-source scanning; its input is a directory, unlike binary crypto inspection. | [security_scan.py](../../src/rebrew/security_scan.py) |
 | `verify-exports` | build check-exports | Built/reference export-table comparison; retain mismatch exit 1. | [verify_exports.py](../../src/rebrew/verify/exports.py) |
-| `strings` | binary strings | Standalone extraction with optional xrefs; keep VA and string-filter semantics explicit. | [strings.py](../../src/rebrew/strings.py) |
-| `xrefs` | binary xrefs | Address references and calls-from are different directions; keep their selection readable. | [xrefs.py](../../src/rebrew/xrefs.py) |
-| `drift` | diagnose drift | Branch/region drift localization; share compilation/selection plumbing rather than collapse its analysis. | [drift_cli.py](../../src/rebrew/drift_cli.py) |
-| `describe` | binary function | Project-backed function dossier; analyze --function uses the same dossier builder; document configured-project versus standalone inputs. | [describe.py](../../src/rebrew/describe.py) |
-| `analyze` | binary analyze | Whole-binary dossier; its per-function mode delegates to the shared describe dossier builder. | [analyze.py](../../src/rebrew/analyze.py) |
+| `strings` | binary strings | Standalone extraction with optional xrefs; keep VA and string-filter semantics explicit. | [strings.py](../../src/rebrew/binary/strings.py) |
+| `xrefs` | binary xrefs | Address references and calls-from are different directions; keep their selection readable. | [xrefs.py](../../src/rebrew/binary/xrefs.py) |
+| `drift` | diagnose drift | Branch/region drift localization; share compilation/selection plumbing rather than collapse its analysis. | [drift_cli.py](../../src/rebrew/compare/drift_cli.py) |
+| `describe` | binary function | Project-backed function dossier; analyze --function uses the same dossier builder; document configured-project versus standalone inputs. | [describe.py](../../src/rebrew/binary/describe.py) |
+| `analyze` | binary analyze | Whole-binary dossier; its per-function mode delegates to the shared describe dossier builder. | [analyze.py](../../src/rebrew/binary/analyze.py) |
 | `report` | coverage report | Static HTML output differs from serving existing coverage snapshots. | [report.py](../../src/rebrew/coverage/report.py) |
 | `diagnose` | diagnose config | Explains toolchain/flag resolution; does not diagnose the machine-code mismatch itself. | [diagnose.py](../../src/rebrew/diagnose.py) |
-| `flirt` | library scan-signatures | Signature scanning differs from writing identified library headers; initialization uses library init-signatures. | [flirt.py](../../src/rebrew/flirt.py) |
-| `identify-library` | library identify | Aggregates identification evidence and can write headers; retain dry-run and provenance. | [identify_library.py](../../src/rebrew/identify_library.py) |
-| `gen-flirt-pat` | library signatures | Signature production from archives is separate from signature scanning. | [gen_flirt_pat.py](../../src/rebrew/gen_flirt_pat.py) |
-| `doctor` | Keep doctor | Project readiness checks; optional runner installation lives under toolchain install-wibo. | [doctor.py](../../src/rebrew/doctor.py) |
+| `flirt` | library scan-signatures | Signature scanning differs from writing identified library headers; initialization uses library init-signatures. | [flirt.py](../../src/rebrew/library/flirt.py) |
+| `identify-library` | library identify | Aggregates identification evidence and can write headers; retain dry-run and provenance. | [identify_library.py](../../src/rebrew/library/identify.py) |
+| `gen-flirt-pat` | library signatures | Signature production from archives is separate from signature scanning. | [gen_flirt_pat.py](../../src/rebrew/library/gen_flirt_pat.py) |
+| `doctor` | Keep doctor | Project readiness checks; optional runner installation lives under toolchain install-wibo. | [doctor.py](../../src/rebrew/doctor/__init__.py) |
 | `split` | source split | Preserve metadata identities and source preimages; document its overwrite/backup behavior. | [split.py](../../src/rebrew/source/split.py) |
 | `merge` | source merge | Preserve explicit input deletion and declaration-order controls; not just the inverse of textual split. | [merge.py](../../src/rebrew/source/merge.py) |
-| `prove` | Keep prove | Semantic equivalence is not earned byte equality; keep PROVEN distinct and non-sticky. | [prove.py](../../src/rebrew/prove.py) |
-| `solutions` | match solutions | Read-only matcher history/solutions discovery belongs with matching, not binary inspection. | [solutions_db.py](../../src/rebrew/solutions_db.py) |
-| `round-trip` | build round-trip | Splicing compiled bytes into a target is an artifact operation; preserve its byte-equality gate. | [round_trip.py](../../src/rebrew/round_trip.py) |
+| `prove` | Keep prove | Semantic equivalence is not earned byte equality; keep PROVEN distinct and non-sticky. | [prove.py](../../src/rebrew/matching/prove.py) |
+| `solutions` | match solutions | Read-only matcher history/solutions discovery belongs with matching, not binary inspection. | [solutions_db.py](../../src/rebrew/matching/solutions_db.py) |
+| `round-trip` | build round-trip | Splicing compiled bytes into a target is an artifact operation; preserve its byte-equality gate. | [round_trip.py](../../src/rebrew/matching/round_trip.py) |
 | `build-db` | coverage build | Coverage document generation; name the artifact rather than imply a generic database. | [build_db.py](../../src/rebrew/coverage/build_db.py) |
 | `dashboard` | coverage serve | Read-only serving of coverage artifacts; keep host/port security and shutdown ownership. | [dashboard.py](../../src/rebrew/coverage/dashboard.py) |
 | `binsync-export` | binsync export | Keep raw export options --git/--clean; push has different Git defaults and cannot replace it unchanged. | [export.py](../../src/rebrew/binsync/export.py) |
@@ -318,16 +318,16 @@ still reviewed as discovery/ownership boundaries.
 | `binsync-init` | Remove flat route; keep binsync init | Exact callback duplicate of the grouped route. | [init.py](../../src/rebrew/binsync/init.py) |
 | `binsync-overlay` | Remove flat route; keep binsync overlay | Exact callback duplicate of the grouped route. | [overlay.py](../../src/rebrew/binsync/overlay.py) |
 | `catalog` | coverage catalog | Annotation/catalog validation differs from rendering coverage documents; keep the artifact boundary clear. | [cli.py](../../src/rebrew/catalog/cli.py) |
-| `similar` | similarity function | Single-function/submatch/cluster search; separate output modes and retain score semantics. | [similar.py](../../src/rebrew/similar.py) |
-| `binary-similarity` | similarity binary | Whole-binary comparison needs its own paired input and inventory selection. | [binary_similarity.py](../../src/rebrew/binary_similarity.py) |
+| `similar` | similarity function | Single-function/submatch/cluster search; separate output modes and retain score semantics. | [similar.py](../../src/rebrew/compare/similar.py) |
+| `binary-similarity` | similarity binary | Whole-binary comparison needs its own paired input and inventory selection. | [binary_similarity.py](../../src/rebrew/binary/similarity.py) |
 | `merge-sweep` | match partitions | Translation-unit partition search is distinct from source merge; keep rollback and compile-budget controls. | [merge_sweep.py](../../src/rebrew/source/merge_sweep.py) |
-| `climb` | match climb | Deterministic statement search differs from GA; use common function selection and compiler overrides. | [climb.py](../../src/rebrew/climb.py) |
-| `qual-sweep` | match qualifiers | Qualifier search remains a separate algorithm; -j now matches every other --jobs option. | [qual_sweep.py](../../src/rebrew/qual_sweep.py) |
-| `cross-import` | source import-related | Imports actual source across targets; keep it distinct from BinSync field overlays. Negative limits now fail with exit 2. | [cross_import.py](../../src/rebrew/cross_import.py) |
-| `probe` | diagnose probe | Measurement without metadata writes; reuse compilation logic with test --no-promote while preserving evidence inputs. | [probe.py](../../src/rebrew/probe.py) |
+| `climb` | match climb | Deterministic statement search differs from GA; use common function selection and compiler overrides. | [climb.py](../../src/rebrew/matching/climb.py) |
+| `qual-sweep` | match qualifiers | Qualifier search remains a separate algorithm; -j now matches every other --jobs option. | [qual_sweep.py](../../src/rebrew/matching/qual_sweep.py) |
+| `cross-import` | source import-related | Imports actual source across targets; keep it distinct from BinSync field overlays. Negative limits now fail with exit 2. | [cross_import.py](../../src/rebrew/cross_import/__init__.py) |
+| `probe` | diagnose probe | Measurement without metadata writes; reuse compilation logic with test --no-promote while preserving evidence inputs. | [probe.py](../../src/rebrew/matching/probe.py) |
 | `residue` | build residue | Linked whole-artifact residue/baseline measurement; not the same as one-function diff. | [residue.py](../../src/rebrew/buildsys/residue.py) |
-| `near-diag` | diagnose near | Byte mismatch classification and optional blocker writes; keep them separate from compiler-resolution diagnose. | [near_diag.py](../../src/rebrew/near_diag.py) |
-| `gap-trace` | diagnose gap | Instruction-stream length-gap tracing; keep its distinct output and shared selection/compile primitives. | [gap_trace.py](../../src/rebrew/gap_trace.py) |
+| `near-diag` | diagnose near | Byte mismatch classification and optional blocker writes; keep them separate from compiler-resolution diagnose. | [near_diag.py](../../src/rebrew/compare/near_diag.py) |
+| `gap-trace` | diagnose gap | Instruction-stream length-gap tracing; keep its distinct output and shared selection/compile primitives. | [gap_trace.py](../../src/rebrew/compare/gap_trace.py) |
 | `recommend` | Keep recommend | Project-level layout/hygiene advice complements per-function todo; make optional application explicit. | [recommend.py](../../src/rebrew/recommend.py) |
 | `refactor` | dev refactor | Scans Python under --repository without requiring a reversing project config. | [refactor.py](../../src/rebrew/source/refactor.py) |
 | `symbol-addrs` | export symbols | Splat symbol/reference export; distinguish address symbols from C context declarations. | [symbol_addrs.py](../../src/rebrew/symbol_addrs.py) |
@@ -342,50 +342,50 @@ still reviewed as discovery/ownership boundaries.
 | `blocker show` | Keep blocker show | Read-only lookup; retain the common function-reference selector. | [blocker.py](../../src/rebrew/blocker.py) |
 | `orphans` | orphans list / prune | Replace a writing mode on the group callback with an explicit prune operation; keep earned-status protection. | [orphans.py](../../src/rebrew/orphans.py) |
 | `orphans drop` | Keep orphans drop | Single-identity deletion is distinct from bulk pruning; preserve canonical metadata writers. | [orphans.py](../../src/rebrew/orphans.py) |
-| `types` | types check | Make the group default layout check an explicit action; retain evidence-based layout findings. | [types_cli.py](../../src/rebrew/types_cli.py) |
-| `types apply-type` | types apply | The parent already establishes the type domain; keep source-signature rewriting and dry-run. | [types_cli.py](../../src/rebrew/types_cli.py) |
-| `extract` | binary extract | Keep candidate discovery and byte extraction together; avoid duplicating asm show/batch behavior without comparing artifacts. | [extract.py](../../src/rebrew/extract.py) |
-| `extract list` | binary extract list | Lists uncovered candidates with extent bounds; preserve no-project --binary use. | [extract.py](../../src/rebrew/extract.py) |
-| `extract show` | binary extract show | Displays one selected candidate; compare overlap with asm before consolidating formats. | [extract.py](../../src/rebrew/extract.py) |
-| `extract batch` | binary extract batch | Writes selected function artifacts; negative count/start now fail before artifact creation. Keep extent filters explicit. | [extract.py](../../src/rebrew/extract.py) |
-| `cfg` | Keep cfg | Already a coherent config owner; nested target/module operations are more useful than a cosmetic cfg rename. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg list-targets` | cfg target list | Groups target lifecycle verbs; retain project-default target information. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg show` | Keep cfg show | Raw declared values with optional dotted-key selection; do not merge with effective resolution. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg effective` | Keep cfg effective | Resolved environment/default values and validation errors are distinct from the raw TOML. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg raw` | Keep cfg raw | Machine-readable full document export; retain secret redaction and explicit format. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg path` | Keep cfg path | Pipeable project-config location; does not require semantic config validity. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg add-target` | cfg target add | Retain validated binary/arch/format fields and overwrite protection. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg remove-target` | cfg target remove | Retain default-target handling and protection against accidental live-target deletion. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg set` | Keep cfg set | Generic scalar editing must retain field validation; special compiler setters carry stronger profile semantics. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg add-module` | cfg module add | Target-scoped module/origin edits belong together. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg remove-module` | cfg module remove | Retain protected-last-module and idempotence behavior. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg set-cflags` | cfg module set-cflags | Compiler-sensitive module presets; do not reduce validation to unrestricted dotted-key writes. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg set-compiler` | cfg target set-compiler | Retain profile validation/default generation; generic cfg set is not equivalent. | [cfg.py](../../src/rebrew/cfg.py) |
-| `cfg detect-crt` | cfg detect-crt; explicit apply operation | Read detection is useful; make --write provenance changes visible and preserve dry-run. | [cfg.py](../../src/rebrew/cfg.py) |
+| `types` | types check | Make the group default layout check an explicit action; retain evidence-based layout findings. | [types_cli.py](../../src/rebrew/c_syntax/types_cli.py) |
+| `types apply-type` | types apply | The parent already establishes the type domain; keep source-signature rewriting and dry-run. | [types_cli.py](../../src/rebrew/c_syntax/types_cli.py) |
+| `extract` | binary extract | Keep candidate discovery and byte extraction together; avoid duplicating asm show/batch behavior without comparing artifacts. | [extract.py](../../src/rebrew/binary/extract.py) |
+| `extract list` | binary extract list | Lists uncovered candidates with extent bounds; preserve no-project --binary use. | [extract.py](../../src/rebrew/binary/extract.py) |
+| `extract show` | binary extract show | Displays one selected candidate; compare overlap with asm before consolidating formats. | [extract.py](../../src/rebrew/binary/extract.py) |
+| `extract batch` | binary extract batch | Writes selected function artifacts; negative count/start now fail before artifact creation. Keep extent filters explicit. | [extract.py](../../src/rebrew/binary/extract.py) |
+| `cfg` | Keep cfg | Already a coherent config owner; nested target/module operations are more useful than a cosmetic cfg rename. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg list-targets` | cfg target list | Groups target lifecycle verbs; retain project-default target information. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg show` | Keep cfg show | Raw declared values with optional dotted-key selection; do not merge with effective resolution. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg effective` | Keep cfg effective | Resolved environment/default values and validation errors are distinct from the raw TOML. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg raw` | Keep cfg raw | Machine-readable full document export; retain secret redaction and explicit format. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg path` | Keep cfg path | Pipeable project-config location; does not require semantic config validity. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg add-target` | cfg target add | Retain validated binary/arch/format fields and overwrite protection. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg remove-target` | cfg target remove | Retain default-target handling and protection against accidental live-target deletion. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg set` | Keep cfg set | Generic scalar editing must retain field validation; special compiler setters carry stronger profile semantics. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg add-module` | cfg module add | Target-scoped module/origin edits belong together. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg remove-module` | cfg module remove | Retain protected-last-module and idempotence behavior. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg set-cflags` | cfg module set-cflags | Compiler-sensitive module presets; do not reduce validation to unrestricted dotted-key writes. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg set-compiler` | cfg target set-compiler | Retain profile validation/default generation; generic cfg set is not equivalent. | [cfg.py](../../src/rebrew/binary/cfg.py) |
+| `cfg detect-crt` | cfg detect-crt; explicit apply operation | Read detection is useful; make --write provenance changes visible and preserve dry-run. | [cfg.py](../../src/rebrew/binary/cfg.py) |
 | `cache` | Keep cache | A small cohesive resource-management group. | [cache_cli.py](../../src/rebrew/cache_cli.py) |
 | `cache stats` | Keep cache stats | Read cache statistics and close handles; no need to require dry-run on a read. | [cache_cli.py](../../src/rebrew/cache_cli.py) |
 | `cache clear` | Keep cache clear | Explicit destructive verb; retain confirmation/--force and backend cleanup. | [cache_cli.py](../../src/rebrew/cache_cli.py) |
 | `skills` | Keep skills | Package/user skill discovery is a distinct environment task. | [skills.py](../../src/rebrew/skills.py) |
 | `skills list` | Keep skills list | Show merged skills and origin; preserve the user override precedence. | [skills.py](../../src/rebrew/skills.py) |
 | `skills show` | Keep skills show | Pipeable skill text/JSON; preserve path confinement and raw-output semantics. | [skills.py](../../src/rebrew/skills.py) |
-| `resource` | binary resource | PE resource inspection/extraction belongs with binary formats, not the matching quick path. | [resource.py](../../src/rebrew/resource.py) |
-| `resource compare` | binary resource compare | Resource byte equality is distinct from initialized-data/function equality; keep exit 1 on differences. | [resource.py](../../src/rebrew/resource.py) |
-| `resource extract` | binary resource extract | Writes raw section bytes; make its artifact output distinct from function extraction. | [resource.py](../../src/rebrew/resource.py) |
-| `library` | Keep library; add identification operations | Current overrides are cohesive; add match/identify/signature operations with distinct verbs. | [library.py](../../src/rebrew/library.py) |
-| `library show` | Keep library show | Nearest effective override differs from listing all declaration files. | [library.py](../../src/rebrew/library.py) |
-| `library list` | Keep library list | Enumerates override declaration files; clarify the root positional is not --root target selection. | [library.py](../../src/rebrew/library.py) |
-| `library set` | Keep library set | Retain preset validation and canonical cache invalidation. | [library.py](../../src/rebrew/library.py) |
-| `library rm` | library remove | Align with cfg remove verbs; a rename must be a breaking change without a compatibility alias. | [library.py](../../src/rebrew/library.py) |
-| `toolchain` | Keep toolchain | Already groups provider lifecycle and compiler evidence appropriately. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain list` | Keep toolchain list | Known profile inventory differs from readiness for one profile. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain status` | Keep toolchain status | Profile resolution/readiness; keep image, plugin-host, and vendor provenance distinct. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain detect` | Keep toolchain detect | Compiler evidence and profile alignment; preserve standalone binary inspection. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain pull` | Keep toolchain pull | Image acquisition is distinct from source builds; keep pinned identity and backend caches coherent. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain vendor` | Keep toolchain vendor; clarify audience | Assembles pinned source media; does not enable a host fallback for shipped profiles. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain smoke` | Keep toolchain smoke | Compiler reproducibility gate; preserve measured fixtures and expected hashes. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain build` | Keep toolchain build | Build images from the sibling source owner, not arbitrary project paths. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain check-updates` | Keep toolchain check-updates | A read-only drift report is separate from accepting/rebuilding an upstream change. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
-| `toolchain update` | Keep toolchain update | Preview by default; preserve explicit --apply and smoke/provenance validation. | [toolchain_cli.py](../../src/rebrew/toolchain_cli.py) |
+| `resource` | binary resource | PE resource inspection/extraction belongs with binary formats, not the matching quick path. | [resource.py](../../src/rebrew/binary/resource.py) |
+| `resource compare` | binary resource compare | Resource byte equality is distinct from initialized-data/function equality; keep exit 1 on differences. | [resource.py](../../src/rebrew/binary/resource.py) |
+| `resource extract` | binary resource extract | Writes raw section bytes; make its artifact output distinct from function extraction. | [resource.py](../../src/rebrew/binary/resource.py) |
+| `library` | Keep library; add identification operations | Current overrides are cohesive; add match/identify/signature operations with distinct verbs. | [library.py](../../src/rebrew/library/cli.py) |
+| `library show` | Keep library show | Nearest effective override differs from listing all declaration files. | [library.py](../../src/rebrew/library/cli.py) |
+| `library list` | Keep library list | Enumerates override declaration files; clarify the root positional is not --root target selection. | [library.py](../../src/rebrew/library/cli.py) |
+| `library set` | Keep library set | Retain preset validation and canonical cache invalidation. | [library.py](../../src/rebrew/library/cli.py) |
+| `library rm` | library remove | Align with cfg remove verbs; a rename must be a breaking change without a compatibility alias. | [library.py](../../src/rebrew/library/cli.py) |
+| `toolchain` | Keep toolchain | Already groups provider lifecycle and compiler evidence appropriately. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain list` | Keep toolchain list | Known profile inventory differs from readiness for one profile. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain status` | Keep toolchain status | Profile resolution/readiness; keep image, plugin-host, and vendor provenance distinct. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain detect` | Keep toolchain detect | Compiler evidence and profile alignment; preserve standalone binary inspection. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain pull` | Keep toolchain pull | Image acquisition is distinct from source builds; keep pinned identity and backend caches coherent. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain vendor` | Keep toolchain vendor; clarify audience | Assembles pinned source media; does not enable a host fallback for shipped profiles. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain smoke` | Keep toolchain smoke | Compiler reproducibility gate; preserve measured fixtures and expected hashes. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain build` | Keep toolchain build | Build images from the sibling source owner, not arbitrary project paths. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain check-updates` | Keep toolchain check-updates | A read-only drift report is separate from accepting/rebuilding an upstream change. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
+| `toolchain update` | Keep toolchain update | Preview by default; preserve explicit --apply and smoke/provenance validation. | [toolchain_cli.py](../../src/rebrew/toolchain_cli/__init__.py) |
 | `binsync` | Keep binsync; absorb flat routes | Use one namespace while retaining raw artifact operations separately from Git orchestration. | [cli.py](../../src/rebrew/binsync/cli.py) |
 | `binsync init` | Keep binsync init | Canonical grouped initialization; remove only its exact flat route duplicate. | [init.py](../../src/rebrew/binsync/init.py) |
 | `binsync diff` | Keep binsync diff | Canonical read-only comparison; preserve divergence exit behavior. | [diff.py](../../src/rebrew/binsync/diff.py) |

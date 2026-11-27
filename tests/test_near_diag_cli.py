@@ -8,7 +8,7 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
-from rebrew.near_diag import app
+from rebrew.compare.near_diag import app
 
 _CODE = bytes.fromhex("558bec83ec08b801000000c9c3")
 
@@ -37,7 +37,7 @@ def _setup(
     symbol_found: bool = True,
 ) -> SimpleNamespace:
     cfg = _cfg(tmp_path)
-    monkeypatch.setattr("rebrew.near_diag.require_config", lambda **kw: cfg)
+    monkeypatch.setattr("rebrew.compare.near_diag.require_config", lambda **kw: cfg)
     monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: _CODE)
     obj = tmp_path / "out.obj"
     obj.write_bytes(b"x")

@@ -8,7 +8,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from rapidfuzz.distance import LCSseq
 
-from rebrew.alignment import (
+from rebrew.compare.alignment import (
     AlignedMatcher,
     WindowHashes,
     earliest_window,

@@ -52,11 +52,15 @@ from typing import TYPE_CHECKING, Any, override
 # Same names ``__getattr__`` loads at runtime.  Present here so a type
 # checker sees ``from rebrew.errors import ConfigError`` as that class.
 if TYPE_CHECKING:
-    from rebrew.analysis import CapstoneUnavailable as CapstoneUnavailable
     from rebrew.app.plugin import ComponentError as ComponentError
+    from rebrew.binary.analysis import CapstoneUnavailable as CapstoneUnavailable
+    from rebrew.binary.fingerprints import FingerprintError as FingerprintError
+    from rebrew.binary.pdb_export import PdbExportError as PdbExportError
     from rebrew.buildsys.residue import ResidueError as ResidueError
-    from rebrew.coff_reloc import CatalogScanError as CatalogScanError
-    from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
+    from rebrew.c_syntax.struct_recover import NoDecompilationError as NoDecompilationError
+    from rebrew.compare.coff_reloc import CatalogScanError as CatalogScanError
+    from rebrew.compare.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
+    from rebrew.compare.strict_relocation import StrictRelocationError as StrictRelocationError
     from rebrew.compiler.compile import CompareResultError as CompareResultError
     from rebrew.compiler.delphi16 import Delphi16Error as Delphi16Error
     from rebrew.compiler.dosbox import DosboxError as DosboxError
@@ -76,8 +80,6 @@ if TYPE_CHECKING:
     from rebrew.decompme import DecompmeError as DecompmeError
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.doctor import LibIndexUnavailable as LibIndexUnavailable
-    from rebrew.fingerprints import FingerprintError as FingerprintError
-    from rebrew.flirt import SignatureFileError as SignatureFileError
     from rebrew.formats.binary_loader import ExportParseError as ExportParseError
     from rebrew.formats.binary_loader import UnsupportedBinaryFormat as UnsupportedBinaryFormat
     from rebrew.formats.dfm import DfmError as DfmError
@@ -87,6 +89,8 @@ if TYPE_CHECKING:
     from rebrew.ghidra.client import McpApplyAborted as McpApplyAborted
     from rebrew.ghidra.client import McpError as McpError
     from rebrew.ghidra.client import McpErrorKind as McpErrorKind
+    from rebrew.library.flirt import SignatureFileError as SignatureFileError
+    from rebrew.library.vendor import VendorError as VendorError
     from rebrew.matcher.scoring import SimilarityUnavailable as SimilarityUnavailable
     from rebrew.metadata.bindings import BindingConflictError as BindingConflictError
     from rebrew.metadata.functions import LibraryOverrideError as LibraryOverrideError
@@ -97,15 +101,11 @@ if TYPE_CHECKING:
     from rebrew.metadata_sets import MetadataSetError as MetadataSetError
     from rebrew.ops import OpsError as OpsError
     from rebrew.orphans import OrphanInventoryError as OrphanInventoryError
-    from rebrew.pdb_export import PdbExportError as PdbExportError
     from rebrew.project_archive import ProjectArchiveError as ProjectArchiveError
     from rebrew.registry import RegistryError as RegistryError
     from rebrew.security_scan import SecurityScanUnavailable as SecurityScanUnavailable
     from rebrew.source.c_rename import IdentifierRenameRefused as IdentifierRenameRefused
     from rebrew.source.rename_ops import RenameError as RenameError
-    from rebrew.strict_relocation import StrictRelocationError as StrictRelocationError
-    from rebrew.struct_recover import NoDecompilationError as NoDecompilationError
-    from rebrew.vendor import VendorError as VendorError
     from rebrew.wibo import WiboError as WiboError
     from rebrew.workspace.config import WorkspaceConfigError as WorkspaceConfigError
     from rebrew.workspace.config import WorkspaceNotFound as WorkspaceNotFound
@@ -273,9 +273,9 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ConfigError": ("rebrew.errors", "ConfigError"),
     "ConfigKeyError": ("rebrew.errors", "ConfigKeyError"),
     "ConfigNotFoundError": ("rebrew.errors", "ConfigNotFoundError"),
-    "CapstoneUnavailable": ("rebrew.analysis", "CapstoneUnavailable"),
+    "CapstoneUnavailable": ("rebrew.binary.analysis", "CapstoneUnavailable"),
     "BindingConflictError": ("rebrew.metadata.bindings", "BindingConflictError"),
-    "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
+    "CatalogScanError": ("rebrew.compare.coff_reloc", "CatalogScanError"),
     "ComponentError": ("rebrew.app.plugin", "ComponentError"),
     "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
     "CompilerNotOffered": ("rebrew.compiler.toolchain", "CompilerNotOffered"),
@@ -286,7 +286,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DfmError": ("rebrew.formats.dfm", "DfmError"),
     "DosboxError": ("rebrew.compiler.dosbox", "DosboxError"),
     "ExportParseError": ("rebrew.formats.binary_loader", "ExportParseError"),
-    "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
+    "FingerprintError": ("rebrew.binary.fingerprints", "FingerprintError"),
     "IdentifierRenameRefused": ("rebrew.source.c_rename", "IdentifierRenameRefused"),
     "KunaNoBodyError": ("rebrew.decompiler", "KunaNoBodyError"),
     "KunaProcessError": ("rebrew.decompiler", "KunaProcessError"),
@@ -301,28 +301,28 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "MetadataValidationError": ("rebrew.metadata.model", "MetadataValidationError"),
     "Msvc16Error": ("rebrew.compiler.msvc16", "Msvc16Error"),
     "NeParseError": ("rebrew.formats.ne_loader", "NeParseError"),
-    "NoDecompilationError": ("rebrew.struct_recover", "NoDecompilationError"),
+    "NoDecompilationError": ("rebrew.c_syntax.struct_recover", "NoDecompilationError"),
     "NotLzexeError": ("rebrew.formats.lzexe", "NotLzexeError"),
     "Omf16Error": ("rebrew.formats.omf16", "Omf16Error"),
     "OrphanInventoryError": ("rebrew.orphans", "OrphanInventoryError"),
-    "PdbExportError": ("rebrew.pdb_export", "PdbExportError"),
+    "PdbExportError": ("rebrew.binary.pdb_export", "PdbExportError"),
     "ProjectArchiveError": ("rebrew.project_archive", "ProjectArchiveError"),
     "RecompileError": ("rebrew.compiler.recompile_client", "RecompileError"),
     "RegistryError": ("rebrew.registry", "RegistryError"),
     "RenameError": ("rebrew.source.rename_ops", "RenameError"),
     "ResidueError": ("rebrew.buildsys.residue", "ResidueError"),
     "SecurityScanUnavailable": ("rebrew.security_scan", "SecurityScanUnavailable"),
-    "SignatureFileError": ("rebrew.flirt", "SignatureFileError"),
+    "SignatureFileError": ("rebrew.library.flirt", "SignatureFileError"),
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
-    "StrictRelocationError": ("rebrew.strict_relocation", "StrictRelocationError"),
+    "StrictRelocationError": ("rebrew.compare.strict_relocation", "StrictRelocationError"),
     "Tc16Error": ("rebrew.compiler.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
     "UnshareError": ("rebrew.compiler.unshare", "UnshareError"),
     "UnsupportedBinaryFormat": ("rebrew.formats.binary_loader", "UnsupportedBinaryFormat"),
-    "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
+    "UnresolvedSymbolError": ("rebrew.compare.coff_reloc", "UnresolvedSymbolError"),
     "CoverageTomlError": ("rebrew.coverage.toml", "CoverageTomlError"),
     "ProjectCoverageError": ("rebrew.coverage.project", "ProjectCoverageError"),
-    "VendorError": ("rebrew.vendor", "VendorError"),
+    "VendorError": ("rebrew.library.vendor", "VendorError"),
     "WiboError": ("rebrew.wibo", "WiboError"),
     "WorkspaceConfigError": ("rebrew.workspace.config", "WorkspaceConfigError"),
     "WorkspaceNotFound": ("rebrew.workspace.config", "WorkspaceNotFound"),

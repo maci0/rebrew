@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from rebrew.coff_reloc import CoffRelocRecord
+    from rebrew.compare.coff_reloc import CoffRelocRecord
 
 #: A total below this is a byte-exact (or reloc-only) match.  Any non-reloc
 #: byte difference costs >= 1000 while the prologue bonus is -100, so every
@@ -99,7 +99,7 @@ class BuildResult:
     reloc_offsets: dict[int, str] | None = None
     error_msg: str = ""
     #: Memoized GA fitness (score.total + excess penalty).  Populated by
-    #: rebrew.match_ga's _compute_fitness; a warm-cache rerun of the same stub
+    #: rebrew.matching.ga's _compute_fitness; a warm-cache rerun of the same stub
     #: skips re-scoring.  ``None`` = not scored yet.
     fitness: float | None = None
     typed_relocs: list[CoffRelocRecord] | None = None

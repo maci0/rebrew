@@ -1,4 +1,4 @@
-"""Tests for rebrew.discover — chained function discovery."""
+"""Tests for rebrew.binary.discover — chained function discovery."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from cli_json import cli_payload
 
-from rebrew.discover import _is_padding, discover_functions
+from rebrew.binary.discover import _is_padding, discover_functions
 
 
 class TestIsPadding:
@@ -43,7 +43,7 @@ class TestIsPadding:
 
 class TestMultibyteNopLen:
     def test_sib_disp_forms(self) -> None:
-        from rebrew.discover import _multibyte_nop_len
+        from rebrew.binary.discover import _multibyte_nop_len
 
         # 0F 1F 44 00 00 — ModRM mod=01 rm=100 (SIB) disp8
         assert _multibyte_nop_len(bytes([0x0F, 0x1F, 0x44, 0x00, 0x00]), 0) == 5
@@ -53,7 +53,7 @@ class TestMultibyteNopLen:
         assert _multibyte_nop_len(bytes([0x0F, 0x1F, 0x05, 0, 0, 0, 0]), 0) == 7
 
     def test_truncated_returns_zero(self) -> None:
-        from rebrew.discover import _multibyte_nop_len
+        from rebrew.binary.discover import _multibyte_nop_len
 
         assert _multibyte_nop_len(bytes([0x0F, 0x1F]), 0) == 0
         assert _multibyte_nop_len(bytes([0x0F, 0x1F, 0x44]), 0) == 0
@@ -70,13 +70,13 @@ def _mk_info(raw: bytes):
 
 @pytest.fixture(autouse=True)
 def _patch_extract(monkeypatch):
-    """Route rebrew.analysis.extract_bytes to the fake info's raw bytes."""
-    import rebrew.analysis
+    """Route rebrew.binary.analysis.extract_bytes to the fake info's raw bytes."""
+    import rebrew.binary.analysis
 
     def _extract(info, va, size):
         return info.data[va : va + size]
 
-    monkeypatch.setattr(rebrew.analysis, "extract_bytes", _extract)
+    monkeypatch.setattr(rebrew.binary.analysis, "extract_bytes", _extract)
 
 
 class TestDiscoverFunctions:
@@ -100,7 +100,7 @@ class TestDiscoverFunctions:
         # rizin must not even be invoked for NE targets.
         called: list = []
         monkeypatch.setattr(
-            "rebrew.discover._rizin_functions", lambda *a, **k: called.append(1) or []
+            "rebrew.binary.discover._rizin_functions", lambda *a, **k: called.append(1) or []
         )
         d = discover_functions(p, min_size=1)
         assert d.sources == {"ne loader": 2}
@@ -119,10 +119,11 @@ class TestDiscoverFunctions:
             (0x401300, 50, "fcn.00401300"),
         ]
         monkeypatch.setattr(
-            "rebrew.discover._rizin_functions", lambda b, c: aaa if c == ["aaa"] else aap
+            "rebrew.binary.discover._rizin_functions", lambda b, c: aaa if c == ["aaa"] else aap
         )
         monkeypatch.setattr(
-            "rebrew.discover._capstone_sweep", lambda b: [(0x401000, 0, "x"), (0x401034, 0, "y")]
+            "rebrew.binary.discover._capstone_sweep",
+            lambda b: [(0x401000, 0, "x"), (0x401034, 0, "y")],
         )
 
         # Mock load_binary + iter_instructions for the validation pass: every
@@ -138,9 +139,9 @@ class TestDiscoverFunctions:
             yield Insn(va, max(size - 1, 1), "code")
             yield Insn(va + max(size - 1, 1), 1, "ret")
 
-        monkeypatch.setattr("rebrew.discover.load_binary", lambda b: _mk_info(b""))
-        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter_instructions)
-        monkeypatch.setattr("rebrew.discover._is_padding", lambda info, va, end: True)
+        monkeypatch.setattr("rebrew.binary.discover.load_binary", lambda b: _mk_info(b""))
+        monkeypatch.setattr("rebrew.binary.discover.iter_instructions", _iter_instructions)
+        monkeypatch.setattr("rebrew.binary.discover._is_padding", lambda info, va, end: True)
 
         d = discover_functions(Path("x.exe"))
         # merged candidate VAs: aaa(0x401000,0x401300) + aap(+0x401028,0x401040)
@@ -173,10 +174,10 @@ class TestImportAddressTable:
         slots = sorted(iat_slot_vas(binary))
         assert len(slots) == 3
         monkeypatch.setattr(
-            "rebrew.discover._rizin_functions",
+            "rebrew.binary.discover._rizin_functions",
             lambda b, c: [(slots[0], 0x40, "fcn.iat"), (slots[-1], 0x10, "fcn.slot")],
         )
-        monkeypatch.setattr("rebrew.discover._capstone_sweep", lambda b: [])
+        monkeypatch.setattr("rebrew.binary.discover._capstone_sweep", lambda b: [])
         found = discover_functions(binary, min_size=1)
         assert [va for va, _size, _name in found.functions if slots[0] <= va <= slots[-1]] == []
 
@@ -187,7 +188,7 @@ class TestDiscovererPlugins:
     def test_one_discovery_retains_its_provider_generation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.discover as disc
+        import rebrew.binary.discover as disc
         import rebrew.formats.binary_loader as binary_loader
 
         def _first(binary: Path) -> list[tuple[int, int, str]]:
@@ -210,28 +211,32 @@ class TestDiscovererPlugins:
         assert result.functions == [(0x1000, 10, "old-first"), (0x2000, 10, "old-plugin")]
 
     def test_plugin_results_merge(self, monkeypatch) -> None:
-        import rebrew.discover as disc
+        import rebrew.binary.discover as disc
 
-        monkeypatch.setattr("rebrew.discover._rizin_functions", lambda b, c: [])
-        monkeypatch.setattr("rebrew.discover._capstone_sweep", lambda b: [])
+        monkeypatch.setattr("rebrew.binary.discover._rizin_functions", lambda b, c: [])
+        monkeypatch.setattr("rebrew.binary.discover._capstone_sweep", lambda b: [])
         monkeypatch.setitem(disc._DISCOVERER_MAP, "ghidra", lambda b: [(0x401000, 40, "main")])
-        monkeypatch.setattr("rebrew.discover.load_binary", lambda b: _mk_info(b""))
-        monkeypatch.setattr("rebrew.discover._validate_and_refine", lambda info, funcs: funcs)
+        monkeypatch.setattr("rebrew.binary.discover.load_binary", lambda b: _mk_info(b""))
+        monkeypatch.setattr(
+            "rebrew.binary.discover._validate_and_refine", lambda info, funcs: funcs
+        )
         d = disc.discover_functions(Path("x.exe"))
         assert d.sources["ghidra"] == 1
         assert (0x401000, 40, "main") in d.functions
 
     def test_broken_plugin_skipped(self, monkeypatch) -> None:
-        import rebrew.discover as disc
+        import rebrew.binary.discover as disc
 
         def _boom(binary: Path) -> list:
             raise RuntimeError("no backend here")
 
-        monkeypatch.setattr("rebrew.discover._rizin_functions", lambda b, c: [])
-        monkeypatch.setattr("rebrew.discover._capstone_sweep", lambda b: [])
+        monkeypatch.setattr("rebrew.binary.discover._rizin_functions", lambda b, c: [])
+        monkeypatch.setattr("rebrew.binary.discover._capstone_sweep", lambda b: [])
         monkeypatch.setitem(disc._DISCOVERER_MAP, "broken", _boom)
-        monkeypatch.setattr("rebrew.discover.load_binary", lambda b: _mk_info(b""))
-        monkeypatch.setattr("rebrew.discover._validate_and_refine", lambda info, funcs: funcs)
+        monkeypatch.setattr("rebrew.binary.discover.load_binary", lambda b: _mk_info(b""))
+        monkeypatch.setattr(
+            "rebrew.binary.discover._validate_and_refine", lambda info, funcs: funcs
+        )
         d = disc.discover_functions(Path("x.exe"))
         assert d.sources["broken"] == 0
         assert d.functions == []
@@ -242,20 +247,22 @@ class TestDiscovererPlugins:
     )
     def test_malformed_plugin_result_skipped(self, monkeypatch, result: object) -> None:
         """A plugin returning the wrong shape is skipped, not a crash in the merge."""
-        import rebrew.discover as disc
+        import rebrew.binary.discover as disc
 
-        monkeypatch.setattr("rebrew.discover._rizin_functions", lambda b, c: [])
-        monkeypatch.setattr("rebrew.discover._capstone_sweep", lambda b: [])
+        monkeypatch.setattr("rebrew.binary.discover._rizin_functions", lambda b, c: [])
+        monkeypatch.setattr("rebrew.binary.discover._capstone_sweep", lambda b: [])
         monkeypatch.setitem(disc._DISCOVERER_MAP, "bad", lambda b: result)
-        monkeypatch.setattr("rebrew.discover.load_binary", lambda b: _mk_info(b""))
-        monkeypatch.setattr("rebrew.discover._validate_and_refine", lambda info, funcs: funcs)
+        monkeypatch.setattr("rebrew.binary.discover.load_binary", lambda b: _mk_info(b""))
+        monkeypatch.setattr(
+            "rebrew.binary.discover._validate_and_refine", lambda info, funcs: funcs
+        )
         d = disc.discover_functions(Path("x.exe"))
         assert d.sources["bad"] == 0
         assert d.functions == []
 
     def test_plugin_entry_point_merge(self, monkeypatch) -> None:
         """Entry-point registrations join the map; conflicts are skipped."""
-        import rebrew.discover as disc
+        import rebrew.binary.discover as disc
         from rebrew.registry import Registration
 
         reg = Registration(
@@ -287,7 +294,7 @@ class TestDiscoverMZ:
         assert is_mz(Path(__file__).parent / "fixtures" / "tg_msvc16.obj") is False
 
     def test_mz_sweep_finds_entry_and_functions(self) -> None:
-        from rebrew.discover import discover_functions
+        from rebrew.binary.discover import discover_functions
 
         fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
         d = discover_functions(fixture)
@@ -305,7 +312,7 @@ class TestInteriorFalsePositiveDrop:
     def test_boundary_membership_uses_one_lookup_per_candidate(self, monkeypatch) -> None:
         from collections import Counter
 
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         lookups = []
 
@@ -314,24 +321,24 @@ class TestInteriorFalsePositiveDrop:
                 lookups.append(key)
                 return super().__contains__(key)
 
-        monkeypatch.setattr("rebrew.discover.Counter", CountingCounter)
+        monkeypatch.setattr("rebrew.binary.discover.Counter", CountingCounter)
         monkeypatch.setattr(
-            "rebrew.discover.iter_instructions",
+            "rebrew.binary.discover.iter_instructions",
             lambda _info, va, _size: [SimpleNamespace(va=va, size=1, mnemonic="ret")],
         )
-        monkeypatch.setattr("rebrew.discover._function_start", lambda *_args: 990)
-        monkeypatch.setattr("rebrew.discover._is_padding", lambda *_args: False)
+        monkeypatch.setattr("rebrew.binary.discover._function_start", lambda *_args: 990)
+        monkeypatch.setattr("rebrew.binary.discover._is_padding", lambda *_args: False)
         funcs = [(i * 10, 0, f"f{i}") for i in range(100)]
         assert len(_validate_and_refine(None, funcs)) == 100
         assert lookups == [990] * 100
 
     def test_disassembly_failure_keeps_raw_gap(self, monkeypatch) -> None:
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         def fail(*_args):
             raise ValueError("bad instruction")
 
-        monkeypatch.setattr("rebrew.discover.iter_instructions", fail)
+        monkeypatch.setattr("rebrew.binary.discover.iter_instructions", fail)
         assert _validate_and_refine(None, [(10, 0, "first"), (20, 0, "last")]) == [
             (10, 10, "first"),
             (20, 0, "last"),
@@ -341,7 +348,7 @@ class TestInteriorFalsePositiveDrop:
     def test_recovery_tracks_deleted_and_duplicate_starts(
         self, monkeypatch, duplicate: bool
     ) -> None:
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         first_calls = 0
 
@@ -354,11 +361,11 @@ class TestInteriorFalsePositiveDrop:
                     return
             yield SimpleNamespace(va=va, size=1, mnemonic="ret")
 
-        monkeypatch.setattr("rebrew.discover.iter_instructions", instructions)
+        monkeypatch.setattr("rebrew.binary.discover.iter_instructions", instructions)
         monkeypatch.setattr(
-            "rebrew.discover._function_start", lambda _info, va: 20 if va == 11 else None
+            "rebrew.binary.discover._function_start", lambda _info, va: 20 if va == 11 else None
         )
-        monkeypatch.setattr("rebrew.discover._is_padding", lambda *_args: False)
+        monkeypatch.setattr("rebrew.binary.discover._is_padding", lambda *_args: False)
         candidates = [(10, 0, "first"), (20, 0, "dropped"), (40, 0, "last")]
         if duplicate:
             candidates.insert(2, (20, 0, "remaining"))
@@ -374,7 +381,7 @@ class TestInteriorFalsePositiveDrop:
         decodable boundary) is a call target inside that function.  The old
         `insn.va >= nxt` test could never fire — the disasm window IS the gap —
         so the phantom candidate stayed in the list."""
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         class Insn:
             def __init__(self, va: int, size: int, mnemonic: str) -> None:
@@ -387,7 +394,7 @@ class TestInteriorFalsePositiveDrop:
             yield Insn(va, size - 2, "mov")
             yield Insn(va + size - 2, 2, "jne")
 
-        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
+        monkeypatch.setattr("rebrew.binary.discover.iter_instructions", _iter)
         out = _validate_and_refine(None, [(0x401000, 0, "outer"), (0x401034, 0, "interior")])
         assert [va for va, _s, _n in out] == [0x401000]
 
@@ -395,7 +402,7 @@ class TestInteriorFalsePositiveDrop:
         """Decoding that stops before the next candidate (the section's file
         bytes end, as at the end of an ELF ``.plt``) proves nothing about it:
         dropping there cascaded through every later function of a static ELF."""
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         class Insn:
             def __init__(self, va: int, size: int, mnemonic: str) -> None:
@@ -406,14 +413,14 @@ class TestInteriorFalsePositiveDrop:
         def _iter(info, va, size):
             yield Insn(va, 6, "push")
 
-        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
+        monkeypatch.setattr("rebrew.binary.discover.iter_instructions", _iter)
         out = _validate_and_refine(None, [(0x401020, 0, "plt"), (0x401100, 0, "main")])
         assert [va for va, _s, _n in out] == [0x401020, 0x401100]
 
     def test_prefixed_jumps_and_nop_padding_end_a_function(self, monkeypatch) -> None:
         """`bnd jmp` / `notrack jmp` are tail jumps and `nop` is padding: the next
         candidate after either is a function of its own."""
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         class Insn:
             def __init__(self, va: int, size: int, mnemonic: str) -> None:
@@ -423,7 +430,7 @@ class TestInteriorFalsePositiveDrop:
 
         for last in ("bnd jmp", "notrack jmp", "nop"):
             monkeypatch.setattr(
-                "rebrew.discover.iter_instructions",
+                "rebrew.binary.discover.iter_instructions",
                 lambda info, va, size, last=last: [Insn(va, size, last)],
             )
             out = _validate_and_refine(None, [(0x401020, 0, "stub"), (0x401030, 0, "next")])
@@ -432,7 +439,7 @@ class TestInteriorFalsePositiveDrop:
     def test_tail_call_candidate_is_kept(self, monkeypatch) -> None:
         """A predecessor ending in an unconditional `jmp` is a tail call, not
         code running into the next candidate — do not drop it."""
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         class Insn:
             def __init__(self, va: int, size: int, mnemonic: str) -> None:
@@ -443,7 +450,7 @@ class TestInteriorFalsePositiveDrop:
         def _iter(info, va, size):
             yield Insn(va, 5, "jmp")
 
-        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
+        monkeypatch.setattr("rebrew.binary.discover.iter_instructions", _iter)
         out = _validate_and_refine(None, [(0x401000, 0, "outer"), (0x401034, 0, "thunk")])
         assert [va for va, _s, _n in out] == [0x401000, 0x401034]
 
@@ -480,13 +487,13 @@ class TestInsideExtent:
     """A candidate in an outer unwind tail stays covered past a nested extent."""
 
     def test_outer_tail_past_a_nested_extent_is_inside(self) -> None:
-        from rebrew.discover import _extent_contains
+        from rebrew.binary.discover import _extent_contains
 
         extents = [(0x1000, 0x300), (0x1100, 0x20)]
         assert _extent_contains(extents)(0x1200) is True
 
     def test_a_function_start_is_not_inside_itself(self) -> None:
-        from rebrew.discover import _extent_contains
+        from rebrew.binary.discover import _extent_contains
 
         # Nested start 0x1100 sits inside the outer [0x1000, 0x1200).
         extents = [(0x1000, 0x200), (0x1100, 0x20)]
@@ -495,7 +502,7 @@ class TestInsideExtent:
         assert inside(0x1000) is False
 
     def test_adjacent_extents_do_not_swallow_the_next_start(self) -> None:
-        from rebrew.discover import _extent_contains
+        from rebrew.binary.discover import _extent_contains
 
         extents = [(0x1000, 0x100), (0x1100, 0x100)]
         inside = _extent_contains(extents)
@@ -505,12 +512,12 @@ class TestInsideExtent:
 
 class TestUleb128:
     def test_multibyte_value(self) -> None:
-        from rebrew.discover import _uleb128
+        from rebrew.binary.discover import _uleb128
 
         assert _uleb128(b"\x80\x01", 0) == (128, 2)
 
     def test_unterminated_continuation_is_rejected(self) -> None:
-        from rebrew.discover import _uleb128
+        from rebrew.binary.discover import _uleb128
 
         with pytest.raises(ValueError, match="10 bytes"):
             _uleb128(b"\x80" * 11, 0)
@@ -528,7 +535,7 @@ class TestEhFrame:
         return data
 
     def test_each_fde_gives_its_start_and_size(self) -> None:
-        from rebrew.discover import _parse_eh_frame
+        from rebrew.binary.discover import _parse_eh_frame
 
         data = self._frame([(0x401000, 0x40), (0x401040, 0x13)]) + b"\x00\x00\x00\x00"
         assert _parse_eh_frame(data, self.SECTION_VA, pointer_size=8, big_endian=False) == [
@@ -537,14 +544,14 @@ class TestEhFrame:
         ]
 
     def test_a_truncated_record_keeps_what_came_before(self) -> None:
-        from rebrew.discover import _parse_eh_frame
+        from rebrew.binary.discover import _parse_eh_frame
 
         data = self._frame([(0x401000, 0x40), (0x401040, 0x13)])
         extents = _parse_eh_frame(data[:-3], self.SECTION_VA, pointer_size=8, big_endian=False)
         assert extents == [(0x401000, 0x40)]
 
     def test_an_fde_without_a_known_cie_is_skipped(self) -> None:
-        from rebrew.discover import _parse_eh_frame
+        from rebrew.binary.discover import _parse_eh_frame
 
         data = _cie(0x1B)
         # The FDE's CIE pointer names offset 2, inside the CIE, not its start.
@@ -564,7 +571,7 @@ class TestEhFrame:
         from hypothesis import given, settings
         from hypothesis import strategies as st
 
-        from rebrew.discover import _parse_eh_frame
+        from rebrew.binary.discover import _parse_eh_frame
 
         @settings(max_examples=400, deadline=None)
         @given(
@@ -596,7 +603,7 @@ class TestEhFrame:
         from hypothesis import given, settings
         from hypothesis import strategies as st
 
-        from rebrew.discover import _parse_eh_frame
+        from rebrew.binary.discover import _parse_eh_frame
 
         @settings(max_examples=200, deadline=None)
         @given(st.binary(max_size=128), st.binary(max_size=128), st.sampled_from([4, 8]))
@@ -619,7 +626,7 @@ class TestEhFrame:
         the one field that only ``pointer_size`` decides.  ``EM_MIPS`` spans
         both widths, so the arch name cannot supply it.
         """
-        from rebrew import discover
+        from rebrew.binary import discover
 
         data = self._absolute_frame(pointer_size, start, 0x40)
         image = tmp_path / "prog.elf"
@@ -665,7 +672,7 @@ class TestEhFrame:
     def test_a_vouched_start_survives_a_noreturn_predecessor(self, monkeypatch) -> None:
         """Code ending in ``call abort`` runs into the next function with no
         ``ret``; the unwind table's word keeps that next function."""
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         class Insn:
             def __init__(self, va: int, size: int, mnemonic: str) -> None:
@@ -677,7 +684,7 @@ class TestEhFrame:
             yield Insn(va, size - 5, "mov")
             yield Insn(va + size - 5, 5, "call")
 
-        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
+        monkeypatch.setattr("rebrew.binary.discover.iter_instructions", _iter)
         funcs = [(0x401000, 0, "dies"), (0x401020, 0, "next")]
         assert [va for va, _s, _n in _validate_and_refine(None, funcs)] == [0x401000]
         kept = _validate_and_refine(None, funcs, vouched=frozenset({0x401020}))
@@ -730,7 +737,7 @@ def test_elf_defined_symbols_preserve_extents_without_rizin(tmp_path: Path, monk
 
     import lief
 
-    from rebrew import discover
+    from rebrew.binary import discover
 
     cc = shutil.which("cc")
     if not cc:
@@ -808,7 +815,7 @@ class TestRecoveredBoundaryPadding:
         self, monkeypatch, padding: bytes, known_start: bool
     ) -> None:
         """Recovered callbacks start at their prologue, never the preceding fill."""
-        from rebrew.discover import _validate_and_refine
+        from rebrew.binary.discover import _validate_and_refine
 
         # The original provider knows only the first and last functions.
         raw = b"\xc3" + padding + b"\x83\xec\x04\x83\xc4\x04\xc3" + b"\x90" + b"\xc3"
@@ -825,7 +832,7 @@ class TestRecoveredBoundaryPadding:
             elif va == last:
                 yield SimpleNamespace(va=va, size=1, mnemonic="ret")
 
-        monkeypatch.setattr("rebrew.discover.iter_instructions", instructions)
+        monkeypatch.setattr("rebrew.binary.discover.iter_instructions", instructions)
         candidates = [(0, 0, "first"), (last, 0, "last")]
         if known_start:
             candidates.append((start, 0, f"fcn.{start:x}"))
@@ -834,7 +841,7 @@ class TestRecoveredBoundaryPadding:
 
     @pytest.mark.parametrize("raw", [b"\x90\x90\x01\xc0", b"\xcc\xcc\x00\x00"])
     def test_padding_without_a_prologue_is_not_a_start(self, raw: bytes) -> None:
-        from rebrew.discover import _function_start
+        from rebrew.binary.discover import _function_start
 
         assert _function_start(_mk_info(raw), 0) is None
 
@@ -847,12 +854,11 @@ class TestDiscoveryCliInputs:
 
         from typer.testing import CliRunner
 
-        from rebrew import discover
-
         # Before the stub: importing the umbrella imports every command
         # module, and one that binds require_config at import (rename) would
         # keep the stub for the rest of the process.
         from rebrew.app.main import app
+        from rebrew.binary import discover
 
         monkeypatch.chdir(tmp_path)
         binary = tmp_path / "standalone.bin"
@@ -882,7 +888,7 @@ class TestDiscoveryCliInputs:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import discover
+        from rebrew.binary import discover
 
         monkeypatch.chdir(tmp_path)
         binary = tmp_path / "standalone.bin"
@@ -910,7 +916,7 @@ class TestDiscoveryCliInputs:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import discover
+        from rebrew.binary import discover
 
         binary = tmp_path / "standalone.bin"
         binary.write_bytes(b"binary")
@@ -939,11 +945,11 @@ class TestDiscoveryCliInputs:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import discover
+        from rebrew.binary import discover
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
-            "rebrew.discover.resolve_binary_arg",
+            "rebrew.binary.discover.resolve_binary_arg",
             lambda *_args, **_kwargs: pytest.fail(
                 "field validation must precede binary resolution"
             ),
@@ -959,7 +965,7 @@ class TestDiscoveryCliInputs:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import discover
+        from rebrew.binary import discover
 
         monkeypatch.chdir(tmp_path)
         binary = tmp_path / "standalone.bin"
@@ -983,13 +989,13 @@ class TestDiscoveryCliInputs:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import discover
+        from rebrew.binary import discover
 
         monkeypatch.chdir(tmp_path)
         binary = tmp_path / "standalone.bin"
         binary.write_bytes(b"binary")
         monkeypatch.setattr(
-            "rebrew.discover.resolve_binary_arg",
+            "rebrew.binary.discover.resolve_binary_arg",
             lambda *_args, **_kwargs: pytest.fail("pagination validation must precede resolution"),
         )
         result = CliRunner().invoke(discover.app, ["--json", flag, "-1", str(binary)])
@@ -1004,7 +1010,7 @@ class TestDiscoveryCliInputs:
         from bin_util import make_pe
         from typer.testing import CliRunner
 
-        from rebrew import discover
+        from rebrew.binary import discover
 
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(
@@ -1036,7 +1042,7 @@ class TestDiscoveryCliInputs:
 
         from typer.testing import CliRunner
 
-        from rebrew import discover
+        from rebrew.binary import discover
 
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(

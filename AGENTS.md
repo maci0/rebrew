@@ -92,7 +92,13 @@ and [test conventions](docs/DEVELOPMENT.md#test-conventions).
 ```
 src/rebrew/          # package; discover modules there; do not rely on an inline inventory
 ├── matcher/         # GA engine: src/rebrew/matcher/AGENTS.md
+├── matching/        # matching CLI, flag sweeps, GA, LLM seeding, proving: src/rebrew/matching/AGENTS.md
 ├── compiler/        # compile execution, toolchains, compile cache: src/rebrew/compiler/AGENTS.md
+├── compare/         # byte diffs, relocations, near analysis, drift, stack: src/rebrew/compare/AGENTS.md
+├── binary/          # analysis, disassembly, CFG, discovery, PE/PDB/NE: src/rebrew/binary/AGENTS.md
+├── c_syntax/        # C parsing, conditionals, casts, structs, types: src/rebrew/c_syntax/AGENTS.md
+├── library/         # FLIRT, CRT matching, library identification/vendor: src/rebrew/library/AGENTS.md
+├── config/          # project config loader, env knobs, schemas, address comments: src/rebrew/config/AGENTS.md
 ├── formats/         # executable, object and archive parsers: src/rebrew/formats/AGENTS.md
 ├── metadata/        # source annotations + locked function/data metadata stores: src/rebrew/metadata/AGENTS.md
 ├── app/             # umbrella CLI composition (main, builtins, plugin): src/rebrew/app/AGENTS.md

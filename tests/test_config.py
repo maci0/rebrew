@@ -705,7 +705,9 @@ binary = "test.exe"
 source_ext = "c, cpp"
 """
         root = _make_project(tmp_path, toml)
-        cfg = load_config(root)
+        with pytest.warns(ConfigWarning, match="missing a leading dot") as caught:
+            cfg = load_config(root)
+        assert sum("missing a leading dot" in str(w.message) for w in caught) == 2
         assert cfg.source_ext == ".c,.cpp"
 
 
@@ -963,8 +965,12 @@ indent_style = "space"
 binary = "test.exe"
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match=r"project\.lint\.naming_convention"):
+        with pytest.warns(ConfigWarning) as caught:
             cfg = load_config(root)
+        messages = [str(w.message) for w in caught]
+        assert any("project.lint.naming_convention" in m for m in messages)
+        assert any("project.lint.brace_style" in m for m in messages)
+        assert any("project.lint.indent_style" in m for m in messages)
         assert cfg.lint_naming_convention == "none"
         assert cfg.lint_brace_style == "none"
         assert cfg.lint_indent_style == "none"
@@ -1068,8 +1074,11 @@ binary = "test.exe"
 api_key = "secret-key"
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match=r"api_key is set but .*endpoint is empty"):
+        with pytest.warns(ConfigWarning) as caught:
             cfg = load_config(root)
+        messages = [str(w.message) for w in caught]
+        assert any("[llm].api_key is set in rebrew-project.toml" in m for m in messages)
+        assert any("api_key is set but" in m and "endpoint is empty" in m for m in messages)
         assert cfg.llm_api_key == "secret-key"
         assert cfg.llm_endpoint == ""
 
@@ -1098,8 +1107,8 @@ defines = ["V1"]
         assert cfg.defines == ["V1"]
         assert cfg.shared_dir == root / "src" / "shared"
 
-    def test_legacy_target_cflags_presets_honoured_with_warning(self, tmp_path: Path) -> None:
-        """Misplaced [targets.X.cflags_presets] used to be a silent no-op."""
+    def test_legacy_target_cflags_presets_rejected_as_unrecognized(self, tmp_path: Path) -> None:
+        """Legacy [targets.X.cflags_presets] fallback was removed; warn as unrecognized."""
         toml = """\
 [project]
 default_target = "main"
@@ -1111,11 +1120,11 @@ binary = "test.exe"
 GAME = "/O1"
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match=r"cflags_presets is misplaced"):
+        with pytest.warns(ConfigWarning, match=r"unrecognized keys: \['cflags_presets'\]"):
             cfg = load_config(root)
-        assert cfg.cflags_presets.get("GAME") == "/O1"
+        assert cfg.cflags_presets == {}
 
-    @pytest.mark.parametrize("section", ["compiler", "targets.main.compiler", "targets.main"])
+    @pytest.mark.parametrize("section", ["compiler", "targets.main.compiler"])
     @pytest.mark.parametrize("value", ['"/O2"', '""', "false", "0", "[]", '["/O2"]'])
     def test_cflags_presets_requires_table(self, tmp_path: Path, section: str, value: str) -> None:
         toml = f"""\
@@ -1128,13 +1137,11 @@ binary = "test.exe"
 [{section}]
 cflags_presets = {value}
 """
-        if section == "targets.main":
-            toml = toml.replace("\n[targets.main]\ncflags_presets", "\ncflags_presets")
         root = _make_project(tmp_path, toml)
         with pytest.raises(ValueError, match=rf"\[{section}\.cflags_presets\].*TOML table"):
             load_config(root)
 
-    @pytest.mark.parametrize("section", ["compiler", "targets.main.compiler", "targets.main"])
+    @pytest.mark.parametrize("section", ["compiler", "targets.main.compiler"])
     @pytest.mark.parametrize("value", ["false", "42", "[]", "{}"])
     def test_cflags_preset_requires_string(self, tmp_path: Path, section: str, value: str) -> None:
         toml = f"""\
@@ -2314,7 +2321,10 @@ profile = "msvc-6.0"
             self.BASE_TOML + '\n[llm]\nendpoint = "http://remote-api.com/v1"\napi_key = "secret"\n'
         )
         root = _make_project(tmp_path, toml)
-        with pytest.raises(ConfigError, match="LLM endpoint must use https when an API key is set"):
+        with (
+            pytest.warns(ConfigWarning, match=r"\[llm\]\.api_key is set in rebrew-project\.toml"),
+            pytest.raises(ConfigError, match="LLM endpoint must use https when an API key is set"),
+        ):
             load_config(root)
 
     def test_llm_insecure_project_endpoint_error_names_the_dead_end(
@@ -2652,8 +2662,9 @@ class TestEnvKnobValidators:
         the raw string while the caller kept it, so an accepted ``~`` path was
         still looked up literally.
         """
-        from rebrew import flirt, skills
+        from rebrew import skills
         from rebrew.compiler.toolchain_paths import toolchains_repo
+        from rebrew.library import flirt
 
         home = tmp_path / "home"
         (home / "sigs").mkdir(parents=True)

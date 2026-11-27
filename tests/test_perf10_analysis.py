@@ -120,7 +120,7 @@ _ROLE_SOURCES = [
 class TestGlobalUses:
     @pytest.mark.parametrize("source", _ROLE_SOURCES)
     def test_matches_function_filter_walk_and_leaves_results_unchanged(self, source: str) -> None:
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         per_function: dict[int, set[str]] = {}
         outside: set[str] = set()
@@ -133,7 +133,7 @@ class TestGlobalUses:
         assert outside <= roles[2]
 
     def test_outside_set_excludes_function_only_names(self) -> None:
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         outside: set[str] = set()
         find_variable_roles(

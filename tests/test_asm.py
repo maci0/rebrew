@@ -1,4 +1,4 @@
-"""Tests for rebrew.asm — build_function_lookup helper."""
+"""Tests for rebrew.binary.asm — build_function_lookup helper."""
 
 import json
 lazy from pathlib import Path
@@ -6,7 +6,7 @@ lazy from pathlib import Path
 import pytest
 from source_util import SourceFixture, write_source, write_store_fixture
 
-from rebrew.asm import build_function_lookup
+from rebrew.binary.asm import build_function_lookup
 from rebrew.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ class TestFlagValidation:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.asm import app
+        from rebrew.binary.asm import app
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["show", "--format", "bogus", "0x1000"])
@@ -264,7 +264,7 @@ class TestFlagValidation:
     def test_bad_size_names_the_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.asm import app
+        from rebrew.binary.asm import app
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["show", "--size", "0", "0x1000"])
@@ -276,7 +276,7 @@ class TestFlagValidation:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.asm import app
+        from rebrew.binary.asm import app
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["show", "--format", "bogus", "--json", "0x1000"])

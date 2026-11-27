@@ -192,9 +192,9 @@ def _write_struct_toml(
     """Write one declib ``Struct`` artifact (members keyed by byte offset).
 
     Missing member offsets/sizes are filled from the field order and
-    :func:`rebrew.types.type_size`.
+    :func:`rebrew.c_syntax.types.type_size`.
     """
-    from rebrew.types import type_size
+    from rebrew.c_syntax.types import type_size
 
     members: dict[int, tuple[str, str | None, int | None]] = {}
     next_offset = 0

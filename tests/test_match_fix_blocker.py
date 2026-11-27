@@ -1,8 +1,8 @@
-"""Tests for rebrew.diff classify_blockers and blocker delta calculations."""
+"""Tests for rebrew.compare.diff classify_blockers and blocker delta calculations."""
 
 from typing import Any
 
-from rebrew.diff import classify_blockers
+from rebrew.compare.diff import classify_blockers
 
 # ---------------------------------------------------------------------------
 # Helpers

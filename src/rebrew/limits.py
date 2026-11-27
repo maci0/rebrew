@@ -2,8 +2,8 @@
 
 Both live here so a module that only needs to recognise an unset value does not
 have to import the tool that offers the bound.  ``rebrew.skeleton`` and
-``rebrew.match`` expose ``--max-size``; the batch parsers and drivers in
-``rebrew.match_batch`` / ``rebrew.match_run`` compare a stub's size and delta
+``rebrew.matching.cli`` expose ``--max-size``; the batch parsers and drivers in
+``rebrew.matching.batch`` / ``rebrew.matching.run`` compare a stub's size and delta
 against these sentinels.  Keeping the constants in a leaf module lets those
 callers stay out of the command modules.
 

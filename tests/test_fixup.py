@@ -7,8 +7,8 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew.fixup import app, fixup_source
-from rebrew.pseudo_c import sanitize_tokens
+from rebrew.c_syntax.fixup import app, fixup_source
+from rebrew.c_syntax.pseudo_c import sanitize_tokens
 
 
 class TestSanitizeTokens:
@@ -198,7 +198,7 @@ class TestFixupCli:
     def test_compile_check_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """--compile-check compiles the fixed source; success writes and
         reports the green pass."""
-        import rebrew.fixup as fixup
+        import rebrew.c_syntax.fixup as fixup
 
         p = self._write(tmp_path, "undefined4 x;\n")
         monkeypatch.setattr(
@@ -215,7 +215,7 @@ class TestFixupCli:
         """A fix that still does not compile must never be shipped silently:
         the decisive error is banner-commented into the output and the exit
         code is nonzero."""
-        import rebrew.fixup as fixup
+        import rebrew.c_syntax.fixup as fixup
 
         p = self._write(tmp_path, "undefined4 x;\n")
         monkeypatch.setattr(
@@ -234,7 +234,7 @@ class TestFixupCli:
     def test_compile_check_failure_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.fixup as fixup
+        import rebrew.c_syntax.fixup as fixup
 
         p = self._write(tmp_path, "undefined4 x;\n")
         monkeypatch.setattr(
@@ -257,17 +257,17 @@ class TestFixupCli:
 
 class TestMultiwordBases:
     def test_unsigned_int_declared(self) -> None:
-        from rebrew.fixup import _existing_identifiers
+        from rebrew.c_syntax.fixup import _existing_identifiers
 
         assert "size" in _existing_identifiers("unsigned int size;\n")
 
     def test_long_long_function_declared(self) -> None:
-        from rebrew.fixup import _existing_identifiers
+        from rebrew.c_syntax.fixup import _existing_identifiers
 
         assert "big" in _existing_identifiers("long long big(void);\n")
 
     def test_const_pointer_declared(self) -> None:
-        from rebrew.fixup import _existing_identifiers
+        from rebrew.c_syntax.fixup import _existing_identifiers
 
         assert "p" in _existing_identifiers("const unsigned char *p;\n")
 
@@ -300,7 +300,7 @@ class TestMultiwordBases:
         assert "typedef int row;" not in result.source
 
     def test_typedef_captures_alias_not_base_type(self) -> None:
-        from rebrew.fixup import _existing_identifiers
+        from rebrew.c_syntax.fixup import _existing_identifiers
 
         ids = _existing_identifiers("typedef int my_t;\n")
         assert "my_t" in ids
@@ -313,7 +313,7 @@ class TestMultiwordBases:
         assert "typedef int my_t;\n\n" not in result.source
 
     def test_prototype_captures_function_name(self) -> None:
-        from rebrew.fixup import _existing_identifiers
+        from rebrew.c_syntax.fixup import _existing_identifiers
 
         ids = _existing_identifiers("int foo(int a);\n")
         assert "foo" in ids

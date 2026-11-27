@@ -1,5 +1,5 @@
-"""Property-based fuzzing for the C-source parsers (``rebrew.c_parser``,
-``rebrew.struct_parser``).
+"""Property-based fuzzing for the C-source parsers (``rebrew.c_syntax.parser``,
+``rebrew.c_syntax.struct_parser``).
 
 Both modules read hand-written or machine-written (decompiler / LLM) C source,
 which is untrusted input in the same way a downloaded binary is: arbitrary
@@ -31,8 +31,13 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.c_parser import ExternVar, find_extern_variables, mask_msvc_syntax, protected_spans
-from rebrew.struct_parser import (
+from rebrew.c_syntax.parser import (
+    ExternVar,
+    find_extern_variables,
+    mask_msvc_syntax,
+    protected_spans,
+)
+from rebrew.c_syntax.struct_parser import (
     extract_enums_from_file,
     extract_structs_from_file,
     extract_type_definitions,

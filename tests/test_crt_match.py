@@ -8,7 +8,7 @@ from cli_json import cli_payload
 from source_util import write_source
 
 from rebrew.config import ProjectConfig, load_config
-from rebrew.crt_match import (
+from rebrew.library.crt_match import (
     CrtSourceEntry,
     build_crt_index,
     is_asm_only,
@@ -338,20 +338,20 @@ MSVCRT = "toolchain/msvc/6.0-win32/VC98/CRT/SRC"
 
 class TestMatchHelpers:
     def test_asm_only_known_function(self) -> None:
-        from rebrew.crt_match import is_asm_only
+        from rebrew.library.crt_match import is_asm_only
 
         assert is_asm_only("_chkstk") is True
         assert is_asm_only("chkstk") is True
         assert is_asm_only("not_a_crt_function") is False
 
     def test_match_reason_asm_only(self) -> None:
-        from rebrew.crt_match import _match_reason
+        from rebrew.library.crt_match import _match_reason
 
         assert "ASM-only" in _match_reason("exact name match", asm_only=True)
         assert _match_reason("exact name match", asm_only=False) == "exact name match"
 
     def test_match_to_dict_shape(self) -> None:
-        from rebrew.crt_match import CrtMatch, CrtSourceEntry, _match_to_dict
+        from rebrew.library.crt_match import CrtMatch, CrtSourceEntry, _match_to_dict
 
         entry = CrtSourceEntry(
             name="_printf", file=str(Path("crt/printf.c")), line=42, is_asm=False, module="MSVCRT"
@@ -391,7 +391,7 @@ class TestCollectLibraryAnnotations:
         )
 
     def test_library_marker_target_module_collected(self, tmp_path: Path) -> None:
-        from rebrew.crt_match import collect_library_annotations
+        from rebrew.library.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         write_source(
@@ -409,7 +409,7 @@ class TestCollectLibraryAnnotations:
     def test_library_marker_cross_module_collected(self, tmp_path: Path) -> None:
         """LIBRARY markers of non-target modules (documented library_modules
         convention) must NOT be dropped by the parser's target filter."""
-        from rebrew.crt_match import collect_library_annotations
+        from rebrew.library.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         write_source(
@@ -423,7 +423,7 @@ class TestCollectLibraryAnnotations:
         assert pairs[0][1].module == "MSVCRT"
 
     def test_function_marker_in_library_module_collected(self, tmp_path: Path) -> None:
-        from rebrew.crt_match import collect_library_annotations
+        from rebrew.library.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         cfg.library_modules = ["ZLIB"]
@@ -439,7 +439,7 @@ class TestCollectLibraryAnnotations:
 
     def test_target_function_marker_excluded(self, tmp_path: Path) -> None:
         """Plain FUNCTION markers of the target module are not library code."""
-        from rebrew.crt_match import collect_library_annotations
+        from rebrew.library.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         write_source(
@@ -452,7 +452,7 @@ class TestCollectLibraryAnnotations:
 
     def test_global_and_data_markers_excluded(self, tmp_path: Path) -> None:
         """GLOBAL/DATA markers must never match against the CRT function index."""
-        from rebrew.crt_match import collect_library_annotations
+        from rebrew.library.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         cfg.library_modules = ["MSVCRT"]
@@ -473,7 +473,7 @@ class TestCollectLibraryAnnotations:
 
 class TestBuildIndexes:
     def test_relative_path_resolved_against_root(self, tmp_path: Path) -> None:
-        from rebrew.crt_match import _build_indexes
+        from rebrew.library.crt_match import _build_indexes
 
         crt = tmp_path / "crt"
         crt.mkdir()
@@ -484,7 +484,7 @@ class TestBuildIndexes:
         assert any(e.name == "qsort" and e.module == "MSVCRT" for e in indexes["MSVCRT"])
 
     def test_absolute_path_used_as_is(self, tmp_path: Path) -> None:
-        from rebrew.crt_match import _build_indexes
+        from rebrew.library.crt_match import _build_indexes
 
         abs_dir = tmp_path / "elsewhere"
         abs_dir.mkdir()
@@ -494,7 +494,7 @@ class TestBuildIndexes:
         assert any(e.name == "strlen" and e.module == "ZLIB" for e in indexes["ZLIB"])
 
     def test_missing_dir_yields_empty_index(self, tmp_path: Path) -> None:
-        from rebrew.crt_match import _build_indexes
+        from rebrew.library.crt_match import _build_indexes
 
         cfg = SimpleNamespace(root=tmp_path, crt_sources={"MSVCRT": "does-not-exist"})
         assert _build_indexes(cfg) == {"MSVCRT": []}
@@ -503,7 +503,7 @@ class TestBuildIndexes:
 class TestMatchAll:
     def test_match_all_end_to_end(self, tmp_path: Path) -> None:
         """A LIBRARY: MSVCRT marker matches a function in the MSVCRT CRT index."""
-        from rebrew.crt_match import match_all
+        from rebrew.library.crt_match import match_all
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -534,7 +534,7 @@ class TestMatchAll:
 
     def test_match_all_skips_missing_index(self, tmp_path: Path) -> None:
         """No CRT index for the marker's module → no matches, no crash."""
-        from rebrew.crt_match import match_all
+        from rebrew.library.crt_match import match_all
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -566,10 +566,10 @@ class TestCrtMatchCli:
     def test_no_crt_sources_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         cfg = self._cfg(tmp_path, crt_sources={})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code != 0
         assert "crt_sources" in result.output
@@ -578,13 +578,13 @@ class TestCrtMatchCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         crt = tmp_path / "crt"
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(void) { return 0; }\n", encoding="utf-8")
         cfg = self._cfg(tmp_path, crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--index", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -596,10 +596,10 @@ class TestCrtMatchCli:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         cfg = self._cfg(tmp_path, crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code != 0
         assert "Provide a VA or use --all" in result.output
@@ -609,10 +609,10 @@ class TestCrtMatchCli:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         cfg = self._cfg(tmp_path, crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code != 0
         assert "No library binding found" in result.output
@@ -621,7 +621,7 @@ class TestCrtMatchCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -635,7 +635,7 @@ class TestCrtMatchCli:
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
         cfg = self._cfg(tmp_path, crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -649,7 +649,7 @@ class TestCrtMatchCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -663,7 +663,7 @@ class TestCrtMatchCli:
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
         cfg = self._cfg(tmp_path, crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--all", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -674,7 +674,7 @@ class TestCrtMatchCli:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
         from rebrew.metadata.functions import get_entry
 
         src = tmp_path / "src" / "SERVER"
@@ -690,7 +690,7 @@ class TestCrtMatchCli:
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
         cfg = self._cfg(tmp_path, crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--fix-source", "--all", "--json"])
         assert result.exit_code == 0
         # SOURCE is metadata-routed: it must land in cfg.metadata_dir (the
@@ -702,7 +702,7 @@ class TestCrtMatchCli:
     def test_no_matches_message(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -716,7 +716,7 @@ class TestCrtMatchCli:
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
         cfg = self._cfg(tmp_path, crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--all"])
         assert result.exit_code == 0
         assert "No matches found." in result.output
@@ -730,8 +730,8 @@ class TestCrtMatchCliBranches:
 
         from rich.console import Console
 
-        import rebrew.crt_match as crt_mod
-        from rebrew.crt_match import (
+        import rebrew.library.crt_match as crt_mod
+        from rebrew.library.crt_match import (
             CrtMatch,
             CrtSourceEntry,
             _render_index_table,
@@ -776,7 +776,7 @@ class TestCrtMatchCliBranches:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -790,7 +790,7 @@ class TestCrtMatchCliBranches:
         crt = tmp_path / "crt"
         crt.mkdir()
         cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code != 0
         assert "has no symbol/name" in result.output
@@ -803,7 +803,7 @@ class TestCrtMatchCliBranches:
 
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -815,7 +815,7 @@ class TestCrtMatchCliBranches:
             metadata_dir=tmp_path,
         )
         cfg = _cli_cfg(tmp_path, library_modules=["ZLIB"], crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -825,7 +825,7 @@ class TestCrtMatchCliBranches:
 
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -840,7 +840,7 @@ class TestCrtMatchCliBranches:
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
         cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--all", "--json", "0x10001000"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -852,7 +852,7 @@ class TestCrtMatchCliBranches:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -867,7 +867,7 @@ class TestCrtMatchCliBranches:
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
         cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--fix-source", "--all"])
         assert result.exit_code == 0
         assert "Updated SOURCE annotations: 1" in result.output
@@ -876,7 +876,7 @@ class TestCrtMatchCliBranches:
         """LIBRARY markers using the TARGET's module (e.g. SERVER) still match
         against every configured library index — the library identity comes
         from the name match, not the marker module."""
-        from rebrew.crt_match import match_all
+        from rebrew.library.crt_match import match_all
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -912,7 +912,7 @@ class TestFixSourceDryRun:
 
         from typer.testing import CliRunner
 
-        import rebrew.crt_match as cm
+        import rebrew.library.crt_match as cm
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -961,7 +961,7 @@ class TestSourceAutoWritable:
     auto-write threshold)."""
 
     def _match(self, line: int, confidence: float = 0.85) -> object:
-        from rebrew.crt_match import CrtMatch
+        from rebrew.library.crt_match import CrtMatch
 
         entry = CrtSourceEntry(
             name="qsort", file="QSORT.C", line=line, is_asm=False, module="MSVCRT"
@@ -977,19 +977,19 @@ class TestSourceAutoWritable:
         )
 
     def test_filename_only_never_auto_writes(self) -> None:
-        from rebrew.crt_match import source_auto_writable
+        from rebrew.library.crt_match import source_auto_writable
 
         match = self._match(0, 0.85)
         assert source_auto_writable(match) is False
 
     def test_parsed_definition_auto_writes(self) -> None:
-        from rebrew.crt_match import source_auto_writable
+        from rebrew.library.crt_match import source_auto_writable
 
         match = self._match(42, 0.95)
         assert source_auto_writable(match) is True
 
     def test_low_confidence_parsed_definition_no_write(self) -> None:
-        from rebrew.crt_match import source_auto_writable
+        from rebrew.library.crt_match import source_auto_writable
 
         match = self._match(42, 0.5)
         assert source_auto_writable(match) is False
@@ -1000,7 +1000,7 @@ class TestSourceAutoWritable:
         """--fix-source with only a filename-based match writes nothing."""
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
         from rebrew.metadata.functions import get_entry
 
         src = tmp_path / "src" / "SERVER"
@@ -1017,7 +1017,7 @@ class TestSourceAutoWritable:
         # No parsed qsort definition — only the QSORT.C filename entry matches.
         (crt / "QSORT.C").write_text("int not_qsort(void) { return 0; }\n", encoding="utf-8")
         cfg = _cli_cfg(tmp_path, library_modules=["MSVCRT"], crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--fix-source", "--all"])
         assert result.exit_code == 0
         assert "Updated SOURCE annotations: 0" in result.output
@@ -1038,7 +1038,7 @@ class TestSingleVaModuleFallback:
 
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -1052,7 +1052,7 @@ class TestSingleVaModuleFallback:
         crt.mkdir()
         (crt / "MALLOC.C").write_text("int malloc(int n) { return n; }\n", encoding="utf-8")
         cfg = self._cfg(tmp_path, crt_sources={"MSVCRT": "crt"})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -1064,7 +1064,7 @@ class TestSingleVaModuleFallback:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.crt_match import app
+        from rebrew.library.crt_match import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -1075,7 +1075,7 @@ class TestSingleVaModuleFallback:
             metadata_fields={"SERVER.0x10001000": {"kind": "LIBRARY", "symbol": "_malloc"}},
         )
         cfg = self._cfg(tmp_path, crt_sources={})
-        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.library.crt_match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json", "0x10001000"])
         assert result.exit_code != 0
         assert "No crt_sources configured" in result.output
@@ -1102,7 +1102,7 @@ class TestCanonicalSizeCache:
             json.dumps([{"va": 0x1000, "size": 10, "name": "f"}]),
             encoding="utf-8",
         )
-        from rebrew import crt_match
+        from rebrew.library import crt_match
 
         cfg = SimpleNamespace(reversed_dir=str(rev), root=tmp_path)
         assert crt_match._canonical_size(cfg, 0x1000) == 10
@@ -1134,7 +1134,7 @@ class TestCanonicalSizeCache:
         text_b = '[{"va": "0x1000", "size": 11, "name": "f"}]'
         assert len(text_a) == len(text_b)
         inv.write_text(text_a, encoding="utf-8")
-        from rebrew import crt_match
+        from rebrew.library import crt_match
 
         cfg = SimpleNamespace(reversed_dir=str(rev), root=tmp_path)
         assert crt_match._canonical_size(cfg, 0x1000) == 10

@@ -920,7 +920,7 @@ clamped `REBREW_LLM_MAX_REQUESTS` / `REBREW_LLM_MAX_TOKENS` /
 under is visible in the same dump.
 
 `env_errors` covers every knob `env_knob_errors` parses
-(`_env_knob_parsers` in `src/rebrew/config.py`), including the ones no command
+(`_env_knob_parsers` in `src/rebrew/config/__init__.py`), including the ones no command
 reads until the moment of use, which a mistyped value would otherwise report
 as a spawn failure from inside a compile,
 or (for the knobs whose consumers skip an unusable value) as silently reduced

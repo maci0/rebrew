@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 lazy import hashlib
-lazy import json
 lazy import logging
 lazy import os
 lazy import platform
@@ -32,6 +31,8 @@ lazy import time
 lazy from collections.abc import Iterator
 lazy from dataclasses import asdict
 lazy from typing import Any
+
+lazy import msgspec
 
 from rebrew.errors import RebrewError
 lazy from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir, xdg_cache_home
@@ -85,7 +86,7 @@ _TAGS_FILE = "image-tags.json"
 
 def _tags(root: Path) -> dict[str, str]:
     try:
-        data = json.loads((root / _TAGS_FILE).read_text(encoding="utf-8"))
+        data = msgspec.json.decode((root / _TAGS_FILE).read_bytes())
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as exc:
@@ -108,7 +109,11 @@ def _update_tags(change: dict[str, str | None]) -> None:
                 tags.pop(tag, None)
             else:
                 tags[tag] = image_id
-        atomic_write_text(root / _TAGS_FILE, json.dumps(tags, indent=2, sort_keys=True) + "\n")
+        atomic_write_text(
+            root / _TAGS_FILE,
+            msgspec.json.format(msgspec.json.encode(tags, order="sorted"), indent=2).decode("utf-8")
+            + "\n",
+        )
 
 
 def record_image_tag(tag: str, image_id: str) -> None:
@@ -138,7 +143,7 @@ def recorded_image_id(tag: str) -> str:
         return ""
     directory = root / "images-v2" / image_id.removeprefix("sha256:")
     try:
-        info = json.loads((directory / "image.json").read_text(encoding="utf-8"))
+        info = msgspec.json.decode((directory / "image.json").read_bytes())
     except OSError, ValueError:
         return ""
     if (
@@ -348,7 +353,7 @@ def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
     directory = root / "images-v2" / image_id.removeprefix("sha256:")
     manifest = directory / "image.json"
     if manifest.is_file() and (directory / "rootfs").is_dir():
-        info = json.loads(manifest.read_text(encoding="utf-8"))
+        info = msgspec.json.decode(manifest.read_bytes())
         if not isinstance(info, dict) or not isinstance(info.get("Config"), dict):
             raise UnshareError(f"invalid experimental image cache metadata: {directory}")
         if info.get("Id") != image_id:
@@ -357,7 +362,7 @@ def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
     runtime = container_runtime()
     inspected = _command([runtime, "image", "inspect", image_id])
     _require_success(inspected, f"cannot inspect admitted image {image_id}")
-    records = json.loads(inspected.stdout)
+    records = msgspec.json.decode(inspected.stdout)
     if (
         not isinstance(records, list)
         or len(records) != 1
@@ -398,7 +403,9 @@ def _image(root: Path, image_id: str) -> tuple[Path, dict[str, Any]]:
         _unpack(archive, filesystem)
         archive.unlink()
         _initialize_wineprefix(filesystem, info, _helper(root))
-        (staging / "image.json").write_text(json.dumps(info) + "\n", encoding="utf-8")
+        (staging / "image.json").write_text(
+            msgspec.json.encode(info).decode("utf-8") + "\n", encoding="utf-8"
+        )
         staging.replace(directory)
     finally:
         try:
@@ -445,7 +452,7 @@ def _initialize_wineprefix(rootfs: Path, info: dict[str, Any], helper: Path) -> 
             {},
         )
         path = bundle / "config.json"
-        path.write_text(json.dumps(profile) + "\n", encoding="utf-8")
+        path.write_text(msgspec.json.encode(profile).decode("utf-8") + "\n", encoding="utf-8")
         result = _command([str(helper), str(path)], timeout=120)
         _require_success(result, "cannot initialize cached Wine prefix")
     finally:
@@ -701,7 +708,7 @@ def _run_fresh(
             rootfs, info, bundle, args, entrypoint, workdir, mounts, env, project_cwd
         )
         path = bundle / "config.json"
-        path.write_text(json.dumps(profile) + "\n", encoding="utf-8")
+        path.write_text(msgspec.json.encode(profile).decode("utf-8") + "\n", encoding="utf-8")
         return _command([str(helper), str(path)], timeout=timeout)
     except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
         raise UnshareError(f"experimental runner preparation failed: {exc}") from exc
@@ -777,7 +784,7 @@ def _run_in_session(
 ) -> subprocess.CompletedProcess[str] | None:
     """Run *request* in a warm sandbox; ``None`` when no server listens at *address*."""
     log = logging.getLogger(__name__)
-    message = json.dumps(asdict(request)).encode()
+    message = msgspec.json.encode(asdict(request))
     if len(message) > _SESSION_REQUEST_MAX:
         log.warning("warm session request is %d bytes; running in a fresh sandbox", len(message))
         return None
@@ -804,7 +811,7 @@ def _run_in_session(
             except OSError as exc:
                 raise UnshareError(f"warm session server {address} failed: {exc}") from exc
             try:
-                reply = json.loads(answer) if answer else {}
+                reply = msgspec.json.decode(answer) if answer else {}
             except ValueError:
                 reply = {}
             if isinstance(reply, dict) and isinstance(reply.get("error"), str):
@@ -832,7 +839,7 @@ def _pair(value: Any) -> tuple[str, str]:
 def _decode_request(message: bytes) -> _SessionRequest:
     """The request in *message*; the control socket is a trust boundary."""
     try:
-        raw = json.loads(message)
+        raw = msgspec.json.decode(message)
         key = raw["key"]
         request = _SessionRequest(
             _SessionKey(
@@ -893,7 +900,7 @@ class _SessionWorker:
                 workdir,
             )
             config = self._bundle / "config.json"
-            config.write_text(json.dumps(profile) + "\n", encoding="utf-8")
+            config.write_text(msgspec.json.encode(profile).decode("utf-8") + "\n", encoding="utf-8")
             self._channel, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
             try:
                 with theirs, (self._bundle / "session.log").open("wb") as log:
@@ -922,7 +929,7 @@ class _SessionWorker:
     def run(self, request: _SessionRequest, fds: list[int], deadline: float) -> int:
         """Run *request* with *fds* as its stdout and stderr; return its exit status."""
         argv = _process_args(self._info, request.entrypoint, list(request.args))
-        message = json.dumps({"args": argv, "cwd": request.cwd}).encode()
+        message = msgspec.json.encode({"args": argv, "cwd": request.cwd})
         try:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -1064,7 +1071,7 @@ def _answer(connection: socket.socket, pool: _SessionPool) -> None:
                 os.close(fd)
         # A client that timed out or was interrupted has gone; nobody is left to tell.
         with contextlib.suppress(OSError):
-            connection.send(json.dumps(answer).encode())
+            connection.send(msgspec.json.encode(answer))
 
 
 def _accept(listener: socket.socket, pool: _SessionPool) -> None:

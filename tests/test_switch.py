@@ -1,4 +1,4 @@
-"""Tests for rebrew.switch — jump-table switch dispatch decoding."""
+"""Tests for rebrew.binary.switch — jump-table switch dispatch decoding."""
 
 import struct
 from types import SimpleNamespace
@@ -7,7 +7,7 @@ lazy from pathlib import Path
 import pytest
 from bin_util import make_pe
 
-from rebrew.switch import find_switches
+from rebrew.binary.switch import find_switches
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x401000
@@ -134,7 +134,7 @@ class TestDispatchHeaderWidth:
     def _run(self, tmp_path: Path, monkeypatch, entry_width: int, index_reg: str) -> str:
         from typer.testing import CliRunner
 
-        import rebrew.switch as sw_mod
+        import rebrew.binary.switch as sw_mod
 
         binary = tmp_path / "x.exe"
         binary.write_bytes(b"MZ")
@@ -183,7 +183,7 @@ class TestScanAll:
     ) -> None:
         import json as _json
 
-        from rebrew.switch import _scan_all
+        from rebrew.binary.switch import _scan_all
 
         (tmp_path / "function_structure.json").write_text(
             _json.dumps([{"va": address, "size": 144, "name": f"fcn.{address:08x}"}]),
@@ -196,7 +196,7 @@ class TestScanAll:
             target_name="SERVER",
         )
         monkeypatch.setattr(
-            "rebrew.switch.find_switches",
+            "rebrew.binary.switch.find_switches",
             lambda c, va, window=512: [{"entries": 3}] if va == address else [],
         )
         import contextlib
@@ -354,7 +354,7 @@ class TestBoundDataflow:
 class TestVaInImageVirtualSize:
     def test_virtual_extent_counts(self) -> None:
         """A VA inside the virtual size but past the raw size is in-image."""
-        from rebrew.switch import _va_in_image
+        from rebrew.binary.switch import _va_in_image
 
         info = SimpleNamespace(
             sections={
@@ -365,7 +365,7 @@ class TestVaInImageVirtualSize:
         assert _va_in_image(info, 0x402000) is False
 
     def test_zero_virtual_falls_back_to_raw(self) -> None:
-        from rebrew.switch import _va_in_image
+        from rebrew.binary.switch import _va_in_image
 
         info = SimpleNamespace(
             sections={
@@ -408,7 +408,7 @@ class TestRegisterCompareIsNotABound:
     def test_register_operand_rejected(self) -> None:
         """`cmp ecx, edx` has no immediate bound; the old pattern read "ed" as
         0xed and pulled unrelated handler addresses into the case list."""
-        from rebrew.jump_table import _CMP_IMM_RE
+        from rebrew.binary.jump_table import _CMP_IMM_RE
 
         assert _CMP_IMM_RE.search("ecx, edx") is None
         assert _CMP_IMM_RE.search("ecx, dword ptr [eax]") is None

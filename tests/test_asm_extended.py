@@ -1,4 +1,4 @@
-"""Tests for ``rebrew.asm`` — disasm, NASM conversion, inline C, batch extraction."""
+"""Tests for ``rebrew.binary.asm`` — disasm, NASM conversion, inline C, batch extraction."""
 
 from pathlib import Path
 from shutil import which
@@ -8,7 +8,7 @@ import pytest
 from cli_json import cli_payload
 from source_util import write_source
 
-from rebrew.asm import (
+from rebrew.binary.asm import (
     _parse_annotations,
     build_function_lookup,
     disasm_bytes,
@@ -65,7 +65,7 @@ class TestHexMode:
         """A VA outside the binary image must error, not print an empty dump."""
         import typer
 
-        from rebrew.asm import _run_hex_mode
+        from rebrew.binary.asm import _run_hex_mode
 
         cfg = _cfg(tmp_path)
         monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: b"")
@@ -155,7 +155,7 @@ class TestGenerateInlineC:
         decoration. ``__foo`` became ``foo``. The stored symbol stays
         the linker spelling. A cdecl ``_foo`` is still ``foo``.
         """
-        from rebrew.asm import _record_inline_c_identity
+        from rebrew.binary.asm import _record_inline_c_identity
         from rebrew.metadata.functions import get_entry
 
         cfg = _cfg(tmp_path, compiler_profile="msvc")
@@ -182,7 +182,7 @@ class TestGenerateInlineC:
     def test_size_matches_emitted_bytes(self, tmp_path: Path) -> None:
         """The naked branch emits one byte per ``_emit``, and a file write
         records that count. The string itself has no SIZE line and no row."""
-        from rebrew.asm import _record_inline_c_identity
+        from rebrew.binary.asm import _record_inline_c_identity
         from rebrew.metadata.functions import get_entry
 
         cfg = _cfg(tmp_path, compiler_profile="msvc")
@@ -222,7 +222,7 @@ class TestGenerateInlineC:
         """--all --inline-c writes a naked skeleton per annotated function and
         records ``source = "naked"`` in the function store, the whole-binary
         byte-coverage baseline."""
-        from rebrew.asm import batch_extract_nasm
+        from rebrew.binary.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)
         src_dir = cfg.reversed_dir
@@ -280,7 +280,7 @@ class TestGenerateInlineC:
     def test_batch_inline_c_stubs_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.asm import batch_extract_nasm
+        from rebrew.binary.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)
         src_dir = cfg.reversed_dir
@@ -379,7 +379,7 @@ class TestBuildFunctionLookup:
 
 class TestBatchExtractNasm:
     def test_batch_writes_asm_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.asm import batch_extract_nasm
+        from rebrew.binary.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -397,7 +397,7 @@ class TestBatchExtractNasm:
     def test_batch_skips_stubs_only_filter(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.asm import batch_extract_nasm
+        from rebrew.binary.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -414,7 +414,7 @@ class TestBatchExtractNasm:
     def test_batch_extraction_error_skips(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.asm import batch_extract_nasm
+        from rebrew.binary.asm import batch_extract_nasm
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -451,8 +451,8 @@ class TestBatchOutDirResolution:
             # batch() pops verify_exit from this dict. Absence means exit 0.
             return {}
 
-        monkeypatch.setattr("rebrew.asm.require_config", fake_require_config)
-        monkeypatch.setattr("rebrew.asm.batch_extract_nasm", fake_batch)
+        monkeypatch.setattr("rebrew.binary.asm.require_config", fake_require_config)
+        monkeypatch.setattr("rebrew.binary.asm.batch_extract_nasm", fake_batch)
         return captured
 
     def test_relative_out_dir_resolves_against_root(
@@ -460,7 +460,7 @@ class TestBatchOutDirResolution:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.asm import app
+        from rebrew.binary.asm import app
 
         captured = self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["batch", "--output", "output/asm"])
@@ -472,7 +472,7 @@ class TestBatchOutDirResolution:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.asm import app
+        from rebrew.binary.asm import app
 
         captured = self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["batch"])
@@ -484,7 +484,7 @@ class TestBatchOutDirResolution:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.asm import app
+        from rebrew.binary.asm import app
 
         captured = self._setup(tmp_path, monkeypatch)
         out_dir = tmp_path / "elsewhere" / "nasm"
@@ -503,7 +503,7 @@ class TestHexModeTruncation:
 
         from capstone import CS_ARCH_X86, CS_MODE_32
 
-        from rebrew.asm import _run_hex_mode
+        from rebrew.binary.asm import _run_hex_mode
 
         cfg = _cfg(tmp_path, capstone_arch=CS_ARCH_X86, capstone_mode=CS_MODE_32)
         (tmp_path / "fake.dll").write_bytes(b"MZ")
@@ -746,7 +746,7 @@ class TestHexDisassembly:
     def test_returns_the_cli_listing(self, tmp_path: Path) -> None:
         from bin_util import make_pe
 
-        from rebrew.asm import hex_disassembly
+        from rebrew.binary.asm import hex_disassembly
         from rebrew.config import ProjectConfig
 
         code = bytes.fromhex("b801000000c3")  # mov eax, 1; ret
@@ -774,7 +774,7 @@ class TestHexDisassembly:
 
         from bin_util import make_pe
 
-        from rebrew.asm import hex_disassembly
+        from rebrew.binary.asm import hex_disassembly
         from rebrew.config import ProjectConfig
 
         # BL at 0x401000, imm 2: target = 0x401000 + 8 + 8 = 0x401010.
@@ -800,7 +800,7 @@ class TestHexDisassembly:
         assert "; callee" in text
 
     def test_missing_binary_raises(self, tmp_path: Path) -> None:
-        from rebrew.asm import hex_disassembly
+        from rebrew.binary.asm import hex_disassembly
         from rebrew.config import ProjectConfig
 
         cfg = ProjectConfig(

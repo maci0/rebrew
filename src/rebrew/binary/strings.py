@@ -1,0 +1,263 @@
+"""strings.py — Extract printable strings from a binary, with cross-references.
+
+Scans data-ish sections (``.rdata`` / ``.data`` / ``.rodata`` by default, or
+an explicit ``--section`` list) for printable ASCII and UTF-16LE runs and
+reports each with its VA, section, kind, and size.  With ``--xref`` the
+referencing code addresses are resolved via :mod:`rebrew.binary.analysis` (``push``
+/ ``mov`` / ``lea`` immediates, absolute memory operands, IAT calls) — the
+"which function uses this string" recon pass.
+
+Architecture notes:
+
+- One ``BinaryInfo`` load (lazy LIEF) serves extraction, filtering, and
+  cross-references, so a run parses the binary exactly once.
+- String and reference scanning live in :mod:`rebrew.binary.analysis`; this module
+  only selects sections, filters, formats, and prints.  Section defaults are
+  mirrored here so the "nothing to scan" note can be detected locally.
+
+Usage:
+    rebrew binary strings [binary] [--min-len N] [--section NAME] [--filter RE] [--xref] [--json]
+"""
+
+from __future__ import annotations
+
+lazy import re
+lazy from pathlib import Path
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import (
+    EXIT_ERROR,
+    MIN_STRING_LEN_HELP,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    option_default,
+    require_non_negative,
+    resolve_binary_arg,
+    untrusted_ident,
+)
+lazy from rebrew.binary.analysis import Xref, iter_strings, string_refs
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.utils import TerminalTable
+
+# Data-ish sections scanned when --section is not given; mirrors the
+# analysis.py default so the "nothing to scan" note can be detected here.
+DEFAULT_SECTIONS = (".rdata", ".data", ".rodata")
+
+#: Default minimum string length when ``--min-len`` is not given.
+DEFAULT_MIN_LEN = 4
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _data_sections(info: BinaryInfo) -> list[str]:
+    """Return the data-ish section names present in *info* (default scan set)."""
+    return [name for name in DEFAULT_SECTIONS if name in info.sections]
+
+
+def _format_xrefs(refs: list[dict[str, Any]]) -> str:
+    """Format *refs* as ``count: first 3 addresses (+N more)`` for the table."""
+    if not refs:
+        return "0"
+    shown = ", ".join(f"0x{x['from_va']:08x}" for x in refs[:3])
+    extra = f" +{len(refs) - 3} more" if len(refs) > 3 else ""
+    return f"{len(refs)}: {shown}{extra}"
+
+
+def collect_strings(
+    binary: Path,
+    *,
+    min_len: int = DEFAULT_MIN_LEN,
+    section_names: list[str] | None = None,
+    filter_regex: str | None = None,
+    xref: bool = False,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    """Extract strings from *binary* and return the CLI's ``--json`` payload.
+
+    Loads the binary once, scans *section_names* (or the data-ish default
+    set), applies the case-insensitive *filter_regex*, and, with *xref*,
+    resolves each string's referencing code addresses.  Returns
+    ``{"binary", "count", "strings"}`` — the exact object ``rebrew binary strings
+    --json`` prints, with one record per string (``va`` / ``section`` /
+    ``kind`` / ``size`` / ``text`` / ``xrefs``).
+
+    An empty result is valid; when *json_output* is false the matching
+    "nothing to scan" note is printed to stderr, mirroring the CLI.
+
+    Raises:
+        OSError, ValueError, KeyError: The binary cannot be loaded.
+        RuntimeError: String analysis failed (e.g. capstone unavailable).
+        re.error: *filter_regex* is not a valid regular expression.
+    """
+    info = load_binary(binary)
+    no_data_sections = section_names is None and not _data_sections(info)
+
+    strings = iter_strings(info, min_len=min_len, section_names=section_names)
+    refs: dict[int, list[Xref]] = {}
+    if xref:
+        refs = string_refs(info, strings)
+
+    if filter_regex is not None:
+        matcher = re.compile(filter_regex, re.IGNORECASE)
+        strings = [s for s in strings if matcher.search(s.text)]
+
+    if not strings and not json_output:
+        if no_data_sections:
+            # Lead with the stable phrase so narrow consoles cannot wrap it apart
+            # (CliRunner uses COLUMNS≈80).
+            console.print(
+                f"[yellow]nothing to scan: no data sections (.rdata/.data/.rodata) "
+                f"in {untrusted_ident(binary)}.[/]"
+            )
+        else:
+            console.print(f"[yellow]No strings found in {untrusted_ident(binary)}.[/]")
+
+    return {
+        "binary": str(binary),
+        "count": len(strings),
+        "strings": [
+            {
+                "va": s.va,
+                "section": s.section,
+                "kind": s.kind,
+                "size": s.size,
+                "text": s.text,
+                "xrefs": [{"kind": x.kind, "from_va": x.from_va} for x in refs.get(s.va, [])],
+            }
+            for s in strings
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+app = typer.Typer(
+    help="Extract strings from a binary, optionally with cross-references.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary strings  # Extract from the project's target binary\n\n"
+        "  rebrew binary strings other.dll  # Extract from a specific binary\n\n"
+        "  # Longer strings, one section\n"
+        "  rebrew binary strings --min-len 8 --section .rdata\n\n"
+        "  rebrew binary strings --xref  # Show code that references each string\n\n"
+        "  rebrew binary strings --json  # Machine-readable string list to stdout\n\n"
+        "[dim]Human output goes to stderr, so `rebrew binary strings --json | jq` is the scriptable form.[/dim]"
+    ),
+)
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
+    min_len: int = typer.Option(DEFAULT_MIN_LEN, "--min-len", help=MIN_STRING_LEN_HELP),
+    section: list[str] = typer.Option(
+        None, "--section", help="Section to scan (repeatable; default .rdata/.data/.rodata)"
+    ),
+    filter_regex: str | None = typer.Option(
+        None, "--filter", help="Case-insensitive regex filter on string text"
+    ),
+    xref: bool = typer.Option(False, "--xref", help="Show referencing code addresses"),
+    limit: int | None = typer.Option(
+        None, "--limit", help="Maximum strings to list (0 = none; omitted = unlimited)"
+    ),
+    offset: int = typer.Option(0, "--offset", help="Skip this many strings before listing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Scan a binary for printable strings and, with --xref, their code references."""
+    binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
+    offset_val = require_non_negative(option_default(offset, 0), "--offset", json_mode=json_output)
+    limit_val = (
+        require_non_negative(option_default(limit, 0), "--limit", json_mode=json_output)
+        if limit is not None
+        else None
+    )
+
+    try:
+        payload = collect_strings(
+            binary,
+            min_len=min_len,
+            section_names=section or None,
+            filter_regex=filter_regex,
+            xref=xref,
+            json_output=json_output,
+        )
+    except re.error as exc:
+        error_exit(f"invalid --filter regex: {exc}", json_mode=json_output, code=EXIT_ERROR)
+    except (OSError, ValueError, KeyError) as exc:
+        error_exit(f"cannot load binary: {exc}", json_mode=json_output, code=EXIT_ERROR)
+    except RuntimeError as exc:
+        # analysis.py surfaces a missing capstone as RuntimeError.
+        error_exit(f"string analysis failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
+
+    total = payload["count"]
+    all_strings = payload["strings"]
+    paged = all_strings[offset_val:]
+    if limit_val is not None:
+        paged = paged[:limit_val]
+    truncated = total - offset_val - len(paged) > 0
+
+    if json_output:
+        json_print(
+            {
+                "binary": payload["binary"],
+                "count": total,
+                "offset": offset_val,
+                "limit": limit_val,
+                "truncated": truncated,
+                "strings": paged,
+            }
+        )
+        return
+
+    if payload["count"] == 0:
+        return
+
+    table = TerminalTable(
+        title=f"Strings in {untrusted_ident(binary.name)}", show_header=True, header_style="bold"
+    )
+    table.add_column("VA", justify="right", style="cyan")
+    table.add_column("Section")
+    table.add_column("Kind")
+    table.add_column("Size", justify="right")
+    table.add_column("Text")
+    if xref:
+        table.add_column("Xrefs")
+    if truncated:
+        console.print(
+            f"[dim]showing {len(paged)} of {total} (offset {offset_val}, limit {limit_val}); "
+            "increase --limit or use --json for all[/dim]"
+        )
+    for s in paged:
+        row = [
+            f"0x{s['va']:08x}",
+            untrusted_ident(s["section"]),
+            s["kind"],
+            str(s["size"]),
+            untrusted_ident(s["text"]),
+        ]
+        if xref:
+            row.append(_format_xrefs(s["xrefs"]))
+        table.add_row(*row)
+    console.print(table)
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

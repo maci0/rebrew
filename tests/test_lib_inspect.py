@@ -250,7 +250,7 @@ class TestConfiguredArchive:
         cfg = SimpleNamespace(
             root=tmp_path, external_libs={"MYLIB": "./t.lib"}, compiler_profile="msvc-6.0"
         )
-        monkeypatch.setattr("rebrew.lib_inspect.require_config", lambda **_: cfg)
+        monkeypatch.setattr("rebrew.library.inspect.require_config", lambda **_: cfg)
         out = _run(["mylib", "--refs", "__lock"])
         assert out["archive"] == str(lib)
         assert out["members"] == ["obj\\mbctype.obj"]
@@ -264,12 +264,12 @@ class TestConfiguredArchive:
         cfg = SimpleNamespace(
             root=tmp_path, external_libs={"LIBCMT": "LIBCMT.lib"}, compiler_profile="msvc-6.0"
         )
-        monkeypatch.setattr("rebrew.lib_inspect.require_config", lambda **_: cfg)
+        monkeypatch.setattr("rebrew.library.inspect.require_config", lambda **_: cfg)
         assert _run(["LIBCMT", "--defines", "__lock"])["archive"] == str(cached)
 
     def test_unknown_name_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = SimpleNamespace(root=tmp_path, external_libs={}, compiler_profile="msvc-6.0")
-        monkeypatch.setattr("rebrew.lib_inspect.require_config", lambda **_: cfg)
+        monkeypatch.setattr("rebrew.library.inspect.require_config", lambda **_: cfg)
         res = CliRunner().invoke(app, ["library", "inspect", "NOPE", "--json"])
         assert res.exit_code != 0
         assert "external_libs" in cli_payload(res)["error"]
@@ -292,7 +292,7 @@ class TestStockExtraction:
         import shutil
         import subprocess
 
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         lib_dir = tmp_path / "image-lib"
         lib_dir.mkdir()
@@ -312,7 +312,7 @@ class TestStockExtraction:
         cfg = SimpleNamespace(
             root=tmp_path, external_libs={"LIBCMT": "LIBCMT.lib"}, compiler_profile="msvc-6.0-sp5"
         )
-        monkeypatch.setattr("rebrew.lib_inspect.require_config", lambda **_: cfg)
+        monkeypatch.setattr("rebrew.library.inspect.require_config", lambda **_: cfg)
         out = _run(["LIBCMT.lib", "--refs", "__lock"])
         assert out["archive"] == str(tmp_path / ".scratch" / "msvc-6.0-sp5_libcmt_stock.lib")
         assert out["members"] == ["obj\\mbctype.obj"]
@@ -323,7 +323,7 @@ class TestStockExtraction:
         import shutil
         import subprocess
 
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
         from rebrew.compiler.toolchain import ToolchainError
 
         lib_dir = tmp_path / "image-lib"

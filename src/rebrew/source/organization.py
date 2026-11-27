@@ -9,8 +9,8 @@ lazy from itertools import pairwise
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.binary_gate import compare_snapshots, snapshot_binary
-lazy from rebrew.c_parser import (
+lazy from rebrew.binary.gate import compare_snapshots, snapshot_binary
+lazy from rebrew.c_syntax.parser import (
     find_extern_variables,
     function_definition_spans,
     function_signatures,

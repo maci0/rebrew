@@ -1,4 +1,4 @@
-"""Tests for rebrew.pe_info: payload shape, sections, security, CLI, fallbacks."""
+"""Tests for rebrew.binary.pe_info: payload shape, sections, security, CLI, fallbacks."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
-from rebrew.pe_info import (
+from rebrew.binary.pe_info import (
     _debug_entries,
     _exports,
     _pe_payload,
@@ -82,15 +82,15 @@ class TestPayloadShape:
     def test_export_timestamp_is_separate_from_the_file_timestamp(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.pe_info import _pe_payload
+        from rebrew.binary.pe_info import _pe_payload
 
         monkeypatch.setattr(
-            "rebrew.pe_info.export_table", lambda _pe: SimpleNamespace(timestamp=1234)
+            "rebrew.binary.pe_info.export_table", lambda _pe: SimpleNamespace(timestamp=1234)
         )
         payload = _pe_payload(_fake_pe(), MINI_PE, MINI_PE.stat().st_size, "x86_32")
         assert payload["export_timestamp"] == 1234
         assert payload["binary"] == str(MINI_PE)
-        monkeypatch.setattr("rebrew.pe_info.export_table", lambda _pe: None)
+        monkeypatch.setattr("rebrew.binary.pe_info.export_table", lambda _pe: None)
         assert _pe_payload(_fake_pe(), MINI_PE, 0, "x86_32")["export_timestamp"] is None
 
     def test_top_level_keys(self) -> None:

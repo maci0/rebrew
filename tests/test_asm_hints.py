@@ -1,4 +1,4 @@
-"""Tests for rebrew.asm decomp-aid annotations.
+"""Tests for rebrew.binary.asm decomp-aid annotations.
 
 Covers the ``--imports`` / ``--strings`` / ``--hints`` hex-mode aids:
 ``_hint_for`` codegen-pattern detection, ``_annotation_for_operand`` address
@@ -15,8 +15,8 @@ lazy from pathlib import Path
 import pytest
 from bin_util import make_pe
 
-from rebrew.analysis import capstone_for
-from rebrew.asm import _annotation_for_operand, _hint_for, _run_hex_mode
+from rebrew.binary.analysis import capstone_for
+from rebrew.binary.asm import _annotation_for_operand, _hint_for, _run_hex_mode
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x401000

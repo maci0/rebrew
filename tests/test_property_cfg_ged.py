@@ -1,4 +1,4 @@
-"""Property-based fuzzing for the CFG segmenter (``rebrew.cfg_ged``).
+"""Property-based fuzzing for the CFG segmenter (``rebrew.binary.cfg_ged``).
 
 ``build_cfg`` / ``build_cfg_view`` segment a function's raw machine code,
 which reaches them straight off a target binary: a stripped, hand-patched,
@@ -32,8 +32,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.analysis import Insn, capstone_handle, disasm_insns
-from rebrew.cfg_ged import (
+from rebrew.binary.analysis import Insn, capstone_handle, disasm_insns
+from rebrew.binary.cfg_ged import (
     MAX_CFG_BLOCKS_PER_FUNCTION,
     build_cfg,
     build_cfg_view,

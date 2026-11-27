@@ -1,0 +1,1316 @@
+"""match_ga.py — the genetic-algorithm matching engine.
+
+The BinaryMatchingGA engine, its mutation-focus weighting, the GA cache key
+and argument hash, and the checkpoint reader.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from typing import TYPE_CHECKING, Any, cast
+lazy import hashlib
+lazy import json
+lazy import random
+lazy import re
+lazy import subprocess
+lazy import time
+lazy from collections.abc import Callable
+lazy from concurrent.futures import Future
+lazy from pathlib import Path
+
+lazy import capstone
+lazy import msgspec
+
+lazy from rebrew.compiler.cache import CacheBackend, source_digest
+lazy from rebrew.config import ProjectConfig
+lazy from rebrew.matcher import compiler as compile_seam
+lazy from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, BuildResult, GACheckpoint
+lazy from rebrew.matcher.mutator import (
+    compute_population_diversity,
+    crossover,
+    mutate_code,
+    quick_validate,
+)
+lazy from rebrew.matcher.scoring import score_candidate
+lazy from rebrew.utils import (
+    atomic_write_text,
+    file_lock,
+    filename_component,
+    interruptible_pool,
+    read_json_text,
+)
+
+if TYPE_CHECKING:
+    from rebrew.matching.sweep import BuildParams
+
+lazy from rebrew.cli import console
+
+log = logging.getLogger(__name__)
+
+#: Serializes in-process appends to ``--collect-pairs`` JSONL.  Parallel
+#: ``match batch -j N`` stubs share one pairs file; each record embeds the
+#: full source plus hex obj bytes and routinely exceeds PIPE_BUF, so bare
+#: O_APPEND can interleave lines into corrupt JSON.  Concurrent processes
+#: are serialized by a ``flock`` on a ``.lock`` sidecar (see ``_write_pair``).
+_COLLECT_PAIRS_LOCK = threading.Lock()
+
+#: Parsed ``--collect-pairs`` fingerprints per path, so a ``match batch``
+#: run pays the corpus parse once per process instead of once per stub.
+#: One entry per path: a collect run appends continuously, so keeping every
+#: stat generation of the same corpus would grow with the stub count.
+#: Bounded across paths — each entry holds every fingerprint of a corpus that
+#: grows by one per stub, so a batch over many projects (or a long-lived
+#: process) would otherwise retain all of them until exit.  Eviction is FIFO
+#: on insertion order, matching the other per-path memos in the tree.
+#: The stat fingerprint is ``(mtime_ns, size, inode, ctime_ns)``: the inode is
+#: what catches a corpus replaced by rename-over at the same size inside one
+#: mtime tick, and change time catches an in-place rewrite that restores the
+#: old mtime.
+_PAIR_KEYS_MEMO: dict[str, tuple[int, int, int, int, frozenset[str]]] = {}
+_PAIR_KEYS_MEMO_MAX = 8
+_PAIR_KEYS_MEMO_LOCK = threading.Lock()
+
+
+def _memo_pair_keys(key: str, entry: tuple[int, int, int, int, frozenset[str]]) -> None:
+    """Store one corpus-key memo, evicting the oldest path when full."""
+    with _PAIR_KEYS_MEMO_LOCK:
+        if key not in _PAIR_KEYS_MEMO and len(_PAIR_KEYS_MEMO) >= _PAIR_KEYS_MEMO_MAX:
+            del _PAIR_KEYS_MEMO[next(iter(_PAIR_KEYS_MEMO))]
+        _PAIR_KEYS_MEMO[key] = entry
+
+
+def _pair_fingerprint(src: str, obj_bytes: bytes, cflags: str, symbol: str) -> str:
+    """Stable content key for one training pair (excludes score)."""
+    h = hashlib.sha256()
+    h.update(src.encode("utf-8", errors="surrogateescape"))
+    h.update(b"\0")
+    h.update(obj_bytes)
+    h.update(b"\0")
+    h.update(cflags.encode("utf-8", errors="surrogateescape"))
+    h.update(b"\0")
+    h.update(symbol.encode("utf-8", errors="surrogateescape"))
+    return h.hexdigest()
+
+
+def _scan_pair_keys(path: Path) -> set[str]:
+    """Fingerprint every record in the ``--collect-pairs`` JSONL at *path*.
+
+    Streams line by line: the corpus embeds full source plus hex obj bytes
+    per record, so reading it whole cost two copies of the file (text plus
+    ``splitlines()`` list) for a value that is one 64-char string per record.
+    """
+    keys: set[str] = set()
+    with open(path, encoding="utf-8", errors="surrogateescape") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = msgspec.json.decode(line)
+            except ValueError:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            src = rec.get("source")
+            compiled = rec.get("compiled_bytes")
+            if not isinstance(src, str) or not isinstance(compiled, str):
+                continue
+            try:
+                obj = bytes.fromhex(compiled)
+            except ValueError:
+                continue
+            keys.add(
+                _pair_fingerprint(src, obj, str(rec.get("cflags", "")), str(rec.get("symbol", "")))
+            )
+    return keys
+
+
+def ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
+    """Resolve the GA run output directory, honoring ``[project].output_dir``.
+
+    ``cfg.output_dir`` defaults to ``output`` (config.py), so the default
+    path is unchanged — but a project setting ``output_dir = "artifacts"``
+    must route GA runs there too.  The old code hardcoded ``cfg.root /
+    "output"`` while ``rebrew coverage report`` used the config value, so the same
+    documented option behaved differently per tool.
+    """
+    base = getattr(cfg, "output_dir", None) or (cfg.root / "output")
+    if rel is None:
+        return base / "ga_runs"
+    return base / "ga_runs" / rel.with_suffix("")
+
+
+_MUTATION_FOCUS_CATEGORIES = ("register", "equivalent", "structural")
+MUTATION_FOCUS_WEIGHT = 6.0
+
+#: ``NEAR_MATCHING — <category> (`` marker in a BLOCKER string.
+_NEAR_MATCHING_RE = re.compile(r"NEAR_MATCHING — (REGISTER|EQUIVALENT|STRUCTURAL) \(")
+
+#: Generations between full-population checkpoint writes (an interrupted run
+#: redoes at most this many generations of deterministic work).
+_CHECKPOINT_INTERVAL = 5
+
+#: Tournament selection: how many members compete to become a parent.  The
+#: best (lowest fitness) of the drawn members wins.  Parents come from the
+#: whole scored population rather than the elite alone, so breeding is not
+#: bottlenecked on `elitism` members and the gene pool keeps its spread.
+_TOURNAMENT_SIZE = 3
+
+#: Adaptive mutation rate: each generation without a new best adds
+#: `_MUTATION_PROB_STEP` to the per-child mutation probability, clamped to a
+#: `_MUTATION_PROB_BOOST_CAP` increase and never past `_MUTATION_PROB_MAX`.
+#: On a plateau the search widens instead of replaying one neighbourhood.
+_MUTATION_PROB_STEP = 0.05
+_MUTATION_PROB_BOOST_CAP = 0.25
+_MUTATION_PROB_MAX = 0.95
+
+#: Stagnation restart: once half the stagnation budget has elapsed with no
+#: improvement, this fraction of the population is replaced by fresh random
+#: walks from the seed.  Capped at `_MAX_STAGNATION_RESTARTS` per run, so a
+#: restart buys a second basin without making the run unbounded.
+_IMMIGRANT_DIVISOR = 4
+_MAX_STAGNATION_RESTARTS = 2
+
+#: Random-walk length (mutation steps) of an immigrant.  Wider than the
+#: initial population's 1-4 steps: a restart should land further out than a
+#: cold start, not repeat it.
+_IMMIGRANT_MIN_STEPS = 2
+_IMMIGRANT_MAX_STEPS = 6
+
+#: Cap on the per-run in-memory compile cache / fitness memo.  Full mutation
+#: diversity reaches ~300k unique sources; retaining every BuildResult (and
+#: its error_msg) until ``close()`` dominated long-GA RSS.  Sized for several
+#: generations of elites + recent mutants; LRU eviction (touch on hit).
+_GA_MEMO_MAX_FLOOR = 1024
+_GA_MEMO_MAX_FACTOR = 32
+
+#: Bit width of the seed drawn from OS entropy when the caller passes none.
+#: Fits a signed 64-bit int so it round-trips through JSON and ``--seed``.
+_DRAWN_SEED_BITS = 63
+
+
+def mutation_focus_weights(
+    focus: str | None, blocker: str | None = None
+) -> dict[str, float] | None:
+    """GA mutation selection weights biased toward a diagnose near category.
+
+    *focus* is a diagnose near category (``register``/``equivalent``/``structural``)
+    or ``"auto"``, which derives the category from *blocker* — the function's
+    BLOCKER metadata written by ``rebrew diagnose near --fix-blocker`` (verdict text like
+    ``NEAR_MATCHING — REGISTER (57% of delta) — try: ...``).  The category's
+    suggested operators (``rebrew.compare.near_analysis.MUTATION_SUGGESTIONS``) get
+    ``MUTATION_FOCUS_WEIGHT``; unlisted operators keep weight 1.0.
+
+    Returns None when there is nothing to bias (no focus, ``reloc`` — whose
+    delta is relocation-masked, or ``auto`` with no derivable verdict) — the
+    GA then samples mutations uniformly.
+    """
+    from rebrew.compare.near_analysis import MUTATION_SUGGESTIONS
+
+    if focus == "auto":
+        if not blocker:
+            return None
+        m = _NEAR_MATCHING_RE.search(blocker)
+        focus = m.group(1).lower() if m else None
+    if focus not in _MUTATION_FOCUS_CATEGORIES:
+        return None
+    ops = MUTATION_SUGGESTIONS.get(focus) or []
+    if not ops:
+        return None
+    return dict.fromkeys(ops, MUTATION_FOCUS_WEIGHT)
+
+
+def live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
+    """Diagnose near category of the CURRENT implementation, for auto focus.
+
+    ``--mutation-focus auto`` normally derives its category from a verdict
+    BLOCKER (written by ``rebrew diagnose near --fix-blocker``); when none exists, this
+    compiles the seed once and classifies it against the target live, so the
+    GA's first generations already sample the category's operators.  Returns
+    None (uniform sampling) when the seed does not compile or the delta is
+    not cleanly classifiable (reloc-masked, compiler-version encoding).
+    """
+    if not params.seed_src:
+        return None
+    try:
+        from rebrew.compare.near_analysis import analyze
+
+        res = compile_seam.build_candidate_obj_only(
+            params.seed_src,
+            params.cl,
+            params.inc,
+            params.cflags,
+            params.symbol,
+            env=params.msvc_env,
+            cache=params.cc,
+            timeout=getattr(params.cfg, "compile_timeout", 60),
+            extra_include_dirs=[str(params.seed_c.parent.resolve())],
+            posix_style=getattr(params.cfg, "posix_style", False),
+            profile=getattr(params.cfg, "compiler_profile", ""),
+            cfg=params.cfg,
+        )
+        if not res.ok or not res.obj_bytes:
+            return None
+        diag = analyze(
+            params.target_bytes,
+            res.obj_bytes,
+            set(res.reloc_offsets or {}),
+            params.va_int,
+        )
+        mutations = diag.get("mutations") or []
+        if not mutations:
+            return None
+        return dict.fromkeys(mutations, MUTATION_FOCUS_WEIGHT)
+    except Exception:
+        # Best-effort: a live classification failure degrades to uniform.
+        log.debug("mutation-focus classification failed; using uniform weights", exc_info=True)
+        return None
+
+
+def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
+    """Byte range of the function matching *symbol* in *source*, or None.
+
+    Used to scope GA mutation queries to the target function (only its
+    compiled bytes are scored).  The symbol may be cdecl ``_name``,
+    stdcall ``_name@N``, vectorcall ``name@@N``, or fastcall ``@name@N``.
+    ``__foo`` is the function ``_foo``, not ``foo``.  Returns None when
+    the symbol cannot be located — the caller then leaves mutations unscoped.
+    """
+    try:
+        from rebrew.matcher import parse_c_ast
+        from rebrew.source.rename_ops import c_name_from_symbol
+    except Exception as exc:  # tree-sitter unavailable: no scoping
+        log.warning(
+            "tree-sitter unavailable (%s); GA mutations are scored against the whole file",
+            exc,
+        )
+        return None
+    try:
+        tree = parse_c_ast(source)
+        wanted = c_name_from_symbol(symbol)
+        for node in tree.root_node.children:
+            if node.type != "function_definition":
+                continue
+            declarator = node.child_by_field_name("declarator")
+            if declarator is None:
+                continue
+            name_node: Any = declarator
+            # function_declarator -> declarator -> identifier
+            while name_node is not None and name_node.type != "identifier":
+                name_node = name_node.child_by_field_name("declarator") or name_node.named_child(0)
+            if name_node is None or name_node.type != "identifier":
+                continue
+            if name_node.start_byte == name_node.end_byte:
+                continue
+            ident = (name_node.text or b"").decode("utf-8", "replace")
+            # One optional cdecl underscore on the definition. A second
+            # underscore is part of the name (``__foo`` is not ``foo``).
+            bare = ident[1:] if ident.startswith("_") and not ident.startswith("__") else ident
+            if wanted in (ident, bare):
+                return node.start_byte, node.end_byte
+    except Exception as exc:
+        # An unscoped range scores the whole file, so a mutated sibling can
+        # earn the target's fitness and the GA will drift it.  Worth a line
+        # on the run, since the result still looks like a normal search.
+        log.warning(
+            "could not locate %s in the source (%s); GA mutations are scored against the whole file",
+            symbol,
+            exc,
+        )
+        return None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# GA engine
+# ---------------------------------------------------------------------------
+
+
+def _ga_cache_key(
+    src: str,
+    cflags: str,
+    cl_cmd: str,
+    inc_dir: str,
+    extra_include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
+    symbol: str = "",
+    profile: str = "",
+    *,
+    link_mode: tuple[str | None, str | None, str | None, tuple[tuple[str, str], ...] | None]
+    | None = None,
+) -> str:
+    """Cache key for a GA compile result.
+
+    Must cover everything that changes the produced .obj: the source text,
+    the compiler flags, the compiler command, the include directory, the
+    extra include dirs (different headers → different codegen), the
+    per-target defines (a version switch changes ``#ifdef``-driven codegen),
+    the extracted symbol, and the toolchain profile.  The same source
+    compiled for different symbols yields different bytes; without the
+    profile an msvc-6.0 object is reused for a borland-5.5 or borland-3.1
+    run on the same source (``cl_cmd`` is empty and ``inc_dir`` the same
+    default for every image-backed toolchain, which all compile through
+    docker).
+    """
+
+    # Incremental hashing: no per-candidate material buffer.
+    # Path-like fields use surrogateescape so a non-UTF-8 include dir from
+    # the filesystem (Linux surrogate filenames) does not raise here.
+    def _enc(s: str) -> bytes:
+        return s.encode("utf-8", errors="surrogateescape")
+
+    h = hashlib.sha256()
+    h.update(source_digest(src).encode("ascii"))
+    h.update(b"\x00cflags=" + _enc(cflags))
+    h.update(b"\x00cmd=" + _enc(cl_cmd))
+    h.update(b"\x00inc=" + _enc(inc_dir))
+    h.update(b"\x00sym=" + _enc(symbol))
+    h.update(b"\x00profile=" + _enc(profile))
+    for d in sorted(extra_include_dirs or []):
+        h.update(b"\x00" + _enc(d))
+    for d in sorted(defines or []):
+        h.update(b"\x00defines=" + _enc(d))
+    if link_mode is not None:
+        # Linked-exe mode (compare_obj=False): lib_dir/ldflags/link_cmd/env
+        # change the linked bytes, so a cache shared across sweeps must not
+        # hand back a result linked with different link inputs.
+        lib_dir, ldflags, link_cmd, env = link_mode
+        h.update(b"\x00lib=" + _enc(lib_dir or ""))
+        h.update(b"\x00ldflags=" + _enc(ldflags or ""))
+        h.update(b"\x00link=" + _enc(link_cmd or ""))
+        for k, v in sorted(env or ()):
+            h.update(b"\x00env=" + _enc(k) + b"=" + _enc(v))
+    return h.hexdigest()[:16]
+
+
+class BinaryMatchingGA:
+    """Genetic algorithm engine for finding byte-identical or relocation-equivalent C source matches."""
+
+    def __init__(
+        self,
+        seed_source: str,
+        target_bytes: bytes,
+        cl_cmd: str,
+        inc_dir: str,
+        cflags: str,
+        symbol: str,
+        out_dir: Path,
+        pop_size: int = 64,
+        num_generations: int = 100,
+        mutation_prob: float = 0.85,
+        crossover_prob: float = 0.7,
+        elitism: int = 4,
+        num_jobs: int = 4,
+        mutation_weights: dict[str, float] | None = None,
+        stagnation_limit: int = 40,
+        verbose: int = 1,
+        rng_seed: int | None = None,
+        compare_obj: bool = True,
+        lib_dir: str | None = None,
+        link_cmd: str | None = None,
+        ldflags: str | None = None,
+        env: dict[str, str] | None = None,
+        compile_cache: CacheBackend | None = None,
+        compile_timeout: int = 60,
+        extra_seeds: list[str] | None = None,
+        collect_pairs_path: Path | None = None,
+        extra_include_dirs: list[str] | None = None,
+        posix_style: bool = False,
+        resume_from: GACheckpoint | None = None,
+        cs_mode: int | None = None,
+        profile: str = "",
+        cfg: Any = None,
+    ) -> None:
+        """Initialize the genetic algorithm matching engine.
+
+        *resume_from* (a :class:`GACheckpoint` with a matching ``args_hash``)
+        restores the population, best result, and RNG state instead of
+        starting fresh from the seed source.
+        """
+        self.posix_style = posix_style
+        # 16-bit DOS/NE targets disassemble in 16-bit mode for structural
+        # scoring; None keeps the 32-bit default for PE/ELF targets.
+        self.cs_mode = cs_mode if cs_mode is not None else capstone.CS_MODE_32
+        # Toolchain-backed profiles (borland-3.1/borland-2.0/watcom-2.0-win16/...) route GA
+        # compiles through compile_to_obj (DOSBox); without these the GA
+        # ran the DOS compiler binary natively.
+        self.profile = profile
+        self.cfg = cfg
+        self.seed_source = seed_source
+        self.target_bytes = target_bytes
+        self.cl_cmd = cl_cmd
+        self.inc_dir = inc_dir
+        self.extra_include_dirs = extra_include_dirs or []
+        self.cflags = cflags
+        self.symbol = symbol
+        self.out_dir = Path(out_dir)
+        self.pop_size = pop_size
+        self.num_generations = num_generations
+        self.mutation_prob = mutation_prob
+        self.crossover_prob = crossover_prob
+        self.elitism = elitism
+        self.num_jobs = num_jobs
+        self.stagnation_limit = stagnation_limit
+        self.verbose = verbose
+        # The seed actually driving ``self.rng``: an unseeded run draws one so
+        # it can be replayed with ``--seed``.  ``args_hash`` keeps the caller's
+        # value, so an unseeded run still resumes its own checkpoint.
+        # Drawn from a private Random: the module-level generator is shared
+        # with the rest of the process, so a parallel batch (or any other
+        # module drawing from it) would decide which stub got which seed.
+        self.rng_seed: int = (
+            rng_seed if rng_seed is not None else random.Random().getrandbits(_DRAWN_SEED_BITS)
+        )
+        self.compare_obj = compare_obj
+        self.lib_dir = lib_dir
+        self.link_cmd = link_cmd
+        self.ldflags = ldflags
+        self.env = env
+        self.compile_timeout = compile_timeout
+        self.collect_pairs_path = collect_pairs_path
+        self._pairs_count = 0
+        # Content-addressed keys already present in collect_pairs_path (lazy).
+        # Re-runs skip duplicates so the JSONL does not accumulate copies.
+        self._pair_keys: set[str] | None = None
+        # Appends since the last corpus-memo publish (see _refresh_pair_keys_memo).
+        self._pair_keys_dirty = False
+        # Lazily hexed target bytes — every pair record repeats them, and
+        # re-hexing per candidate dominated --collect-pairs overhead.
+        self._target_hex: str | None = None
+
+        self.rng = random.Random(self.rng_seed)
+        self.mutation_weights = mutation_weights or {}
+        # One-shot flag: _save_checkpoint warns once per run on failure
+        # (per-generation repetition would flood a long batch's log).
+        self._checkpoint_warned = False
+
+        self.population: list[str] = []
+        self.best_source: str | None = None
+        self.best_score: float = float("inf")
+        self.stagnant_gens: int = 0
+        #: Stagnation restarts performed by this run (bounded by
+        #: ``_MAX_STAGNATION_RESTARTS``; reported in the JSON payload).
+        self.restarts: int = 0
+        self.elapsed_sec: float = 0.0
+        #: Mutation operators applied during this run (tracked for solution
+        #: provenance — see SolutionEntry.mutations).  Filled by _mutate().
+        self.applied_mutations: set[str] = set()
+
+        self.cache: dict[str, BuildResult] = {}
+        self.compile_cache = compile_cache
+        self.extra_seeds = extra_seeds or []
+
+        # Process-local fitness memo keyed by source hash.  A fresh
+        # BuildResult carries fitness=None (it is populated after scoring),
+        # so the warm-scoring path in _compute_fitness needs this memo.
+        # Unchanged elite sources reuse their scores without another disk write.
+        # Guarded: ``num_jobs`` workers read/write this dict and ``self.cache``
+        # concurrently; compound check-then-act without a lock races.
+        # Bounded (LRU): see :data:`_GA_MEMO_MAX_FLOOR` / ``_GA_MEMO_MAX_FACTOR``.
+        self._fitness_memo: dict[str, float] = {}
+        self._memo_lock = threading.Lock()
+        self._memo_max = max(_GA_MEMO_MAX_FLOOR, pop_size * _GA_MEMO_MAX_FACTOR)
+
+        # Pre-compute target normalization and mnemonics once for scoring hot path
+        from rebrew.matcher import precompute_target
+
+        # Score in the SAME disassembly mode as the candidate: a 16-bit
+        # target precomputed in 32-bit mode has instruction boundaries and
+        # mnemonics that differ from the candidate's 16-bit disassembly.
+        self._pre_norm_target, self._pre_target_mnems = precompute_target(
+            target_bytes, cs_mode=self.cs_mode
+        )
+
+        # Stable fingerprint of the GA parameters — rejects stale checkpoints.
+        self.args_hash = _ga_args_hash(
+            seed_source,
+            target_bytes,
+            symbol,
+            cflags,
+            pop_size,
+            num_generations,
+            rng_seed,
+            mutation_weights=mutation_weights,
+            mutation_prob=mutation_prob,
+            crossover_prob=crossover_prob,
+            elitism=elitism,
+            num_jobs=num_jobs,
+            stagnation_limit=stagnation_limit,
+            profile=self.profile,
+            compare_obj=self.compare_obj,
+            cs_mode=self.cs_mode,
+            posix_style=self.posix_style,
+            extra_include_dirs=self.extra_include_dirs,
+            defines=list(getattr(self.cfg, "defines", None) or []),
+            cl_cmd=self.cl_cmd,
+            inc_dir=self.inc_dir,
+        )
+        self._start_generation = 0
+        # Generations actually executed by the last run() (resume-aware), read
+        # by the batch driver to record the run in .rebrew/ga_runs.jsonl.
+        self.generation = 0
+
+        # Resume restores population/best/RNG instead of a fresh start.
+        if resume_from is not None and resume_from.args_hash == self.args_hash:
+            self.population = list(resume_from.population)
+            self.best_source = resume_from.best_source
+            self.best_score = float(resume_from.best_score)
+            self.applied_mutations = set(resume_from.applied_mutations)
+            self.restarts = int(resume_from.restarts)
+            self.stagnant_gens = int(resume_from.stagnant_gens)
+            if resume_from.rng_state:
+                self.rng.setstate(resume_from.rng_state)
+            if resume_from.rng_seed is not None:
+                self.rng_seed = resume_from.rng_seed
+            self._start_generation = resume_from.generation
+        else:
+            self._init_population()
+
+    def _mutate(self, src: str) -> str:
+        """Apply one weighted mutation, recording the operator for solution
+        provenance (SolutionEntry.mutations — see match.py win sites).
+
+        Mutation queries are scoped to the target function's byte range in
+        *src*: only its compiled bytes are scored, so mutating siblings in a
+        multi-function file is waste (whole-file query cost was ~270x higher
+        on large seeds).  The range is located per source because every
+        mutation shifts it; a range taken from the seed spills into the next
+        function once the target shrinks and misses its tail once it grows.
+        """
+        from rebrew.matcher import set_target_range
+
+        set_target_range(*(_find_function_range(src, self.symbol) or (None, None)))
+        try:
+            out = mutate_code(
+                src, self.rng, mutation_weights=self.mutation_weights, track_mutation=True
+            )
+        finally:
+            set_target_range(None, None)
+        if isinstance(out, tuple):
+            new_src, mut_name = out
+            if mut_name:
+                self.applied_mutations.add(mut_name)
+            return new_src
+        return out
+
+    def _random_walk(self, base: str, low: int, high: int) -> str:
+        """Mutate *base* ``rng.randint(low, high)`` times."""
+        src = base
+        for _ in range(self.rng.randint(low, high)):
+            src = self._mutate(src)
+        return src
+
+    def _init_population(self) -> None:
+        self.population = [self.seed_source]
+        for seed_src in self.extra_seeds:
+            if seed_src not in self.population:
+                self.population.append(seed_src)
+                if len(self.population) < self.pop_size:
+                    mutated = self._mutate(seed_src)
+                    self.population.append(mutated)
+        while len(self.population) < self.pop_size:
+            self.population.append(self._random_walk(self.seed_source, 1, 4))
+
+    def _tournament(self, scored_pop: list[tuple[float, str]]) -> str:
+        """Pick a parent: the best of ``_TOURNAMENT_SIZE`` drawn members."""
+        contenders = [self.rng.choice(scored_pop) for _ in range(_TOURNAMENT_SIZE)]
+        return min(contenders, key=lambda scored: scored[0])[1]
+
+    def _effective_mutation_prob(self) -> float:
+        """Per-child mutation probability, raised while the search is flat.
+
+        Adds ``_MUTATION_PROB_STEP`` per generation without a new best, up to
+        ``_MUTATION_PROB_BOOST_CAP`` and never past ``_MUTATION_PROB_MAX``.
+        """
+        boost = min(_MUTATION_PROB_BOOST_CAP, _MUTATION_PROB_STEP * self.stagnant_gens)
+        return min(_MUTATION_PROB_MAX, self.mutation_prob + boost)
+
+    def _reseed(self, next_pop: list[str]) -> int:
+        """Append fresh immigrants to *next_pop* and arm the next cycle.
+
+        Replaces ``1/_IMMIGRANT_DIVISOR`` of the population with random walks
+        from the seed, resets the stagnation counter, and returns how many
+        were appended.  The elite already in *next_pop* survives untouched.
+        """
+        count = max(
+            0, min(max(1, self.pop_size // _IMMIGRANT_DIVISOR), self.pop_size - len(next_pop))
+        )
+        for _ in range(count):
+            next_pop.append(
+                self._random_walk(self.seed_source, _IMMIGRANT_MIN_STEPS, _IMMIGRANT_MAX_STEPS)
+            )
+        self.restarts += 1
+        self.stagnant_gens = 0
+        return count
+
+    def _cache_key(self, src: str) -> str:
+        """Disk-cache key for *src* under this run's compile configuration.
+
+        Single source of truth: ``_compile_source`` reads with it and
+        ``_compute_fitness`` stores with it, so a successful build is reused
+        across processes.
+        """
+        link_mode = (
+            None
+            if self.compare_obj
+            else (
+                self.lib_dir,
+                self.ldflags,
+                self.link_cmd,
+                tuple(sorted((self.env or {}).items())),
+            )
+        )
+        return _ga_cache_key(
+            src,
+            self.cflags,
+            str(self.cl_cmd),
+            self.inc_dir,
+            self.extra_include_dirs,
+            getattr(self.cfg, "defines", None) or [],
+            self.symbol,
+            self.profile,
+            link_mode=link_mode,
+        )
+
+    def _lru_get(self, table: dict[str, Any], key: str) -> Any | None:
+        """Return *table[key]*, refreshing LRU order.  Caller holds ``_memo_lock``."""
+        if key not in table:
+            return None
+        value = table.pop(key)
+        table[key] = value
+        return value
+
+    def _lru_put(self, table: dict[str, Any], key: str, value: Any) -> None:
+        """Insert *key*→*value* with FIFO eviction past ``_memo_max``.
+
+        Caller holds ``_memo_lock``.  Re-inserting an existing key refreshes
+        its LRU position so elites that keep scoring are not aged out by
+        one-shot mutants.
+        """
+        if key in table:
+            del table[key]
+        elif len(table) >= self._memo_max:
+            table.pop(next(iter(table)))
+        table[key] = value
+
+    def _compile_source(self, src: str, *, use_memo: bool = True) -> BuildResult:
+        # Same-run memo (plain dict): elites persist across generations
+        # unchanged, and a resumed run replays its population.  Cross-run
+        # persistence is the shared compile cache's job (`self.compile_cache`,
+        # keyed on full compile inputs).
+        # The key must cover everything that changes the .obj, not just
+        # the source, so a sweep-then-GA or CFLAGS-metadata change never
+        # reuses the previous flag combination's .obj.
+        #
+        # The memo stores results with ``obj_bytes`` stripped (see
+        # ``_compute_fitness``) to bound RSS, so a memo hit carries no code
+        # bytes.  A consumer that needs them must pass ``use_memo=False``:
+        # the call then skips the memo in both directions and rebuilds the
+        # result, which still hits the shared compile cache on disk, so it
+        # costs a lookup rather than a compile.
+        src_hash = self._cache_key(src)
+        if use_memo:
+            with self._memo_lock:
+                cached = self._lru_get(self.cache, src_hash)
+            if cached is not None:
+                return cast("BuildResult", cached)
+
+        if self.compare_obj:
+            res = compile_seam.build_candidate_obj_only(
+                src,
+                self.cl_cmd,
+                self.inc_dir,
+                self.cflags,
+                self.symbol,
+                env=self.env,
+                cache=self.compile_cache,
+                timeout=self.compile_timeout,
+                extra_include_dirs=self.extra_include_dirs,
+                posix_style=getattr(self, "posix_style", False),
+                profile=self.profile,
+                cfg=self.cfg,
+            )
+        else:
+            if not self.lib_dir or not self.ldflags:
+                raise ValueError("lib dir and ldflags must be set when compare_obj is False")
+            # The linked-exe GA path drives a host subprocess (self.cl_cmd) —
+            # execution is docker-only for every shipped profile, so this mode
+            # is only available to a profile with no registry image.
+            if self.profile:
+                from rebrew.compiler.toolchain import TOOLCHAINS
+
+                _spec = TOOLCHAINS.get(self.profile)
+                if _spec is not None and _spec.image is not None:
+                    raise ValueError(
+                        f"linked-exe GA ({self.profile}) needs a host-run compiler — every "
+                        "shipped profile is docker-only; use object comparison (default) instead"
+                    )
+            res = compile_seam.build_candidate(
+                src,
+                self.cl_cmd,
+                self.inc_dir,
+                self.lib_dir,
+                self.cflags,
+                self.ldflags,
+                self.symbol,
+                link_cmd=self.link_cmd,
+                env=self.env,
+                timeout=self.compile_timeout * 2,
+            )
+
+        # No disk write for successes here: the result carries no fitness yet,
+        # and _compute_fitness stores the scored result with one put —
+        # writing now would double every candidate's writes.
+        # Failures never reach that put (they return early there), so they
+        # are stored here instead: one write per candidate either way.
+        if not res.ok and use_memo:
+            with self._memo_lock:
+                self._lru_put(self.cache, src_hash, res)
+        return res
+
+    def _compute_fitness(self, res: BuildResult, src_hash: str, src: str) -> float:
+        # Per-candidate prints are gated behind self.verbose: in batch mode
+        # (verbose=0, -j N workers) an unconditional Rich print per candidate
+        # serialized all workers on the Console lock and flooded stderr with
+        # pop_size × generations × stubs formatted lines.
+        def _log(line: str) -> None:
+            if self.verbose:
+                console.print(line)
+
+        # Warm-scoring fast path: a source hash already scored in this
+        # process (same stub, same flags → same obj bytes → same score)
+        # skips re-disassembly + re-scoring entirely.  Without it,
+        # ~2.8s went to each 300k-candidate warm batch of elite/unchanged sources
+        # that persist across generations.
+        with self._memo_lock:
+            memoized = self._lru_get(self._fitness_memo, src_hash)
+        if memoized is not None:
+            return cast("float", memoized)
+        cached_fitness = res.fitness
+        if res.ok and cached_fitness is not None:
+            with self._memo_lock:
+                self._lru_put(self._fitness_memo, src_hash, float(cached_fitness))
+            return float(cached_fitness)
+
+        if not res.ok or res.obj_bytes is None:
+            _log(f"[{src_hash[:8]}] Error during compilation/parsing: {res.error_msg}")
+            return 10000000.0
+        obj_bytes = res.obj_bytes
+
+        # Size-ratio floor: reject candidates that are far too small.
+        # The GA sometimes "optimizes" by deleting large code blocks;
+        # this guard prevents it from exploring that neighbourhood.
+        target_len = len(self.target_bytes)
+        if target_len > 0 and len(obj_bytes) < target_len * 0.5:
+            _log(f"[{src_hash[:8]}] Too small: {len(obj_bytes)}B < 50% of target {target_len}B")
+            return 5000000.0
+
+        # Proportional penalty for oversized candidates instead of silent
+        # truncation.  Score the overlapping region normally but add a
+        # penalty proportional to the excess — teaches the GA to avoid bloat.
+        excess = max(0, len(obj_bytes) - target_len)
+        if excess > 0:
+            _log(
+                f"[{src_hash[:8]}] Candidate {len(obj_bytes)}B > target {target_len}B (+{excess}B excess)"
+            )
+        score_bytes = obj_bytes[:target_len]
+        sc = score_candidate(
+            self.target_bytes,
+            score_bytes,
+            res.reloc_offsets,
+            _pre_norm_target=self._pre_norm_target,
+            _pre_target_mnems=self._pre_target_mnems,
+            cs_mode=self.cs_mode,
+            # 16-bit targets carry 2-byte reloc slots (omf16 rel16/disp16) —
+            # the 4-byte default would mask the bytes after every slot.
+            pointer_size=getattr(self.cfg, "pointer_size", 4) if self.cfg else 4,
+        )
+        excess_penalty = excess * 1500.0  # per-byte penalty comparable to byte_score weight
+        total = sc.total + excess_penalty
+        # Memoize the fitness on the BuildResult so a warm-cache rerun (same
+        # stub, same source hash → same obj bytes → same score) skips the
+        # re-disassembly + re-scoring entirely (~2.8s per
+        # 300k-candidate warm batch).
+        res.fitness = total
+        # Drop the .obj payload before the in-memory store: warm hits take
+        # the fitness memo / res.fitness path and never re-read obj_bytes.
+        # Keeping every unique variant's bytes unboundedly (pop × gens)
+        # dominated long GA RSS; failures still store without bytes above.
+        if self.collect_pairs_path is not None:
+            self._write_pair(src, obj_bytes, total)
+        res.obj_bytes = None
+        with self._memo_lock:
+            self._lru_put(self._fitness_memo, src_hash, total)
+            # One memo store per candidate: _compile_source skipped the store on
+            # a miss (it defers to the scored result here), so this put persists
+            # the scored result with fitness set — a later generation takes
+            # the warm-cache skip.  Keyed on the compile configuration
+            # (``_cache_key``), NOT the ``src_hash`` argument: the caller
+            # passes the bare source digest for memoization, and a
+            # digest-keyed entry is never read by ``_compile_source``.
+            self._lru_put(self.cache, self._cache_key(src), res)
+        _log(
+            f"[{src_hash[:8]}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
+        )
+
+        return total
+
+    def _load_pair_keys(self) -> set[str]:
+        """Return fingerprints already on disk for ``collect_pairs_path``."""
+        path = self.collect_pairs_path
+        if path is None:
+            return set()
+        try:
+            st = path.stat()
+        except OSError:
+            return set()
+        with _PAIR_KEYS_MEMO_LOCK:
+            memo = _PAIR_KEYS_MEMO.get(str(path))
+        if (
+            memo is not None
+            and memo[0] == st.st_mtime_ns
+            and memo[1] == st.st_size
+            and memo[2] == st.st_ino
+            and memo[3] == st.st_ctime_ns
+        ):
+            return set(memo[4])
+        keys = _scan_pair_keys(path)
+        _memo_pair_keys(
+            str(path),
+            (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns, frozenset(keys)),
+        )
+        return keys
+
+    def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
+        """Append a source-binary pair to the JSONL collection file.
+
+        The caller guards ``collect_pairs_path is not None`` before calling,
+        so no in-function re-check is needed (the old one sat AFTER the
+        record was built, i.e. unreachable).  Duplicate content (same
+        source/bytes/cflags/symbol) is skipped so a CLI re-run does not
+        pollute the training corpus.
+        """
+        assert self.collect_pairs_path is not None  # caller guards it
+        key = _pair_fingerprint(src, obj_bytes, self.cflags, self.symbol)
+        pairs_lock = Path(str(self.collect_pairs_path) + ".lock")
+        with (
+            _COLLECT_PAIRS_LOCK,
+            file_lock(pairs_lock),
+        ):
+            if self._pair_keys is None:
+                self._pair_keys = self._load_pair_keys()
+            if key in self._pair_keys:
+                return
+            if self._target_hex is None:
+                self._target_hex = self.target_bytes.hex()
+            record = {
+                "source": src,
+                "compiled_bytes": obj_bytes.hex(),
+                "target_bytes": self._target_hex,
+                "score": round(score, 4),
+                "cflags": self.cflags,
+                "symbol": self.symbol,
+            }
+            line = msgspec.json.encode(record) + b"\n"
+            # Durable append: this corpus is the only record of the compile
+            # results a training run collected, so acking the write before
+            # it reaches disk loses the pair on a power cut.  fsync before
+            # the in-memory key/count advance; a crash mid-write can still
+            # leave a torn tail, which the JSONL readers skip line-wise.
+            import os
+
+            fd = os.open(self.collect_pairs_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+            try:
+                view = memoryview(line)
+                while view:
+                    view = view[os.write(fd, view) :]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            self._pair_keys.add(key)
+            self._pairs_count += 1
+            self._pair_keys_dirty = True
+
+    def _refresh_pair_keys_memo(self) -> None:
+        """Republish this run's corpus keys once the run is over.
+
+        Snapshotting per appended record copies every key written so far,
+        which is quadratic over a run.  The memo is only read to skip a
+        corpus re-parse for the next stub, and it is revalidated against
+        the file's full stat fingerprint (mtime, size, inode, change time),
+        so one refresh per run carries the same information.
+
+        The stat, the re-scan and the publish sit inside
+        ``_COLLECT_PAIRS_LOCK``, the same section that appends, so the
+        fingerprint and the key set describe one generation of the file.
+        The set is also unioned with what is on disk: a sibling stub's
+        append never reaches this run's ``_pair_keys``, and publishing this
+        run's set alone would claim the corpus is missing those keys, so the
+        next stub would re-append them as duplicates.
+        """
+        path = self.collect_pairs_path
+        with _COLLECT_PAIRS_LOCK:
+            keys = self._pair_keys
+            self._pair_keys_dirty = False
+            if path is None or keys is None:
+                return
+            try:
+                st = path.stat()
+            except OSError:
+                return
+            _memo_pair_keys(
+                str(path),
+                (
+                    st.st_mtime_ns,
+                    st.st_size,
+                    st.st_ino,
+                    st.st_ctime_ns,
+                    frozenset(keys | _scan_pair_keys(path)),
+                ),
+            )
+
+    def run(
+        self,
+        deadline: float | None = None,
+        *,
+        clock: Callable[[], float] | None = None,
+    ) -> tuple[str | None, float]:
+        """Run the GA and return ``(best_source, best_score)``.
+
+        *deadline* is a *clock* timestamp; when reached, the loop stops
+        between generations and returns the best result so far.  This is a
+        cooperative, thread-safe timeout (unlike SIGALRM, which only fires
+        in the main thread) — it exists so parallel batch runs can bound
+        each stub without signals.
+
+        *clock* is the only time source the loop reads, deadline checks and
+        ``elapsed_sec`` alike, so a caller replaying a seed can drive the
+        generation budget from virtual time and get the same run every
+        time instead of one cut short by wall-clock speed.
+        """
+        last_generation = self._start_generation
+        now = clock if clock is not None else time.monotonic
+        # One executor for the whole run, not one pool per generation.
+        with interruptible_pool(self.num_jobs) as executor:
+            for gen in range(self._start_generation, self.num_generations):
+                if deadline is not None and now() > deadline:
+                    break
+                gen_start = now()
+                scored_pop = []
+                # Consult the in-process fitness memo BEFORE
+                # submitting — elite/unchanged sources keep their score across
+                # generations, so skipping _compile_source entirely avoids a
+                # cache lookup per generation for every surviving member.
+                # Key on the full SHA-256 hex: a 32-bit truncation gives ~10
+                # collision pairs at ~300k unique sources (birthday bound),
+                # silently mixing their scores.
+                futures: dict[Future[BuildResult], tuple[str, str]] = {}
+                for src in self.population:
+                    src_hash = source_digest(src)
+                    with self._memo_lock:
+                        memoized = self._lru_get(self._fitness_memo, src_hash)
+                    if memoized is not None:
+                        scored_pop.append((memoized, src))
+                        continue
+                    futures[executor.submit(self._compile_source, src)] = (src, src_hash)
+                # Collect in submission order, not completion order: scoring
+                # appends --collect-pairs lines and updates the LRU memo, so
+                # thread timing must not decide their order under one seed.
+                for fut, (src, src_hash) in futures.items():
+                    try:
+                        res = fut.result()
+                    except (
+                        FileNotFoundError,
+                        OSError,
+                        ValueError,
+                        RuntimeError,
+                        subprocess.SubprocessError,
+                    ) as exc:
+                        res = BuildResult(
+                            ok=False, error_msg=f"exception during compilation: {exc}"
+                        )
+                    scored_pop.append((self._compute_fitness(res, src_hash, src), src))
+
+                scored_pop.sort()
+                if not scored_pop:
+                    # An empty population still cost a full generation's
+                    # scheduling and dispatch; charging it keeps elapsed_sec
+                    # a true total instead of under-reporting exactly the
+                    # generation that produced nothing.
+                    self.elapsed_sec += now() - gen_start
+                    continue
+                best_score, best_src = scored_pop[0]
+                diversity = compute_population_diversity(self.population)
+
+                if best_score < self.best_score:
+                    self.best_score = best_score
+                    self.best_source = best_src
+                    self.stagnant_gens = 0
+                    atomic_write_text(
+                        self.out_dir / "best.c",
+                        best_src,
+                        encoding="utf-8",
+                        errors="surrogateescape",
+                    )
+                else:
+                    self.stagnant_gens += 1
+
+                if self.verbose:
+                    console.print(
+                        f"gen={gen:03d} best={best_score:.2f} div={diversity:.2f} stag={self.stagnant_gens}"
+                    )
+
+                if (
+                    best_score < EXACT_SCORE_THRESHOLD
+                    or self.stagnant_gens >= self.stagnation_limit
+                ):
+                    self.elapsed_sec += now() - gen_start
+                    break
+
+                # Distinct sources only: an unchanged child is a clone of its
+                # parent, and clones of the best would fill every elite slot.
+                next_pop = list(dict.fromkeys(s for _, s in scored_pop))[: self.elitism]
+                next_pop_keys = {source_digest(s) for s in next_pop}
+
+                # Stagnation restart: once half the stagnation budget has
+                # elapsed without a new best, reseed a quarter of the
+                # population from the seed instead of breeding yet another
+                # generation from the same gene pool.  A flat search is
+                # usually sitting in a basin its own mutants cannot leave;
+                # fresh arrivals can start one elsewhere.  Bounded by
+                # _MAX_STAGNATION_RESTARTS so the run still terminates.
+                restart_after = max(1, self.stagnation_limit // 2)
+                if (
+                    self.stagnant_gens >= restart_after
+                    and self.restarts < _MAX_STAGNATION_RESTARTS
+                    and self.pop_size > self.elitism
+                ):
+                    immigrants = self._reseed(next_pop)
+                    if self.verbose:
+                        console.print(
+                            f"  restart #{self.restarts}: {immigrants} fresh "
+                            f"immigrant(s) after {restart_after}+ flat generations"
+                        )
+
+                mutation_prob = self._effective_mutation_prob()
+                max_attempts = self.pop_size * 10
+                attempts = 0
+                while len(next_pop) < self.pop_size and attempts < max_attempts:
+                    attempts += 1
+                    p1 = self._tournament(scored_pop)
+                    if self.rng.random() < self.crossover_prob:
+                        p2 = self._tournament(scored_pop)
+                        child = crossover(p1, p2, self.rng)
+                    else:
+                        child = p1
+
+                    if self.rng.random() < mutation_prob:
+                        # Multi-mutation: 35% chance of chaining 2-3 mutations for
+                        # bigger jumps in the search space.
+                        n_muts = 1
+                        if self.rng.random() < 0.35:
+                            n_muts = self.rng.randint(2, 3)
+                        for _ in range(n_muts):
+                            child = self._mutate(child)
+
+                    child_key = source_digest(child)
+                    if child_key not in next_pop_keys and quick_validate(child):
+                        next_pop.append(child)
+                        next_pop_keys.add(child_key)
+
+                while len(next_pop) < self.pop_size:
+                    fill = self._tournament(scored_pop)
+                    next_pop.append(fill)
+                    next_pop_keys.add(source_digest(fill))
+
+                self.population = next_pop
+
+                # Accumulate the FULL generation time (scoring + mutation +
+                # crossover) — stopping at the break above under-reported GA
+                # time by ~99% on cache-warm runs (mutation dominates).
+                self.elapsed_sec += now() - gen_start
+
+                # Persist a checkpoint every _CHECKPOINT_INTERVAL generations so
+                # an interrupted batch resumes from here instead of restarting
+                # the stub.  The full-population JSON write is not free; an
+                # interrupted run only redoes the skipped generations' work.
+                if (gen + 1) % _CHECKPOINT_INTERVAL == 0:
+                    self._save_checkpoint(gen + 1)
+                last_generation = gen + 1
+
+        # Always leave a fresh checkpoint on orderly exit (converged,
+        # stagnant, deadline, or completed) so resume sees final state.
+        if last_generation > self._start_generation:
+            self._save_checkpoint(last_generation)
+
+        if self._pair_keys_dirty:
+            self._refresh_pair_keys_memo()
+
+        self.generation = last_generation
+        return self.best_source, self.best_score
+
+    def _save_checkpoint(self, next_generation: int) -> None:
+        """Write the current GA state as a JSON checkpoint (best-effort)."""
+        try:
+            checkpoint = GACheckpoint(
+                generation=next_generation,
+                best_score=self.best_score,
+                best_source=self.best_source,
+                population=list(self.population),
+                rng_state=self.rng.getstate(),
+                rng_seed=self.rng_seed,
+                args_hash=self.args_hash,
+                applied_mutations=set(self.applied_mutations),
+                restarts=self.restarts,
+                stagnant_gens=self.stagnant_gens,
+            )
+            ckpt_dir = self.out_dir / "checkpoints"
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(
+                ckpt_dir / f"{filename_component(self.symbol)}.json",
+                json.dumps(checkpoint.to_dict(), indent=1),
+                encoding="utf-8",
+            )
+        except OSError, TypeError, ValueError:
+            # Best-effort, but a persistent failure silently disables
+            # --resume for this run (hours of GA lost on interruption) —
+            # warn once so the user knows resume will restart from scratch.
+            if not self._checkpoint_warned:
+                self._checkpoint_warned = True
+                log.warning(
+                    "Checkpoint save failed for %s — --resume unavailable",
+                    self.symbol,
+                    exc_info=True,
+                )
+
+    def close(self) -> None:
+        """Drop the in-memory compile cache and fitness memo held for the run."""
+        with self._memo_lock:
+            self.cache.clear()
+            self._fitness_memo.clear()
+
+    def __enter__(self) -> BinaryMatchingGA:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+def _ga_args_hash(
+    seed_source: str,
+    target_bytes: bytes,
+    symbol: str,
+    cflags: str,
+    pop_size: int,
+    num_generations: int,
+    rng_seed: int | None,
+    mutation_weights: dict[str, float] | None = None,
+    mutation_prob: float = 0.85,
+    crossover_prob: float = 0.7,
+    elitism: int = 4,
+    num_jobs: int = 4,
+    stagnation_limit: int = 40,
+    profile: str = "",
+    compare_obj: bool = True,
+    cs_mode: int = 0,
+    posix_style: bool = False,
+    extra_include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
+    cl_cmd: str = "",
+    inc_dir: str = "",
+) -> str:
+    """Stable fingerprint of the GA parameters — invalidates stale checkpoints.
+
+    Every tuning parameter that shapes the search is folded in: resuming
+    after changing ``mutation_weights`` / ``num_generations`` / ``elitism``
+    etc. must reject the old checkpoint instead of silently continuing the
+    previous population with stale RNG state.
+
+    The compile inputs are folded in for the same reason.  A checkpoint
+    restores a population selected by *scoring* candidates this run will
+    produce with a different compiler or disassembler, so resuming across a
+    toolchain change (``profile``), a compare-object switch
+    (``compare_obj``), a 16-bit switch (``cs_mode``), a posix toolchain
+    switch (``posix_style``), or a different include/define set continues a
+    search whose ``best_score`` and ``best.c`` describe a compile that never
+    happened.  ``_ga_cache_key`` already keys the compile cache on exactly
+    these; a checkpoint that survived what the cache rejects would be the
+    inconsistent half of the pair.
+
+    The params tuple is JSON-encoded with sorted keys and compact separators:
+    the old ``str(tuple_with_dict)`` inherited dict insertion order and
+    CPython's ``', '`` separators, so equal ``mutation_weights`` mappings
+    built in different orders hashed differently (and any repr change across
+    versions silently invalidated every checkpoint)."""
+    h = hashlib.sha256()
+    h.update(seed_source.encode("utf-8", errors="surrogateescape"))
+    h.update(target_bytes)
+    h.update(symbol.encode("utf-8", errors="surrogateescape"))
+    h.update(cflags.encode("utf-8", errors="surrogateescape"))
+    h.update(
+        json.dumps(
+            {
+                "pop_size": pop_size,
+                "num_generations": num_generations,
+                "rng_seed": rng_seed,
+                "mutation_weights": mutation_weights,
+                "mutation_prob": mutation_prob,
+                "crossover_prob": crossover_prob,
+                "elitism": elitism,
+                "num_jobs": num_jobs,
+                "stagnation_limit": stagnation_limit,
+                # Compile-side identity, matching _ga_cache_key: a checkpoint
+                # resumed under a different compiler or disassembler carries a
+                # best_score measured on the previous one's output.
+                "profile": profile,
+                "compare_obj": compare_obj,
+                "cs_mode": cs_mode,
+                "posix_style": posix_style,
+                "extra_include_dirs": sorted(extra_include_dirs or []),
+                "defines": sorted(defines or []),
+                "cl_cmd": cl_cmd,
+                "inc_dir": inc_dir,
+                # Loop-shape constants.  They come from the module rather than
+                # the call, but a release that changes selection, the
+                # mutation-rate ramp, or the restart policy must not resume a
+                # checkpoint produced by the previous loop.
+                "tournament_size": _TOURNAMENT_SIZE,
+                "mutation_prob_step": _MUTATION_PROB_STEP,
+                "mutation_prob_boost_cap": _MUTATION_PROB_BOOST_CAP,
+                "mutation_prob_max": _MUTATION_PROB_MAX,
+                "immigrant_divisor": _IMMIGRANT_DIVISOR,
+                "max_stagnation_restarts": _MAX_STAGNATION_RESTARTS,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    return h.hexdigest()
+
+
+def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
+    """Parse the checkpoint for *symbol* without hash validation.
+
+    The GA constructor validates ``args_hash`` itself; this raw reader is
+    for the batch path where the final cflags are only known inside the GA.
+
+    A checkpoint that exists but cannot be parsed (truncated write, corrupt
+    JSON) is reported at WARNING: resume would silently restart from
+    scratch, discarding all prior generations for this stub.
+    """
+    ckpt = Path(out_dir) / "checkpoints" / f"{filename_component(symbol)}.json"
+    if not ckpt.is_file():
+        return None
+    try:
+        data = json.loads(read_json_text(ckpt))
+        if not isinstance(data, dict):
+            raise ValueError("checkpoint must be a JSON object")
+        return GACheckpoint.from_dict(data)
+    except OSError, ValueError, TypeError, KeyError, OverflowError, RecursionError:
+        log.warning(
+            "Checkpoint %s is unreadable — GA restarts %s from scratch",
+            ckpt,
+            symbol,
+        )
+        return None

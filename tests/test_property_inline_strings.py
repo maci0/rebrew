@@ -18,7 +18,7 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.c_parser import get_ts_parser
+from rebrew.c_syntax.parser import get_ts_parser
 from rebrew.source.inline_strings import c_literal, define_remaining_strings, inline_string_uses
 
 #: Bytes a C string literal must never carry raw: ``"`` and ```` \ ```` end or

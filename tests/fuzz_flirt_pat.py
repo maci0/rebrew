@@ -24,7 +24,7 @@ import atheris
 
 from rebrew.formats.archives import parse_archive
 from rebrew.formats.coff import _coff_symbol_names, load_coff
-from rebrew.gen_flirt_pat import (
+from rebrew.library.gen_flirt_pat import (
     ObjectFunction,
     _crc16_flirt,
     _reloc_span,

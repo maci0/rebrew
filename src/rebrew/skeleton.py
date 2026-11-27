@@ -269,7 +269,11 @@ def _convention_stub(
     if arch not in ("x86_32", "x86_16"):
         return None, None
     try:
-        from rebrew.asm import calling_convention, disassembled_extent_window, next_function_va
+        from rebrew.binary.asm import (
+            calling_convention,
+            disassembled_extent_window,
+            next_function_va,
+        )
 
         # The shared extent-based window (asm.disassembled_extent_window)
         # keeps the epilogue's `ret` visible so inference works; we
@@ -368,7 +372,7 @@ def _tail_call_arg_count(
     caller must test ``callee``, not the count).
 
     *func_lookup* may carry a prebuilt VA→(name, status) map (see
-    ``rebrew.asm.build_function_lookup``); building it scans the whole
+    ``rebrew.binary.asm.build_function_lookup``); building it scans the whole
     source tree, so batch callers pass one shared instance instead of
     paying a tree scan per instruction."""
 
@@ -382,7 +386,7 @@ def _tail_call_arg_count(
         target = int(m.group(1), 16)
         if lazy_lookup is None:
             try:
-                from rebrew.asm import build_function_lookup
+                from rebrew.binary.asm import build_function_lookup
 
                 lazy_lookup = build_function_lookup(cfg)
             except Exception:  # best-effort resolution
@@ -401,7 +405,7 @@ def _ret_arg_count(insns: list[Any], word_size: int = 4) -> int:
     *word_size* is 4 for x86-32 targets, 2 for 16-bit DOS/NE targets
     (word-sized stack args).
     """
-    from rebrew.asm import ret_pop_count
+    from rebrew.binary.asm import ret_pop_count
 
     for insn in reversed(insns):
         if insn.mnemonic.startswith("ret"):
@@ -609,7 +613,7 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
             import capstone
             from capstone import CS_ARCH_X86, CS_MODE_32
 
-            from rebrew.analysis import capstone_handle
+            from rebrew.binary.analysis import capstone_handle
 
             md = capstone_handle(CS_ARCH_X86, CS_MODE_32, detail=True)
             insns = list(md.disasm(raw, va))
@@ -816,7 +820,7 @@ def _is_thunk(cfg: ProjectConfig, va: int) -> bool:
     if getattr(cfg, "arch", "") != "x86_32":
         return False
     try:
-        from rebrew.analysis import capstone_handle
+        from rebrew.binary.analysis import capstone_handle
         from rebrew.formats.binary_loader import extract_raw_bytes
 
         raw = extract_raw_bytes(cfg.target_binary, va, 16)
@@ -1032,7 +1036,7 @@ def _run_batch_mode(
     created: list[dict[str, Any]] = []
     # Tail-call resolution needs a VA→(name, status) map; building it scans
     # the whole source tree, so build ONE instance for the whole batch.
-    from rebrew.asm import build_function_lookup
+    from rebrew.binary.asm import build_function_lookup
 
     batch_func_lookup: FuncLookup = build_function_lookup(cfg)
     for va_val, size_val, name_val in uncovered[:count]:
@@ -1135,7 +1139,7 @@ def _write_skeleton_metadata(
 
     existing = get_entry(cfg.metadata_dir, va_int, module_val)
     name = sanitize_name(func_name)
-    from rebrew.c_parser import function_signatures
+    from rebrew.c_syntax.parser import function_signatures
 
     prototype = (
         function_signatures(read_source_text(filepath)[0]).get(name, "")

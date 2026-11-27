@@ -1,4 +1,4 @@
-"""Tests for rebrew.extract — candidate list building and show command."""
+"""Tests for rebrew.binary.extract — candidate list building and show command."""
 
 import json
 from types import SimpleNamespace
@@ -10,7 +10,7 @@ import pytest
 import typer
 from source_util import write_source
 
-from rebrew.extract import cmd_extract, detect_reversed_vas, load_functions
+from rebrew.binary.extract import cmd_extract, detect_reversed_vas, load_functions
 
 
 def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
@@ -101,7 +101,7 @@ class TestShowCandidateSizeOverride:
         va: str,
         size: int | None,
     ) -> tuple[list[tuple[int, int]], Path]:
-        import rebrew.extract as ex
+        import rebrew.binary.extract as ex
 
         cfg = _make_cfg(tmp_path)
 
@@ -198,8 +198,8 @@ class TestSetupCandidatesStructureMerge:
     ) -> None:
         import json
 
-        import rebrew.extract as ex
-        from rebrew.extract import _setup_candidates
+        import rebrew.binary.extract as ex
+        from rebrew.binary.extract import _setup_candidates
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)

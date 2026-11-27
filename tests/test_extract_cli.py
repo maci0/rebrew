@@ -8,7 +8,7 @@ import typer
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-import rebrew.extract as extract_mod
+import rebrew.binary.extract as extract_mod
 
 runner = CliRunner()
 
@@ -76,7 +76,7 @@ class TestCmdExtract:
         return SimpleNamespace()
 
     def test_success_writes_bin(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda _info, va, size: b"\x55\xc3")
         seen: list[tuple[int, bytes]] = []
@@ -91,7 +91,7 @@ class TestCmdExtract:
     def test_empty_extraction_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import typer
 
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda *a, **k: b"")
         with pytest.raises(typer.Exit) as exc:
@@ -101,7 +101,7 @@ class TestCmdExtract:
     def test_va_not_found_errors(self, tmp_path: Path) -> None:
         import typer
 
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         with pytest.raises(typer.Exit) as exc:
             extract_mod.cmd_extract(self._info(), [(0x2000, 4, "f")], 0x1000, tmp_path)
@@ -110,7 +110,7 @@ class TestCmdExtract:
     def test_disasm_failure_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import typer
 
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda *a, **k: b"\x55")
         monkeypatch.setattr(
@@ -127,7 +127,7 @@ class TestCmdExtract:
     ) -> None:
         import json
 
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda *a, **k: b"\x55")
         monkeypatch.setattr(extract_mod, "disasm_bytes", lambda *a, **k: "push ebp")
@@ -149,7 +149,7 @@ class TestCmdBatch:
     def test_negative_batch_bounds_do_not_create_artifacts(
         self, tmp_path: Path, count: int, start: int
     ) -> None:
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         output = tmp_path / "bins"
         with pytest.raises(typer.Exit) as caught:
@@ -164,7 +164,7 @@ class TestCmdBatch:
     ) -> None:
         import json
 
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         monkeypatch.setattr(
             extract_mod,
@@ -185,7 +185,7 @@ class TestCmdBatch:
         assert statuses["0x00002000"] == "ERROR"
 
     def test_batch_writes_bins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda *a, **k: b"\x55")
         monkeypatch.setattr(extract_mod, "disasm_bytes", lambda *a, **k: "push ebp")
@@ -194,7 +194,7 @@ class TestCmdBatch:
         assert (tmp_path / "func_0x00001000.bin").read_bytes() == b"\x55"
 
     def test_batch_start_offset(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.extract as extract_mod
+        import rebrew.binary.extract as extract_mod
 
         seen: list[int] = []
         monkeypatch.setattr(

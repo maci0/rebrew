@@ -8,8 +8,8 @@ import typer
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.float_const import FLOAT_OPCODES
-from rebrew.gen_flirt_pat import bytes_to_pat_line
+from rebrew.c_syntax.float_const import FLOAT_OPCODES
+from rebrew.library.gen_flirt_pat import bytes_to_pat_line
 
 if TYPE_CHECKING:
     from rebrew.catalog.models import GhidraDataLabel
@@ -146,7 +146,7 @@ def _c_function_def(draw: Any) -> tuple[str, str]:
 def test_extract_function_name_roundtrip(data: tuple[str, str]) -> None:
     """The name extracted from a generated definition must round-trip; the
     prototype must keep the name and end at the parameter list."""
-    from rebrew.c_parser import extract_function_name_and_proto
+    from rebrew.c_syntax.parser import extract_function_name_and_proto
 
     name, src = data
     result = extract_function_name_and_proto(src)
@@ -164,7 +164,7 @@ def test_extract_function_name_roundtrip(data: tuple[str, str]) -> None:
 def test_find_c_function_definitions_all_names(defs: list[tuple[str, str]]) -> None:
     """Every generated definition must be discovered with its own name and a
     strictly increasing 1-based line number."""
-    from rebrew.c_parser import find_c_function_definitions
+    from rebrew.c_syntax.parser import find_c_function_definitions
 
     # Ensure unique names so the count is deterministic.
     seen: set[str] = set()
@@ -189,7 +189,7 @@ def test_find_c_function_definitions_all_names(defs: list[tuple[str, str]]) -> N
 def test_extract_function_name_from_line_roundtrip(data: tuple[str, str]) -> None:
     """A single-line definition (as found in decomp .c files) yields the same
     name via the line-based extractor."""
-    from rebrew.c_parser import extract_function_name_from_line
+    from rebrew.c_syntax.parser import extract_function_name_from_line
 
     name, src = data
     line = src.split("{", 1)[0].strip()
@@ -225,7 +225,7 @@ def _crc16_independent(buf: bytes) -> int:
 @settings(max_examples=300, deadline=None)
 @given(st.binary(max_size=256))
 def test_crc16_flirt_matches_independent_derivation(buf: bytes) -> None:
-    from rebrew.gen_flirt_pat import _crc16_flirt
+    from rebrew.library.gen_flirt_pat import _crc16_flirt
 
     assert _crc16_flirt(buf) == _crc16_independent(buf)
 
@@ -233,14 +233,14 @@ def test_crc16_flirt_matches_independent_derivation(buf: bytes) -> None:
 @settings(max_examples=100, deadline=None)
 @given(st.binary(max_size=256))
 def test_crc16_flirt_domain(buf: bytes) -> None:
-    from rebrew.gen_flirt_pat import _crc16_flirt
+    from rebrew.library.gen_flirt_pat import _crc16_flirt
 
     assert 0 <= _crc16_flirt(buf) <= 0xFFFF
 
 
 def test_crc16_flirt_known_vectors() -> None:
     """Pinned regression vectors for IDA's FLIRT CRC16 variant."""
-    from rebrew.gen_flirt_pat import _crc16_flirt
+    from rebrew.library.gen_flirt_pat import _crc16_flirt
 
     assert _crc16_flirt(b"") == 0x0
     assert _crc16_flirt(b"\x00") == 0x78F0
@@ -251,7 +251,7 @@ def test_crc16_flirt_known_vectors() -> None:
 
 
 # ---------------------------------------------------------------------------
-# C declarator parsing (rebrew.c_parser)
+# C declarator parsing (rebrew.c_syntax.parser)
 # ---------------------------------------------------------------------------
 
 _C_KEYWORDS = frozenset(
@@ -298,7 +298,7 @@ def c_function_source(draw: st.DrawFn) -> tuple[str, str]:
 @settings(max_examples=200, deadline=None)
 @given(c_function_source())
 def test_extract_function_name_matches(data: tuple[str, str]) -> None:
-    from rebrew.c_parser import extract_function_name_and_proto
+    from rebrew.c_syntax.parser import extract_function_name_and_proto
 
     source, expected = data
     result = extract_function_name_and_proto(source)
@@ -311,7 +311,7 @@ def test_extract_function_name_matches(data: tuple[str, str]) -> None:
 @settings(max_examples=200, deadline=None)
 @given(c_function_source())
 def test_find_c_function_definitions_contains_name(data: tuple[str, str]) -> None:
-    from rebrew.c_parser import find_c_function_definitions
+    from rebrew.c_syntax.parser import find_c_function_definitions
 
     source, expected = data
     names = [n for n, _line in find_c_function_definitions(source)]
@@ -335,7 +335,7 @@ def test_find_c_function_definitions_contains_name(data: tuple[str, str]) -> Non
 )
 def test_rel32_target_roundtrip(disp: int, fn_va: int, b0: int) -> None:
     """Decoding the disp bytes reproduces fn_va + offset + 4 + disp."""
-    from rebrew.round_trip import _rel32_target
+    from rebrew.matching.round_trip import _rel32_target
 
     # Build a blob with a REL32 field at offset 4: disp as little-endian int32.
     d = disp - (1 << 32) if disp >= (1 << 31) else disp  # allow negative disp
@@ -348,7 +348,7 @@ def test_rel32_target_roundtrip(disp: int, fn_va: int, b0: int) -> None:
 @given(st.binary(max_size=64), st.integers(min_value=0, max_value=2**31))
 def test_rel32_target_bounds(blob: bytes, fn_va: int) -> None:
     """A field past the end returns None; a complete field decodes to an int."""
-    from rebrew.round_trip import _rel32_target
+    from rebrew.matching.round_trip import _rel32_target
 
     result = _rel32_target(blob, 0, fn_va)
     if len(blob) < 4:
@@ -366,8 +366,8 @@ def test_rel32_target_bounds(blob: bytes, fn_va: int) -> None:
 @given(st.binary(max_size=64))
 def test_trim_trailing_padding_invariants(data: bytes) -> None:
     """Trimmed length ≤ len; stripped suffix is all padding; prefix is padding-free."""
+    from rebrew.binary.sections import trim_trailing_padding
     from rebrew.formats.binary_loader import PADDING_BYTES
-    from rebrew.sections import trim_trailing_padding
 
     n = trim_trailing_padding(data)
     assert 0 <= n <= len(data)
@@ -474,7 +474,7 @@ def test_extract_local_labels_invariants(
     label to exactly ``fn_va + (sym.value - fn.value)`` and nothing else."""
     from bin_util import make_coff_obj
 
-    from rebrew.round_trip import _extract_local_labels
+    from rebrew.matching.round_trip import _extract_local_labels
 
     code, func_symbol, func_value, section_symbols = data
     obj = make_coff_obj(
@@ -506,7 +506,7 @@ def test_extract_string_symbols_content_in_section(
     section data at the symbol's own value (never garbage or OOB)."""
     from bin_util import make_coff_obj
 
-    from rebrew.round_trip import _extract_string_symbols
+    from rebrew.matching.round_trip import _extract_string_symbols
 
     code, func_symbol, func_value, section_symbols = data
     obj = make_coff_obj(
@@ -564,7 +564,7 @@ def test_obj_helpers_robust_on_malformed(
     """
     from bin_util import make_coff_obj
 
-    from rebrew.round_trip import _extract_local_labels, _extract_string_symbols
+    from rebrew.matching.round_trip import _extract_local_labels, _extract_string_symbols
 
     code, func_symbol, func_value, section_symbols = data
     obj = make_coff_obj(
@@ -598,7 +598,7 @@ def test_obj_helpers_robust_on_malformed(
 @given(st.integers(min_value=0, max_value=0xFFFFFFFF))
 def test_name_encoded_va_roundtrip(va: int) -> None:
     """``_g_<hex>`` with a 6-8 digit suffix decodes back to the same VA."""
-    from rebrew.round_trip import _name_encoded_va
+    from rebrew.matching.round_trip import _name_encoded_va
 
     hex_digits = len(f"{va:x}")
     if va >= 0x100000 and 6 <= hex_digits <= 8:
@@ -614,7 +614,7 @@ def test_name_encoded_va_roundtrip(va: int) -> None:
 def test_name_encoded_va_output_domain(raw: str) -> None:
     """The decoder returns None or an int that is actually encoded in the
     suffix — never a value invented from the prefix."""
-    from rebrew.round_trip import _name_encoded_va
+    from rebrew.matching.round_trip import _name_encoded_va
 
     out = _name_encoded_va(raw)
     if out is None:
@@ -1195,7 +1195,7 @@ def test_find_func_size_within_scan_window(
     code: bytes, offset: int, arch: str, endian: str
 ) -> None:
     """Size is always inside the bytes left after *offset*, for every arch."""
-    from rebrew.flirt import find_func_size
+    from rebrew.library.flirt import find_func_size
 
     size = find_func_size(code, offset, arch, endian)
     assert 0 <= size <= max(0, len(code) - max(offset, 0))
@@ -1237,7 +1237,7 @@ def test_find_float_consts_invariants(data: tuple[bytes, bytes, int, set[int] | 
     import math
     import struct
 
-    from rebrew.float_const import (
+    from rebrew.c_syntax.float_const import (
         SINGLE_PRECISION_OPCODES,
         find_float_consts,
         find_float_instructions_in_buffer,

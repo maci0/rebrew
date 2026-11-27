@@ -6,11 +6,11 @@ import struct
 
 import pytest
 
-from rebrew.analysis import disasm_insns
-from rebrew.float_const import find_float_consts, find_float_instructions_in_buffer
-from rebrew.near_analysis import align_and_classify, jump_swap_ok
-from rebrew.pinned_diff import SequenceMatcherWithPins
-from rebrew.vtordisp import find_vtordisps
+from rebrew.binary.analysis import disasm_insns
+from rebrew.c_syntax.float_const import find_float_consts, find_float_instructions_in_buffer
+from rebrew.c_syntax.vtordisp import find_vtordisps
+from rebrew.compare.near_analysis import align_and_classify, jump_swap_ok
+from rebrew.compare.pinned_diff import SequenceMatcherWithPins
 
 # ---------------------------------------------------------------------------
 # pinned_diff

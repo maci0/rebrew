@@ -1,4 +1,4 @@
-"""Unit tests for rebrew.analysis — shared recon primitives.
+"""Unit tests for rebrew.binary.analysis — shared recon primitives.
 
 Uses ``bin_util.make_xref_probe`` to build a synthetic PE whose ``.text``
 section contains hand-assembled instructions with known absolute references
@@ -21,7 +21,7 @@ from bin_util import (
     make_xref_probe,
 )
 
-from rebrew.analysis import (
+from rebrew.binary.analysis import (
     Insn,
     Xref,
     data_references,
@@ -435,7 +435,7 @@ class TestRegisterImportCalls:
         assert _import_calls(tmp_path, assemble) == []
 
     def test_the_walk_gives_up_past_its_limit(self, tmp_path: Path) -> None:
-        from rebrew.analysis import _REGISTER_WALK_LIMIT
+        from rebrew.binary.analysis import _REGISTER_WALK_LIMIT
 
         # The load and the nops between it and the call are what the walk visits.
         within = _import_calls(
@@ -540,7 +540,7 @@ class TestCapstoneHandle:
     def test_cached_per_arch_mode_and_detail(self) -> None:
         import capstone as cs
 
-        from rebrew.analysis import capstone_handle
+        from rebrew.binary.analysis import capstone_handle
 
         handle = capstone_handle(cs.CS_ARCH_X86, cs.CS_MODE_32)
         assert capstone_handle(cs.CS_ARCH_X86, cs.CS_MODE_32) is handle  # cached
@@ -551,7 +551,7 @@ class TestCapstoneHandle:
     def test_disassembles(self) -> None:
         import capstone as cs
 
-        from rebrew.analysis import capstone_handle
+        from rebrew.binary.analysis import capstone_handle
 
         md = capstone_handle(cs.CS_ARCH_X86, cs.CS_MODE_32)
         insns = list(md.disasm(b"\x55\x8b\xec", 0x1000))
@@ -565,7 +565,7 @@ class TestRipRelativeOperands:
 
         import capstone
 
-        from rebrew.analysis import _classify_insn
+        from rebrew.binary.analysis import _classify_insn
 
         code = bytes.fromhex("488b0510000000")  # mov rax, [rip+0x10]
         md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
@@ -598,12 +598,12 @@ class TestExtractBytesRawSizeClamp:
     def test_past_raw_size_returns_empty(self, tmp_path: Path) -> None:
         """The uninitialized tail of a section has no file bytes; the
         neighbouring data must not be returned as content."""
-        from rebrew.analysis import extract_bytes
+        from rebrew.binary.analysis import extract_bytes
 
         assert extract_bytes(self._info(tmp_path), 0x1000 + 0x20, 8) == b""
 
     def test_clamped_to_raw_size(self, tmp_path: Path) -> None:
-        from rebrew.analysis import extract_bytes
+        from rebrew.binary.analysis import extract_bytes
 
         assert extract_bytes(self._info(tmp_path), 0x1000 + 0x8, 16) == b"A" * 8
 
@@ -611,7 +611,7 @@ class TestExtractBytesRawSizeClamp:
         """A section with virtual size 0 maps its raw size (va_to_file_offset
         resolves it); the read must still stop at raw_size, not run into the
         next section's bytes."""
-        from rebrew.analysis import extract_bytes
+        from rebrew.binary.analysis import extract_bytes
         from rebrew.formats.binary_model import SectionInfo
 
         info = self._info(tmp_path)
@@ -625,7 +625,7 @@ class TestScanPascalLongString:
     def test_255_byte_string_found(self) -> None:
         """The scanner capped the length prefix at 63, silently dropping every
         64..255-byte ShortString (Borland's length byte is 1..255)."""
-        from rebrew.analysis import _scan_pascal
+        from rebrew.binary.analysis import _scan_pascal
 
         body = b"A" * 200
         out = _scan_pascal(bytes([200]) + body, 0x1000, "SEG1", 4)
@@ -673,7 +673,7 @@ class TestScanUtf16TrailingByte:
         """The final flush used `raw[start::2]` and `len(raw) - start`, so an odd
         trailing byte became a phantom character (and inflated `size`): raw
         `A\\0B\\0C\\0D\\0E` reported "ABCDE" with size 9."""
-        from rebrew.analysis import _scan_utf16
+        from rebrew.binary.analysis import _scan_utf16
 
         raw = b"A\x00B\x00C\x00D\x00E"
         out = _scan_utf16(raw, 0x1000, ".rdata", 4)
@@ -682,7 +682,7 @@ class TestScanUtf16TrailingByte:
         assert _scan_utf16(raw, 0x1000, ".rdata", 5) == []
 
     def test_even_length_region_unchanged(self) -> None:
-        from rebrew.analysis import _scan_utf16
+        from rebrew.binary.analysis import _scan_utf16
 
         out = _scan_utf16(b"A\x00B\x00C\x00D\x00", 0x1000, ".rdata", 4)
         assert [(s.text, s.size) for s in out] == [("ABCD", 8)]
@@ -735,7 +735,7 @@ class TestConcurrentOpConstants:
 
         from thread_util import join_all
 
-        from rebrew import analysis
+        from rebrew.binary import analysis
 
         old = analysis._OP_CONSTANTS
         try:
@@ -764,7 +764,7 @@ class TestOperandScreen:
     """x86-32 instructions are decoded only when they print an in-image value."""
 
     def test_only_an_in_image_hex_value_passes(self) -> None:
-        from rebrew.analysis import _prints_image_address
+        from rebrew.binary.analysis import _prints_image_address
 
         starts, ends = [0x401000], [0x402000]
         assert _prints_image_address("dword ptr [0x401010]", starts, ends)
@@ -776,7 +776,7 @@ class TestOperandScreen:
     def test_screening_needs_every_image_address_printed_in_hex(self) -> None:
         from types import SimpleNamespace
 
-        from rebrew.analysis import _screens_operands
+        from rebrew.binary.analysis import _screens_operands
 
         pe = SimpleNamespace(arch="x86_32", format="pe")
         assert _screens_operands(pe, [0x401000])

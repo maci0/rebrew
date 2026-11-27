@@ -216,7 +216,7 @@ def bench_near_diag() -> dict[str, Any]:
 
     Fixed byte pairs exercise the register-mismatch classifier.
     """
-    from rebrew.near_analysis import analyze
+    from rebrew.compare.near_analysis import analyze
 
     mov_ebx = bytes.fromhex("89 d8 c3")
     mov_ecx = bytes.fromhex("89 c8 c3")
@@ -233,7 +233,7 @@ def bench_binary_similarity() -> dict[str, Any]:
     """score_matrix over a 600x600 synthetic signature set."""
     import numpy as np
 
-    from rebrew.binary_similarity import score_matrix
+    from rebrew.binary.similarity import score_matrix
 
     rng = np.random.default_rng(7)
     vocab = [f"op{i}" for i in range(120)]

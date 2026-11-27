@@ -18,7 +18,7 @@ from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.config import load_config
-from rebrew.lib_match import external_archive_args
+from rebrew.library.match import external_archive_args
 from rebrew.naming import external_vas
 
 PROJECT_TOML = """\

@@ -7,9 +7,9 @@ import capstone
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.c_parser import prototype_type_key
-from rebrew.cast_rewrite import declare_externs
-from rebrew.cfg import app as cfg_app
+from rebrew.binary.cfg import app as cfg_app
+from rebrew.c_syntax.cast_rewrite import declare_externs
+from rebrew.c_syntax.parser import prototype_type_key
 from rebrew.data.pair import OperandPair, pair_data_operands, plan_pairs
 from rebrew.source.binding import _is_call_target, _refuse_conflicting_prototype
 

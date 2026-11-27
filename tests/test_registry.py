@@ -142,7 +142,7 @@ _REGISTRY_SNAPSHOTS: tuple[tuple[str, str], ...] = (
     ("rebrew.compiler.cache", "_CACHE_BACKENDS"),
     ("rebrew.decompiler", "_BACKEND_MAP"),
     ("rebrew.decompiler", "_AUTO_PROBE_BACKENDS"),
-    ("rebrew.discover", "_DISCOVERER_MAP"),
+    ("rebrew.binary.discover", "_DISCOVERER_MAP"),
     ("rebrew.matcher.compiler", "_FLAGS_MAP"),
     ("rebrew.matcher.compiler", "_TIERS_MAP"),
     ("rebrew.matcher.mutator", "ALL_MUTATIONS"),
@@ -760,7 +760,7 @@ class TestCliRegistry:
         fresh = typer.Typer()
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
-            _fake_entry_points(**{"rebrew.multicommands": [("libtest", "rebrew.library")]}),
+            _fake_entry_points(**{"rebrew.multicommands": [("libtest", "rebrew.library.cli")]}),
         )
         _activate_cli_plugins(fresh)
         names = [g.name for g in fresh.registered_groups]
@@ -821,7 +821,7 @@ class TestCliRegistry:
                 ),
                 CliComponent(
                     name="somegroup",
-                    module="rebrew.library",
+                    module="rebrew.library.cli",
                     help="help",
                     panel=Panel.PROJECT_SETUP,
                     is_group=True,
@@ -1149,7 +1149,7 @@ class TestLibraryPresetRegistry:
 
         self._patch(monkeypatch)
         monkeypatch.setattr(metadata, "_LIBRARY_PRESETS_ALL", metadata._merged_library_presets())
-        from rebrew.library import app as library_app
+        from rebrew.library.cli import app as library_app
 
         # --preset my-runtime must not be rejected as unknown
         result = CliRunner().invoke(
@@ -1214,7 +1214,7 @@ class TestRegistryOwnership:
             ("formats.binary_loader", "refresh_loaders", "_PLUGIN_LOADERS"),
             ("compiler.cache", "refresh_cache_backends", "_CACHE_BACKENDS"),
             ("decompiler", "refresh_backends", "_BACKEND_MAP"),
-            ("discover", "refresh_discoverers", "_DISCOVERER_MAP"),
+            ("binary.discover", "refresh_discoverers", "_DISCOVERER_MAP"),
             ("matcher.mutator", "refresh_mutations", "ALL_MUTATIONS"),
             ("metadata.functions", "refresh_library_presets", "_LIBRARY_PRESETS_ALL"),
         ],
@@ -1359,7 +1359,7 @@ class TestPluginToolchainConfig:
 
     def _project(self, tmp_path: Path, profile: str) -> Path:
         (tmp_path / "rebrew-project.toml").write_text(
-            f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+            '[project]\ndefault_target = "T"\n'
             f'[targets.T]\nbinary = "{tmp_path}/t.exe"\n'
             f'[compiler]\nprofile = "{profile}"\n',
             encoding="utf-8",
@@ -1742,7 +1742,7 @@ class TestCacheBackendRegistry:
         self._patch(monkeypatch)
         monkeypatch.setattr(cc, "_CACHE_BACKENDS", cc._discover_cache_backends())
         (tmp_path / "rebrew-project.toml").write_text(
-            f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+            '[project]\ndefault_target = "T"\n'
             f'[targets.T]\nbinary = "{tmp_path}/t.exe"\n[cache]\nbackend = "mem"\n',
             encoding="utf-8",
         )
@@ -2003,7 +2003,7 @@ class TestUnknownProfile:
         from rebrew.config import ConfigError, load_config
 
         (tmp_path / "rebrew-project.toml").write_text(
-            f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+            '[project]\ndefault_target = "T"\n'
             f'[targets.T]\nbinary = "{tmp_path}/t.exe"\n'
             f'[compiler]\nprofile = "msvc6.3"\n',
             encoding="utf-8",
@@ -2138,7 +2138,7 @@ class TestNativeElfToolchains:
             pytest.skip(f"{image} not built")
 
         (tmp_path / "rebrew-project.toml").write_text(
-            f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+            '[project]\ndefault_target = "T"\n'
             f'[targets.T]\nbinary = "{tmp_path}/t.elf"\nformat = "elf"\n'
             f'[compiler]\nprofile = "{profile}"\n',
             encoding="utf-8",
@@ -2294,7 +2294,7 @@ class TestNativeCacheKey:
 
         def _id(profile: str) -> str:
             (tmp_path / "rebrew-project.toml").write_text(
-                f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+                '[project]\ndefault_target = "T"\n'
                 f'[targets.T]\nbinary = "{tmp_path}/t.elf"\nformat = "elf"\n'
                 f'[compiler]\nprofile = "{profile}"\n',
                 encoding="utf-8",

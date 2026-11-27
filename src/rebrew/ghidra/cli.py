@@ -16,11 +16,11 @@ import io
 import logging
 from typing import Any, override
 lazy import contextlib
-lazy import json
 lazy import sys
 lazy from pathlib import Path
 
 import typer
+lazy import msgspec
 
 from rebrew.cli import (
     CREATE_MISSING_HELP,
@@ -104,7 +104,7 @@ def _load_captured_json(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
         return {}
-    payload = json.loads(stripped)
+    payload = msgspec.json.decode(stripped)
     if not isinstance(payload, dict):
         return {}
     return payload

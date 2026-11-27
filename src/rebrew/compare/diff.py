@@ -1,0 +1,682 @@
+"""diff.py – Compile and diff a reversed function against the target binary.
+
+Compiles the seed .c file with the configured toolchain and shows a side-by-side byte diff
+against the function at the annotated VA.  Optionally auto-writes BLOCKER/
+BLOCKER_DELTA metadata based on structural analysis.
+
+Usage:
+    rebrew diff src/game/my_func.c
+    rebrew diff src/game/my_func.c --mismatches-only
+    rebrew diff src/game/my_func.c --fix-blocker
+    rebrew diff src/game/my_func.c --json
+"""
+
+from __future__ import annotations
+
+import re
+lazy import csv
+lazy import logging
+lazy import sys
+lazy from pathlib import Path
+lazy from typing import Any, Literal
+
+import typer
+lazy import capstone
+
+from rebrew.cli import (
+    EXIT_ERROR,
+    EXIT_MISMATCH,
+    SOURCE_HELP,
+    WATCH_FILE_HELP,
+    TargetOption,
+    console,
+    ensure_watch_terminal,
+    error_exit,
+    json_print,
+    option_default,
+    require_config,
+)
+lazy from rebrew.formats.binary_loader import capstone_mode_for_arch
+lazy from rebrew.matching.sweep import print_structural_similarity
+
+# ---------------------------------------------------------------------------
+# Shared: blocker classification (used by match.py)
+# ---------------------------------------------------------------------------
+
+
+def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
+    """Auto-classify NEAR_MATCHING blockers from structural diffs.
+
+    Looks for patterns in mismatched (** / RR) lines to identify systemic
+    compiler differences like register allocation, loop rotation, etc.
+    """
+    blockers: set[str] = set()
+    insns_raw = diff_summary.get("instructions", [])
+    insns = insns_raw if isinstance(insns_raw, list) else []
+
+    for row in insns:
+        if not isinstance(row, dict):
+            continue
+        match_char = row.get("match")
+        if match_char == "XX":
+            blockers.add("invalid relocation binding")
+            continue
+        if match_char not in ("**", "RR"):
+            continue
+
+        t = row.get("target") or {}
+        c = row.get("candidate") or {}
+        t_asm = t.get("disasm", "")
+        c_asm = c.get("disasm", "")
+
+        # Register allocation
+        if match_char == "RR":
+            blockers.add("register allocation")
+            continue
+
+        t_parts = t_asm.split()
+        c_parts = c_asm.split()
+        t_mnem = t_parts[0] if t_parts else ""
+        c_mnem = c_parts[0] if c_parts else ""
+
+        # Loop rotation / jump conditions
+        if (t_mnem.startswith("j") and c_mnem.startswith("j")) and t_mnem != c_mnem:
+            if t_mnem != "jmp" and c_mnem != "jmp":
+                blockers.add("jump condition swap")
+            else:
+                blockers.add("loop rotation / branch layout")
+
+        if ("xor" in t_mnem and "mov" in c_mnem) or ("mov" in t_mnem and "xor" in c_mnem):
+            blockers.add("zero-extend pattern (xor vs mov)")
+
+        if t_mnem == "cmp" and c_mnem == "cmp" and t_asm != c_asm:
+            blockers.add("comparison direction swap")
+
+        if ("push" in t_mnem and "sub esp" in c_asm) or ("sub esp" in t_asm and "push" in c_mnem):
+            blockers.add("stack frame choice (push vs sub esp)")
+
+        if ("lea" in t_mnem and "mov" in c_mnem) or ("mov" in t_mnem and "lea" in c_mnem):
+            blockers.add("instruction folding (lea vs mov)")
+
+    return sorted(blockers)
+
+
+# ---------------------------------------------------------------------------
+# Core diff logic (used by both diff.py CLI and match.py GA mode)
+# ---------------------------------------------------------------------------
+
+
+def _global_name_map(cfg: Any) -> dict[int, str]:
+    """Build a VA → global-name map (inverse of build_name_to_va)."""
+    from rebrew.compare.coff_reloc import build_name_to_va
+
+    try:
+        return {v: n for n, v in build_name_to_va(cfg).items() if v}
+    except Exception:  # best-effort name resolution
+        # Diffs still render without names; log so a CatalogScanError or
+        # config bug is not mistaken for unresolved addresses.
+        logging.getLogger(__name__).debug(
+            "global name map unavailable for diff; addresses stay numeric",
+            exc_info=True,
+        )
+        return {}
+
+
+_HEX_ADDR_RE = re.compile(r"0x[0-9a-fA-F]+")
+
+
+def _annotate_candidate_relocations(
+    summary: dict[str, Any], bindings: list[dict[str, Any]]
+) -> None:
+    """Attach the candidate relocation symbol to each diff row it touches.
+
+    An unresolved relative call shows as ``XX e8 00 00 00 00`` with no callee,
+    so the source call that needs rebinding is invisible without parsing the
+    object separately. The binding evidence already knows the symbol; copy it
+    onto the row.
+    """
+    by_offset: dict[int, dict[str, Any]] = {}
+    for binding in bindings:
+        offset = binding.get("offset")
+        if isinstance(offset, int):
+            by_offset[offset] = binding
+    if not by_offset:
+        return
+    offset = 0
+    for row in summary.get("instructions", []):
+        candidate = row.get("candidate") or {}
+        raw = candidate.get("bytes") or ""
+        size = len(raw) // 2
+        hits = [
+            {
+                "offset": rel_offset,
+                "symbol": by_offset[rel_offset].get("symbol"),
+                "status": by_offset[rel_offset].get("status"),
+            }
+            for rel_offset in range(offset, offset + size)
+            if rel_offset in by_offset
+        ]
+        if hits:
+            candidate["relocations"] = hits
+        offset += size
+
+
+def _resolve_global_names(instructions: list[dict[str, Any]], cfg: Any) -> None:
+    """Rewrite absolute addresses in the diff disasm to global names in place.
+
+    ``mov eax, dword ptr [0x10034640]`` → ``mov eax, dword ptr [g_stat1]``
+    when the data scan knows the global — makes diffs far more readable.
+    """
+    name_by_va = _global_name_map(cfg)
+    if not name_by_va:
+        return
+
+    def _sub(disasm: str) -> str:
+        def _rep(m: re.Match[str]) -> str:
+            va = int(m.group(0), 16)
+            return name_by_va.get(va, m.group(0))
+
+        return _HEX_ADDR_RE.sub(_rep, disasm)
+
+    for row in instructions:
+        if not isinstance(row, dict):
+            continue
+        for side in ("target", "candidate"):
+            obj = row.get(side)
+            if isinstance(obj, dict) and obj.get("disasm"):
+                obj["disasm"] = _sub(obj["disasm"])
+
+
+def _missing_global_hints(instructions: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Detect candidate references to absolute address 0 (unresolved globals).
+
+    MSVC compiles a reference to an extern into a relocation (shown as
+    ``[0]`` in the candidate disasm) — that is normal and masked by the
+    reloc-aware comparison (``~~`` rows).  A ``[0]`` operand on a
+    NON-reloc row means the address genuinely didn't resolve (missing
+    definition), which source mutation cannot fix: the user must declare the
+    global (an extern plus its ``rebrew-data.toml`` row) at the target address.
+    """
+    hints: list[dict[str, str]] = []
+    for row in instructions:
+        if not isinstance(row, dict):
+            continue
+        if row.get("match") in ("~~", "=="):
+            continue  # reloc-masked extern or exact match — normal
+        c_obj = row.get("candidate") or {}
+        c_data = c_obj if isinstance(c_obj, dict) else {}
+        c_disasm = c_data.get("disasm", "")
+        if "[0]" not in c_disasm and " 0x0" not in c_disasm:
+            continue
+        t_obj = row.get("target") or {}
+        t_data = t_obj if isinstance(t_obj, dict) else {}
+        hints.append({"candidate": c_disasm, "target": t_data.get("disasm", "")})
+    # Deduplicate by candidate disasm.
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for h in hints:
+        if h["candidate"] in seen:
+            continue
+        seen.add(h["candidate"])
+        out.append(h)
+    return out
+
+
+def _write_blocker(
+    p: Any,
+    blockers: list[str],
+    obj_bytes: bytes,
+    dry_run: bool,
+    json_output: bool,
+    obj_size: int | None = None,
+) -> dict[str, Any]:
+    """Write or clear BLOCKER metadata per the diff verdict.
+
+    Shared by the ``--json`` path (which embeds the returned outcome in the
+    payload, mirroring ``rebrew diagnose near``'s ``blocker_written`` contract) and the
+    terminal path (which prints the same outcome).  Returns the outcome dict
+    regardless of mode so the caller can report it.
+
+    ``obj_bytes`` is the target-length-clipped buffer the diff is rendered
+    from, so its length difference against the target is always zero.  Pass
+    ``obj_size`` (the pre-clipping object length) for the delta; it defaults to
+    ``len(obj_bytes)`` for callers that never clipped.
+    """
+    from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.functions import remove_field, set_fields
+
+    if obj_size is None:
+        obj_size = len(obj_bytes)
+    seed_path = Path(p.seed_c)
+    # ADR 023: identity lives only in rebrew-functions.toml, so without
+    # metadata_dir the module is empty and the write is rejected.
+    annos = read_source_bindings(
+        seed_path, metadata_dir=p.cfg.metadata_dir, project_root=getattr(p.cfg, "root", None)
+    )
+    # `p.va_int` is the diffed VA and is authoritative: taking `annos[0]` wrote
+    # the blocker onto the seed file's FIRST function when the diffed VA was a
+    # later one.  The matching annotation is used only for the module scope.
+    ann = next((a for a in annos if a.va == p.va_int), None) or (annos[0] if annos else None)
+    metadata_dir = p.cfg.metadata_dir
+    va = p.va_int
+    module = ann.module if ann else ""
+
+    outcome: dict[str, Any] = {"written": False, "cleared": False, "dry_run": dry_run}
+    if blockers:
+        blocker_text = ", ".join(blockers)
+        delta = sum(1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b) + abs(
+            len(p.target_bytes) - obj_size
+        )
+        outcome["text"] = blocker_text
+        outcome["delta"] = delta
+        if dry_run:
+            if not json_output:
+                console.print(f"  Would update BLOCKER: {blocker_text} ({delta}B delta)")
+        else:
+            fields: dict[str, Any] = {"blocker": blocker_text}
+            if delta > 0:
+                fields["blocker_delta"] = delta
+            # One store write for the pair: two update_field calls parsed and
+            # rewrote the whole metadata store twice.
+            set_fields(metadata_dir, va, fields, module=module, updated_by="diff")
+            outcome["written"] = True
+            if not json_output:
+                console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")
+    elif dry_run:
+        if not json_output:
+            console.print("  Would clear BLOCKER (no structural diffs)")
+    else:
+        deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
+        deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
+        outcome["cleared"] = bool(deleted_b or deleted_d)
+        if (deleted_b or deleted_d) and not json_output:
+            console.print("  Cleared BLOCKER (no structural diffs)")
+    return outcome
+
+
+def run_diff(
+    mismatches_only: bool,
+    register_aware: bool,
+    csv_output: bool,
+    fix_blocker: bool,
+    json_output: bool,
+    # resolved build params from match.resolve_build_params
+    p: Any,
+    *,
+    dry_run: bool = False,
+) -> None:
+    """Compile seed and show byte diff vs target. Shared with match.py."""
+    from rebrew.matcher import compiler as compile_seam
+    from rebrew.matcher import (
+        diff_functions,
+        structural_similarity,
+    )
+
+    res = compile_seam.build_candidate_obj_only(
+        p.seed_src,
+        p.cl,
+        p.inc,
+        p.cflags,
+        p.symbol,
+        env=p.msvc_env,
+        cache=p.cc,
+        timeout=p.cfg.compile_timeout,
+        extra_include_dirs=[str(p.seed_c.parent.resolve())],
+        posix_style=bool(getattr(p.cfg, "posix_style", False)),
+        # Toolchain-backed profiles (watcom-2.0-win32, msvc-1.52) route through the
+        # shared compile_to_obj runner — without this, diff compiled them
+        # via the raw subprocess path and failed on the relative command.
+        profile=getattr(p.cfg, "compiler_profile", ""),
+        cfg=p.cfg,
+    )
+    if not (res.ok and res.obj_bytes):
+        error_exit(f"Build failed: {res.error_msg}", json_mode=json_output, code=EXIT_ERROR)
+
+    full_obj_size = len(res.obj_bytes)
+    obj_bytes = res.obj_bytes
+    if len(obj_bytes) > len(p.target_bytes):
+        obj_bytes = obj_bytes[: len(p.target_bytes)]
+
+    invalid_relocs: list[int] = []
+    bindings: list[dict[str, Any]] = []
+    reloc_offsets: dict[int, str] | list[int] | None = res.reloc_offsets
+    relocs = getattr(res, "typed_relocs", None) or res.reloc_offsets
+    if relocs:
+        from rebrew.compare.coff_reloc import (
+            build_iat_region,
+            build_name_to_va,
+            relocation_binding_evidence,
+            smart_reloc_compare,
+        )
+
+        names = build_name_to_va(p.cfg)
+        iat = build_iat_region(p.cfg)
+        reloc_table = getattr(p.cfg, "reloc_table", "coff-i386")
+        _, _, _, valid_relocs, invalid_relocs = smart_reloc_compare(
+            res.obj_bytes,
+            p.target_bytes,
+            relocs,
+            names,
+            section_va=p.va_int,
+            iat_region=iat,
+            reloc_table=reloc_table,
+            check_known_bindings=getattr(p.cfg, "check_known_bindings", False),
+        )
+        reloc_offsets = sorted(set(valid_relocs) | set(invalid_relocs))
+        bindings = relocation_binding_evidence(
+            res.obj_bytes,
+            p.target_bytes,
+            relocs,
+            names,
+            section_va=p.va_int,
+            iat_region=iat,
+            reloc_table=reloc_table,
+        )
+
+    # Both halves of the capstone engine: the mode alone still decodes with
+    # the x86 architecture, so a MIPS/PPC/ARM/SH target disassembles as
+    # garbage and every row below (and the structural exit code) is wrong.
+    cs_arch = getattr(p.cfg, "capstone_arch", capstone.CS_ARCH_X86)
+    cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
+    ptr_size = getattr(p.cfg, "pointer_size", 4)
+    summary = diff_functions(
+        p.target_bytes,
+        obj_bytes,
+        reloc_offsets,
+        invalid_relocs=invalid_relocs,
+        mismatches_only=mismatches_only,
+        register_aware=register_aware,
+        as_dict=True,
+        cs_arch=cs_arch,
+        cs_mode=cs_mode,
+        pointer_size=ptr_size,
+    )
+    if isinstance(summary, dict):
+        from rebrew.compare.alignment import measure_alignment
+
+        summary.update(measure_alignment(p.cfg, p.target_bytes, res.obj_bytes, p.va_int))
+        summary["candidate_size"] = full_obj_size
+        if bindings:
+            summary["relocation_bindings"] = bindings
+    if not json_output and not csv_output and isinstance(summary, dict):
+        from rebrew.matcher.scoring import print_diff_summary
+
+        # stderr, not stdout: the table is the human report, and stdout is
+        # reserved for the --json / --csv documents.
+        print_diff_summary(
+            summary,
+            mismatches_only=mismatches_only,
+            register_aware=register_aware,
+            write=lambda line: console.print(line, markup=False, highlight=False),
+            width=console.width,
+        )
+
+    if isinstance(summary, dict) and summary.get("instructions"):
+        _resolve_global_names(summary["instructions"], p.cfg)
+        if bindings:
+            _annotate_candidate_relocations(summary, bindings)
+    missing_globals = _missing_global_hints(
+        summary.get("instructions", []) if isinstance(summary, dict) else []
+    )
+
+    has_structural = False
+    if summary:
+        blockers = classify_blockers(summary)
+        # Reuse the display summary when it was built register-aware (the
+        # default-off flag changes the reg counts) — else fall back to the
+        # internal summary_only re-run.
+        sim = structural_similarity(
+            p.target_bytes,
+            obj_bytes,
+            reloc_offsets,
+            cs_arch=cs_arch,
+            cs_mode=cs_mode,
+            pointer_size=ptr_size,
+            _summary=summary if register_aware or invalid_relocs else None,
+        )
+
+        # Short-candidate triage: target instructions with no compiled
+        # counterpart are the not-yet-decompiled tail (SIZE_MISMATCH class).
+        missing_tail: dict[str, Any] | None = None
+        missing_rows = [
+            i
+            for i in (summary.get("instructions") or [])
+            if i.get("match") == "**" and not (i.get("candidate") or {}).get("disasm")
+        ]
+        if missing_rows:
+            missing_tail = {
+                "count": len(missing_rows),
+                "first": (missing_rows[0].get("target") or {}).get("disasm", ""),
+                "last": (missing_rows[-1].get("target") or {}).get("disasm", ""),
+            }
+
+        if json_output:
+            summary["structural_similarity"] = {
+                "total_insns": sim.total_insns,
+                "exact": sim.exact,
+                "reloc_only": sim.reloc_only,
+                "register_only": sim.register_only,
+                "structural": sim.structural,
+                "mnemonic_match_ratio": sim.mnemonic_match_ratio,
+                "structural_ratio": sim.structural_ratio,
+                "flag_sensitive": sim.flag_sensitive,
+            }
+            if missing_tail:
+                summary["missing_tail"] = missing_tail
+            if blockers:
+                summary["blockers"] = blockers
+            if missing_globals:
+                summary["missing_globals"] = missing_globals
+            if fix_blocker:
+                # Write FIRST so the emitted payload can report the outcome
+                # (diagnose near's blocker_written contract — a script driving
+                # --fix-blocker --json must learn whether the blocker landed).
+                summary["blocker"] = _write_blocker(
+                    p, blockers, obj_bytes, dry_run, json_output=True, obj_size=full_obj_size
+                )
+            json_print(summary)
+        elif csv_output:
+            writer = csv.writer(sys.stdout)
+            writer.writerow(
+                ["Index", "Match", "Target_Bytes", "Target_Disasm", "Cand_Bytes", "Cand_Disasm"]
+            )
+            instructions_obj = summary.get("instructions", [])
+            instructions = instructions_obj if isinstance(instructions_obj, list) else []
+            for row in instructions:
+                if not isinstance(row, dict):
+                    continue
+                m_char = row.get("match") or ""
+                if mismatches_only and m_char not in ("**", "XX"):
+                    continue
+                t_obj = row.get("target") or {}
+                c_obj = row.get("candidate") or {}
+                t_data = t_obj if isinstance(t_obj, dict) else {}
+                c_data = c_obj if isinstance(c_obj, dict) else {}
+                writer.writerow(
+                    [
+                        row.get("index", ""),
+                        m_char,
+                        t_data.get("bytes", ""),
+                        t_data.get("disasm", ""),
+                        c_data.get("bytes", ""),
+                        c_data.get("disasm", ""),
+                    ]
+                )
+        else:
+            if missing_globals:
+                console.print(
+                    f"\n[yellow]hint:[/yellow] {len(missing_globals)} unresolved global "
+                    "reference(s) ([0] operand) — add a GLOBAL annotation for the "
+                    "target address"
+                )
+            if blockers:
+                console.print("\nAuto-classified blockers:")
+                for b in blockers:
+                    console.print(f"  - {b}")
+            if missing_tail:
+                console.print(
+                    f"\n[yellow]{missing_tail['count']} target instruction(s) not yet "
+                    f"decompiled[/yellow] — the C covers {len(obj_bytes)}/{len(p.target_bytes)} "
+                    f"bytes; first missing: [bold]{missing_tail['first']}[/bold]"
+                )
+            print_structural_similarity(sim)
+
+        if fix_blocker and not json_output:
+            # JSON mode already wrote the blocker above (the payload reports
+            # the outcome); this terminal-only write would redo the metadata
+            # I/O and print status chatter against the JSON contract.
+            _write_blocker(
+                p, blockers, obj_bytes, dry_run, json_output=False, obj_size=full_obj_size
+            )
+
+        summary_obj = summary.get("summary", {})
+        structural_obj = summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0
+        has_structural = isinstance(structural_obj, int | float) and structural_obj > 0
+
+    if has_structural:
+        raise typer.Exit(code=EXIT_MISMATCH)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew diff src/game/my_func.c\n\n"
+    "  rebrew diff 0x10009310 --mismatches-only\n\n"
+    "  rebrew diff src/game/my_func.c --register-aware\n\n"
+    "  rebrew diff src/game/my_func.c --fix-blocker\n\n"
+    "  rebrew diff src/game/my_func.c --json\n\n"
+    "[dim]Compiles with resolved metadata/configuration and compares against the target binary. Symbol, VA, and size resolve from the C definition and dedicated metadata. --fix-blocker records the diagnosed blocker; ordinary diff leaves metadata unchanged.[/dim]\n\n"
+    "Exit codes: 0 no structural differences; 1 structural differences; 2 usage/config/build error; 130 interrupted; 141 output pipe closed.\n\n"
+)
+
+app = typer.Typer(
+    help="Compile and diff a reversed function against the target binary.",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    seed_c: str = typer.Argument(..., metavar="source", help=SOURCE_HELP),
+    mismatches_only: bool = typer.Option(
+        False,
+        "--mismatches-only",
+        "-m",
+        help="Show only structural diff (**) lines",
+    ),
+    register_aware: bool = typer.Option(
+        False,
+        "--register-aware",
+        "-r",
+        help="Normalize register encodings and mark differences as RR",
+    ),
+    fix_blocker: bool = typer.Option(
+        False,
+        "--fix-blocker",
+        help="Record BLOCKER metadata from the diff; required with --dry-run",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    fmt: Literal["terminal", "csv"] = typer.Option(
+        "terminal",
+        "--format",
+        "-f",
+        help="Output format: terminal, csv (mutually exclusive with --json)",
+        metavar="FORMAT",
+    ),
+    ignore_lint: bool = typer.Option(
+        False, "--ignore-lint", help="Continue even if source binding lint errors exist"
+    ),
+    watch: bool = typer.Option(
+        False,
+        "--watch",
+        help=WATCH_FILE_HELP,
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Compile a reversed function and show a byte diff against the target."""
+    if option_default(watch, False) and option_default(json_output, False):
+        error_exit("--watch is terminal-only; omit --json", json_mode=True)
+    if option_default(watch, False):
+        ensure_watch_terminal(json_mode=option_default(json_output, False))
+    dry_run = option_default(dry_run, False)
+    fix_blocker = option_default(fix_blocker, False)
+    if dry_run and not fix_blocker:
+        error_exit("--dry-run requires --fix-blocker", json_mode=option_default(json_output, False))
+    if fmt not in ("terminal", "csv"):
+        # Bad argument value — usage error (2), not "needs code work" (1).
+        error_exit("--format must be 'terminal' or 'csv'", json_mode=json_output, code=EXIT_ERROR)
+    if fmt == "csv" and json_output:
+        # Two machine formats, no precedence: silently dropping the CSV would
+        # feed JSON to a .csv consumer.  Same rule symbol-addrs applies to
+        # --csv / --references.
+        error_exit(
+            "--format csv and --json select different output formats; pass one.",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
+
+    csv_output = fmt == "csv"
+
+    cfg = require_config(target=target, json_mode=json_output)
+
+    va_arg = seed_c.strip().lower().startswith("0x")
+    symbol_arg = not va_arg and not Path(seed_c).exists()
+    original_arg = seed_c
+
+    from rebrew.matching.sweep import resolve_arg_params
+
+    params = resolve_arg_params(cfg, seed_c, ignore_lint=ignore_lint, json_output=json_output)
+    seed_c = str(params.seed_c)
+
+    if watch:
+        from rebrew.utils import watch_files
+
+        seed_path = Path(seed_c).resolve()
+        # Keep the original positional (VA or symbol) for re-entry — seed_c is
+        # now the resolved path, and passing it would drop the VA targeting and
+        # re-diff the first annotation in a multi-function file.
+        watch_arg = original_arg if (va_arg or symbol_arg) else seed_c
+
+        def _retest() -> None:
+            # Re-run the full single-function diff path; --watch must not nest.
+            main(
+                seed_c=watch_arg,
+                mismatches_only=mismatches_only,
+                register_aware=register_aware,
+                fix_blocker=fix_blocker,
+                dry_run=dry_run,
+                fmt=fmt,
+                ignore_lint=ignore_lint,
+                watch=False,
+                json_output=json_output,
+                target=target,
+            )
+
+        watch_files([seed_path], _retest)
+        return
+
+    run_diff(
+        mismatches_only,
+        register_aware,
+        csv_output,
+        fix_blocker,
+        json_output,
+        params,
+        dry_run=dry_run,
+    )
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

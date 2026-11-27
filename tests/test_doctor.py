@@ -557,7 +557,7 @@ class TestCheckFlirtSigs:
 
     def test_valid_pat_passes(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_flirt_sigs
-        from rebrew.gen_flirt_pat import bytes_to_pat_line
+        from rebrew.library.gen_flirt_pat import bytes_to_pat_line
 
         sig_dir = tmp_path / "flirt_sigs"
         sig_dir.mkdir()
@@ -581,7 +581,7 @@ class TestCheckFlirtSigs:
 
     def test_non_utf8_pat_warns(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_flirt_sigs
-        from rebrew.gen_flirt_pat import bytes_to_pat_line
+        from rebrew.library.gen_flirt_pat import bytes_to_pat_line
 
         sig_dir = tmp_path / "flirt_sigs"
         sig_dir.mkdir()
@@ -1392,7 +1392,7 @@ class TestLibcmtIndexFailures:
         import typer
 
         import rebrew.doctor as doctor_mod
-        import rebrew.lib_match as lib_match
+        import rebrew.library.match as lib_match
 
         monkeypatch.setattr(
             lib_match, "stock_lib_cache", lambda root, name, profile: tmp_path / "x.lib"
@@ -1409,7 +1409,7 @@ class TestLibcmtIndexFailures:
 
     def test_unreadable_archive_degrades_to_a_skip(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.doctor as doctor_mod
-        import rebrew.lib_match as lib_match
+        import rebrew.library.match as lib_match
 
         monkeypatch.setattr(
             lib_match, "stock_lib_cache", lambda root, name, profile: tmp_path / "x.lib"

@@ -218,7 +218,7 @@ a separate diagnostic score.
 ## Relocation Masking Details
 
 `test` and `verify` mask by the compiled object's relocation records
-(`smart_reloc_compare` in `src/rebrew/coff_reloc.py`): a DIR32 slot is accepted
+(`smart_reloc_compare` in `src/rebrew/compare/coff_reloc.py`): a DIR32 slot is accepted
 when the target holds `symbol_va + addend`, a REL32 slot when it holds
 `symbol_va + addend - pc` (masked without the absolute check when the section VA
 is unknown), and a DIR32 into the import address table is masked without name

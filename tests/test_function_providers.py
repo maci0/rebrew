@@ -66,7 +66,7 @@ class TestCompiledSources:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.library import app
+        from rebrew.library.cli import app
         from rebrew.metadata.functions import load_metadata
 
         cfg = _project(tmp_path)
@@ -84,7 +84,7 @@ class TestCompiledSources:
                 }
             },
         )
-        monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+        monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
         args = ["bind-source", "0x10001000", str(source), "--symbol", "_checksum", "--json"]
         if dry_run:
             args.append("--dry-run")
@@ -104,7 +104,7 @@ class TestCompiledSources:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.library import app
+        from rebrew.library.cli import app
 
         cfg = _project(tmp_path)
         source = tmp_path / "vendor.c"
@@ -114,7 +114,7 @@ class TestCompiledSources:
             "\n// checksum\n\n",
             metadata_fields={"GAME.0x10001000": {"kind": "LIBRARY", "size": 7, "name": "checksum"}},
         )
-        monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+        monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
         args = ["bind-source", "0x10001000", str(source), "--symbol", "checksum"]
         result = CliRunner().invoke(app, [*args, "--dry-run", "--json"])
         assert result.exit_code != 0
@@ -242,7 +242,7 @@ class TestCompiledSources:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.library import app
+        from rebrew.library.cli import app
         from rebrew.verify.cli import _library_header_rows
 
         cfg = _project(tmp_path)
@@ -267,7 +267,7 @@ class TestCompiledSources:
                 for module in ["GAME", "OTHER"]
             ],
         )
-        monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+        monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
         args = ["bind-source", "0x10001000", str(source), "--symbol", "_checksum", "--json"]
         runner = CliRunner()
         for _ in range(2):
@@ -637,7 +637,7 @@ class TestBindSourceWithoutPriorClaim:
     def test_rowles_va_gets_a_library_row(self, tmp_path: Path) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.library import app
+        from rebrew.library.cli import app
         from rebrew.metadata.functions import get_entry, load_metadata
 
         cfg = _project(tmp_path)
@@ -647,7 +647,7 @@ class TestBindSourceWithoutPriorClaim:
             "unsigned long adler32(unsigned long a, const void *b, unsigned n)\n{ return a + n; }\n"
         )
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+            mp.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
             result = CliRunner().invoke(
                 app,
                 [
@@ -672,7 +672,7 @@ class TestBindSourceWithoutPriorClaim:
     def test_active_function_claim_is_refused(self, tmp_path: Path) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.library import app
+        from rebrew.library.cli import app
         from rebrew.metadata.functions import record_function_identity
 
         cfg = _project(tmp_path)
@@ -689,7 +689,7 @@ class TestBindSourceWithoutPriorClaim:
             symbol="_f",
         )
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+            mp.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
             result = CliRunner().invoke(
                 app,
                 ["bind-source", "0x10001000", str(source), "--symbol", "_adler32", "--json"],
@@ -700,7 +700,7 @@ class TestBindSourceWithoutPriorClaim:
     def test_retired_claim_keeps_history(self, tmp_path: Path) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.library import app
+        from rebrew.library.cli import app
         from rebrew.metadata.binding_history import change_source_binding
         from rebrew.metadata.functions import get_entry, record_function_identity
 
@@ -719,7 +719,7 @@ class TestBindSourceWithoutPriorClaim:
         )
         change_source_binding(cfg.metadata_dir, "GAME", 0x10001000, reason="wrong claim")
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+            mp.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
             result = CliRunner().invoke(
                 app,
                 ["bind-source", "0x10001000", str(source), "--symbol", "_checksum", "--json"],
@@ -734,7 +734,7 @@ class TestBindSourceWithoutPriorClaim:
 
         from typer.testing import CliRunner
 
-        from rebrew.library import app
+        from rebrew.library.cli import app
         from rebrew.metadata import functions
         from rebrew.metadata.functions import get_entry, record_function_identity
 
@@ -758,7 +758,7 @@ class TestBindSourceWithoutPriorClaim:
             return entry
 
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+            mp.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
             with patch("rebrew.metadata.functions.get_entry", side_effect=claim_after_read):
                 result = CliRunner().invoke(
                     app,
@@ -803,12 +803,12 @@ def test_bind_source_requires_complete_matching_c_definition(
 ) -> None:
     from typer.testing import CliRunner
 
-    from rebrew.library import app
+    from rebrew.library.cli import app
 
     cfg = _project(tmp_path)
     source = tmp_path / "vendor.c"
     source.write_text(text)
-    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
     result = CliRunner().invoke(
         app, ["bind-source", "0x10001000", str(source), "--symbol", symbol, "--dry-run", "--json"]
     )
@@ -820,13 +820,13 @@ def test_bind_source_rejects_source_changed_after_preview(
 ) -> None:
     from typer.testing import CliRunner
 
-    from rebrew.library import app
+    from rebrew.library.cli import app
     from rebrew.metadata.functions import get_entry
 
     cfg = _project(tmp_path)
     source = tmp_path / "vendor.c"
     source.write_text("int f(void) { return 1; }\n")
-    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
     args = ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
     preview = CliRunner().invoke(app, [*args, "--dry-run"])
     assert preview.exit_code == 0, preview.output
@@ -843,7 +843,7 @@ def test_bind_source_rejects_other_review_input_changes(
 ) -> None:
     from typer.testing import CliRunner
 
-    from rebrew.library import app
+    from rebrew.library.cli import app
     from rebrew.metadata.functions import get_entry, record_function_identity
 
     cfg = _project(tmp_path)
@@ -851,7 +851,7 @@ def test_bind_source_rejects_other_review_input_changes(
     cfg.target_binary.write_bytes(b"original")
     source = tmp_path / "vendor.c"
     source.write_text("int f(void) { return 1; }\n")
-    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
     args = ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
     preview = CliRunner().invoke(app, [*args, "--dry-run"])
     assert preview.exit_code == 0, preview.output
@@ -880,7 +880,7 @@ def test_bind_source_rechecks_source_at_locked_write(
 
     from typer.testing import CliRunner
 
-    import rebrew.library as module
+    import rebrew.library.cli as module
     from rebrew.metadata.functions import get_entry
 
     cfg = _project(tmp_path)
@@ -908,13 +908,13 @@ def test_bind_source_guarded_preview_can_apply(
 ) -> None:
     from typer.testing import CliRunner
 
-    from rebrew.library import app
+    from rebrew.library.cli import app
     from rebrew.metadata.functions import get_entry
 
     cfg = _project(tmp_path)
     source = tmp_path / "vendor.c"
     source.write_text("static int f(void) { return 1; }\n")
-    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
     args = ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
     preview = CliRunner().invoke(app, [*args, "--dry-run"])
     assert preview.exit_code == 0, preview.output
@@ -930,13 +930,13 @@ def test_bind_source_refuses_unsupported_cpp(
 ) -> None:
     from typer.testing import CliRunner
 
-    from rebrew.library import app
+    from rebrew.library.cli import app
     from rebrew.metadata.functions import get_entry
 
     cfg = _project(tmp_path)
     source = tmp_path / "vendor.cpp"
     source.write_text("int f() { return 1; }\n")
-    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
     result = CliRunner().invoke(
         app, ["bind-source", "0x10001000", str(source), "--symbol", "_f", "--json"]
     )
@@ -947,13 +947,13 @@ def test_bind_source_refuses_unsupported_cpp(
 def test_bind_source_preserves_previous_positional_python_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from rebrew.library import bind_source_cmd
+    from rebrew.library.cli import bind_source_cmd
     from rebrew.metadata.functions import get_entry
 
     cfg = _project(tmp_path)
     source = tmp_path / "vendor.c"
     source.write_text("int f(void) { return 1; }\n")
-    monkeypatch.setattr("rebrew.library.require_config", lambda **_kwargs: cfg)
+    monkeypatch.setattr("rebrew.library.cli.require_config", lambda **_kwargs: cfg)
     # Positional order: va, source, symbol, dry_run, json_output, target.
     # dry_run=True must preview without writing metadata.
     bind_source_cmd("0x10001000", source, "_f", True, True, None)

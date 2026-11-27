@@ -1,0 +1,339 @@
+"""fixup.py — compilability fixup for raw decompiler output (DecBench-style).
+
+Decompiler pseudo-C (Ghidra, r2ghidra, r2dec, Kuna, angr) rarely compiles
+as-is: pseudo-types (``undefined4``), illegal tokens (``GLIBC_2.2.5::stderr``),
+missing prototypes and undeclared type names.  Naive recompilation would
+score almost everything 0, so this module applies the DecBench fairness
+principle to rebrew's byte-match loop:
+
+1. **Token sanitization** — deterministic rewrites of decompiler idioms to
+   plain C (pseudo-type → int/char/short/..., qualified symbol names
+   stripped, placeholder casts normalized).
+2. **Diagnostic-driven injection** — a bounded self-repair loop over the
+   compiler error output that injects ONLY what the compiler reports
+   missing (typedefs for undeclared type names, prototypes for
+   implicitly-declared functions) and **never redefines what the source
+   already declared**.
+
+The result is a C file that compiles under rebrew's toolchain, so raw
+decompiler output can be byte-matched (or used as a GA seed) instead of only
+hand-written C.
+
+Usage::
+
+    rebrew source fix src/ghidra_out.c            # sanitize + report what changed
+    rebrew source fix src/ghidra_out.c --json     # machine-readable change list
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+lazy import contextlib
+lazy from pathlib import Path
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+lazy from rebrew.c_syntax.parser import mask_msvc_syntax, parse_c_source
+lazy from rebrew.c_syntax.pseudo_c import sanitize_tokens
+lazy from rebrew.utils import atomic_write_text, read_source_text
+
+# ---------------------------------------------------------------------------
+# Diagnostic-driven injection
+# ---------------------------------------------------------------------------
+
+#: Compiler diagnostics we can act on: ``'X' undeclared`` → typedef X;
+#: ``implicit declaration of function 'f'`` → prototype f();
+#: ``'f' undeclared`` where a call is implied → prototype.
+_UNDECLARED_TYPE_RE = re.compile(
+    r"'(?P<name>[A-Za-z_]\w*)' undeclared|unknown type name '(?P<name2>[A-Za-z_]\w*)'"
+)
+_IMPLICIT_FN_RE = re.compile(r"implicit declaration of function '(?P<name>[A-Za-z_]\w*)'")
+
+_DECL_WRAPPERS = frozenset(
+    {
+        "init_declarator",
+        "pointer_declarator",
+        "array_declarator",
+        "function_declarator",
+        "attributed_declarator",
+    }
+)
+
+
+@dataclass
+class FixupResult:
+    """Outcome of a fixup pass (sanitize + optional injection)."""
+
+    source: str
+    changes: list[str] = field(default_factory=list)
+    injected: list[str] = field(default_factory=list)
+    iterations: int = 0
+    error: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "changed": bool(self.changes or self.injected),
+            "changes": self.changes,
+            "injected": self.injected,
+            "iterations": self.iterations,
+            "error": self.error,
+        }
+
+
+def _declarator_name(node: Any, data: bytes) -> str | None:
+    """Extract the declared identifier from a tree-sitter C declarator."""
+    cur = node
+    while cur is not None:
+        if cur.type in ("identifier", "type_identifier", "field_identifier"):
+            return data[cur.start_byte : cur.end_byte].decode("utf-8", errors="surrogateescape")
+        if cur.type in _DECL_WRAPPERS:
+            cur = cur.child_by_field_name("declarator")
+            continue
+        if cur.type == "parenthesized_declarator":
+            cur = next((c for c in cur.named_children if c.type != "comment"), None)
+            continue
+        return None
+    return None
+
+
+def _existing_identifiers(source: str) -> set[str]:
+    """Type/function names already declared in *source* (never re-define)."""
+    tree, data = parse_c_source(mask_msvc_syntax(source))
+    out: set[str] = set()
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        ntype = node.type
+        if ntype in ("type_definition", "declaration"):
+            for decl in node.children_by_field_name("declarator"):
+                name = _declarator_name(decl, data)
+                if name:
+                    out.add(name)
+        elif ntype == "function_definition":
+            name = _declarator_name(node.child_by_field_name("declarator"), data)
+            if name:
+                out.add(name)
+        elif ntype in ("struct_specifier", "union_specifier", "enum_specifier"):
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                out.add(
+                    data[name_node.start_byte : name_node.end_byte].decode(
+                        "utf-8", errors="surrogateescape"
+                    )
+                )
+        stack.extend(node.named_children)
+    return out
+
+
+def _inject_from_errors(source: str, errors: str) -> tuple[str, list[str]]:
+    """Inject typedefs/prototypes for the names the compiler reported missing.
+
+    Returns ``(fixed_source, injected_descriptions)``.  Injects only names
+    NOT already declared in the source (the DecBench no-redefine rule).
+    """
+    existing = _existing_identifiers(source)
+    injections: list[str] = []
+    pending: list[tuple[str, str]] = []
+
+    for m in _UNDECLARED_TYPE_RE.finditer(errors):
+        name = m.group("name") or m.group("name2")
+        if name and name not in existing:
+            pending.append((name, f"typedef int {name};"))
+
+    for m in _IMPLICIT_FN_RE.finditer(errors):
+        name = m.group("name")
+        if name and name not in existing and not any(n == name for n, _ in pending):
+            pending.append((name, f"int {name}();"))
+
+    for name, decl in pending:
+        if name in existing:
+            continue
+        injections.append(decl)
+        existing.add(name)
+
+    if not injections:
+        return source, []
+    # Prepend the injections at the top of the file; a widened typedef and an
+    # implicit-int prototype are both valid C89 declarations there.  All
+    # pending injections are emitted.
+    return "\n".join(injections) + "\n\n" + source, injections
+
+
+def fixup_source(source: str, compile_errors: str | None = None) -> FixupResult:
+    """Run the full fixup: sanitize, then inject from *compile_errors*.
+
+    The injection step is applied once (bounded: the sanitize pass already
+    resolves most blockers); a second compile-and-fixup round is the
+    caller's choice.
+    """
+    fixed, changes = sanitize_tokens(source)
+    result = FixupResult(source=fixed, changes=changes, iterations=1)
+    if compile_errors:
+        fixed, injected = _inject_from_errors(fixed, compile_errors)
+        result.source = fixed
+        result.injected = injected
+    return result
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew source fix raw.c  # Write raw.c.fixed.c, print a diff summary\n\n"
+    "  rebrew source fix raw.c --dry-run  # Report the fixes without writing\n\n"
+    "  # Write elsewhere and compile it\n"
+    "  rebrew source fix raw.c --output cleaned.c --compile-check\n\n"
+    "  rebrew source fix raw.c --json  # Machine-readable report\n"
+)
+
+
+app = typer.Typer(
+    help="Make raw decompiler output compilable (DecBench-style fixup).",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+
+def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
+    """Compile *source_text* with the project's default flags.
+
+    Returns the first compile error (or a generic failure message) when the
+    source does not compile, None on success.  This is the honest-fallback
+    gate for :func:`fixup_source`: fixup can leave a file uncompilable and
+    the old CLI silently shipped it (m2c's ``--valid-syntax`` goal is
+    compilable output; the equivalent for rebrew is *proving* the fixed
+    source compiles before writing it).
+    """
+
+    from rebrew.compiler.compile import compile_to_obj
+    from rebrew.compiler.overrides import resolve_cflags
+    from rebrew.compiler.temp_dirs import writable_temp_dir
+
+    workdir = writable_temp_dir("rebrew_fixup_")
+    try:
+        tmp_src = workdir / src_hint.name
+        tmp_src.write_text(source_text, encoding="utf-8", errors="surrogateescape")
+        obj_path, err = compile_to_obj(
+            cfg,
+            tmp_src,
+            resolve_cflags(cfg, "", "").split(),
+            workdir,
+            use_cache=False,
+        )
+        if obj_path is None:
+            return (err or "compile failed").strip()
+        return None
+    finally:
+        from rebrew.compiler.temp_dirs import remove_temp_dir
+
+        with contextlib.suppress(OSError):
+            remove_temp_dir(workdir)
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    source_file: Path = typer.Argument(
+        ..., metavar="source", help="Path to the pseudo-C file to fix"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    out: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write the fixed source to this path (default: raw.c.fixed.c for raw.c)",
+    ),
+    compile_check: bool = typer.Option(
+        False,
+        "--compile-check",
+        help="Compile the fixed source; on failure, banner the error into the output and exit nonzero",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Sanitize a pseudo-C file (and inject missing decls) so it compiles."""
+    if not source_file.exists():
+        error_exit(f"source file not found: {source_file}", json_mode=json_output)
+    # Keep the detected encoding: read_source_text decodes a legacy source as
+    # itself, so writing the result back as UTF-8 would turn every cp1252 /
+    # Shift-JIS byte into multi-byte UTF-8 and change the source's string
+    # literals, which is exactly what the byte-match loop measures.
+    text, encoding = read_source_text(source_file)
+    result = fixup_source(text)
+
+    cfg: Any = None
+    compile_error: str | None = None
+    if compile_check:
+        cfg = require_config(target=target, json_mode=json_output)
+        compile_error = _compile_check(cfg, result.source, source_file)
+        if compile_error:
+            first_line = compile_error.splitlines()[0] if compile_error else "compile failed"
+            # Never silently ship a fix that does not compile: banner the
+            # decisive error into the output and exit nonzero.
+            result.source = (
+                "// fixup: --compile-check failed — the fixed source still does not compile.\n"
+                f"// first error: {first_line}\n"
+            ) + result.source
+
+    if json_output:
+        payload = result.to_dict()
+        payload["file"] = str(source_file)
+        payload["compile_check"] = bool(compile_check)
+        if compile_error:
+            payload["compile_error"] = compile_error.splitlines()[0]
+        if not dry_run and not result.error:
+            dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
+            atomic_write_text(dest, result.source, encoding=encoding, lenient=True)
+            payload["wrote"] = str(dest)
+        json_print(payload)
+        if compile_error or result.error:
+            raise typer.Exit(code=EXIT_ERROR)
+        return
+
+    if result.error:
+        console.print(f"[red]error:[/red] {result.error}")
+        raise typer.Exit(code=EXIT_ERROR)
+
+    console.print(f"[bold]{source_file.name}[/bold]:")
+    for c in result.changes:
+        console.print(f"  [dim]fix:[/dim] {c}")
+    for i in result.injected:
+        console.print(f"  [green]inject:[/green] {i}")
+    if not result.changes and not result.injected:
+        console.print("  [dim]already compilable — no fixes applied[/dim]")
+
+    if compile_check:
+        if compile_error:
+            console.print(f"[red]error:[/red] fixed source still does not compile: {compile_error}")
+        else:
+            console.print("  [green]compile check passed[/green]")
+
+    if dry_run:
+        console.print("\n[bold]Fixed source:[/bold]")
+        print(result.source)
+        if compile_error:
+            raise typer.Exit(code=EXIT_ERROR)
+        return
+    dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
+    atomic_write_text(dest, result.source, encoding=encoding, lenient=True)
+    console.print(
+        f"\n[green]Wrote {dest}[/green] ({len(result.changes)} fix(es), "
+        f"{len(result.injected)} injection(s))"
+    )
+    if compile_error:
+        raise typer.Exit(code=EXIT_ERROR)
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

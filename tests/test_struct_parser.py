@@ -1,10 +1,10 @@
-"""Tests for rebrew.struct_parser — struct/typedef extraction via tree-sitter."""
+"""Tests for rebrew.c_syntax.struct_parser — struct/typedef extraction via tree-sitter."""
 
 lazy from pathlib import Path
 
 import pytest
 
-from rebrew.struct_parser import (
+from rebrew.c_syntax.struct_parser import (
     extract_enums_from_file,
     extract_structs_from_file,
     extract_type_blocks,

@@ -9,7 +9,7 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew.vendor import VendorError, app, vendor_trees
+from rebrew.library.vendor import VendorError, app, vendor_trees
 
 PRISTINE = "int f(void)\n{\n    return 1;\n}\n"
 PATCH = """--- a/f.c
@@ -208,7 +208,7 @@ class TestVendor:
         def unavailable(*args: object, **kwargs: object) -> None:
             raise FileNotFoundError("GNU patch is missing")
 
-        monkeypatch.setattr("rebrew.vendor.run_process_group", unavailable)
+        monkeypatch.setattr("rebrew.library.vendor.run_process_group", unavailable)
         result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", str(manifest)])
         assert result.exit_code == 2 and "GNU patch" in cli_payload(result)["error"]
 
@@ -222,7 +222,7 @@ class TestVendor:
         def hung(*args: object, **kwargs: object) -> None:
             raise subprocess.TimeoutExpired(cmd=args[0] if args else "patch", timeout=60)
 
-        monkeypatch.setattr("rebrew.vendor.run_process_group", hung)
+        monkeypatch.setattr("rebrew.library.vendor.run_process_group", hung)
         with pytest.raises(VendorError, match="did not apply within"):
             vendor_trees(tmp_path, [manifest], write=True)
         assert "return 2;" in (tmp_path / "lib/f.c").read_text()

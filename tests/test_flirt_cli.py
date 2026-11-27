@@ -7,7 +7,7 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew.flirt import app
+from rebrew.library.flirt import app
 
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
@@ -28,18 +28,19 @@ def _patch(
 ) -> SimpleNamespace:
     cfg = _cfg(tmp_path)
     (tmp_path / "x.dll").write_bytes(b"MZ" + b"\x00" * 100)
-    monkeypatch.setattr("rebrew.flirt.require_config", lambda **kw: cfg)
+    monkeypatch.setattr("rebrew.library.flirt.require_config", lambda **kw: cfg)
     monkeypatch.setattr(
-        "rebrew.flirt.load_signatures_for", lambda dirs, arch: sigs if sigs is not None else []
+        "rebrew.library.flirt.load_signatures_for",
+        lambda dirs, arch: sigs if sigs is not None else [],
     )
 
     class _EmptyMatcher:
         def match(self, data):
             return []
 
-    monkeypatch.setattr("rebrew.flirt.flirt.compile", lambda sigs: _EmptyMatcher())
+    monkeypatch.setattr("rebrew.library.flirt.flirt.compile", lambda sigs: _EmptyMatcher())
     monkeypatch.setattr(
-        "rebrew.flirt.load_binary",
+        "rebrew.library.flirt.load_binary",
         lambda p: SimpleNamespace(
             data=text_bytes,
             sections=sections
@@ -91,7 +92,7 @@ class TestFlirtCli:
 
         # 0x40 bytes of ret-stubs: each C3 ends a 1-byte function at stride.
         _patch(tmp_path, monkeypatch, sigs=["sig1"], text_bytes=b"\x90" * 0x10 + b"\xc3" * 0x30)
-        monkeypatch.setattr("rebrew.flirt.flirt.compile", lambda sigs: _Matcher())
+        monkeypatch.setattr("rebrew.library.flirt.flirt.compile", lambda sigs: _Matcher())
         result = CliRunner().invoke(app, ["--json", str(tmp_path)])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -109,7 +110,7 @@ class TestFlirtCli:
                 return [_M(names)]
 
         _patch(tmp_path, monkeypatch, sigs=["sig1"], text_bytes=b"\x90" * 0x10 + b"\xc3" * 0x30)
-        monkeypatch.setattr("rebrew.flirt.flirt.compile", lambda sigs: _Matcher())
+        monkeypatch.setattr("rebrew.library.flirt.flirt.compile", lambda sigs: _Matcher())
         result = CliRunner().invoke(app, ["--json", str(tmp_path)])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -140,7 +141,7 @@ class TestFlirtCli:
                 ]
 
         _patch(tmp_path, monkeypatch, sigs=["sig1"], text_bytes=b"\x90" * 32)
-        monkeypatch.setattr("rebrew.flirt.flirt.compile", lambda sigs: Matcher())
+        monkeypatch.setattr("rebrew.library.flirt.flirt.compile", lambda sigs: Matcher())
         args = ["--json"]
         if show_ambiguous:
             args.append("--show-ambiguous")
@@ -152,7 +153,7 @@ class TestFlirtCli:
         assert data["match_count"] == 0
         assert data["skipped_ambiguous"] == 1
         if show_ambiguous:
-            from rebrew.flirt import _MAX_AMBIGUOUS_REPORT
+            from rebrew.library.flirt import _MAX_AMBIGUOUS_REPORT
 
             assert data["ambiguous_matches"] == [
                 {
@@ -178,7 +179,7 @@ class TestFlirtSigsDirEnv:
 
 class TestFlirtInit:
     def test_copies_repo_sigs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.flirt import _init_project_sigs
+        from rebrew.library.flirt import _init_project_sigs
 
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -199,7 +200,7 @@ class TestFlirtInit:
     def test_missing_repo_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import typer
 
-        from rebrew.flirt import _init_project_sigs
+        from rebrew.library.flirt import _init_project_sigs
 
         monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(tmp_path / "nope"))
         with pytest.raises(typer.Exit):
@@ -212,8 +213,8 @@ class TestSignatureSetup:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, matched_only: bool
     ) -> None:
 
-        from rebrew import flirt as module
         from rebrew.app.main import app as umbrella
+        from rebrew.library import flirt as module
 
         repo = tmp_path / "shared"
         repo.mkdir()

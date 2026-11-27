@@ -930,7 +930,7 @@ class TestMutationsProvenance:
         import concurrent.futures
         from types import SimpleNamespace
 
-        from rebrew.match_run import _save_solution
+        from rebrew.matching.run import _save_solution
 
         cfg = SimpleNamespace(root=tmp_path, target_name="test")
         collect_out: list[SolutionEntry] = []

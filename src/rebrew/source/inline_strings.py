@@ -45,7 +45,7 @@ lazy from pathlib import Path
 import typer
 
 from rebrew.cli import TargetOption, console, json_print, require_config
-lazy from rebrew.c_parser import parse_c_source
+lazy from rebrew.c_syntax.parser import parse_c_source
 lazy from rebrew.config import target_module
 lazy from rebrew.data.layout import (
     data_raw_from_binary,
@@ -146,7 +146,7 @@ def _mask_keep_regions(text: str) -> bytearray:
     to protect comments, string/char literals, and MSVC ``__asm``/``_asm``
     blocks, plus ``extern`` declaration lines.
     """
-    from rebrew.c_parser import msvc_asm_spans, protected_spans
+    from rebrew.c_syntax.parser import msvc_asm_spans, protected_spans
 
     raw = text.encode("utf-8", errors="surrogateescape")
     # Map byte offsets from tree-sitter back to str character offsets when

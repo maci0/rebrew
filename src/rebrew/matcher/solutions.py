@@ -30,6 +30,8 @@ lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 lazy from typing import Any
 
+lazy import msgspec
+
 from rebrew.utils import BoundedLRU
 lazy from rebrew.utils import atomic_write_bytes, file_lock, parse_int_literal
 
@@ -282,7 +284,7 @@ def _iter_run_records(path: Path) -> Generator[dict[str, Any]]:
             if not line:
                 continue
             try:
-                record = json.loads(line)
+                record = msgspec.json.decode(line)
             except ValueError:
                 bad_lines += 1
                 continue
@@ -597,7 +599,7 @@ def _tail_records(path: Path) -> list[dict[str, Any]]:
         if not line:
             continue
         try:
-            record = json.loads(line)
+            record = msgspec.json.decode(line)
         except ValueError:
             continue
         if isinstance(record, dict):
@@ -636,14 +638,14 @@ def _win_present(path: Path, key: str) -> bool:
                     if not stripped:
                         continue
                     try:
-                        record = json.loads(stripped)
+                        record = msgspec.json.decode(stripped)
                     except ValueError:
                         continue
                     if isinstance(record, dict) and _run_key(record) == key:
                         return True
             if pending.strip():
                 try:
-                    record = json.loads(pending.decode("utf-8", errors="replace").strip())
+                    record = msgspec.json.decode(pending.decode("utf-8", errors="replace").strip())
                 except ValueError:
                     record = None
                 if isinstance(record, dict) and _run_key(record) == key:
@@ -741,7 +743,7 @@ def record_ga_run(
             record["mutations"] = list(mutations)
         record["solved_at"] = _normalise_ts(solved_at or finished)
     p = _ensure_runs_dir(project_root)
-    line = json.dumps(record) + "\n"
+    line = msgspec.json.encode(record).decode("utf-8") + "\n"
     key = _run_key(record)
     with _ga_runs_append_lock(p):
         if key in _recent_run_keys(p):
@@ -824,7 +826,7 @@ def _prune_loss_records(path: Path) -> None:
     for raw_bytes in reversed(raw_lines):
         parsed: Any = None
         with contextlib.suppress(ValueError):
-            parsed = json.loads(raw_bytes.decode("utf-8").strip())
+            parsed = msgspec.json.decode(raw_bytes.strip())
         is_loss = isinstance(parsed, dict) and not bool(parsed.get("matched"))
         keep_now = not is_loss or losses_kept < _LOSS_RECORD_RETENTION
         if is_loss and keep_now:
@@ -958,7 +960,7 @@ def restore_ga_runs(backup: Path, project_root: Path) -> Path:
         if not line.strip():
             continue
         try:
-            parsed = json.loads(line)
+            parsed = msgspec.json.decode(line)
         except ValueError as exc:
             raise ValueError(f"corrupt GA run log backup {backup} line {lineno}") from exc
         if not isinstance(parsed, dict):

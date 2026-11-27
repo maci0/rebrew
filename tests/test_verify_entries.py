@@ -35,7 +35,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[SourceBinding]) -> Non
     monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
     monkeypatch.setattr(verify_mod, "load_verify_cache", lambda *a, **k: None)
     monkeypatch.setattr(
-        "rebrew.coff_reloc.build_name_to_va",
+        "rebrew.compare.coff_reloc.build_name_to_va",
         lambda cfg, annotations=None: {e.name: e.va for e in entries if e.name},
     )
 
@@ -110,7 +110,7 @@ class TestPrepareEntries:
             seen.extend(annotations)
             return {e.name: e.va for e in annotations}
 
-        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", catalog)
+        monkeypatch.setattr("rebrew.compare.coff_reloc.build_name_to_va", catalog)
         entries, *_rest, duplicates, _names, _inventory = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
@@ -272,7 +272,7 @@ class TestPrepareEntriesCache:
         monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
         monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
         monkeypatch.setattr(
-            "rebrew.coff_reloc.build_name_to_va",
+            "rebrew.compare.coff_reloc.build_name_to_va",
             lambda cfg, annotations=None: {entry.name: entry.va} if entry.name else {},
         )
         return cfg
@@ -960,7 +960,7 @@ def test_verify_entry_survives_a_raising_logger(
         raise RuntimeError("disassembly unavailable")
 
     monkeypatch.setattr(matcher_mod, "diff_functions", _boom, raising=False)
-    import rebrew.alignment as alignment_mod
+    import rebrew.compare.alignment as alignment_mod
 
     monkeypatch.setattr(
         alignment_mod,

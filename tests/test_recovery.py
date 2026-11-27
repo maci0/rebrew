@@ -117,7 +117,7 @@ class TestGaRunsBackup:
     def test_cli_backup_and_restore(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _seed_log(tmp_path)
         monkeypatch.setattr(
-            "rebrew.solutions_db.require_config",
+            "rebrew.matching.solutions_db.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
                 root=tmp_path, target_name="SERVER"
             ),

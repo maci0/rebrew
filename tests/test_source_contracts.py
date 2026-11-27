@@ -408,9 +408,9 @@ class TestReleaseContractControls:
         )
         from typer.testing import CliRunner
 
-        from rebrew.types_cli import app
+        from rebrew.c_syntax.types_cli import app
 
-        with patch("rebrew.types_cli.require_config", return_value=cfg):
+        with patch("rebrew.c_syntax.types_cli.require_config", return_value=cfg):
             result = CliRunner().invoke(app, ["contracts", "--name", "queue", "--json"])
         assert result.exit_code == 1, result.output
         assert cli_payload(result)["unknown"]

@@ -1469,7 +1469,9 @@ class TestVerifyCacheHelpers:
         from rebrew.status import _compute_text_size
 
         (tmp_path / "x.dll").write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p, **_kw: 0x1234)
+        monkeypatch.setattr(
+            "rebrew.binary.sections.get_text_section_size", lambda _p, **_kw: 0x1234
+        )
         assert _compute_text_size(self._cfg(tmp_path)) == 0x1234
 
 
@@ -1528,7 +1530,7 @@ class TestStatusBranches:
         def _boom(*a: object, **k: object) -> object:
             raise ValueError("bad binary")
 
-        monkeypatch.setattr("rebrew.sections.get_text_section_size", _boom)
+        monkeypatch.setattr("rebrew.binary.sections.get_text_section_size", _boom)
         assert _compute_text_size(cfg) == 0  # type: ignore[arg-type]
 
     def test_collect_status_load_data_error_returns_zeroed(

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 lazy import hashlib
-lazy import json
 lazy from datetime import datetime
 lazy from typing import Any
+
+lazy import msgspec
 
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.formats.binary_loader import load_binary
@@ -111,7 +112,7 @@ def repair_inventory_extents(
         binary_hash = hashlib.sha256(binary_raw).hexdigest()
         inventory_hash = hashlib.sha256(raw).hexdigest()
         digest = hashlib.sha256(
-            json.dumps(
+            msgspec.json.encode(
                 {
                     "target": cfg.target_name,
                     "inventory": str(inventory.resolve()),
@@ -124,12 +125,12 @@ def repair_inventory_extents(
                     "reason": reason.strip(),
                     "add_missing": add_missing,
                 },
-                sort_keys=True,
-            ).encode()
+                order="sorted",
+            )
         ).hexdigest()
         if expected_digest is not None and digest != expected_digest:
             raise ValueError("inventory review inputs changed; review a new preview")
-        document = json.loads(raw.decode("utf-8-sig"))
+        document = msgspec.json.decode(raw.decode("utf-8-sig"))
         if not isinstance(document, list) or any(not isinstance(row, dict) for row in document):
             raise ValueError("native inventory must be an array of function rows")
         rows: dict[int, dict[str, Any]] = {}
@@ -330,7 +331,8 @@ def repair_inventory_extents(
             if report["repairs"] or report["merges"] or report["retirements"]:
                 atomic_write_text(
                     inventory,
-                    json.dumps(document, indent=2) + "\n",
+                    msgspec.json.format(msgspec.json.encode(document), indent=2).decode("utf-8")
+                    + "\n",
                     mode=inventory.stat().st_mode & 0o777,
                 )
     return report

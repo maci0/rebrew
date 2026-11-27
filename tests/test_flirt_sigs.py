@@ -9,9 +9,9 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew import flirt
 from rebrew.config import ConfigError
-from rebrew.flirt import NO_SIGS_CHECKOUT, _flirt_sigs_repo, signature_files
+from rebrew.library import flirt
+from rebrew.library.flirt import NO_SIGS_CHECKOUT, _flirt_sigs_repo, signature_files
 
 
 def test_sig_files_dedup_project_wins(tmp_path: Path) -> None:
@@ -83,7 +83,7 @@ _BOTH = {"gcc/x86/lib.pat": "x86", "gcc/arm/lib.pat": "arm"}
 
 
 def _pat(path: Path, patterns: int) -> None:
-    from rebrew.gen_flirt_pat import bytes_to_pat_line
+    from rebrew.library.gen_flirt_pat import bytes_to_pat_line
 
     path.parent.mkdir(parents=True, exist_ok=True)
     lines = [

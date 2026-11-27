@@ -1,4 +1,4 @@
-"""Property-based fuzz tests for ``rebrew.pe_info.pe_info`` on corrupted images.
+"""Property-based fuzz tests for ``rebrew.binary.pe_info.pe_info`` on corrupted images.
 
 ``rebrew binary pe`` dumps whatever binary the user points it at, so every byte
 of the file is untrusted.  These tests mutate the committed PE and ELF
@@ -16,7 +16,7 @@ from pathlib import Path
 from hypothesis import event, given, settings
 from hypothesis import strategies as st
 
-from rebrew.pe_info import pe_info
+from rebrew.binary.pe_info import pe_info
 
 FIXTURES = Path(__file__).parent / "fixtures"
 _SEEDS = {

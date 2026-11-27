@@ -840,14 +840,14 @@ class TestDecompBody:
             decomp_backend="ghidra",
             decomp_body=False,
         )
-        from rebrew.c_parser import find_c_function_definitions
+        from rebrew.c_syntax.parser import find_c_function_definitions
 
         assert [name for name, _line in find_c_function_definitions(content)] == ["my_func"]
         assert "* /" in content  # the breakout is defused, not deleted
 
     def test_complete_decomp_body_exceeds_only_the_ga_budget(self, tmp_path: Path) -> None:
-        from rebrew.c_parser import function_source_error
-        from rebrew.llm_seed import valid_c_source
+        from rebrew.c_syntax.parser import function_source_error
+        from rebrew.matching.llm_seed import valid_c_source
 
         code = "int orig(void) { int n = 0;" + "n += 1;" * 1500 + "return n; }"
         assert function_source_error(code) is None
@@ -1099,7 +1099,7 @@ class TestConventionStub:
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.extract_raw_bytes", lambda p, va, n: code[:n]
         )
-        monkeypatch.setattr("rebrew.asm.next_function_va", lambda cfg, va: 0x1010)
+        monkeypatch.setattr("rebrew.binary.asm.next_function_va", lambda cfg, va: 0x1010)
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
         assert sig is None  # cdecl — not the neighbour's __stdcall
         assert note is None
@@ -1150,7 +1150,7 @@ class TestConventionStub:
 
         cfg = NS(arch="x86_32", target_binary=str(tmp_path / "x.exe"))
         monkeypatch.setattr(
-            "rebrew.asm.build_function_lookup",
+            "rebrew.binary.asm.build_function_lookup",
             lambda c: {0x1009C76: ("@fcn_01009c76@8", "RELOC")},
         )
         insns = [
@@ -1167,7 +1167,7 @@ class TestConventionStub:
         """No decorated name for the target → plain signature + note."""
         from rebrew.skeleton import _convention_stub
 
-        monkeypatch.setattr("rebrew.asm.build_function_lookup", lambda c: {})
+        monkeypatch.setattr("rebrew.binary.asm.build_function_lookup", lambda c: {})
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda p, va, with_kind=True: (42, "jmp"),
@@ -1187,7 +1187,7 @@ class TestConventionStub:
 
         # The disassembled `jmp` target (`e9 00 00 00 00` at 0x1007) is 0x100c.
         monkeypatch.setattr(
-            "rebrew.asm.build_function_lookup", lambda c: {0x100C: ("_fcn@0", "RELOC")}
+            "rebrew.binary.asm.build_function_lookup", lambda c: {0x100C: ("_fcn@0", "RELOC")}
         )
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.function_extent_from_disasm",
@@ -1534,7 +1534,7 @@ class TestInertDecompilerFallback:
         ],
     )
     def test_rejected_body_is_inert(self, body: str) -> None:
-        from rebrew.c_parser import find_c_function_definitions, parse_c_source
+        from rebrew.c_syntax.parser import find_c_function_definitions, parse_c_source
         from rebrew.skeleton import _render_skeleton
 
         with pytest.warns(UserWarning, match="failed the C gate:"):

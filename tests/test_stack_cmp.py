@@ -9,8 +9,8 @@ from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
-from rebrew.stack_analysis import analyze_frame, compare_frames
-from rebrew.stack_cmp import app
+from rebrew.compare.stack_analysis import analyze_frame, compare_frames
+from rebrew.compare.stack_cmp import app
 
 # Hand-crafted 32-bit x86 encodings.
 # push ebp; mov ebp,esp; sub esp,0x28; mov [ebp-4],eax; mov eax,[ebp-4]; leave; ret
@@ -235,8 +235,8 @@ class TestRunStackCmp:
             calls.append("compile")
             return SimpleNamespace(ok=True, obj_bytes=bytes.fromhex("20d04de2"), error_msg="")
 
-        monkeypatch.setattr("rebrew.stack_cmp.require_config", lambda **kwargs: cfg)
-        monkeypatch.setattr("rebrew.match_sweep.resolve_arg_params", resolve)
+        monkeypatch.setattr("rebrew.compare.stack_cmp.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.matching.sweep.resolve_arg_params", resolve)
         monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", compile_)
         args = (["--json"] if json_mode else []) + [str(source)]
         result = CliRunner().invoke(app, args)
@@ -247,8 +247,8 @@ class TestRunStackCmp:
     def _patch(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, obj_bytes: bytes
     ) -> SimpleNamespace:
-        import rebrew.match
         import rebrew.matcher
+        import rebrew.matching.cli
 
         cfg = SimpleNamespace(arch="x86_32", compile_timeout=None)
         src = tmp_path / "f.c"
@@ -258,7 +258,7 @@ class TestRunStackCmp:
             encoding="utf-8",
             metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION"}},
         )
-        monkeypatch.setattr("rebrew.stack_cmp.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.compare.stack_cmp.require_config", lambda **kw: cfg)
         params = SimpleNamespace(
             cfg=cfg,
             seed_c=src,
@@ -275,7 +275,7 @@ class TestRunStackCmp:
         )
         # run_stack_cmp imports these inside the function — patch the modules
         # they are imported from.
-        monkeypatch.setattr(rebrew.match_sweep, "resolve_build_params", lambda *a, **k: params)
+        monkeypatch.setattr(rebrew.matching.sweep, "resolve_build_params", lambda *a, **k: params)
 
         res_cls = type("_Res", (), {"ok": True, "obj_bytes": obj_bytes, "error_msg": ""})
         monkeypatch.setattr(

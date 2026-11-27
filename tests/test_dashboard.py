@@ -2242,13 +2242,19 @@ class TestLiteralSearch:
         class Snapshot(SimpleNamespace):
             pass
 
-        first = Snapshot(code_functions=[SimpleNamespace(name="OLD", symbol="X")], globals=[])
+        first = Snapshot(
+            code_functions=[SimpleNamespace(name="OLD", symbol="X")],
+            globals=[],
+            ordered_globals=[],
+        )
+        second_globals = [SimpleNamespace(name="NEW")]
         second = Snapshot(
             code_functions=[
                 SimpleNamespace(name="NEW", symbol="Y"),
                 SimpleNamespace(name="TWO", symbol="Z"),
             ],
-            globals=[SimpleNamespace(name="NEW")],
+            globals=second_globals,
+            ordered_globals=second_globals,
         )
         assert dash._folded_functions(first) == (("old", "x"),)
         assert dash._folded_globals(first) == ()
@@ -2267,9 +2273,11 @@ class TestLiteralSearch:
 
         dash._FOLDED.clear()
         dash._FOLDED_GLOBALS.clear()
+        snap_globals = [SimpleNamespace(name="OLD")]
         snapshot = Snapshot(
             code_functions=[SimpleNamespace(name="OLD", symbol="OLD")],
-            globals=[SimpleNamespace(name="OLD")],
+            globals=snap_globals,
+            ordered_globals=snap_globals,
         )
         ref = weakref.ref(snapshot)
         dash._folded_functions(snapshot)
@@ -2293,6 +2301,7 @@ class TestLiteralSearch:
             Snapshot(
                 code_functions=[SimpleNamespace(name=f"FN{index}", symbol="S")],
                 globals=[SimpleNamespace(name=f"G{index}")],
+                ordered_globals=[SimpleNamespace(name=f"G{index}")],
             )
             for index in range(10)
         ]
@@ -2726,7 +2735,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12116), ("gzip", None)],
+        [("zstd", 12157), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None

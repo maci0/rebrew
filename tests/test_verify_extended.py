@@ -2090,7 +2090,7 @@ class TestRemoteServiceFailureIsNoVerdict:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _verify)
         monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.compare.coff_reloc.build_name_to_va", lambda cfg: {})
         monkeypatch.setattr("rebrew.verify.cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify.cli._print_results", lambda *a, **k: None)
 
@@ -2243,7 +2243,7 @@ class TestRunVerification:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _verify)
         monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.compare.coff_reloc.build_name_to_va", lambda cfg: {})
 
     def test_all_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify.cli import run_verification
@@ -2442,7 +2442,7 @@ class TestRunVerification:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _boom)
         monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.compare.coff_reloc.build_name_to_va", lambda cfg: {})
         passed, failed, fail_details, results, deferred = run_verification(
             [_ann(0x1000)], _cfg(tmp_path), jobs=1, total=1, cached_count=0, json_output=True
         )

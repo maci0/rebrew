@@ -1,4 +1,4 @@
-"""Property-based fuzz tests for the Rich-header codec in ``rebrew.fingerprints``.
+"""Property-based fuzz tests for the Rich-header codec in ``rebrew.binary.fingerprints``.
 
 ``_rich_header_parts_from_dos_stub`` searches a target binary's DOS stub for
 the ``Rich`` marker, reads the XOR key that follows it and walks back a dword
@@ -18,7 +18,7 @@ import struct
 from hypothesis import assume, event, given, settings
 from hypothesis import strategies as st
 
-from rebrew.fingerprints import (
+from rebrew.binary.fingerprints import (
     _rich_header_parts_from_dos_stub,
     rich_header_bytes_from_parts,
     rich_header_hash_from_parts,

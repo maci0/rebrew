@@ -11,7 +11,7 @@ import pytest
 from bin_util import make_coff_obj, make_pe
 from tree_snapshot import snapshot_with_stat
 
-from rebrew.coff_reloc import build_name_to_va
+from rebrew.compare.coff_reloc import build_name_to_va
 from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import load_binary
 from rebrew.metadata.functions import get_entry, record_function_identity, set_fields
@@ -230,7 +230,7 @@ class TestReviewedNativeIdentity:
         cfg.dll_exports[0x401100] = "_helper"
         assert build_name_to_va(cfg)["_helper"] == 0x401100
         cfg.dll_exports.clear()
-        from rebrew.coff_reloc import CatalogScanError
+        from rebrew.compare.coff_reloc import CatalogScanError
 
         with (
             patch(

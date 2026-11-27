@@ -15,7 +15,7 @@ Live project coverage views, portable `coverage-*.toml` documents, HTML coverage
 | `report.py` | Static HTML report generator backed by Jinja2 templates in `templates/report/` |
 | `dashboard.py` | Read-only local HTTP dashboard UI (part of `COMPOSITION_LAYER` in `tools/check_layering.py`) |
 
-Externals (the only packages this one may import): `analysis`, `catalog.loaders`, `catalog.pipeline`, `cli`, `compression`, `config`, `data.ownership`, `data.scan`, `depgraph`, `errors`, `formats.binary_loader`, `formats.import_table`, `formats.ne_loader`, `metadata.bindings`, `metadata.data`, `metadata.functions`, `metadata.storage`, `sections`, `source.discovery`, `source.rename_ops`, `status`, `status_style`, `telemetry`, `theme`, `utils`, `verify.cache`, `verify.hash`, `workspace`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
+Externals (the only packages this one may import): `binary.analysis`, `binary.sections`, `catalog.loaders`, `catalog.pipeline`, `cli`, `compression`, `config`, `data.ownership`, `data.scan`, `depgraph`, `errors`, `formats.binary_loader`, `formats.import_table`, `formats.ne_loader`, `metadata.bindings`, `metadata.data`, `metadata.functions`, `metadata.storage`, `source.discovery`, `source.rename_ops`, `status`, `status_style`, `telemetry`, `theme`, `utils`, `verify.cache`, `verify.hash`, `workspace`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 

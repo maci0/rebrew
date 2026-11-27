@@ -16,13 +16,13 @@ lazy from pathlib import Path
 
 import pytest
 
-import rebrew.prove as prove_mod
+import rebrew.matching.prove as prove_mod
 
 has_claripy = importlib.util.find_spec("angr") is not None
 
 
 def _install_fake_claripy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make ``from angr import claripy`` inside rebrew.prove resolve to a minimal fake."""
+    """Make ``from angr import claripy`` inside rebrew.matching.prove resolve to a minimal fake."""
 
     class _Solver:
         def __init__(self) -> None:
@@ -187,7 +187,7 @@ class TestResolveWatchedDir32:
             raise RuntimeError("catalog missing")
 
         monkeypatch.setattr(prove_mod, "build_name_to_va", boom)
-        with caplog.at_level("WARNING", logger="rebrew.prove"):
+        with caplog.at_level("WARNING", logger="rebrew.matching.prove"):
             out = prove_mod._resolve_watched_dir32("f.obj", "_f", object(), {0x10123456})
         assert out == {}
         assert any("watched-VA name resolution failed" in r.message for r in caplog.records)

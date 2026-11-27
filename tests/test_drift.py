@@ -1,4 +1,4 @@
-"""Unit tests for rebrew.drift -- byte-drift localisation from branch targets.
+"""Unit tests for rebrew.compare.drift -- byte-drift localisation from branch targets.
 
 The arithmetic here was got wrong twice in real use before it was pinned down,
 so both failure modes are covered explicitly:
@@ -19,7 +19,7 @@ import pytest
 from cli_json import cli_payload
 from source_util import write_source
 
-from rebrew.drift import branch_targets, derive_regions, drift_windows
+from rebrew.compare.drift import branch_targets, derive_regions, drift_windows
 
 capstone = pytest.importorskip("capstone")
 
@@ -107,7 +107,7 @@ class TestDriftWindows:
 
 
 def _w(lo, hi, drift):
-    from rebrew.drift import DriftWindow
+    from rebrew.compare.drift import DriftWindow
 
     return DriftWindow(lo=lo, hi=hi, drift=drift, jump=lo, ref_target=hi, our_target=hi + drift)
 
@@ -183,7 +183,7 @@ class TestDriftCommand:
     def _project(self, tmp_path, monkeypatch, *, our: bytes, status: str = "SIZE_MISMATCH"):
         from types import SimpleNamespace
 
-        from rebrew import drift_cli
+        from rebrew.compare import drift_cli
 
         src = tmp_path / "f.c"
         write_source(
@@ -216,7 +216,7 @@ class TestDriftCommand:
 
         from typer.testing import CliRunner
 
-        from rebrew import drift_cli
+        from rebrew.compare import drift_cli
 
         ours = _jmp_rel8(6) + _nops(6) + b"\xc3"
         src = self._project(tmp_path, monkeypatch, our=ours)
@@ -242,7 +242,7 @@ class TestDriftCommand:
 
         from typer.testing import CliRunner
 
-        from rebrew import drift_cli
+        from rebrew.compare import drift_cli
 
         src = self._project(tmp_path, monkeypatch, our=None, status="COMPILE_ERROR")
 
@@ -258,7 +258,7 @@ class TestDriftCommand:
     def test_text_output_states_the_object_size_delta(self, tmp_path, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import drift_cli
+        from rebrew.compare import drift_cli
 
         ours = _jmp_rel8(6) + _nops(6) + b"\xc3"
         src = self._project(tmp_path, monkeypatch, our=ours)
@@ -275,7 +275,7 @@ class TestDriftCommand:
 
         from typer.testing import CliRunner
 
-        from rebrew import drift_cli
+        from rebrew.compare import drift_cli
 
         src = tmp_path / "f.c"
         write_source(

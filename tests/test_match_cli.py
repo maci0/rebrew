@@ -29,7 +29,7 @@ def _params() -> SimpleNamespace:
 
 class TestMatchCliWatch:
     def test_watch_with_all_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
@@ -38,7 +38,7 @@ class TestMatchCliWatch:
             source_ext=".c",
             default_jobs=2,
         )
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["batch", "--watch"])
         assert result.exit_code == 2
         assert "No such option: --watch" in result.output
@@ -46,7 +46,7 @@ class TestMatchCliWatch:
     def test_watch_enters_watch_mode_and_retests(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         cfg = SimpleNamespace(
@@ -56,12 +56,12 @@ class TestMatchCliWatch:
             source_ext=".c",
             default_jobs=2,
         )
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.match.resolve_arg_params", lambda *a, **k: _params())
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.resolve_arg_params", lambda *a, **k: _params())
 
         seen: dict = {}
         monkeypatch.setattr(
-            "rebrew.match.run_single_ga",
+            "rebrew.matching.cli.run_single_ga",
             lambda *a, **k: seen.update(called=True),
         )
         captured: dict = {}
@@ -95,10 +95,10 @@ class TestMatchAllTargets:
         )
 
     def test_runs_each_target(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
 
         def _fake_load_config(root: Path, target: str | None = None) -> SimpleNamespace:
             return SimpleNamespace(
@@ -123,7 +123,7 @@ class TestMatchAllTargets:
             seen["n"] += 1
             return (1, 0) if seen["n"] == 1 else (0, 1)
 
-        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.matching.cli.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         # Documented exit contract: 1 = no match found — a batch with any
         # failed stub is not a success (previously always exited 0, a false
@@ -139,10 +139,10 @@ class TestMatchAllTargets:
     def test_batch_rejects_retired_all_flag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["batch", "--all-targets", "--all"])
         assert result.exit_code == 2
         assert "No such option: --all" in result.output
@@ -151,10 +151,10 @@ class TestMatchAllTargets:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failing target is counted as failed; the other targets still aggregate."""
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
 
         def _fake_load_config(root: Path, target: str | None = None) -> SimpleNamespace:
             if target == "client_exe":
@@ -178,7 +178,7 @@ class TestMatchAllTargets:
             calls.append(getattr(cfg, "target_name", "?"))
             return 2, 0
 
-        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.matching.cli.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         # The broken target is an infrastructure failure (exit 2), not a
         # mismatch, and the healthy target still aggregates.
@@ -193,10 +193,10 @@ class TestMatchAllTargets:
     def test_dry_run_keeps_a_compiler_exception_as_exit_2(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.config.load_config",
             lambda root, target=None: SimpleNamespace(
@@ -217,7 +217,7 @@ class TestMatchAllTargets:
             seen.append(getattr(cfg, "target_name", "?"))
             raise RuntimeError("compiler unavailable")
 
-        monkeypatch.setattr("rebrew.match.run_all", _boom)
+        monkeypatch.setattr("rebrew.matching.cli.run_all", _boom)
         result = CliRunner().invoke(app, ["batch", "--all-targets", "--dry-run", "--json"])
         assert result.exit_code == 2
         assert seen == ["server_dll", "client_exe"]
@@ -228,10 +228,10 @@ class TestMatchAllTargets:
     def test_all_targets_watch_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["batch", "--all-targets", "--watch"])
         assert result.exit_code == 2
         assert "No such option: --watch" in result.output
@@ -280,7 +280,7 @@ class TestResolveBuildParamsSymbol:
     def test_selects_matching_annotation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import resolve_build_params
+        from rebrew.matching.cli import resolve_build_params
 
         cfg, f = self._prepare(tmp_path, monkeypatch)
 
@@ -294,7 +294,7 @@ class TestResolveBuildParamsSymbol:
     def test_no_symbol_falls_back_to_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import resolve_build_params
+        from rebrew.matching.cli import resolve_build_params
 
         cfg, f = self._prepare(tmp_path, monkeypatch)
 
@@ -309,7 +309,7 @@ class TestResolveBuildParamsSymbol:
         """resolve_build_params with target_va set must select THAT annotation
         in a multi-function file, not the first one (workflow: `rebrew
         diff/match/prove 0x<va>` was diffing the wrong function)."""
-        from rebrew.match import resolve_build_params
+        from rebrew.matching.cli import resolve_build_params
 
         cfg, f = self._prepare(tmp_path, monkeypatch)
 
@@ -325,7 +325,7 @@ class TestFindFunctionRange:
     """_find_function_range — GA mutation scoping helper."""
 
     def test_finds_matching_function(self) -> None:
-        from rebrew.match_ga import _find_function_range
+        from rebrew.matching.ga import _find_function_range
 
         src = """int helper(void) { return 0; }
 
@@ -341,7 +341,7 @@ int other(void) { return 2; }
         assert "helper" not in src[r[0] : r[1]]
 
     def test_underscore_prefix_optional(self) -> None:
-        from rebrew.match_ga import _find_function_range
+        from rebrew.matching.ga import _find_function_range
 
         src = "int foo(void) { return 1; }"
         r = _find_function_range(src, "foo")
@@ -354,7 +354,7 @@ int other(void) { return 2; }
         ``lstrip("_")`` left the decoration in the name, so the GA scored
         the whole file.
         """
-        from rebrew.match_ga import _find_function_range
+        from rebrew.matching.ga import _find_function_range
 
         src = """int other(void) { return 0; }
 int __stdcall sleepish(int a) { return a; }
@@ -374,7 +374,7 @@ int __fastcall keeps(int a) { return a; }
 
     def test_double_underscore_scopes_the_underscored_name(self) -> None:
         """``__foo`` is the function ``_foo``. ``lstrip`` made it ``foo``."""
-        from rebrew.match_ga import _find_function_range
+        from rebrew.matching.ga import _find_function_range
 
         src = "int foo(void) { return 1; }\nint _foo(void) { return 2; }\n"
         found = _find_function_range(src, "__foo")
@@ -388,19 +388,19 @@ int __fastcall keeps(int a) { return a; }
         assert "return 1" in src[cdecl[0] : cdecl[1]]
 
     def test_missing_symbol_returns_none(self) -> None:
-        from rebrew.match_ga import _find_function_range
+        from rebrew.matching.ga import _find_function_range
 
         src = "int foo(void) { return 1; }"
         assert _find_function_range(src, "_nonexistent") is None
 
     def test_non_c_garbage_returns_none(self) -> None:
-        from rebrew.match_ga import _find_function_range
+        from rebrew.matching.ga import _find_function_range
 
         assert _find_function_range("not c at all", "_foo") is None
 
     def test_cp1252_seed_is_scoped_by_byte_offsets(self) -> None:
         """A cp1252 seed (read_compile_source: surrogateescape) still scopes."""
-        from rebrew.match_ga import _find_function_range
+        from rebrew.matching.ga import _find_function_range
 
         raw = b'const char *s = "Caf\xe9";\nint foo(void) { return 1; }\n'
         src = raw.decode("utf-8", errors="surrogateescape")
@@ -473,7 +473,7 @@ int __fastcall keeps(int a) { return a; }
 
 class TestSeedKunaHelp:
     def test_seed_kuna_help_has_no_em_dash(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         monkeypatch.setenv("COLUMNS", "200")
         help_text = CliRunner().invoke(app, ["run", "--help"])
@@ -489,7 +489,7 @@ class TestMatchCliDryRun:
     def test_single_function_dry_run_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
@@ -498,12 +498,12 @@ class TestMatchCliDryRun:
             source_ext=".c",
             default_jobs=2,
         )
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
 
         def _boom(*args: object, **kwargs: object) -> None:
             raise AssertionError("run_single_ga ran for a single function under --dry-run")
 
-        monkeypatch.setattr("rebrew.match.run_single_ga", _boom)
+        monkeypatch.setattr("rebrew.matching.cli.run_single_ga", _boom)
         result = CliRunner().invoke(app, ["run", "--dry-run", "f.c"])
         assert result.exit_code == 2
         assert "--dry-run requires --seed-llm" in result.output
@@ -512,12 +512,12 @@ class TestMatchCliDryRun:
     def test_compiler_sweeps_reject_preview_before_loading_config(
         self, operation: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         def unexpected(**kwargs: Any) -> None:
             raise AssertionError("unsupported option reached project loading")
 
-        monkeypatch.setattr("rebrew.match.require_config", unexpected)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", unexpected)
         result = CliRunner().invoke(app, [operation, "f.c", "--dry-run"])
         assert result.exit_code == 2
         assert "No such option" in result.output
@@ -540,10 +540,10 @@ class TestAllTargetsParallel:
         )
 
     def test_jobs_split_across_targets(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.config.load_config",
             lambda root, target=None: SimpleNamespace(
@@ -564,25 +564,25 @@ class TestAllTargetsParallel:
             job_args.append(int(kwargs.get("jobs", 0)))
             return (1, 0)
 
-        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.matching.cli.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         assert result.exit_code == 0
         # 4 jobs over 2 targets → 2 each; total wine concurrency stays ~4.
         assert job_args == [2, 2]
 
     def test_single_target_keeps_full_jobs(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
         cfg.all_targets = ["server_dll"]
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         job_args: list[int] = []
 
         def _fake_run_all(cfg=None, **kwargs: object) -> tuple[int, int]:
             job_args.append(int(kwargs.get("jobs", 0)))
             return (1, 0)
 
-        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.matching.cli.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["batch", "--all-targets", "--json"])
         assert result.exit_code == 0
         assert job_args == [4]  # no split needed
@@ -591,12 +591,12 @@ class TestAllTargetsParallel:
         """More targets than --jobs must not run every target at once."""
         from concurrent.futures import ThreadPoolExecutor as RealPool
 
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
         cfg.all_targets = [f"t{i}" for i in range(8)]
         cfg.default_jobs = 4
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.config.load_config",
             lambda root, target=None: SimpleNamespace(
@@ -623,7 +623,7 @@ class TestAllTargetsParallel:
                 pool_sizes.append(int(kwargs.get("max_workers") or args[0]))
                 super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.matching.cli.run_all", _fake_run_all)
         # Patch where match imports it (inside the parallel branch).
         import concurrent.futures as cf
 
@@ -653,17 +653,17 @@ class TestMatchCliLink:
     def test_link_reaches_linked_build_path(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = self._cfg(tmp_path)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.match.resolve_arg_params",
+            "rebrew.matching.cli.resolve_arg_params",
             lambda *a, **k: _params(),
         )
         captured: dict = {}
         monkeypatch.setattr(
-            "rebrew.match.run_single_ga",
+            "rebrew.matching.cli.run_single_ga",
             lambda *a, **k: captured.update(args=a, kwargs=k),
         )
         result = CliRunner().invoke(
@@ -675,7 +675,7 @@ class TestMatchCliLink:
         assert captured["kwargs"]["link"] == "link /SUBSYSTEM:WINDOWS"
 
     def test_help_exposes_link(self) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         result = CliRunner().invoke(app, ["run", "--help"])
         assert result.exit_code == 0
@@ -707,7 +707,7 @@ class TestKunaSeed:
         from types import SimpleNamespace
 
         import rebrew.decompiler as dc_mod
-        import rebrew.match_run as match_mod
+        import rebrew.matching.run as match_mod
 
         seen: dict = {}
 
@@ -782,7 +782,7 @@ class TestKunaSeed:
         from types import SimpleNamespace
 
         import rebrew.decompiler as dc_mod
-        import rebrew.match_run as match_mod
+        import rebrew.matching.run as match_mod
 
         constructed: list = []
 
@@ -851,7 +851,7 @@ class TestLlmSeedMisconfiguration:
         )
 
     def test_ga_runs_without_llm_seeds(self, tmp_path: Path, monkeypatch, capsys) -> None:
-        import rebrew.match_run as match_mod
+        import rebrew.matching.run as match_mod
 
         seen: dict = {}
 
@@ -910,7 +910,7 @@ class TestLlmSeedMisconfiguration:
         closing tag with nothing open raises MarkupError, which would abort a
         GA the surrounding code promises to degrade instead.
         """
-        import rebrew.match_run as match_mod
+        import rebrew.matching.run as match_mod
 
         seen: dict = {}
 
@@ -960,7 +960,7 @@ class TestLlmSeedMisconfiguration:
         assert seen.get("extra_seeds") is None
 
     def test_dry_run_skips_the_ga(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.match_run as match_mod
+        import rebrew.matching.run as match_mod
 
         constructed: list = []
 
@@ -1000,12 +1000,12 @@ class TestMatchOptionContracts:
     def test_toolchain_sweep_rejects_overridden_profile_inputs(
         self, monkeypatch: pytest.MonkeyPatch, option: str
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         def _unexpected(**kwargs: object) -> None:
             pytest.fail("an invalid option reached the search writer")
 
-        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        monkeypatch.setattr("rebrew.matching.cli.execute_search", _unexpected)
         result = CliRunner().invoke(app, ["toolchains", "f.c", option, "override"])
         assert result.exit_code == 2, result.output
         assert "No such option" in result.output
@@ -1025,12 +1025,12 @@ class TestMatchOptionContracts:
     def test_sweeps_reject_unused_build_options(
         self, monkeypatch: pytest.MonkeyPatch, operation: str, options: list[str]
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         def _unexpected(**kwargs: object) -> None:
             pytest.fail("an invalid option reached the search writer")
 
-        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        monkeypatch.setattr("rebrew.matching.cli.execute_search", _unexpected)
         result = CliRunner().invoke(app, [operation, "f.c", *options])
         assert result.exit_code == 2, result.output
         assert "No such option" in result.output
@@ -1039,12 +1039,12 @@ class TestMatchOptionContracts:
     def test_toolchain_sweep_requires_flags_for_flag_tuning(
         self, monkeypatch: pytest.MonkeyPatch, options: list[str]
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         def _unexpected(**kwargs: object) -> None:
             pytest.fail("an inapplicable option reached the search writer")
 
-        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        monkeypatch.setattr("rebrew.matching.cli.execute_search", _unexpected)
         result = CliRunner().invoke(app, ["toolchains", "f.c", *options, "--json"])
         assert result.exit_code == 2, result.output
         assert "requires --flags" in cli_payload(result)["error"]
@@ -1052,18 +1052,18 @@ class TestMatchOptionContracts:
     def test_toolchain_flag_sweep_forwards_tuning_to_driver(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         monkeypatch.setattr(
-            "rebrew.match.require_config", lambda **kw: SimpleNamespace(default_jobs=4)
+            "rebrew.matching.cli.require_config", lambda **kw: SimpleNamespace(default_jobs=4)
         )
-        monkeypatch.setattr("rebrew.match.resolve_arg_params", lambda *a, **kw: _params())
+        monkeypatch.setattr("rebrew.matching.cli.resolve_arg_params", lambda *a, **kw: _params())
         seen: dict = {}
 
         def _sweep(*args: object) -> None:
             seen["args"] = args
 
-        monkeypatch.setattr("rebrew.match.run_single_toolchain_flag_sweep", _sweep)
+        monkeypatch.setattr("rebrew.matching.cli.run_single_toolchain_flag_sweep", _sweep)
         result = CliRunner().invoke(
             app, ["toolchains", "f.c", "--flags", "--jobs", "2", "--tier", "quick", "--json"]
         )
@@ -1082,12 +1082,12 @@ class TestMatchOptionContracts:
     def test_batch_rejects_single_function_options_before_execution(
         self, monkeypatch: pytest.MonkeyPatch, options: list[str]
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         def _unexpected(**kwargs: object) -> None:
             pytest.fail("an invalid option reached the search writer")
 
-        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        monkeypatch.setattr("rebrew.matching.cli.execute_search", _unexpected)
         result = CliRunner().invoke(app, ["batch", *options])
         assert result.exit_code == 2, result.output
         assert "No such option" in result.output
@@ -1104,12 +1104,12 @@ class TestMatchOptionContracts:
     def test_run_rejects_batch_options_before_execution(
         self, monkeypatch: pytest.MonkeyPatch, options: list[str]
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         def _unexpected(**kwargs: object) -> None:
             pytest.fail("an invalid option reached the search writer")
 
-        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        monkeypatch.setattr("rebrew.matching.cli.execute_search", _unexpected)
         result = CliRunner().invoke(app, ["run", "f.c", *options])
         assert result.exit_code == 2, result.output
         assert "No such option" in result.output
@@ -1117,12 +1117,12 @@ class TestMatchOptionContracts:
     def test_negative_batch_limit_fails_before_execution(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         def _unexpected(**kwargs: object) -> None:
             pytest.fail("a negative limit reached the search writer")
 
-        monkeypatch.setattr("rebrew.match.execute_search", _unexpected)
+        monkeypatch.setattr("rebrew.matching.cli.execute_search", _unexpected)
         result = CliRunner().invoke(app, ["batch", "--max-stubs", "-1"])
         assert result.exit_code == 2, result.output
         assert "--max-stubs" in result.output
@@ -1130,17 +1130,17 @@ class TestMatchOptionContracts:
     def test_batch_retains_resume_and_seeding_controls(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         cfg = SimpleNamespace(root=tmp_path, default_jobs=2)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
         seen: dict = {}
 
         def _run_all(**kwargs: object) -> tuple[int, int]:
             seen.update(kwargs)
             return 0, 0
 
-        monkeypatch.setattr("rebrew.match.run_all", _run_all)
+        monkeypatch.setattr("rebrew.matching.cli.run_all", _run_all)
         result = CliRunner().invoke(
             app,
             [
@@ -1162,7 +1162,7 @@ class TestMatchOptionContracts:
 
     @pytest.mark.parametrize("operation", ["run", "batch", "flags", "toolchains"])
     def test_help_uses_operation_specific_panels(self, operation: str) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         result = CliRunner().invoke(app, [operation, "--help"])
         assert result.exit_code == 0, result.output
@@ -1184,18 +1184,18 @@ class TestMatchRunCount:
             source_ext=".c",
             default_jobs=2,
         )
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.match.resolve_arg_params", lambda *a, **k: _params())
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.matching.cli.resolve_arg_params", lambda *a, **k: _params())
 
         def _boom(*args: object, **kwargs: object) -> None:
             raise AssertionError("the GA ran under --count")
 
-        monkeypatch.setattr("rebrew.match.run_single_ga", _boom)
+        monkeypatch.setattr("rebrew.matching.cli.run_single_ga", _boom)
 
     def test_count_is_every_member_of_every_generation_and_the_ceiling_check(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         self._staged(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["run", "-g", "3", "-p", "5", "--count", "--json", "f.c"])
@@ -1206,7 +1206,7 @@ class TestMatchRunCount:
     def test_extra_seeds_have_no_count(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, seeding: list[str]
     ) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         self._staged(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["run", *seeding, "--count", "--json", "f.c"])

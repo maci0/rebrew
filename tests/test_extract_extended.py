@@ -9,7 +9,7 @@ import typer
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew.extract import cmd_batch, cmd_extract, load_functions
+from rebrew.binary.extract import cmd_batch, cmd_extract, load_functions
 
 
 def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
@@ -47,7 +47,7 @@ class TestLoadFunctions:
 
 
 def _patch_disasm(monkeypatch: pytest.MonkeyPatch, text: str = "push ebp") -> None:
-    monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda code, va, cfg=None: text)
+    monkeypatch.setattr("rebrew.binary.extract.disasm_bytes", lambda code, va, cfg=None: text)
 
 
 class TestCmdExtract:
@@ -55,7 +55,7 @@ class TestCmdExtract:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ) -> None:
         binary = SimpleNamespace(data=b"", sections={})
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"")
+        monkeypatch.setattr("rebrew.binary.extract.extract_bytes_at_va", lambda *a, **k: b"")
         with pytest.raises(typer.Exit) as exc:
             cmd_extract(binary, [(0x1000, 8, "f")], 0x1000, tmp_path, json_output=True)  # type: ignore[arg-type]
         assert exc.value.exit_code == 2
@@ -66,12 +66,14 @@ class TestCmdExtract:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ) -> None:
         binary = SimpleNamespace(data=b"\x90" * 8, sections={})
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr(
+            "rebrew.binary.extract.extract_bytes_at_va", lambda *a, **k: b"\x90" * 8
+        )
 
         def _boom(code, va, cfg=None):
             raise RuntimeError("no capstone")
 
-        monkeypatch.setattr("rebrew.extract.disasm_bytes", _boom)
+        monkeypatch.setattr("rebrew.binary.extract.disasm_bytes", _boom)
         with pytest.raises(typer.Exit) as exc:
             cmd_extract(binary, [(0x1000, 8, "f")], 0x1000, tmp_path, json_output=True)  # type: ignore[arg-type]
         assert exc.value.exit_code == 2
@@ -91,7 +93,9 @@ class TestCmdExtract:
 
     def test_success_writes_bin(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         binary = SimpleNamespace(data=b"", sections={})
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x55\x8b\xec")
+        monkeypatch.setattr(
+            "rebrew.binary.extract.extract_bytes_at_va", lambda *a, **k: b"\x55\x8b\xec"
+        )
         _patch_disasm(monkeypatch)
         cmd_extract(binary, [(0x1000, 3, "f")], 0x1000, tmp_path)  # type: ignore[arg-type]
         assert (tmp_path / "func_0x00001000.bin").read_bytes() == b"\x55\x8b\xec"
@@ -108,7 +112,7 @@ class TestCmdBatch:
                 return b"\x90\x90"
             return None
 
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", _extract)
+        monkeypatch.setattr("rebrew.binary.extract.extract_bytes_at_va", _extract)
         _patch_disasm(monkeypatch)
         candidates = [(0x1000, 2, "good"), (0x2000, 8, "bad")]
         with pytest.raises(typer.Exit) as caught:
@@ -125,7 +129,9 @@ class TestCmdBatch:
     ) -> None:
         """--dry-run must preview .bin writes without touching the disk."""
         binary = SimpleNamespace(data=b"", sections={})
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x55\x8b\xec")
+        monkeypatch.setattr(
+            "rebrew.binary.extract.extract_bytes_at_va", lambda *a, **k: b"\x55\x8b\xec"
+        )
         _patch_disasm(monkeypatch)
         cmd_batch(
             binary,
@@ -145,12 +151,14 @@ class TestCmdBatch:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ) -> None:
         binary = SimpleNamespace(data=b"", sections={})
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x90\x90")
+        monkeypatch.setattr(
+            "rebrew.binary.extract.extract_bytes_at_va", lambda *a, **k: b"\x90\x90"
+        )
 
         def _boom(code, va, cfg=None):
             raise RuntimeError("no capstone")
 
-        monkeypatch.setattr("rebrew.extract.disasm_bytes", _boom)
+        monkeypatch.setattr("rebrew.binary.extract.disasm_bytes", _boom)
         with pytest.raises(typer.Exit) as caught:
             cmd_batch(binary, [(0x1000, 2, "f")], 1, 0, tmp_path, json_output=True)  # type: ignore[arg-type]
         assert caught.value.exit_code == 1
@@ -161,7 +169,7 @@ class TestCmdBatch:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ) -> None:
         binary = SimpleNamespace(data=b"", sections={})
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.binary.extract.extract_bytes_at_va", lambda *a, **k: None)
         with pytest.raises(typer.Exit) as caught:
             cmd_batch(binary, [(0x1000, 8, "bad")], 1, 0, tmp_path)  # type: ignore[arg-type]
         assert caught.value.exit_code == 1
@@ -174,14 +182,14 @@ class TestExtractCli:
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
         cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.extract.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.binary.extract.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.extract.load_binary", lambda p: SimpleNamespace(data=b"", sections={})
+            "rebrew.binary.extract.load_binary", lambda p: SimpleNamespace(data=b"", sections={})
         )
         return cfg
 
     def test_list_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.extract import app
+        from rebrew.binary.extract import app
 
         self._setup(tmp_path, monkeypatch)
         _write_inv(tmp_path, [{"va": 0x1000, "size": 64, "name": "func_a"}])
@@ -192,7 +200,7 @@ class TestExtractCli:
         assert data["candidates"][0]["name"] == "func_a"
 
     def test_list_size_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.extract import app
+        from rebrew.binary.extract import app
 
         self._setup(tmp_path, monkeypatch)
         _write_inv(
@@ -208,12 +216,14 @@ class TestExtractCli:
         assert data["candidates"][0]["name"] == "func_b"
 
     def test_show_with_size_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.extract import app
+        from rebrew.binary.extract import app
 
         self._setup(tmp_path, monkeypatch)
         _write_inv(tmp_path, [{"va": 0x1000, "size": 64, "name": "func_a"}])
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x90" * 16)
-        monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda *a, **k: "nop")
+        monkeypatch.setattr(
+            "rebrew.binary.extract.extract_bytes_at_va", lambda *a, **k: b"\x90" * 16
+        )
+        monkeypatch.setattr("rebrew.binary.extract.disasm_bytes", lambda *a, **k: "nop")
         result = CliRunner().invoke(app, ["show", "0x1000", "--size", "16", "--json"])
         assert result.exit_code == 0
         data = cli_payload(result)
@@ -221,27 +231,7 @@ class TestExtractCli:
         assert data["size"] == 16
 
     def test_batch_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.extract import app
-
-        self._setup(tmp_path, monkeypatch)
-        _write_inv(
-            tmp_path,
-            [
-                {"va": 0x1000, "size": 64, "name": "func_a"},
-                {"va": 0x2000, "size": 32, "name": "func_b"},
-            ],
-        )
-        monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x90" * 8)
-        monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda *a, **k: "nop")
-        result = CliRunner().invoke(app, ["batch", "2", "--json"])
-        assert result.exit_code == 0
-        data = cli_payload(result)
-        assert data["count"] == 2
-
-    def test_batch_partial_failure_exits_mismatch_after_json(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from rebrew.extract import app
+        from rebrew.binary.extract import app
 
         self._setup(tmp_path, monkeypatch)
         _write_inv(
@@ -252,10 +242,32 @@ class TestExtractCli:
             ],
         )
         monkeypatch.setattr(
-            "rebrew.extract.extract_bytes_at_va",
+            "rebrew.binary.extract.extract_bytes_at_va", lambda *a, **k: b"\x90" * 8
+        )
+        monkeypatch.setattr("rebrew.binary.extract.disasm_bytes", lambda *a, **k: "nop")
+        result = CliRunner().invoke(app, ["batch", "2", "--json"])
+        assert result.exit_code == 0
+        data = cli_payload(result)
+        assert data["count"] == 2
+
+    def test_batch_partial_failure_exits_mismatch_after_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binary.extract import app
+
+        self._setup(tmp_path, monkeypatch)
+        _write_inv(
+            tmp_path,
+            [
+                {"va": 0x1000, "size": 64, "name": "func_a"},
+                {"va": 0x2000, "size": 32, "name": "func_b"},
+            ],
+        )
+        monkeypatch.setattr(
+            "rebrew.binary.extract.extract_bytes_at_va",
             lambda _info, va, _size: b"\x90" * 8 if va == 0x1000 else b"",
         )
-        monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda *a, **k: "nop")
+        monkeypatch.setattr("rebrew.binary.extract.disasm_bytes", lambda *a, **k: "nop")
         result = CliRunner().invoke(app, ["batch", "2", "--json"])
         assert result.exit_code == 1, result.output
         payload = cli_payload(result)
@@ -269,7 +281,7 @@ class TestExtractCli:
     def test_missing_function_list_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.extract import app
+        from rebrew.binary.extract import app
 
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["list", "--json"])

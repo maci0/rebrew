@@ -204,9 +204,9 @@ class TestSqliteDomainParity:
     def test_all_five_owners_read_and_write_selected_backend(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.library import app
+        from rebrew.c_syntax.type_metadata import bind_type, load_types
+        from rebrew.library.cli import app
         from rebrew.metadata.functions import find_library_override
-        from rebrew.type_metadata import bind_type, load_types
 
         cfg = _project(tmp_path, "sqlite")
         file = tmp_path / "src/a.c"
@@ -220,9 +220,9 @@ class TestSqliteDomainParity:
         set_source_file(tmp_path, "src/helper.c", "GAME", "support")
         header = tmp_path / "src/types.h"
         header.write_text("typedef struct ITEM { int x; } ITEM;\n")
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         monkeypatch.setattr(
-            "rebrew.type_metadata._inputs",
+            "rebrew.c_syntax.type_metadata._inputs",
             lambda *args: dict.fromkeys(
                 ("source_hash", "headers_hash", "context_hash", "binary_hash"), "a" * 64
             ),
@@ -629,7 +629,7 @@ class TestBackendIntegration:
     def test_sqlite_previews_do_not_create_or_touch_storage(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.library import app
+        from rebrew.library.cli import app
         from rebrew.metadata.data import move_data_entry
         from rebrew.metadata.source_provenance import rename_source_provenance
 

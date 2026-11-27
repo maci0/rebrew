@@ -201,7 +201,7 @@ class TestOrganizationRejectingControls:
         assert len(instances) == 1 and len(instances[0]["contexts"]) == 2
 
     def test_replacement_between_validation_and_snapshot_cannot_pass(self, tmp_path: Path) -> None:
-        from rebrew.binary_gate import snapshot_binary
+        from rebrew.binary.gate import snapshot_binary
 
         before, after = tmp_path / "before.exe", tmp_path / "after.exe"
         original = make_pe(b"\xc3")

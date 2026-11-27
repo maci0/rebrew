@@ -40,7 +40,7 @@ lazy from pathlib import Path
 
 lazy from rich.text import Text
 
-from rebrew.c_parser import CALLING_CONVENTION
+from rebrew.c_syntax.parser import CALLING_CONVENTION
 from rebrew.errors import RebrewError
 lazy from rebrew.config import KUNA_SPECS_ENV, expand_env_path, warn_env_dir
 lazy from rebrew.registry import RegistryError
@@ -899,7 +899,7 @@ def _strip_kuna_comments(text: str) -> str:
 def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     """Fetch Kuna's decompilation of *va* and make it compilable (rebrew source fix).
 
-    Two repairs beyond :func:`rebrew.pseudo_c.sanitize_tokens` are needed for Kuna output: its
+    Two repairs beyond :func:`rebrew.c_syntax.pseudo_c.sanitize_tokens` are needed for Kuna output: its
     address labels (``s_``/``dat_``/``sub_``) must be declared, and its C99-isms
     (``bool``, ``NULL``, ``true``/``false``) must be spelled for msvc-6.0's C89.
     Without them the seed never compiles and is discarded from the GA.
@@ -913,8 +913,8 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     raw = fetch_kuna(binary, va, root)
     if not raw:
         return None
-    from rebrew.c_parser import function_source_error
-    from rebrew.pseudo_c import sanitize_tokens
+    from rebrew.c_syntax.parser import function_source_error
+    from rebrew.c_syntax.pseudo_c import sanitize_tokens
 
     raw = _strip_kuna_comments(raw)
 

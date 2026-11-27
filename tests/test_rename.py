@@ -229,7 +229,7 @@ def test_backend_change_during_owner_write_uses_pinned_transaction(
 def test_move_refuses_to_strand_type_binding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import rebrew.type_metadata as types
+    import rebrew.c_syntax.type_metadata as types
 
     old = _src(tmp_path, "old.c", "typedef struct { int x; } T;\n")
     new = tmp_path / "new.c"
@@ -1909,7 +1909,7 @@ class TestProtectedSpans:
         assert [o.column for o in occurrences(src, "foo")] == [15]
 
     def test_macro_name_spans_cover_defines(self) -> None:
-        from rebrew.c_parser import protected_spans
+        from rebrew.c_syntax.parser import protected_spans
 
         src = "int foo(void) { return 1; }\n#define foo 2\nchar c = 'f';\n"
         spans = [src.encode("utf-8")[s:e].decode("utf-8") for s, e in protected_spans(src)]

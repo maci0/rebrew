@@ -393,7 +393,7 @@ def enrich_library_owners(
             )
             if len(source_candidates) == 1:
                 source_path = next(iter(source_candidates))
-                from rebrew.c_parser import find_variable_roles
+                from rebrew.c_syntax.parser import find_variable_roles
                 from rebrew.utils import read_source_text, rel_display_path
 
                 if source_path not in definitions_by_source:

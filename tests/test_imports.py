@@ -14,8 +14,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from typer.testing import CliRunner
 
+from rebrew.binary.imports import imports_payload
 from rebrew.formats.import_table import find_import_stubs, parse_import_table, parse_imports
-from rebrew.imports import imports_payload
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x1000
@@ -268,7 +268,7 @@ class TestFindImportStubs:
 
 class TestImportsCli:
     def test_terminal_output(self, pe_path: Path) -> None:
-        from rebrew.imports import app
+        from rebrew.binary.imports import app
 
         result = CliRunner().invoke(app, ["list", str(pe_path)])
         assert result.exit_code == 0
@@ -276,7 +276,7 @@ class TestImportsCli:
         assert "KERNEL32.dll" in result.output
 
     def test_json_output(self, pe_path: Path) -> None:
-        from rebrew.imports import app
+        from rebrew.binary.imports import app
 
         result = CliRunner().invoke(app, ["list", "--json", str(pe_path)])
         assert result.exit_code == 0
@@ -294,7 +294,7 @@ class TestImportsCli:
         padding or a ``ret``, opens the section, or sits beside another stub."""
         from bin_util import IMPORT_CALL_NAMES, le32, make_import_call_pe
 
-        from rebrew.imports import app
+        from rebrew.binary.imports import app
 
         def assemble(slot_a: int, slot_b: int) -> str:
             return (
@@ -314,7 +314,7 @@ class TestImportsCli:
         ]
 
     def test_missing_binary_errors(self, tmp_path: Path) -> None:
-        from rebrew.imports import app
+        from rebrew.binary.imports import app
 
         result = CliRunner().invoke(app, ["list", str(tmp_path / "nope.exe")])
         assert result.exit_code != 0
@@ -390,7 +390,7 @@ class TestElfImports:
         assert parse_imports(path) == []
 
     def test_json_output_lists_elf_imports(self, tmp_path: Path) -> None:
-        from rebrew.imports import app
+        from rebrew.binary.imports import app
 
         result = CliRunner().invoke(app, ["list", "--json", str(_elf_with_imports(tmp_path))])
         assert result.exit_code == 0
@@ -400,12 +400,350 @@ class TestElfImports:
         assert all(str(i["iat_va"]).startswith("0x") for i in payload["imports"])
 
     def test_terminal_output_lists_elf_imports(self, tmp_path: Path) -> None:
-        from rebrew.imports import app
+        from rebrew.binary.imports import app
 
         result = CliRunner().invoke(app, ["list", str(_elf_with_imports(tmp_path))])
         assert result.exit_code == 0
         assert "sqrt" in result.output
         assert "libm.so.6" in result.output
+
+
+def _build_elf32_with_plt(symbols: list[str], *, base: int = 0x08048000) -> tuple[bytes, int, int]:
+    """Build a minimal dynamic ELF32 with ``.plt``, ``.got.plt``, ``.rel.plt``, ``.dynsym``."""
+    dynstr = bytearray(b"\x00libc.so.6\x00")
+    sym_name_offs: list[int] = []
+    for sym in symbols:
+        sym_name_offs.append(len(dynstr))
+        dynstr.extend(sym.encode("ascii") + b"\x00")
+
+    dynsym = bytearray(b"\x00" * 16)
+    for off in sym_name_offs:
+        dynsym.extend(struct.pack("<IIIBBH", off, 0, 0, 0x12, 0, 0))
+
+    text_off = 0x1000
+    text_blob = b"\xc3" * 16
+    plt_off = 0x1020
+    plt_va = base + plt_off
+    got_off = 0x2000
+    got_va = base + got_off
+    got_size = 4 * max(len(symbols), 1)
+    dynstr_off = 0x2100
+    dynsym_off = (dynstr_off + len(dynstr) + 3) & ~3
+    rel_off = dynsym_off + len(dynsym)
+
+    # PLT0 (16 bytes of nop) + 16-byte stubs: jmp dword ptr [got_slot] + pad
+    plt_blob = bytearray(b"\x90" * 16)
+    rel_blob = bytearray()
+    for idx in range(len(symbols)):
+        slot_va = got_va + 4 * idx
+        stub = b"\xff\x25" + struct.pack("<I", slot_va) + b"\x68" + struct.pack("<I", idx * 8)
+        stub += b"\x90" * (16 - len(stub))
+        plt_blob.extend(stub)
+        rel_blob.extend(struct.pack("<II", slot_va, ((idx + 1) << 8) | 7))
+
+    dyn_off = rel_off + len(rel_blob)
+    dynamic_entries = [
+        (1, 1),  # DT_NEEDED libc.so.6
+        (5, base + dynstr_off),  # DT_STRTAB
+        (6, base + dynsym_off),  # DT_SYMTAB
+        (10, len(dynstr)),  # DT_STRSZ
+        (11, 16),  # DT_SYMENT
+        (23, base + rel_off),  # DT_JMPREL
+        (2, len(rel_blob)),  # DT_PLTRELSZ
+        (20, 17),  # DT_PLTREL = DT_REL
+        (0, 0),
+    ]
+    dynamic = b"".join(struct.pack("<iI", tag, val) for tag, val in dynamic_entries)
+
+    shstr_off = dyn_off + len(dynamic)
+    names = (
+        b"\x00.text\x00.plt\x00.got.plt\x00.dynstr\x00.dynsym\x00"
+        b".rel.plt\x00.dynamic\x00.shstrtab\x00"
+    )
+    shoff = (shstr_off + len(names) + 3) & ~3
+    filesz = shoff + 9 * 40
+
+    def _no(s: str) -> int:
+        return names.index(s.encode("ascii") + b"\x00")
+
+    def _sh(
+        name: int,
+        stype: int,
+        flags: int,
+        addr: int,
+        off: int,
+        size: int,
+        link: int = 0,
+        info: int = 0,
+        entsize: int = 0,
+    ) -> bytes:
+        return struct.pack(
+            "<IIIIIIIIII", name, stype, flags, addr, off, size, link, info, 4, entsize
+        )
+
+    shdrs = b"".join(
+        [
+            b"\x00" * 40,
+            _sh(_no(".text"), 1, 6, base + text_off, text_off, len(text_blob)),
+            _sh(_no(".plt"), 1, 6, plt_va, plt_off, len(plt_blob), entsize=16),
+            _sh(_no(".got.plt"), 1, 3, got_va, got_off, got_size),
+            _sh(_no(".dynstr"), 3, 2, base + dynstr_off, dynstr_off, len(dynstr)),
+            _sh(
+                _no(".dynsym"),
+                11,
+                2,
+                base + dynsym_off,
+                dynsym_off,
+                len(dynsym),
+                link=4,
+                info=1,
+                entsize=16,
+            ),
+            _sh(
+                _no(".rel.plt"),
+                9,
+                2,
+                base + rel_off,
+                rel_off,
+                len(rel_blob),
+                link=5,
+                info=3,
+                entsize=8,
+            ),
+            _sh(_no(".dynamic"), 6, 3, base + dyn_off, dyn_off, len(dynamic), link=4, entsize=8),
+            _sh(_no(".shstrtab"), 3, 0, 0, shstr_off, len(names)),
+        ]
+    )
+    e_ident = b"\x7fELF\x01\x01\x01" + b"\x00" * 9
+    ehdr = struct.pack(
+        "<16sHHIIIIIHHHHHH", e_ident, 2, 3, 1, base + text_off, 52, shoff, 0, 52, 32, 2, 40, 9, 8
+    )
+    ph_load = struct.pack("<IIIIIIII", 1, 0, base, base, filesz, filesz, 7, 0x1000)
+    ph_dyn = struct.pack(
+        "<IIIIIIII", 2, dyn_off, base + dyn_off, base + dyn_off, len(dynamic), len(dynamic), 6, 4
+    )
+    buf = bytearray(ehdr + ph_load + ph_dyn)
+    buf += b"\x00" * (text_off - len(buf)) + text_blob
+    buf += b"\x00" * (plt_off - len(buf)) + plt_blob
+    buf += b"\x00" * (got_off - len(buf)) + b"\x00" * got_size
+    buf += b"\x00" * (dynstr_off - len(buf)) + dynstr
+    buf += b"\x00" * (dynsym_off - len(buf)) + dynsym
+    buf += b"\x00" * (rel_off - len(buf)) + rel_blob
+    buf += b"\x00" * (dyn_off - len(buf)) + dynamic
+    buf += b"\x00" * (shstr_off - len(buf)) + names
+    buf += b"\x00" * (shoff - len(buf)) + shdrs
+    return bytes(buf), plt_va, got_va
+
+
+def _build_elf64_with_plt_sec(
+    symbols: list[str], *, base: int = 0x400000
+) -> tuple[bytes, int, int]:
+    """Build a minimal dynamic ELF64 with ``.plt.sec`` (``endbr64; bnd jmp [rip+disp]``)."""
+    dynstr = bytearray(b"\x00libc.so.6\x00")
+    sym_name_offs: list[int] = []
+    for sym in symbols:
+        sym_name_offs.append(len(dynstr))
+        dynstr.extend(sym.encode("ascii") + b"\x00")
+
+    dynsym = bytearray(24)
+    for off in sym_name_offs:
+        dynsym.extend(struct.pack("<IBBHQQ", off, 0x12, 0, 0, 0, 0))
+
+    text_off = 0x1000
+    text_blob = b"\xc3" * 16
+    plt_sec_off = 0x1020
+    plt_sec_va = base + plt_sec_off
+    got_off = 0x2000
+    got_va = base + got_off
+    got_size = 8 * max(len(symbols), 1)
+    dynstr_off = 0x2100
+    dynsym_off = (dynstr_off + len(dynstr) + 7) & ~7
+    rela_off = dynsym_off + len(dynsym)
+
+    plt_sec_blob = bytearray()
+    rela_blob = bytearray()
+    for idx in range(len(symbols)):
+        stub_va = plt_sec_va + 16 * idx
+        slot_va = got_va + 8 * idx
+        # endbr64 (4B) + bnd jmp qword ptr [rip + disp32] (7B) + 5B nop
+        disp = slot_va - (stub_va + 11)
+        stub = b"\xf3\x0f\x1e\xfa\xf2\xff\x25" + struct.pack("<i", disp) + b"\x90" * 5
+        plt_sec_blob.extend(stub)
+        rela_blob.extend(struct.pack("<QQq", slot_va, ((idx + 1) << 32) | 7, 0))
+
+    dyn_off = (rela_off + len(rela_blob) + 7) & ~7
+    dynamic_entries = [
+        (1, 1),  # DT_NEEDED
+        (5, base + dynstr_off),  # DT_STRTAB
+        (6, base + dynsym_off),  # DT_SYMTAB
+        (10, len(dynstr)),  # DT_STRSZ
+        (11, 24),  # DT_SYMENT
+        (23, base + rela_off),  # DT_JMPREL
+        (2, len(rela_blob)),  # DT_PLTRELSZ
+        (20, 7),  # DT_PLTREL = DT_RELA
+        (0, 0),
+    ]
+    dynamic = b"".join(struct.pack("<qQ", tag, val) for tag, val in dynamic_entries)
+
+    shstr_off = dyn_off + len(dynamic)
+    names = (
+        b"\x00.text\x00.plt.sec\x00.got.plt\x00.dynstr\x00.dynsym\x00"
+        b".rela.plt\x00.dynamic\x00.shstrtab\x00"
+    )
+    shoff = (shstr_off + len(names) + 7) & ~7
+    filesz = shoff + 9 * 64
+
+    def _no(s: str) -> int:
+        return names.index(s.encode("ascii") + b"\x00")
+
+    def _sh(
+        name: int,
+        stype: int,
+        flags: int,
+        addr: int,
+        off: int,
+        size: int,
+        link: int = 0,
+        info: int = 0,
+        entsize: int = 0,
+    ) -> bytes:
+        return struct.pack(
+            "<IIQQQQIIQQ", name, stype, flags, addr, off, size, link, info, 8, entsize
+        )
+
+    shdrs = b"".join(
+        [
+            b"\x00" * 64,
+            _sh(_no(".text"), 1, 6, base + text_off, text_off, len(text_blob)),
+            _sh(_no(".plt.sec"), 1, 6, plt_sec_va, plt_sec_off, len(plt_sec_blob), entsize=16),
+            _sh(_no(".got.plt"), 1, 3, got_va, got_off, got_size),
+            _sh(_no(".dynstr"), 3, 2, base + dynstr_off, dynstr_off, len(dynstr)),
+            _sh(
+                _no(".dynsym"),
+                11,
+                2,
+                base + dynsym_off,
+                dynsym_off,
+                len(dynsym),
+                link=4,
+                info=1,
+                entsize=24,
+            ),
+            _sh(
+                _no(".rela.plt"),
+                4,
+                2,
+                base + rela_off,
+                rela_off,
+                len(rela_blob),
+                link=5,
+                info=3,
+                entsize=24,
+            ),
+            _sh(_no(".dynamic"), 6, 3, base + dyn_off, dyn_off, len(dynamic), link=4, entsize=16),
+            _sh(_no(".shstrtab"), 3, 0, 0, shstr_off, len(names)),
+        ]
+    )
+    e_ident = b"\x7fELF\x02\x01\x01" + b"\x00" * 9
+    ehdr = struct.pack(
+        "<16sHHIQQQIHHHHHH",
+        e_ident,
+        2,
+        62,
+        1,
+        base + text_off,
+        64,
+        shoff,
+        0,
+        64,
+        56,
+        2,
+        64,
+        9,
+        8,
+    )
+    ph_load = struct.pack("<IIQQQQQQ", 1, 7, 0, base, base, filesz, filesz, 0x1000)
+    ph_dyn = struct.pack(
+        "<IIQQQQQQ", 2, 6, dyn_off, base + dyn_off, base + dyn_off, len(dynamic), len(dynamic), 8
+    )
+    buf = bytearray(ehdr + ph_load + ph_dyn)
+    buf += b"\x00" * (text_off - len(buf)) + text_blob
+    buf += b"\x00" * (plt_sec_off - len(buf)) + plt_sec_blob
+    buf += b"\x00" * (got_off - len(buf)) + b"\x00" * got_size
+    buf += b"\x00" * (dynstr_off - len(buf)) + dynstr
+    buf += b"\x00" * (dynsym_off - len(buf)) + dynsym
+    buf += b"\x00" * (rela_off - len(buf)) + rela_blob
+    buf += b"\x00" * (dyn_off - len(buf)) + dynamic
+    buf += b"\x00" * (shstr_off - len(buf)) + names
+    buf += b"\x00" * (shoff - len(buf)) + shdrs
+    return bytes(buf), plt_sec_va, got_va
+
+
+class TestElfPltStubs:
+    def test_elf32_plt_stubs_detected(self, tmp_path: Path) -> None:
+        from rebrew.formats.import_table import find_import_stub_slots
+
+        blob, plt_va, got_va = _build_elf32_with_plt(["puts", "malloc"])
+        path = tmp_path / "plt32.elf"
+        path.write_bytes(blob)
+        assert find_import_stub_slots(path) == {
+            plt_va + 16: got_va,
+            plt_va + 32: got_va + 4,
+        }
+        assert find_import_stubs(path) == {
+            plt_va + 16: "puts",
+            plt_va + 32: "malloc",
+        }
+
+    def test_elf64_plt_sec_endbr_bnd_jmp_detected(self, tmp_path: Path) -> None:
+        from rebrew.formats.import_table import find_import_stub_slots
+
+        blob, plt_sec_va, got_va = _build_elf64_with_plt_sec(["printf", "free"])
+        path = tmp_path / "plt64.elf"
+        path.write_bytes(blob)
+        assert find_import_stub_slots(path) == {
+            plt_sec_va: got_va,
+            plt_sec_va + 16: got_va + 8,
+        }
+        assert find_import_stubs(path) == {
+            plt_sec_va: "printf",
+            plt_sec_va + 16: "free",
+        }
+
+    def test_elf_mips_stubs_lui_lw_detected(self, tmp_path: Path) -> None:
+        from rebrew.formats.binary_model import BinaryInfo, SectionInfo
+        from rebrew.formats.import_table import find_import_stub_slots
+
+        slot_va = 0x00410010
+        stub_va = 0x00401200
+        # Big-endian MIPS: lui $t9, 0x0041; lw $t9, 0x0010($t9); jr $t9; nop
+        mips_stub = b"".join(
+            w.to_bytes(4, "big") for w in (0x3C190041, 0x8F390010, 0x03200008, 0x00000000)
+        )
+        elf_path = tmp_path / "mips_stubs.elf"
+        elf_path.write_bytes(mips_stub)
+        info = BinaryInfo(
+            path=elf_path,
+            format="elf",
+            arch="mips32",
+            endian="big",
+            pointer_size=4,
+            sections={
+                ".MIPS.stubs": SectionInfo(
+                    ".MIPS.stubs", stub_va, len(mips_stub), 0, len(mips_stub), is_code=True
+                )
+            },
+            _data=mips_stub,
+        )
+        with (
+            patch(
+                "rebrew.formats.import_table.parse_import_table",
+                return_value={0: "", slot_va: "printf"},
+            ),
+            patch("rebrew.formats.binary_loader.load_binary", return_value=info),
+        ):
+            assert find_import_stub_slots(elf_path) == {stub_va: slot_va}
+            assert find_import_stubs(elf_path) == {stub_va: "printf"}
 
 
 def _ne_with_modules(tmp_path: Path, modules: list[str]) -> Path:
@@ -475,7 +813,7 @@ class TestImportsMark:
     def test_mark_writes_library_header(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True)
@@ -501,7 +839,7 @@ class TestImportsMark:
     def test_mark_preserves_existing_encoding(
         self, tmp_path: Path, encoding: str, comment: str
     ) -> None:
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
         from rebrew.metadata.functions import get_entry
 
         cfg = self._cfg(tmp_path)
@@ -539,7 +877,7 @@ class TestImportsMark:
     def test_mark_dry_run_writes_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True)
@@ -548,7 +886,7 @@ class TestImportsMark:
         assert not (cfg.reversed_dir / "library_imports.h").exists()
 
     def test_mark_skips_existing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True)
@@ -560,7 +898,7 @@ class TestImportsMark:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A prose mention of a VA is not an annotation; the stub still gets marked."""
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
         from rebrew.metadata.functions import get_entry
 
         cfg = self._cfg(tmp_path)
@@ -586,7 +924,7 @@ class TestImportsMark:
         name, and it stored ``__foo`` as ``foo``. ``_foo`` is still
         ``foo``. ``MessageBoxA`` is unchanged.
         """
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
         from rebrew.metadata.functions import get_entry
 
         cfg = self._cfg(tmp_path)
@@ -618,7 +956,7 @@ class TestImportsMark:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """One identity edit for the whole stub set, not one per stub."""
-        from rebrew import imports as imports_module
+        from rebrew.binary import imports as imports_module
         from rebrew.metadata import functions as functions_module
         from rebrew.metadata.functions import get_entry
 
@@ -640,7 +978,7 @@ class TestImportsMark:
 
     def test_matches_cli_json(self, pe_path: Path) -> None:
         """``imports_payload()`` is the importable form of ``rebrew binary imports list --json``."""
-        from rebrew.imports import app
+        from rebrew.binary.imports import app
 
         payload = imports_payload(pe_path)
         result = CliRunner().invoke(app, ["list", "--json", str(pe_path)])
@@ -880,7 +1218,7 @@ class TestImportsMarkRebindRetired:
         return cfg
 
     def test_mark_refuses_retired_without_the_flag(self, tmp_path: Path) -> None:
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
 
         cfg = self._retired_row(tmp_path)
         with pytest.raises(ValueError, match="--rebind-retired"):
@@ -888,7 +1226,7 @@ class TestImportsMarkRebindRetired:
 
     @pytest.mark.parametrize("module", ["SERVER", "server"])
     def test_mark_rebinds_retired_with_the_flag(self, tmp_path: Path, module: str) -> None:
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
         from rebrew.metadata.functions import get_entry
 
         cfg = self._retired_row(tmp_path)
@@ -910,7 +1248,7 @@ class TestImportsMarkRebindRetired:
         assert header.read_text(encoding="utf-8").startswith("/* Auto-generated")
 
     def test_mark_refuses_concurrent_metadata_changes(self, tmp_path: Path) -> None:
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
         from rebrew.metadata.functions import get_entry, update_field
         from rebrew.naming import load_existing_vas
 
@@ -930,7 +1268,7 @@ class TestImportsMarkRebindRetired:
         assert not (cfg.reversed_dir / "library_imports.h").exists()
 
     def test_mark_rebind_dry_run_writes_nothing(self, tmp_path: Path) -> None:
-        from rebrew.imports import mark_import_stubs
+        from rebrew.binary.imports import mark_import_stubs
         from rebrew.metadata.functions import get_entry
 
         cfg = self._retired_row(tmp_path)

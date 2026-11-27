@@ -1,4 +1,4 @@
-"""Tests for rebrew.types_cli — evidence collection + name resolution."""
+"""Tests for rebrew.c_syntax.types_cli — evidence collection + name resolution."""
 
 from typing import Any
 lazy from pathlib import Path
@@ -6,7 +6,7 @@ lazy from pathlib import Path
 import pytest
 from cli_json import cli_payload
 
-from rebrew.types_cli import _first_function_name, collect_evidence
+from rebrew.c_syntax.types_cli import _first_function_name, collect_evidence
 
 
 class TestCollectEvidence:

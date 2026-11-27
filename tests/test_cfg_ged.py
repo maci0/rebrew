@@ -5,7 +5,7 @@ from typing import Any
 import capstone
 import pytest
 
-from rebrew.cfg_ged import build_cfg, build_cfg_view, cfg_similarity
+from rebrew.binary.cfg_ged import build_cfg, build_cfg_view, cfg_similarity
 
 # cmp eax,1; je +7; mov eax,1; jmp +5 (onto the ret); mov eax,2; ret — 4 blocks, 4 edges
 IFELSE = bytes.fromhex("83 f8 01 74 07 b8 01 00 00 00 eb 05 b8 02 00 00 00 c3")
@@ -231,7 +231,7 @@ class TestBuildCfgView:
         assert view["note"] == "no decodable instructions"
 
     def test_block_cap_states_true_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.cfg_ged.MAX_CFG_BLOCKS_PER_FUNCTION", 2)
+        monkeypatch.setattr("rebrew.binary.cfg_ged.MAX_CFG_BLOCKS_PER_FUNCTION", 2)
         view = build_cfg_view(IFELSE, 0x1000)
         assert view["block_cap"] == 2
         assert view["block_total"] == 4

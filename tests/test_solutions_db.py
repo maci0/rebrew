@@ -12,7 +12,7 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
-from rebrew.solutions_db import _collect_best, _collect_solutions
+from rebrew.matching.solutions_db import _collect_best, _collect_solutions
 
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
@@ -116,7 +116,7 @@ class TestSolutionsCli:
         host (see ``test_ga.TestGaHistory``); this table is a record to read
         back, so the recorded offset, sub-second digits included, survives.
         """
-        module = "rebrew.solutions_db"
+        module = "rebrew.matching.solutions_db"
         timestamps = [
             "2026-10-25T02:30:00+02:00",
             "2026-10-25T02:30:00+01:00",
@@ -157,7 +157,7 @@ class TestSolutionsCli:
     def test_list_json(self, tmp_path: Path, monkeypatch) -> None:
         _write_solutions(tmp_path)
         monkeypatch.setattr(
-            "rebrew.solutions_db.require_config",
+            "rebrew.matching.solutions_db.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         result = CliRunner().invoke(app, ["match", "solutions", "--json"])
@@ -169,7 +169,7 @@ class TestSolutionsCli:
     def test_symbol_filter(self, tmp_path: Path, monkeypatch) -> None:
         _write_solutions(tmp_path)
         monkeypatch.setattr(
-            "rebrew.solutions_db.require_config",
+            "rebrew.matching.solutions_db.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         result = CliRunner().invoke(app, ["match", "solutions", "--symbol", "malloc", "--json"])
@@ -197,7 +197,7 @@ class TestSolutionsCli:
             encoding="utf-8",
         )
         monkeypatch.setattr(
-            "rebrew.solutions_db.require_config",
+            "rebrew.matching.solutions_db.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         # Query with NFD: e + combining acute
@@ -220,7 +220,7 @@ class TestSolutionsCli:
             record.format(ts="t1", s="1.0") + record.format(ts="t2", s=bad), encoding="utf-8"
         )
         monkeypatch.setattr(
-            "rebrew.solutions_db.require_config",
+            "rebrew.matching.solutions_db.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         result = CliRunner().invoke(app, ["match", "solutions", "--best", "--json"])
@@ -236,7 +236,7 @@ class TestSolutionsCli:
             encoding="utf-8",
         )
         monkeypatch.setattr(
-            "rebrew.solutions_db.require_config",
+            "rebrew.matching.solutions_db.require_config",
             lambda target=None, json_mode=False: _cfg(tmp_path),
         )
         result = CliRunner().invoke(app, ["match", "solutions", "--best", "--json"])

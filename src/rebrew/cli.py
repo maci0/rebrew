@@ -819,7 +819,7 @@ def _calling_module(main: Any) -> Any:
 def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
     """Help-facing Typer settings copied from the calling module's ``app``.
 
-    ``rebrew diff --help`` and ``python -m rebrew.diff --help`` run the same command,
+    ``rebrew diff --help`` and ``python -m rebrew.compare.diff --help`` run the same command,
     so they must print the same help, examples, and exit codes.  Building a
     bare ``typer.Typer()`` dropped the module's ``help=`` / ``epilog=``,
     leaving module execution with a bare option list. Typer reads them
@@ -1187,7 +1187,7 @@ def run_standalone(main: Any) -> None:
     """Run a module's ``main`` callback as a plain command on a fresh app.
 
     The group-style ``invoke_without_command`` callback fails to parse
-    positional-then-option invocations (``python -m rebrew.diff ARG --opt`` — click
+    positional-then-option invocations (``python -m rebrew.compare.diff ARG --opt`` — click
     treats the positional as a command name), while the umbrella's command
     registration parses both orderings.
     """

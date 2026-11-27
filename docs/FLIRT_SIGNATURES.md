@@ -107,7 +107,7 @@ rebrew library signatures toolchain/msvc/6.0-win32/source/VC98/Lib/LIBCMT.LIB \
    function when it is external, called, or not reached from the code before
    it by fall-through, an in-place jump or a jump table; the others (the
    internal labels of a hand-written routine such as MSVC's `memcpy`) are
-   labels of their function (`rebrew.gen_flirt_pat.parse_coff_obj`)
+   labels of their function (`rebrew.library.gen_flirt_pat.parse_coff_obj`)
 3. Reads the function's code bytes and COFF relocations
 4. Emits retained `.pat` lines with relocation bytes masked as `..` and each
    label after the name as a local name, `:0064@ LeadUpVec`, as IDA's sigmake
@@ -122,7 +122,7 @@ an existing file at the output path is removed. `boundaries` is the version of
 the rule that cut the objects into functions (`FUNCTION_BOUNDARIES`, `2`); a
 `.pat` made by rebrew 6.56.0 or before (rule `1`) lists the labels of assembly
 routines as functions of their own and is rebuilt, not kept beside new ones.
-`rebrew.gen_flirt_pat.is_weak_signature(line)` applies the weak-pattern test to
+`rebrew.library.gen_flirt_pat.is_weak_signature(line)` applies the weak-pattern test to
 one `.pat` line, for tools that filter patterns from other generators.
 
 A retained `.pat` line looks like this:
@@ -236,7 +236,7 @@ The file must end with a line containing only `---`.
 > byte-swapped into the field. It is *not* plain CRC-16/ARC or a standard
 > CRC-CCITT: a signature whose CRC uses any other variant will parse fine
 > but silently never match (a past rebrew bug used non-reflected `0x8005`).
-> `rebrew.gen_flirt_pat._crc16_flirt` is the canonical implementation, and
+> `rebrew.library.gen_flirt_pat._crc16_flirt` is the canonical implementation, and
 > `tests/test_property_parsers.py` pins the parse→compile→match round-trip
 > against `python-flirt`.
 

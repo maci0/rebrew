@@ -9,7 +9,7 @@ import pytest
 from rich.console import Console
 from source_util import write_source
 
-from rebrew.c_parser import find_variable_roles
+from rebrew.c_syntax.parser import find_variable_roles
 from rebrew.config import load_config
 from rebrew.data.render import render_globals
 from rebrew.data.scan import scan_data_annotations, scan_globals
@@ -239,7 +239,7 @@ def test_multiline_marker_declaration_keeps_foreign_target_scoping(tmp_path: Pat
 
 
 def test_coverage_includes_header_data_and_separates_owner_from_declarers(tmp_path: Path) -> None:
-    from rebrew.sections import get_globals
+    from rebrew.binary.sections import get_globals
 
     write_source(
         tmp_path / "globals.h",
@@ -326,15 +326,15 @@ def test_warm_data_scan_replays_roles_without_parsing_again(tmp_path: Path, monk
     """``rebrew data`` calls ``scan_globals``. A second scan of unchanged sources must not parse them."""
     from unittest.mock import Mock
 
-    from rebrew.c_parser import find_extern_variables, find_variable_roles
+    from rebrew.c_syntax.parser import find_extern_variables, find_variable_roles
     from rebrew.data.scan import _ROLE_FACT_CACHE
 
     source = tmp_path / "a.c"
     source.write_text("int first;\nint a(void) { return first; }\n")
     roles = Mock(wraps=find_variable_roles)
     externs = Mock(wraps=find_extern_variables)
-    monkeypatch.setattr("rebrew.c_parser.find_variable_roles", roles)
-    monkeypatch.setattr("rebrew.c_parser.find_extern_variables", externs)
+    monkeypatch.setattr("rebrew.c_syntax.parser.find_variable_roles", roles)
+    monkeypatch.setattr("rebrew.c_syntax.parser.find_extern_variables", externs)
 
     import os
 
@@ -436,14 +436,16 @@ def test_name_cover_publishes_one_record_per_store(tmp_path: Path, monkeypatch) 
         "dirty": False,
         "lock": threading.Lock(),
     }
-    real_loads = data_scan.json.loads
+    import msgspec
 
-    def _loads(text: str) -> object:
+    real_decode = msgspec.json.decode
+
+    def _decode(raw: bytes | str) -> object:
         with data_scan._NAME_COVER_CACHE_LOCK:
             data_scan._NAME_COVER_CACHE.setdefault(data_scan._path_key(tmp_path), published)
-        return real_loads(text)
+        return real_decode(raw)
 
-    monkeypatch.setattr(data_scan.json, "loads", _loads)
+    monkeypatch.setattr(data_scan.msgspec.json, "decode", _decode)
     assert data_scan._begin_name_cover(tmp_path) is published
 
 
@@ -451,6 +453,8 @@ def test_role_cache_publishes_one_record_per_identity(tmp_path: Path, monkeypatc
     """The role record has the same publish race as the name cover."""
     import json
     import threading
+
+    import msgspec
 
     import rebrew.data.scan as data_scan
 
@@ -479,16 +483,16 @@ def test_role_cache_publishes_one_record_per_identity(tmp_path: Path, monkeypatc
         "dirty": False,
         "lock": threading.Lock(),
     }
-    real_loads = data_scan.json.loads
+    real_decode = msgspec.json.decode
 
-    def _loads(text: str) -> object:
+    def _decode(raw: bytes | str) -> object:
         with data_scan._ROLE_FACT_CACHE_LOCK:
             data_scan._ROLE_FACT_CACHE.setdefault(
                 data_scan._path_key(tmp_path) + "\n" + identity, published
             )
-        return real_loads(text)
+        return real_decode(raw)
 
-    monkeypatch.setattr(data_scan.json, "loads", _loads)
+    monkeypatch.setattr(data_scan.msgspec.json, "decode", _decode)
     assert data_scan._begin_role_cache(tmp_path, None) is published
 
 
@@ -636,7 +640,7 @@ class TestStoreSnapshot:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Each annotated global used to fingerprint the data store for its size and status."""
-        from rebrew.sections import get_globals
+        from rebrew.binary.sections import get_globals
 
         opens = _count_sqlite_opens(monkeypatch)
         per_scan: list[int] = []

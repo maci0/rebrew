@@ -415,7 +415,7 @@ class TestContractImageHeaders:
 
         from typer.testing import CliRunner
 
-        from rebrew.types_cli import app
+        from rebrew.c_syntax.types_cli import app
 
         state, _ = runtime
         state["archive"] = archive({"sdk.h": b"int sdk_value;\n"})
@@ -433,7 +433,7 @@ class TestContractImageHeaders:
             ]
         )
         with (
-            patch("rebrew.types_cli.require_config", return_value=cfg),
+            patch("rebrew.c_syntax.types_cli.require_config", return_value=cfg),
             patch("rebrew.workspace.config.read_config", return_value={}),
         ):
             result = CliRunner().invoke(app, [*args, "--image-headers", "--json"])

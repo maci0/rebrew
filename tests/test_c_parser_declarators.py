@@ -1,6 +1,6 @@
 """Unit tests for c_parser declarator walkers using synthetic AST nodes."""
 
-from rebrew.c_parser import (
+from rebrew.c_syntax.parser import (
     _count_pointer_depth,
     _extract_array_suffix,
     find_declarator_name,

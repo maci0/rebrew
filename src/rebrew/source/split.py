@@ -28,19 +28,19 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     declares_function as declares_function,
 )
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     find_function_name_in_node as find_function_name_in_node,
 )
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     find_variable_roles,
 )
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     node_text as node_text,
 )
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     parse_c_structure as parse_c_structure,
 )
 lazy from rebrew.metadata.bindings import (

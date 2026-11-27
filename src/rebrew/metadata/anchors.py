@@ -9,7 +9,7 @@ from dataclasses import dataclass
 lazy import unicodedata
 lazy from string import Template
 
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     comment_nodes,
     find_c_function_definitions,
     find_extern_variables,

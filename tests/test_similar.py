@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-import rebrew.similar as similar_mod
+import rebrew.compare.similar as similar_mod
 
 # Hand-crafted 32-bit x86 blobs.
 _CALL_RET = b"\xe8\x00\x00\x00\x00\xc3"  # call +0; ret
@@ -170,7 +170,7 @@ class TestFindSimilarEdgeCases:
         assert run() == []
 
     def test_query_sig_none_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.similar as similar_mod
+        import rebrew.compare.similar as similar_mod
 
         run, _ = TestFindSimilar()._setup(monkeypatch, {0x1000: b"\x90" * 6})
         monkeypatch.setattr(similar_mod, "disasm_signature", lambda *a, **k: None)
@@ -184,7 +184,7 @@ class TestFindSimilarEdgeCases:
         assert all(r["va"] != "0x00002000" for r in results)
 
     def test_candidate_sig_none_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.similar as similar_mod
+        import rebrew.compare.similar as similar_mod
 
         run, _ = TestFindSimilar()._setup(monkeypatch, {0x1000: b"\x90" * 6, 0x2000: b"\x90" * 6})
         real_sig = similar_mod.disasm_signature
@@ -199,13 +199,13 @@ class TestFindSimilarEdgeCases:
         assert all(r["va"] != "0x00002000" for r in results)
 
     def test_cosine_zero_denominator(self) -> None:
-        from rebrew.similar import _cosine
+        from rebrew.compare.similar import _cosine
 
         assert _cosine({}, {}) == 0.0
         assert _cosine({"push": 2}, {}) == 0.0
 
     def test_ratio_zero_side(self) -> None:
-        from rebrew.similar import _ratio
+        from rebrew.compare.similar import _ratio
 
         assert _ratio(0, 5) == 0.0
         assert _ratio(5, 0) == 0.0
@@ -213,7 +213,7 @@ class TestFindSimilarEdgeCases:
         assert _ratio(4, 2) == 0.5
 
     def test_ratio_negative_count_stays_in_unit_interval(self) -> None:
-        from rebrew.similar import _ratio
+        from rebrew.compare.similar import _ratio
 
         # A negative count is not a count: -5/10 was -0.5 and -2/-10 was
         # 5.0, pushing the 0-100 similarity score out of range.

@@ -20,7 +20,7 @@ import pytest
 import typer
 from source_util import write_source
 
-from rebrew.coff_reloc import relocation_binding_evidence, smart_reloc_compare
+from rebrew.compare.coff_reloc import relocation_binding_evidence, smart_reloc_compare
 from rebrew.config import load_config
 from rebrew.verify.test import _lint_preamble
 
@@ -125,7 +125,7 @@ def _measured_preamble(
     source: str,
 ) -> tuple[dict[str, int], int, int]:
     """Run the shipped preamble and count C parses and global scans."""
-    import rebrew.c_parser as c_parser
+    import rebrew.c_syntax.parser as c_parser
     import rebrew.data.scan as data_scan
 
     parses = 0
@@ -160,7 +160,7 @@ class TestSingleFileNameMap:
         """A warm or disk hit on a large tree parses what a small project does,
         and after one file is edited the rescan reparses it and reuses the rest."""
         import rebrew.verify.test as test_mod
-        from rebrew.coff_reloc import build_name_to_va
+        from rebrew.compare.coff_reloc import build_name_to_va
 
         small = tmp_path / "small"
         large = tmp_path / "large"

@@ -22,7 +22,7 @@ def _project(tmp_path: Path, reference: bytes) -> None:
 def test_identical_images_score_every_compared_byte(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rebrew.binary_score import app
+    from rebrew.binary.score import app
 
     image = make_pe(b"\x90" * 64)
     _project(tmp_path, image)
@@ -40,7 +40,7 @@ def test_identical_images_score_every_compared_byte(
 
 
 def test_changed_byte_costs_one_match(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from rebrew.binary_score import app
+    from rebrew.binary.score import app
 
     reference = make_pe(b"\x90" * 64)
     built_bytes = bytearray(reference)
@@ -58,7 +58,7 @@ def test_changed_byte_costs_one_match(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_missing_built_image_fails_loudly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from rebrew.binary_score import app
+    from rebrew.binary.score import app
 
     _project(tmp_path, make_pe(b"\x90" * 32))
     monkeypatch.chdir(tmp_path)
@@ -68,7 +68,7 @@ def test_missing_built_image_fails_loudly(tmp_path: Path, monkeypatch: pytest.Mo
 
 def test_count_window_mixed_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Equal zero pairs count as matches; informative counts track nonzero reference bytes."""
-    import rebrew.binary_score as bs
+    import rebrew.binary.score as bs
 
     monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", 1 << 30)
     reference = b"\x00\x00\x01\x02"
@@ -80,7 +80,7 @@ def test_count_window_mixed_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_count_window_vector_path_matches_scalar(monkeypatch: pytest.MonkeyPatch) -> None:
     """The NumPy and plain-loop paths return identical counts on the same bytes."""
-    import rebrew.binary_score as bs
+    import rebrew.binary.score as bs
 
     reference = bytes((i * 37 + 11) & 0xFF for i in range(4096))
     built = bytearray(reference)
@@ -93,7 +93,7 @@ def test_count_window_vector_path_matches_scalar(monkeypatch: pytest.MonkeyPatch
 
 def test_count_window_clips_a_window_past_the_images(monkeypatch: pytest.MonkeyPatch) -> None:
     """A section window reaching past either buffer stops at the common end."""
-    import rebrew.binary_score as bs
+    import rebrew.binary.score as bs
 
     monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", 1 << 30)
     assert bs._count_window(b"\x01\x02", b"\x01\x02", 0, 0x100) == (2, 2, 2)
@@ -104,7 +104,7 @@ def test_count_window_clips_a_negative_start(
     monkeypatch: pytest.MonkeyPatch, vector_threshold: int
 ) -> None:
     """A window starting before the image counts only bytes both sides hold."""
-    import rebrew.binary_score as bs
+    import rebrew.binary.score as bs
 
     monkeypatch.setattr(bs, "_VECTOR_COMPARE_MIN_BYTES", vector_threshold)
     assert bs._count_window(b"abcd", b"abce", -3, 2) == (2, 2, 2)
@@ -115,7 +115,7 @@ def test_score_compared_excludes_bytes_before_image_start() -> None:
     """score()'s 'compared' denominator must match _count_window's clipped window."""
     from types import SimpleNamespace
 
-    from rebrew.binary_score import score
+    from rebrew.binary.score import score
 
     result = score(
         b"abcd",

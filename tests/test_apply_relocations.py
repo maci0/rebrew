@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from rebrew.coff_reloc import (
+from rebrew.compare.coff_reloc import (
     CoffRelocRecord,
     UnresolvedSymbolError,
     apply_coff_relocations,
@@ -115,7 +115,7 @@ def test_build_symbol_resolver_prefers_exact_spelling() -> None:
 def test_resolve_exact_then_stripped_prefers_exact_spelling() -> None:
     # Same precedence as build_symbol_resolver: exact before stripped.  This
     # is the resolver used by rebrew test/verify DIR32/REL32 validation.
-    from rebrew.coff_reloc import _resolve_exact_then_stripped
+    from rebrew.compare.coff_reloc import _resolve_exact_then_stripped
 
     name_to_va = {"_foo": 0x10001000, "foo": 0x10002000}
     assert _resolve_exact_then_stripped(name_to_va, "_foo") == 0x10001000
@@ -130,7 +130,7 @@ def test_resolve_exact_then_stripped_uses_the_c_name() -> None:
 
     ``___ftol`` is still ``__ftol``. A cdecl ``_bar`` is still ``bar``.
     """
-    from rebrew.coff_reloc import _resolve_exact_then_stripped
+    from rebrew.compare.coff_reloc import _resolve_exact_then_stripped
 
     names = {
         "hook": 0x10002000,
@@ -181,7 +181,7 @@ def test_absolute_reloc_alone_is_a_noop() -> None:
 
 def test_absolute_reloc_offset_is_not_masked() -> None:
     """A no-op ABSOLUTE entry must not mask a real difference at its offset."""
-    from rebrew.coff_reloc import smart_reloc_compare
+    from rebrew.compare.coff_reloc import smart_reloc_compare
 
     obj = b"\x00\x00\x00\x00\xc3"
     target = b"\x11\x22\x33\x44\xc3"

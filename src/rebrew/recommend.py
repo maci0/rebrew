@@ -670,7 +670,7 @@ def recommend_missing_externs(
     """Advise implementing extern callees nothing defines yet.
 
     *extern_refs* are ``(caller_file, callee)`` pairs from
-    :func:`rebrew.c_parser.find_extern_function_names`; *known_names* holds
+    :func:`rebrew.c_syntax.parser.find_extern_function_names`; *known_names* holds
     defined symbol spellings. A raw ``hook@@12`` covers a call to ``hook``,
     and ``__foo`` covers ``_foo`` rather than ``foo``.
     One rec per missing callee, callers listed as evidence.
@@ -1020,7 +1020,7 @@ def _collect_hygiene(
         recs.extend(recommend_stale_addresses(stale))
 
     with _lane("shared-twins"):
-        from rebrew.c_parser import function_definition_spans
+        from rebrew.c_syntax.parser import function_definition_spans
         from rebrew.utils import read_source_text
 
         bodies: dict[str, list[str]] = {}
@@ -1098,7 +1098,7 @@ def _collect_hygiene(
             recs.append(rec)
 
     with _lane("missing-externs"):
-        from rebrew.c_parser import find_extern_function_names
+        from rebrew.c_syntax.parser import find_extern_function_names
         from rebrew.utils import read_source_text, rel_display_path
 
         refs: list[tuple[str, str]] = []

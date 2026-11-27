@@ -1,6 +1,6 @@
 """Conditional opening braces must not consume later C definitions."""
 
-from rebrew.c_parser import (
+from rebrew.c_syntax.parser import (
     find_c_function_definitions,
     find_extern_variables,
     find_variable_roles,

@@ -38,7 +38,7 @@ CASES = (
 
 def workload(case: str, root: Path) -> Callable[[], Any]:
     """Prepare deterministic inputs outside the timed region."""
-    from rebrew import c_parser
+    from rebrew.c_syntax import parser as c_parser
     from rebrew.metadata.anchors import parse_address_anchors
     from rebrew.metadata.bindings import source_bindings
     from rebrew.metadata.data import save_data_metadata
@@ -109,7 +109,7 @@ def workload(case: str, root: Path) -> Callable[[], Any]:
         source = '#include "local.h"\nint table[] = {' + ",".join(map(str, range(5000))) + "};\n"
         return lambda: rebase_includes(source, root, root / "out")
     if case == "struct_scan":
-        from rebrew.type_metadata import struct_definition_names
+        from rebrew.c_syntax.type_metadata import struct_definition_names
 
         source = "typedef struct ITEM { int value; } Item;\nint table[] = {"
         source += ",".join(map(str, range(5000))) + "};\n"

@@ -525,7 +525,7 @@ def test_kr_hash_refuses_non_definitions(source: str) -> None:
 def test_va_arg_hashes_preserve_comments_literals_and_utf8_coordinates() -> None:
     import hashlib
 
-    from rebrew.c_parser import mask_va_arg_types
+    from rebrew.c_syntax.parser import mask_va_arg_types
 
     body = 'void pick(int id, ...) { const char* s="va_arg(ap, broken*)"; /* va_arg(ap, broken*) */ va_arg(ap,\n const char* /* ü */); }'
     source = "/* ü */\n" + body

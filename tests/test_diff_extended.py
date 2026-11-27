@@ -86,7 +86,7 @@ def _call_run_diff(
     obj: bytes = b"\x55\x8b\xec\x5d\xc3",
     sim: object | None = None,
 ) -> None:
-    from rebrew.diff import run_diff
+    from rebrew.compare.diff import run_diff
 
     _patch_matcher(monkeypatch, obj=obj, summary=summary, sim=sim)
     run_diff(
@@ -105,8 +105,8 @@ class TestRunDiff:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord
-        from rebrew.diff import run_diff
+        from rebrew.compare.coff_reloc import CoffRelocRecord
+        from rebrew.compare.diff import run_diff
         from rebrew.matcher import compiler
 
         monkeypatch.setattr(
@@ -119,7 +119,9 @@ class TestRunDiff:
                 typed_relocs=[CoffRelocRecord(1, 0, "_data")],
             ),
         )
-        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {"_data": 0x2000})
+        monkeypatch.setattr(
+            "rebrew.compare.coff_reloc.build_name_to_va", lambda cfg: {"_data": 0x2000}
+        )
         with pytest.raises(typer.Exit) as exc:
             run_diff(False, False, False, False, True, _params(target_bytes=b"\xb8\x01\0\0\0\xc3"))
         assert exc.value.exit_code == EXIT_MISMATCH
@@ -149,8 +151,8 @@ class TestRunDiff:
         invalid: bool,
         iat: bool,
     ) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord
-        from rebrew.diff import run_diff
+        from rebrew.compare.coff_reloc import CoffRelocRecord
+        from rebrew.compare.diff import run_diff
         from rebrew.matcher import compiler
 
         opcode = b"\xe8" if kind == 0x14 else b"\xa1"
@@ -168,11 +170,11 @@ class TestRunDiff:
             ),
         )
         monkeypatch.setattr(
-            "rebrew.coff_reloc.build_name_to_va",
+            "rebrew.compare.coff_reloc.build_name_to_va",
             lambda cfg: {"unrelated": 0x4000} if bound is None else {"_callee": bound},
         )
         monkeypatch.setattr(
-            "rebrew.coff_reloc.build_iat_region",
+            "rebrew.compare.coff_reloc.build_iat_region",
             lambda cfg: frozenset({0x2000}) if iat else frozenset(),
         )
         writes = []
@@ -181,7 +183,7 @@ class TestRunDiff:
             writes.append(blockers)
             return {"written": True, "cleared": False}
 
-        monkeypatch.setattr("rebrew.diff._write_blocker", record_blocker)
+        monkeypatch.setattr("rebrew.compare.diff._write_blocker", record_blocker)
         json_output = output_format == "json"
         csv_output = output_format == "csv"
         params = _params(
@@ -216,7 +218,7 @@ class TestRunDiff:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture,
     ) -> None:
-        from rebrew.diff import run_diff
+        from rebrew.compare.diff import run_diff
 
         _patch_matcher(
             monkeypatch,
@@ -236,7 +238,7 @@ class TestRunDiff:
     def test_human_report_uses_unclipped_candidate_size(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        from rebrew.diff import run_diff
+        from rebrew.compare.diff import run_diff
 
         _patch_matcher(
             monkeypatch,
@@ -251,7 +253,7 @@ class TestRunDiff:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.matcher as matcher
-        from rebrew.diff import run_diff
+        from rebrew.compare.diff import run_diff
 
         monkeypatch.setattr(
             matcher,
@@ -266,7 +268,7 @@ class TestRunDiff:
         seen: dict = {}
 
         import rebrew.matcher as matcher
-        from rebrew.diff import run_diff
+        from rebrew.compare.diff import run_diff
         from rebrew.matcher import compiler
 
         def _diff(target, obj, relocs, **kw):
@@ -402,7 +404,7 @@ class TestRunDiff:
     def test_fix_blocker_writes_metadata(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.diff import run_diff
+        from rebrew.compare.diff import run_diff
         from rebrew.metadata.functions import get_entry
 
         meta_dir = tmp_path
@@ -433,7 +435,7 @@ class TestRunDiff:
     def test_fix_blocker_clears_when_no_blockers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.diff import run_diff
+        from rebrew.compare.diff import run_diff
         from rebrew.metadata.functions import get_entry, update_field
 
         meta_dir = tmp_path
@@ -458,7 +460,7 @@ class TestRunDiff:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
     ) -> None:
         """--fix-blocker --dry-run must preview without touching metadata."""
-        from rebrew.diff import run_diff
+        from rebrew.compare.diff import run_diff
         from rebrew.metadata.functions import get_entry
 
         meta_dir = tmp_path
@@ -520,8 +522,8 @@ class TestDiffCli:
         def refuse(*args: object, **kwargs: object) -> None:
             raise AssertionError("Invalid dry-run must stop before config loading or compilation")
 
-        monkeypatch.setattr("rebrew.diff.require_config", refuse)
-        monkeypatch.setattr("rebrew.diff.run_diff", refuse)
+        monkeypatch.setattr("rebrew.compare.diff.require_config", refuse)
+        monkeypatch.setattr("rebrew.compare.diff.run_diff", refuse)
         args = ["f.c", "--dry-run"] + (["--json"] if json_output else [])
         result = CliRunner().invoke(app, ["diff", *args])
         assert result.exit_code == EXIT_ERROR, result.output
@@ -536,14 +538,18 @@ class TestDiffCli:
     def test_direct_callback_omitted_flags_keep_their_boolean_defaults(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.diff import main
+        from rebrew.compare.diff import main
 
-        monkeypatch.setattr("rebrew.diff.require_config", lambda **kwargs: SimpleNamespace())
+        monkeypatch.setattr(
+            "rebrew.compare.diff.require_config", lambda **kwargs: SimpleNamespace()
+        )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, source: Path(source))
-        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", lambda *a, **kw: _params())
+        monkeypatch.setattr(
+            "rebrew.matching.sweep.resolve_build_params", lambda *a, **kw: _params()
+        )
         seen: list[tuple[bool, bool]] = []
         monkeypatch.setattr(
-            "rebrew.diff.run_diff",
+            "rebrew.compare.diff.run_diff",
             lambda mm, rr, csv, fix, js, params, **kw: seen.append((fix, kw["dry_run"])),
         )
         main(
@@ -561,12 +567,16 @@ class TestDiffCli:
     def test_fix_blocker_preview_is_forwarded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.app.main import app
 
-        monkeypatch.setattr("rebrew.diff.require_config", lambda **kwargs: SimpleNamespace())
+        monkeypatch.setattr(
+            "rebrew.compare.diff.require_config", lambda **kwargs: SimpleNamespace()
+        )
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, source: Path(source))
-        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", lambda *a, **kw: _params())
+        monkeypatch.setattr(
+            "rebrew.matching.sweep.resolve_build_params", lambda *a, **kw: _params()
+        )
         seen: list[tuple[bool, bool]] = []
         monkeypatch.setattr(
-            "rebrew.diff.run_diff",
+            "rebrew.compare.diff.run_diff",
             lambda mm, rr, csv, fix, js, params, **kw: seen.append((fix, kw["dry_run"])),
         )
         result = CliRunner().invoke(app, ["diff", "f.c", "--fix-blocker", "--dry-run", "--json"])
@@ -574,9 +584,9 @@ class TestDiffCli:
         assert seen == [(True, True)]
 
     def test_invalid_format_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.diff import app
+        from rebrew.compare.diff import app
 
-        monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr("rebrew.compare.diff.require_config", lambda **kw: SimpleNamespace())
         result = CliRunner().invoke(app, ["--format", "xml", "f.c"])
         assert result.exit_code == 2
         message = " ".join(result.output.split())
@@ -592,9 +602,9 @@ class TestDiffCli:
         Silently emitting JSON for `--format csv --json` fed a .csv consumer
         a document it cannot parse, and the exit code said the diff succeeded.
         """
-        from rebrew.diff import app
+        from rebrew.compare.diff import app
 
-        monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr("rebrew.compare.diff.require_config", lambda **kw: SimpleNamespace())
         for args in (["--format", "csv", "--json", "f.c"], ["--json", "--format", "csv", "f.c"]):
             result = CliRunner().invoke(app, args)
             assert result.exit_code == EXIT_ERROR, args
@@ -604,7 +614,7 @@ class TestDiffCli:
             }
 
     def test_dispatch_to_run_diff(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.diff import app
+        from rebrew.compare.diff import app
 
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
@@ -612,17 +622,17 @@ class TestDiffCli:
             module="SERVER",
             source_ext=".c",
         )
-        monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.compare.diff.require_config", lambda **kw: cfg)
         seen: dict = {}
         monkeypatch.setattr(
-            "rebrew.match_sweep.resolve_build_params",
+            "rebrew.matching.sweep.resolve_build_params",
             lambda *a, **k: _params(),
         )
 
         def _run_diff(mm, rr, csv, fix, json_out, p, **kwargs):
             seen.update(mm=mm, csv=csv)
 
-        monkeypatch.setattr("rebrew.diff.run_diff", _run_diff)
+        monkeypatch.setattr("rebrew.compare.diff.run_diff", _run_diff)
         result = CliRunner().invoke(app, ["--mismatches-only", "--format", "csv", "f.c"])
         assert result.exit_code == 0
         assert seen["mm"] is True
@@ -631,7 +641,7 @@ class TestDiffCli:
     def test_watch_enters_watch_mode_and_retests(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.diff import app
+        from rebrew.compare.diff import app
 
         monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         cfg = SimpleNamespace(
@@ -640,16 +650,16 @@ class TestDiffCli:
             module="SERVER",
             source_ext=".c",
         )
-        monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.compare.diff.require_config", lambda **kw: cfg)
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, source: Path(source))
-        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", lambda *a, **k: _params())
+        monkeypatch.setattr("rebrew.matching.sweep.resolve_build_params", lambda *a, **k: _params())
 
         seen: dict = {}
 
         def _run_diff(mm, rr, csv, fix, json_out, p, **kwargs):
             seen.update(csv=csv, json_out=json_out)
 
-        monkeypatch.setattr("rebrew.diff.run_diff", _run_diff)
+        monkeypatch.setattr("rebrew.compare.diff.run_diff", _run_diff)
         captured: dict = {}
         monkeypatch.setattr(
             "rebrew.utils.watch_files",
@@ -674,7 +684,7 @@ class TestDiffCli:
         Previously the retest re-entered main() with the resolved path, so a
         multi-function file lost the VA and fell back to its first annotation.
         """
-        from rebrew.diff import app
+        from rebrew.compare.diff import app
 
         monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         cfg = SimpleNamespace(
@@ -683,7 +693,7 @@ class TestDiffCli:
             module="SERVER",
             source_ext=".c",
         )
-        monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.compare.diff.require_config", lambda **kw: cfg)
         # resolve_source_arg is imported inside main() from rebrew.cli.
         monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, arg: "src/dir/f.c")
 
@@ -695,8 +705,8 @@ class TestDiffCli:
             va_calls.append(target_va)
             return _params()
 
-        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", _resolve_build_params)
-        monkeypatch.setattr("rebrew.diff.run_diff", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.matching.sweep.resolve_build_params", _resolve_build_params)
+        monkeypatch.setattr("rebrew.compare.diff.run_diff", lambda *a, **k: None)
         captured: dict = {}
         monkeypatch.setattr(
             "rebrew.utils.watch_files",
@@ -711,7 +721,7 @@ class TestDiffCli:
 
 class TestMissingGlobalHints:
     def test_detects_zero_operand(self) -> None:
-        from rebrew.diff import _missing_global_hints
+        from rebrew.compare.diff import _missing_global_hints
 
         rows = [
             {
@@ -726,7 +736,7 @@ class TestMissingGlobalHints:
         assert "0x10034640" in hints[0]["target"]
 
     def test_dedupes_and_ignores_clean(self) -> None:
-        from rebrew.diff import _missing_global_hints
+        from rebrew.compare.diff import _missing_global_hints
 
         rows = [
             {"target": {"disasm": "a"}, "candidate": {"disasm": "mov ecx, dword ptr [0]"}},
@@ -740,7 +750,7 @@ class TestMissingGlobalHints:
 
 class TestResolveGlobalNames:
     def test_rewrites_known_addresses(self) -> None:
-        from rebrew.diff import _resolve_global_names
+        from rebrew.compare.diff import _resolve_global_names
 
         cfg = SimpleNamespace(
             metadata_dir=Path("/tmp/meta"),
@@ -756,7 +766,7 @@ class TestResolveGlobalNames:
             }
         ]
         # build_name_to_va needs a real data scan; patch the map builder.
-        import rebrew.diff as diff_mod
+        import rebrew.compare.diff as diff_mod
 
         diff_mod._global_name_map = lambda cfg: {0x10027078: "g_log_level_table"}
         _resolve_global_names(rows, cfg)
@@ -769,7 +779,7 @@ class TestFixBlockerTargetsDiffedVa:
     ) -> None:
         """The diffed VA is authoritative: taking `annos[0].va` wrote the
         blocker onto the seed file's first function when a later VA was diffed."""
-        from rebrew.diff import run_diff
+        from rebrew.compare.diff import run_diff
         from rebrew.metadata.functions import get_entry
 
         meta_dir = tmp_path

@@ -6,7 +6,7 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.asm import capstone_to_nasm, disassemble_to_nasm, verify_roundtrip
+from rebrew.binary.asm import capstone_to_nasm, disassemble_to_nasm, verify_roundtrip
 
 
 class TestCapstoneToNasm:
@@ -72,7 +72,7 @@ class TestFindBadInstructionsIndividually:
     def test_formats_padding_once_and_preserves_probe_sources(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.asm as asm_mod
+        import rebrew.binary.asm as asm_mod
 
         rows = [
             {"data": False, "nasm": "nop", "raw": b"\x01", "offset": 0, "size": 1},
@@ -96,7 +96,7 @@ class TestFindBadInstructionsIndividually:
 
 class TestVerifyRoundtrip:
     def test_verified_roundtrip(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.asm as asm_mod
+        import rebrew.binary.asm as asm_mod
 
         monkeypatch.setattr(asm_mod, "_run_nasm", lambda _src, tmpdir=None: b"\x55\x89\xe5")
         ok, msg = verify_roundtrip("push ebp\nmov ebp, esp\n", b"\x55\x89\xe5")
@@ -104,14 +104,14 @@ class TestVerifyRoundtrip:
         assert "pass" in msg.lower()
 
     def test_mismatch_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.asm as asm_mod
+        import rebrew.binary.asm as asm_mod
 
         monkeypatch.setattr(asm_mod, "_run_nasm", lambda _src, tmpdir=None: b"\x55\x90\x90")
         ok, _msg = verify_roundtrip("push ebp\n", b"\x55\x89\xe5")
         assert not ok
 
     def test_nasm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.asm as asm_mod
+        import rebrew.binary.asm as asm_mod
 
         monkeypatch.setattr(asm_mod, "_run_nasm", lambda _src, tmpdir=None: None)
         ok, _msg = verify_roundtrip("push ebp\n", b"\x55")
@@ -122,7 +122,7 @@ class TestListSizeFor:
     def test_returns_list_size(self, tmp_path: Path) -> None:
         import json as _json
 
-        from rebrew.asm import _list_size_for
+        from rebrew.binary.asm import _list_size_for
 
         cfg = SimpleNamespace(reversed_dir=tmp_path)
         (tmp_path / "function_structure.json").write_text(
@@ -133,7 +133,7 @@ class TestListSizeFor:
         assert _list_size_for(cfg, 0x2000) is None
 
     def test_missing_list_returns_none(self, tmp_path: Path) -> None:
-        from rebrew.asm import _list_size_for
+        from rebrew.binary.asm import _list_size_for
 
         cfg = SimpleNamespace()
         assert _list_size_for(cfg, 0x1000) is None
@@ -151,13 +151,13 @@ class TestCallingConvention:
         return NS(mnemonic=mnemonic, op_str=op)
 
     def test_plain_ret_is_cdecl(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [self._i("mov", "eax, [esp+4]"), self._i("ret")]
         assert calling_convention(insns) == "cdecl"
 
     def test_ret_n_without_ecx_is_stdcall(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("mov", "eax, [esp+4]"),
@@ -167,7 +167,7 @@ class TestCallingConvention:
         assert calling_convention(insns) == "stdcall"
 
     def test_ecx_pointer_deref_is_thiscall(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("mov", "esi, ecx"),
@@ -178,7 +178,7 @@ class TestCallingConvention:
         assert calling_convention(insns) == "thiscall"
 
     def test_ecx_save_is_thiscall_no_stack_args(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("push", "esi"),
@@ -190,7 +190,7 @@ class TestCallingConvention:
 
     def test_mov_ecx_from_mem_first_is_not_thiscall(self) -> None:
         """mov ecx,[esp+4] passes an ARGUMENT in ecx — not the this pointer."""
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("mov", "ecx, [esp+4]"),
@@ -213,7 +213,7 @@ class TestCallingConvention:
     )
     def test_locally_defined_ecx_is_not_thiscall(self, definition: str, operands: str) -> None:
         """A local pointer or partial register write cannot prove incoming this."""
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("push", "esi"),
@@ -225,13 +225,13 @@ class TestCallingConvention:
         assert calling_convention(insns) == "cdecl"
 
     def test_call_clobbers_unsaved_incoming_ecx(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [self._i("call", "0x2000"), self._i("mov", "eax, [ecx]"), self._i("ret")]
         assert calling_convention(insns) == "cdecl"
 
     def test_read_only_ecx_use_preserves_this_pointer(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("test", "ecx, ecx"),
@@ -243,7 +243,7 @@ class TestCallingConvention:
         assert calling_convention(insns) == "thiscall"
 
     def test_saved_this_pointer_survives_later_clobber(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("mov", "esi, ecx"),
@@ -254,19 +254,19 @@ class TestCallingConvention:
         assert calling_convention(insns) == "thiscall"
 
     def test_dereference_before_ecx_reassignment_is_thiscall(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [self._i("mov", "ecx, [ecx + 4]"), self._i("ret", "4")]
         assert calling_convention(insns) == "thiscall"
 
     def test_ctor_thunk(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [self._i("mov", "ecx, 0x103d9f8"), self._i("jmp", "0x1014469")]
         assert calling_convention(insns) == "thiscall (ctor thunk)"
 
     def test_eh_guard_thunk(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [self._i("mov", "ecx, [ebp-0x10]"), self._i("jmp", "0x102f79c")]
         assert calling_convention(insns) == "thiscall (EH-guard thunk)"
@@ -275,7 +275,7 @@ class TestCallingConvention:
         """A function with a real body (>2 insns) ending in an unconditional
         jmp is a forwarding tail call, not a pure thunk — the jmp IS the
         body only for 1-2 instruction thunks."""
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("call", "dword ptr [0x1001d0c]"),
@@ -292,14 +292,14 @@ class TestCallingConvention:
 
     def test_two_insn_jmp_sequence_still_thunk(self) -> None:
         """`push X; jmp Y` (2 insns) is still a pure thunk."""
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [self._i("push", "0x10"), self._i("jmp", "0x1014469")]
         assert calling_convention(insns) == "tail-call thunk"
 
     def test_internal_jmp_before_ret_is_not_thunk(self) -> None:
         """An internal branch (jmp L2) is not a tail call — the LAST ret ends."""
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("cmp", "[esp+4], 0"),
@@ -315,7 +315,7 @@ class TestCallingConvention:
 
     def test_extraction_past_ret_uses_last_ret(self) -> None:
         """The disassembly can run past the function into the next one."""
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("push", "esi"),
@@ -328,7 +328,7 @@ class TestCallingConvention:
         assert calling_convention(insns) == "thiscall (no stack args)"
 
     def test_hex_ret_operand(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("mov", "eax, [esp+4]"),
@@ -337,14 +337,14 @@ class TestCallingConvention:
         assert calling_convention(insns) == "stdcall"
 
     def test_empty_unknown(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         assert calling_convention([]) == "unknown"
 
     def test_next_va_trims_neighbor_ret(self) -> None:
         """A bleed window ending in the neighbor's `ret 8` must not report
         the neighbor's stdcall — the function's own plain ret is cdecl."""
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("mov", "eax, [esp+4]"),
@@ -358,7 +358,7 @@ class TestCallingConvention:
         assert calling_convention(insns, next_va=0x1004) == "cdecl"
 
     def test_end_va_trims_neighbor_ret(self) -> None:
-        from rebrew.asm import calling_convention
+        from rebrew.binary.asm import calling_convention
 
         insns = [
             self._i("mov", "eax, [esp+4]"),
@@ -376,7 +376,7 @@ class TestDetectFunctionPattern:
         return SimpleNamespace(arch="x86_32", target_binary=tmp_path / "x.exe")
 
     def test_import_thunk(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.asm import detect_function_pattern
+        from rebrew.binary.asm import detect_function_pattern
 
         (tmp_path / "x.exe").write_bytes(b"MZ")
         monkeypatch.setattr(
@@ -387,7 +387,7 @@ class TestDetectFunctionPattern:
         assert p is not None and "import thunk" in p
 
     def test_eh_ctor(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.asm import detect_function_pattern
+        from rebrew.binary.asm import detect_function_pattern
 
         (tmp_path / "x.exe").write_bytes(b"MZ")
         monkeypatch.setattr(
@@ -398,7 +398,7 @@ class TestDetectFunctionPattern:
         assert p is not None and "EH-ctor" in p
 
     def test_iat_forwarder(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.asm import detect_function_pattern
+        from rebrew.binary.asm import detect_function_pattern
 
         (tmp_path / "x.exe").write_bytes(b"MZ")
         code = bytes.fromhex("8b 44 24 10 50 8b 44 24 10 50 8b 44 24 10 50 ff 15 5c 12 00 01 c3")
@@ -407,7 +407,7 @@ class TestDetectFunctionPattern:
         assert p is not None and "forwarder" in p
 
     def test_plain_code_none(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.asm import detect_function_pattern
+        from rebrew.binary.asm import detect_function_pattern
 
         (tmp_path / "x.exe").write_bytes(b"MZ")
         monkeypatch.setattr(

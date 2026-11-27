@@ -22,7 +22,7 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-lazy from rebrew.analysis import direct_call_target
+lazy from rebrew.binary.analysis import direct_call_target
 lazy from rebrew.catalog import (
     RegistryEntry,
     build_function_registry,

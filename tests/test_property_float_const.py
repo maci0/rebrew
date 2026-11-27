@@ -16,7 +16,7 @@ import struct
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.float_const import find_float_consts
+from rebrew.c_syntax.float_const import find_float_consts
 
 #: Bounds that keep the disassembler workload bounded: x86 is variable length,
 #: so an unbounded buffer would make the run time a function of the example

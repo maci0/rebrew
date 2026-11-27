@@ -335,7 +335,7 @@ def _wait_for_socket(
     whole timeout on every call.
 
     *clock* and *sleep* are the loop's only time sources, the same seam
-    :func:`rebrew.match_ga.BinaryMatchingGA.run` and
+    :func:`rebrew.matching.ga.BinaryMatchingGA.run` and
     :func:`rebrew.matcher.compiler.flag_sweep` take: inject both to replay a
     startup sequence from virtual time, with no real waiting and no
     dependence on how fast this machine spawns Xvfb.

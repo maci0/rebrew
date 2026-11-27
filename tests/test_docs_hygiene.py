@@ -2,7 +2,7 @@
 
 Pins the docs to the code so drift is caught in CI:
 
-- every lint code emitted by ``src/rebrew/lint.py`` is documented in
+- every lint code emitted by ``src/rebrew/lint/`` is documented in
   ``docs/ANNOTATIONS.md`` (the linter reference tables);
 - every component in the packaged CLI manifest has a dedicated section in
   ``docs/CLI.md`` and is covered by a bundled agent skill;
@@ -93,7 +93,8 @@ _NUMBER_WORDS = (
 
 
 def test_every_lint_code_documented() -> None:
-    src = (ROOT / "src" / "rebrew" / "lint.py").read_text(encoding="utf-8")
+    lint_dir = ROOT / "src" / "rebrew" / "lint"
+    src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(lint_dir.glob("*.py")))
     codes = set(re.findall(r'\b\w+\.(?:warning|error)\(\s*[^,]+,\s*"([EW]\d{3})"', src))
     assert codes, "no lint codes found — the regex may be stale"
     doc = (ROOT / "docs" / "ANNOTATIONS.md").read_text(encoding="utf-8")

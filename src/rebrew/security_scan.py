@@ -37,7 +37,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.errors import RebrewError
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     find_function_name_in_node,
     get_ts_parser,
     node_text,

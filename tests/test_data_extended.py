@@ -128,7 +128,7 @@ class TestScanGlobalsBranches:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The data list does not need calling conventions, so it does not parse them."""
-        import rebrew.c_parser as c_parser
+        import rebrew.c_syntax.parser as c_parser
 
         cfg = _cfg(tmp_path)
         write_source(

@@ -1,4 +1,4 @@
-"""Tests for rebrew.extract — byte extraction, detect_reversed_vas, cmd_list."""
+"""Tests for rebrew.binary.extract — byte extraction, detect_reversed_vas, cmd_list."""
 
 import re
 lazy from pathlib import Path
@@ -6,7 +6,7 @@ lazy from pathlib import Path
 import pytest
 from source_util import write_source
 
-from rebrew.extract import cmd_list, detect_reversed_vas
+from rebrew.binary.extract import cmd_list, detect_reversed_vas
 from rebrew.formats.binary_loader import extract_bytes_at_va
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.utils import console as utils_console

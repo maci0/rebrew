@@ -3,7 +3,7 @@
 lazy import os
 lazy from pathlib import Path
 
-lazy from rebrew.c_parser import parse_c_source
+lazy from rebrew.c_syntax.parser import parse_c_source
 
 
 def rebase_includes(text: str, source_dir: Path, output_dir: Path) -> str:

@@ -33,7 +33,7 @@ lazy from collections.abc import Iterator, Sequence
 lazy from pathlib import Path
 lazy from typing import Any
 
-from rebrew.c_parser import CALLING_CONVENTION  # noqa: F401
+from rebrew.c_syntax.parser import CALLING_CONVENTION  # noqa: F401
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.formats.coff import load_coff
 lazy from rebrew.metadata.data import iter_data_symbols, load_data_document
@@ -464,7 +464,7 @@ def reference_counts(files: list[Path]) -> list[tuple[Path, dict[str, int]]]:
     Counting ``tree-sitter-c`` ``identifier`` nodes once answers every later
     owner query while ignoring comments and string literals.
     """
-    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, node_text, parse_c_source
 
     indexed: list[tuple[Path, dict[str, int]]] = []
     for f, text in _read_sources_or_fail(files):
@@ -560,7 +560,7 @@ def _line_indent_start(text: str, char_start: int) -> int:
 
 def _iter_file_scope_decls(text: str) -> Iterator[tuple[Any, bytes]]:
     """Yield ``(declaration_node, raw_bytes)`` for every file-scope declaration in *text*."""
-    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, parse_c_source
 
     masked = mask_msvc_syntax(text)
     tree, _masked_bytes = parse_c_source(masked)
@@ -604,7 +604,7 @@ def _analyze_var_declarator(declarator: Any, raw: bytes) -> tuple[str, bool, str
       the identifier when the declarator wraps a pointer around an array
       (e.g. ``*``, ``** const``, ``__cdecl *``).
     """
-    from rebrew.c_parser import declares_function, node_text
+    from rebrew.c_syntax.parser import declares_function, node_text
 
     if declarator.type == "init_declarator":
         declarator = declarator.child_by_field_name("declarator")
@@ -677,7 +677,7 @@ def _analyze_var_declarator(declarator: Any, raw: bytes) -> tuple[str, bool, str
 
 
 def _decl_has_extern(decl_node: Any, raw: bytes) -> bool:
-    from rebrew.c_parser import node_text
+    from rebrew.c_syntax.parser import node_text
 
     return any(
         c.type == "storage_class_specifier" and node_text(c, raw) == "extern"
@@ -722,7 +722,7 @@ def _declared_base_types(text: str, name: str) -> set[str]:
     emitting a second type for it: two definitions of one name with different
     types collide (C2371) in the rebuilt TU.
     """
-    from rebrew.c_parser import node_text
+    from rebrew.c_syntax.parser import node_text
 
     if name not in text:
         return set()
@@ -1042,7 +1042,7 @@ _STUB_DEF_RE = re.compile(
 
 def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None, str]]:
     """Base type, element count, and retained multidimensional suffix of each stub."""
-    from rebrew.c_parser import array_type_shape
+    from rebrew.c_syntax.parser import array_type_shape
 
     out: dict[str, tuple[str, int | None, str]] = {}
     text, _ = read_source_text(stub_file)
@@ -1210,7 +1210,7 @@ def data_symbol_size(fields: dict[str, Any], *, arch: str = "x86_32") -> int:
     Zero is an unspecified size. Type inference uses the existing x86_32
     model; other architectures need explicit SIZE.
     """
-    from rebrew.c_parser import (
+    from rebrew.c_syntax.parser import (
         abstract_pointer_array_dimensions,
         array_type_shape,
         is_pointer_to_array,
@@ -1287,7 +1287,7 @@ def estimate_type_size(type_str: str) -> int:
     Memoized per spelling: a project repeats a few hundred type strings across
     thousands of globals, and each parse folds array bounds through tree-sitter.
     """
-    from rebrew.c_parser import (
+    from rebrew.c_syntax.parser import (
         abstract_pointer_array_dimensions,
         array_type_shape,
         is_pointer_to_array,
@@ -1577,7 +1577,7 @@ def _definition_to_extern(span: str) -> str:
     (``init_declarator``), keeping complex declarators such as
     ``int (*table[2])[3] = {0};`` intact.
     """
-    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, parse_c_source
 
     body = span.strip()
     if not body:
@@ -1613,7 +1613,7 @@ def _declared_element_count(suffix: str) -> int | None:
     """
     if not suffix:
         return None
-    from rebrew.c_parser import array_type_shape
+    from rebrew.c_syntax.parser import array_type_shape
 
     _base, dimensions = array_type_shape(f"char _{suffix}")
     if not dimensions:

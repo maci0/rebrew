@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from cli_json import cli_payload
 
-from rebrew.types import parse_structs
+from rebrew.c_syntax.types import parse_structs
 
 
 def _project(root: Path) -> Any:
@@ -28,8 +28,8 @@ def _project(root: Path) -> Any:
 
 
 def _move_type(root: Path, digest: str) -> None:
+    from rebrew.c_syntax.type_metadata import rehome_type_bindings
     from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
-    from rebrew.type_metadata import rehome_type_bindings
 
     old, new = root / "types.h", root / "moved.h"
     raw = old.read_bytes()
@@ -44,11 +44,11 @@ class TestTypeMetadata:
     def test_type_rehome_preserves_an_existing_unbound_destination(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
     ) -> None:
-        from rebrew.type_metadata import bind_type, load_types, rehome_type_bindings
+        from rebrew.c_syntax.type_metadata import bind_type, load_types, rehome_type_bindings
 
         cfg = _project(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         old, new = tmp_path / "types.h", tmp_path / "moved.h"
         original = old.read_bytes()
@@ -64,13 +64,13 @@ class TestTypeMetadata:
     def test_type_rehome_requires_the_selected_staged_byte_preserving_move(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from rebrew.c_syntax.type_metadata import bind_type, rehome_type_bindings
         from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
         from rebrew.metadata.storage import metadata_store, pin_metadata_stores
-        from rebrew.type_metadata import bind_type, rehome_type_bindings
 
         cfg = _project(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
         args = (tmp_path, "types.h", "moved.h")
@@ -98,11 +98,11 @@ class TestTypeMetadata:
     def test_type_rehome_rejects_destination_binding_collision(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type, load_types, rehome_type_bindings
+        from rebrew.c_syntax.type_metadata import bind_type, load_types, rehome_type_bindings
 
         cfg = _project(tmp_path)
         (tmp_path / "moved.h").write_bytes((tmp_path / "types.h").read_bytes())
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.one", Path("types.h"), "ITEM", 4, 4, "allocation", "one", {})
         bind_type(cfg, "engine.two", Path("moved.h"), "ITEM", 4, 4, "allocation", "two", {})
         before = load_types(tmp_path)
@@ -113,11 +113,11 @@ class TestTypeMetadata:
     def test_type_rehome_preserves_fragment_owner(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type, load_types, rehome_type_bindings
+        from rebrew.c_syntax.type_metadata import bind_type, load_types, rehome_type_bindings
 
         cfg = _project(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         fragment_dir = tmp_path / "rebrew-types.d"
         fragment_dir.mkdir()
@@ -132,7 +132,7 @@ class TestTypeMetadata:
     def test_rebind_backend_change_during_owner_write_rolls_back(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
     ) -> None:
-        import rebrew.type_metadata as types
+        import rebrew.c_syntax.type_metadata as types
         from rebrew.metadata.storage import metadata_store
 
         cfg = _project(tmp_path)
@@ -172,12 +172,12 @@ class TestTypeMetadata:
     def test_rebind_keeps_invalidation_when_config_changes_during_compile(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type, load_types, rehome_type_bindings
+        from rebrew.c_syntax.type_metadata import bind_type, load_types, rehome_type_bindings
 
         cfg = _project(tmp_path)
         config = tmp_path / "rebrew-project.toml"
         config.write_text('[metadata]\nbackend = "toml"\n')
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
         _move_type(tmp_path, preview["input_digest"])
@@ -186,7 +186,7 @@ class TestTypeMetadata:
         def change_config(*args: Any) -> None:
             config.write_text('[metadata]\nbackend = "toml"\n# changed flags\n')
 
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", change_config)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", change_config)
         with pytest.raises(ValueError, match="configuration changed"):
             bind_type(cfg, "engine.item", Path("moved.h"), "ITEM", 4, 4, "allocation", "native", {})
         assert load_types(tmp_path) == before
@@ -196,17 +196,17 @@ class TestTypeMetadata:
     def test_type_rehome_rolls_back_with_other_owner_failure(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
     ) -> None:
+        from rebrew.c_syntax.type_metadata import bind_type, rehome_type_bindings
         from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction
         from rebrew.metadata.data import set_data_fields_batch
         from rebrew.metadata.functions import record_function_identity
         from rebrew.metadata.storage import metadata_store
-        from rebrew.type_metadata import bind_type, rehome_type_bindings
 
         cfg = _project(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
         old, new = tmp_path / "types.h", tmp_path / "moved.h"
         original = old.read_bytes()
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         record_function_identity(
             tmp_path,
@@ -244,11 +244,16 @@ class TestTypeMetadata:
     def test_rehome_keeps_history_and_requires_reviewed_rebind(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
     ) -> None:
-        from rebrew.type_metadata import bind_type, check_types, load_types, rehome_type_bindings
+        from rebrew.c_syntax.type_metadata import (
+            bind_type,
+            check_types,
+            load_types,
+            rehome_type_bindings,
+        )
 
         cfg = _project(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         original = load_types(tmp_path)[0]
         preview = rehome_type_bindings(tmp_path, "types.h", "moved.h", dry_run=True)
@@ -269,12 +274,13 @@ class TestTypeMetadata:
         assert moved["path_history"][0]["freshness"] == "unassessed"
         assert moved["path_history"][0]["evidence"] == "native"
         monkeypatch.setattr(
-            "rebrew.type_metadata.compile_type", lambda *args: pytest.fail("stale type compiled")
+            "rebrew.c_syntax.type_metadata.compile_type",
+            lambda *args: pytest.fail("stale type compiled"),
         )
         assert "stale type evidence" in check_types(cfg, compile_layouts=True)[0]["issue"]
         with pytest.raises(ValueError, match="rebind invalidated"):
             rehome_type_bindings(tmp_path, "moved.h", "later.h", dry_run=True)
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("moved.h"), "ITEM", 4, 4, "allocation", "new review", {})
         rebound = load_types(tmp_path)[0]
         assert not rebound.get("path_revalidation_required")
@@ -282,7 +288,7 @@ class TestTypeMetadata:
         assert check_types(cfg) == []
 
     def test_tag_and_typedef_spelling_both_identify_the_definition(self) -> None:
-        from rebrew.type_metadata import struct_definition_names
+        from rebrew.c_syntax.type_metadata import struct_definition_names
 
         assert struct_definition_names("typedef struct ITEM { int x; } Item;") == {"ITEM", "Item"}
         assert struct_definition_names("typedef struct ITEM { int x; } ITEM;") == {"ITEM"}
@@ -291,14 +297,14 @@ class TestTypeMetadata:
     def test_input_changes_stale_evidence(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
     ) -> None:
-        from rebrew.type_metadata import bind_type, check_types
+        from rebrew.c_syntax.type_metadata import bind_type, check_types
 
         cfg = _project(tmp_path)
         (tmp_path / "types.h").write_text(
             '#include "dep.h"\ntypedef struct ITEM { int value; } ITEM;\n'
         )
         (tmp_path / "dep.h").write_text("/* initial */\n")
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         if change == "header":
             (tmp_path / "dep.h").write_text("/* changed */\n")
@@ -313,14 +319,14 @@ class TestTypeMetadata:
     def test_target_binary_is_read_once_for_all_records(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type, check_types
+        from rebrew.c_syntax.type_metadata import bind_type, check_types
 
         cfg = _project(tmp_path)
         (tmp_path / "types.h").write_text(
             "typedef struct ITEM { int value; } ITEM;\n"
             "typedef struct PAIR { int a; int b; } PAIR;\n"
         )
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         bind_type(cfg, "engine.pair", Path("types.h"), "PAIR", 8, 8, "allocation", "native", {})
 
@@ -352,10 +358,10 @@ class TestTypeMetadata:
     def test_invalid_record_never_replaces_store(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str, value: object
     ) -> None:
-        from rebrew.type_metadata import bind_type
+        from rebrew.c_syntax.type_metadata import bind_type
 
         cfg = _project(tmp_path)
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         args: dict[str, Any] = {
             "size": 4,
             "native_size": 4,
@@ -374,7 +380,7 @@ class TestTypeMetadata:
     def test_compile_race_and_symlink_escape(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type
+        from rebrew.c_syntax.type_metadata import bind_type
 
         cfg = _project(tmp_path)
 
@@ -383,7 +389,7 @@ class TestTypeMetadata:
                 "typedef struct ITEM { int value; int other; } ITEM;\n"
             )
 
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", changed)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", changed)
         with pytest.raises(ValueError, match="changed during"):
             bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         assert not (tmp_path / "rebrew-types.toml").exists()
@@ -396,11 +402,11 @@ class TestTypeMetadata:
     def test_lint_reports_stale_bindings(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from rebrew.c_syntax.type_metadata import bind_type
         from rebrew.lint import _check_W031_type_metadata
-        from rebrew.type_metadata import bind_type
 
         cfg = _project(tmp_path)
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         assert _check_W031_type_metadata(cfg) == []
         cfg.base_cflags = "/Zp1"
@@ -416,10 +422,10 @@ class TestTypeMetadata:
     def test_bind_then_stale_and_rebind_keeps_identity(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type, check_types, load_types
+        from rebrew.c_syntax.type_metadata import bind_type, check_types, load_types
 
         cfg = _project(tmp_path)
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(
             cfg,
             "engine.item",
@@ -453,14 +459,14 @@ class TestTypeMetadata:
     def test_compiler_failure_writes_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type
+        from rebrew.c_syntax.type_metadata import bind_type
 
         cfg = _project(tmp_path)
 
         def fail(*args: Any) -> None:
             raise ValueError("layout compile failed")
 
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", fail)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", fail)
         with pytest.raises(ValueError, match="layout compile"):
             bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
         assert not (tmp_path / "rebrew-types.toml").exists()
@@ -468,10 +474,10 @@ class TestTypeMetadata:
     def test_target_variants_and_duplicate_identity(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type, check_types, load_types
+        from rebrew.c_syntax.type_metadata import bind_type, check_types, load_types
 
         cfg = _project(tmp_path)
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "stride", "native stride", {})
         cfg.module = "B"
         cfg.base_cflags = "/DGOLD"
@@ -499,14 +505,14 @@ class TestTypeMetadata:
     def test_dry_run_no_compile_and_corrupt_store_preserved(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type
+        from rebrew.c_syntax.type_metadata import bind_type
 
         cfg = _project(tmp_path)
 
         def fail(*args: Any) -> None:
             pytest.fail("dry run compiled")
 
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", fail)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", fail)
         bind_type(
             cfg,
             "engine.item",
@@ -540,7 +546,7 @@ class TestTypeMetadata:
     def test_ambiguous_definition_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type
+        from rebrew.c_syntax.type_metadata import bind_type
 
         cfg = _project(tmp_path)
         (tmp_path / "types.h").write_text(
@@ -557,12 +563,12 @@ class TestTypeCLI:
 
         from typer.testing import CliRunner
 
-        from rebrew.types_cli import app
+        from rebrew.c_syntax.types_cli import app
 
         cfg = _project(tmp_path)
         cfg.reversed_dir = tmp_path
-        monkeypatch.setattr("rebrew.types_cli.require_config", lambda **kwargs: cfg)
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.types_cli.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         monkeypatch.setattr("rebrew.source.discovery.iter_sources", lambda *args: [])
         runner = CliRunner()
         args = [
@@ -595,8 +601,8 @@ class TestTypeCLI:
     def test_generated_probe_uses_type_and_target_flags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from rebrew.c_syntax.type_metadata import compile_type
         from rebrew.config import ProjectConfig
-        from rebrew.type_metadata import compile_type
 
         (tmp_path / "types.h").write_text("struct ITEM { int value; };\n")
         (tmp_path / "includes").mkdir()
@@ -671,14 +677,14 @@ def _legacy_context_hash(cfg: Any) -> str:
 
 
 def _bind_item(cfg: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    from rebrew.type_metadata import bind_type
+    from rebrew.c_syntax.type_metadata import bind_type
 
-    monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+    monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
     bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
 
 
 def _store_legacy_context(root: Path, digest: str) -> None:
-    from rebrew.type_metadata import load_types
+    from rebrew.c_syntax.type_metadata import load_types
 
     path = root / "rebrew-types.toml"
     current = load_types(root)[0]["context_hash"]
@@ -693,7 +699,7 @@ class TestTypeContextPortability:
     ) -> None:
         import shutil
 
-        from rebrew.type_metadata import check_types
+        from rebrew.c_syntax.type_metadata import check_types
 
         first = tmp_path / "first"
         first.mkdir()
@@ -708,7 +714,7 @@ class TestTypeContextPortability:
     ) -> None:
         import shutil
 
-        from rebrew.type_metadata import check_types
+        from rebrew.c_syntax.type_metadata import check_types
 
         first = tmp_path / "first"
         first.mkdir()
@@ -725,12 +731,12 @@ class TestTypeContextPortability:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.type_metadata import check_types, load_types
-        from rebrew.types_cli import app
+        from rebrew.c_syntax.type_metadata import check_types, load_types
+        from rebrew.c_syntax.types_cli import app
 
         cfg = _located_project(tmp_path)
         cfg.reversed_dir = tmp_path
-        monkeypatch.setattr("rebrew.types_cli.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.types_cli.require_config", lambda **kwargs: cfg)
         _bind_item(cfg, monkeypatch)
         portable = load_types(tmp_path)[0]["context_hash"]
         legacy = _legacy_context_hash(cfg)

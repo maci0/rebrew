@@ -1,8 +1,8 @@
-"""Tests for rebrew.signature_parser — function signature extraction via tree-sitter."""
+"""Tests for rebrew.c_syntax.signature_parser — function signature extraction via tree-sitter."""
 
 lazy from pathlib import Path
 
-from rebrew.signature_parser import extract_function_signatures
+from rebrew.c_syntax.signature_parser import extract_function_signatures
 
 
 class TestExtractFunctionSignatures:
@@ -79,17 +79,17 @@ class TestExtractFunctionSignatures:
 
 class TestNormalizeSignature:
     def test_strips_declspec(self) -> None:
-        from rebrew.signature_parser import _normalize_signature
+        from rebrew.c_syntax.signature_parser import _normalize_signature
 
         assert _normalize_signature("__declspec(dllexport) int f(void);") == "int f(void)"
 
     def test_strips_calling_convention_and_const(self) -> None:
-        from rebrew.signature_parser import _normalize_signature
+        from rebrew.c_syntax.signature_parser import _normalize_signature
 
         assert _normalize_signature("__stdcall const int g(int a);") == "int g(int a)"
 
     def test_function_pointer_param_to_void(self) -> None:
-        from rebrew.signature_parser import _normalize_signature
+        from rebrew.c_syntax.signature_parser import _normalize_signature
 
         out = _normalize_signature("int h(void (*cb)(int));")
         assert "void *" in out
@@ -103,7 +103,7 @@ class TestNormalizeSignature:
         ``void * cbs[4]``. A pointer to an array is not a function
         pointer and stays.
         """
-        from rebrew.signature_parser import _normalize_signature
+        from rebrew.c_syntax.signature_parser import _normalize_signature
 
         out = _normalize_signature("int h(void (*cbs[4])(int));")
         assert "void * cbs[4]" in out
@@ -118,7 +118,7 @@ class TestNormalizeSignature:
         ``void (**cbs[4])(int)`` is an array of those pointers.
         ``void (**row)[4]`` is a pointer to an array and stays.
         """
-        from rebrew.signature_parser import _normalize_signature
+        from rebrew.c_syntax.signature_parser import _normalize_signature
 
         out = _normalize_signature("int h(void (**cb)(int));")
         assert "void * cb" in out
@@ -129,7 +129,7 @@ class TestNormalizeSignature:
         assert "(**row)[4]" in row
 
     def test_pointer_space_normalized(self) -> None:
-        from rebrew.signature_parser import _normalize_signature
+        from rebrew.c_syntax.signature_parser import _normalize_signature
 
         # "char*s" (no space) gets a space inserted for CParser compatibility.
         assert _normalize_signature("char*s;") == "char *s"
@@ -138,19 +138,19 @@ class TestNormalizeSignature:
 
 class TestTsUnavailable:
     def test_parser_import_failure_returns_empty(self, tmp_path: Path, monkeypatch: object) -> None:
-        import rebrew.c_parser
-        import rebrew.signature_parser as sp
+        import rebrew.c_syntax.parser
+        import rebrew.c_syntax.signature_parser as sp
 
         def boom() -> object:
             raise ImportError("no tree-sitter")
 
-        monkeypatch.setattr(rebrew.c_parser, "_get_parser", boom)
+        monkeypatch.setattr(rebrew.c_syntax.parser, "_get_parser", boom)
         f = tmp_path / "f.c"
         f.write_text("int f(void) { return 1; }", encoding="utf-8")
         assert list(sp.extract_function_signatures(f)) == []
 
     def test_pointer_declarator_signature(self, tmp_path: Path) -> None:
-        from rebrew.signature_parser import extract_function_signatures
+        from rebrew.c_syntax.signature_parser import extract_function_signatures
 
         f = tmp_path / "f.c"
         f.write_text("int *get_ptr(int a) { return 0; }\n", encoding="utf-8")
@@ -161,7 +161,7 @@ class TestTsUnavailable:
 
 class TestSignatureParserBranches:
     def test_pointer_return_function(self, tmp_path: Path) -> None:
-        from rebrew.signature_parser import extract_function_signatures
+        from rebrew.c_syntax.signature_parser import extract_function_signatures
 
         f = tmp_path / "p.c"
         f.write_text("char *strdup2(const char *s) { return (char *)s; }\n", encoding="utf-8")
@@ -169,7 +169,7 @@ class TestSignatureParserBranches:
         assert any(name == "strdup2" for name, _ in results)
 
     def test_no_body_function_definition(self, tmp_path: Path) -> None:
-        from rebrew.signature_parser import extract_function_signatures
+        from rebrew.c_syntax.signature_parser import extract_function_signatures
 
         f = tmp_path / "d.c"
         f.write_text("int decl_only(int x);\n", encoding="utf-8")
@@ -206,7 +206,7 @@ class TestSignatureParserBranches:
 
 class TestDeepPrototypeTraversal:
     def test_deep_body_does_not_hide_following_prototypes(self, tmp_path: Path) -> None:
-        from rebrew.signature_parser import extract_function_prototypes
+        from rebrew.c_syntax.signature_parser import extract_function_prototypes
 
         source = tmp_path / "deep.c"
         source.write_text(

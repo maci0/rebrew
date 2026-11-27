@@ -7,7 +7,7 @@ from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
-import rebrew.similar as similar_mod
+import rebrew.compare.similar as similar_mod
 
 runner = CliRunner()
 

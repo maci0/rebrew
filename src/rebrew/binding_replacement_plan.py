@@ -12,7 +12,7 @@ from typing import Any
 lazy from pathlib import Path
 
 from rebrew.binding_replacement_conditions import macro_change_re, target_structural_view
-from rebrew.c_parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
+from rebrew.c_syntax.parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
 from rebrew.compiler.compile import effective_compile_flags
 from rebrew.compiler.overrides import resolve_compile_overrides_cached
 from rebrew.config import ProjectConfig, inventory_path_for

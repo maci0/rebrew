@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 lazy from typing import Any
 
-from rebrew.coff_reloc import CoffRelocRecord
+from rebrew.compare.coff_reloc import CoffRelocRecord
 lazy from rebrew.data.ownership import is_compiler_literal
 lazy from rebrew.formats.binary_model import BinaryInfo
 lazy from rebrew.formats.coff import load_coff

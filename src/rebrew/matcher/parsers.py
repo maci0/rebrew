@@ -18,7 +18,7 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 from rebrew.formats.binary_loader import PADDING_BYTES as _PADDING_BYTES
-lazy from rebrew.coff_reloc import CoffRelocRecord
+lazy from rebrew.compare.coff_reloc import CoffRelocRecord
 lazy from rebrew.formats.binary_loader import decode_binary_name
 
 _PADDING_STRIP = bytes(_PADDING_BYTES)

@@ -1,4 +1,4 @@
-"""test_prove_soundness.py — Soundness regression tests for rebrew.prove.
+"""test_prove_soundness.py — Soundness regression tests for rebrew.matching.prove.
 
 Covers the prove.py P0 soundness fixes with the optional prove extra:
 
@@ -27,8 +27,8 @@ from typing import Any
 
 import pytest
 
-import rebrew.prove as prove_mod
-import rebrew.prove_simprocs as simprocs_mod
+import rebrew.matching.prove as prove_mod
+import rebrew.matching.prove_simprocs as simprocs_mod
 
 has_claripy = importlib.util.find_spec("angr") is not None
 

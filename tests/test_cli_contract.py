@@ -835,10 +835,10 @@ class TestStandaloneEvidenceCommands:
     @pytest.mark.parametrize(
         "module,expected",
         [
-            ("types_cli", ["contracts", "reconcile"]),
+            ("c_syntax.types_cli", ["contracts", "reconcile"]),
             ("source.binding", ["retire", "rebind"]),
             ("source.organize", ["review", "check"]),
-            ("inventory_repair", ["--reason", "--dry-run"]),
+            ("binary.inventory_repair", ["--reason", "--dry-run"]),
         ],
     )
     def test_module_execution_registers_complete_commands(

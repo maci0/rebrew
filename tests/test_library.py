@@ -11,7 +11,7 @@ import pytest
 from cli_json import cli_payload
 
 from rebrew.compiler.overrides import resolve_compile_overrides
-from rebrew.library import app
+from rebrew.library.cli import app
 from rebrew.metadata.functions import (
     LIBRARY_METADATA_FILE,
     apply_library_presets,

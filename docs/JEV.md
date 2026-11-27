@@ -3,7 +3,7 @@
 Research captured **2026-09-18** from TypeSafe's public docs and the
 guild-rebrew campaign. Complements [PRINCIPLES.md](PRINCIPLES.md) §9–10
 (RAG over hallucination; AI as a baseline, not a finisher),
-[`llm_seed.py`](../src/rebrew/llm_seed.py), and the guild catalogs in the
+[`llm_seed.py`](../src/rebrew/matching/llm_seed.py), and the guild catalogs in the
 sibling `guild-rebrew` checkout.
 
 This is not a shipped feature and not an ADR. Promote a piece of it to
@@ -70,7 +70,7 @@ classification; code owns control flow, Jev fills the semantic leftover
 Jev cannot replace anything that must emit C, ASM, or prose:
 
 - Writing or rewriting function bodies (guild-rebrew's actual work).
-- `rebrew match run --seed-llm`: [`llm_seed.py`](../src/rebrew/llm_seed.py)
+- `rebrew match run --seed-llm`: [`llm_seed.py`](../src/rebrew/matching/llm_seed.py)
   asks an OpenAI-compatible endpoint for alternative C snippets,
   tree-sitter-validates them, and injects survivors into the GA.
 - Skeletons, comments, Ghidra names, commit messages.
@@ -172,7 +172,7 @@ guardrails.
 
 ### 3.5 Rank the pile
 
-[`todo.py`](../src/rebrew/todo.py) ROI is size / delta / status. Keep
+[`todo.py`](../src/rebrew/todo/__init__.py) ROI is size / delta / status. Keep
 it. A Score for "agent-solvability" / "needs human" can sort a fan-out
 from unstructured evidence. Do not replace `calculate_roi`.
 
@@ -181,7 +181,7 @@ from unstructured evidence. Do not replace `calculate_roi`.
 Same primitive as next-tool. Closed set in, one option out. Jev still
 does not write C: it names **which documented rewrite** to try.
 
-[`near_analysis.py`](../src/rebrew/near_analysis.py) already does the first cut
+[`near_analysis.py`](../src/rebrew/compare/near_analysis.py) already does the first cut
 (`register` / `encoding` / `equivalent` / `structural` / `reloc`) and
 maps it to `MUTATION_SUGGESTIONS`. Jev sits one layer up: "this delta
 is *that* MSVC6 shape."

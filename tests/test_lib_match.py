@@ -20,7 +20,7 @@ class TestNativeCallees:
     def test_unresolved_edges_survive_and_full_callee_differences_reject(
         self, tmp_path: Path, case: str
     ) -> None:
-        from rebrew.lib_match import index_library, resolve_native_callees
+        from rebrew.library.match import index_library, resolve_native_callees
 
         wrapper = (b"\x90" * 4 + b"\xe8" + bytes(4) + b"\x90" * 4 + b"\xc3").ljust(16, b"\0")
         leaf = b"\x90" * 63 + b"\xc3"
@@ -66,7 +66,7 @@ class TestNativeCallees:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native: str, opcode: int, addend: int
     ) -> None:
         """Masked wrappers cannot identify origin without their called body."""
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe, lib, va = _write_project(tmp_path)
         wrapper = (
@@ -161,7 +161,7 @@ def _mock_cfg(tmp_path: Path, pe_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         target_binary=pe_path,
     )
     import rebrew.cli as cli_mod
-    import rebrew.lib_match as lm
+    import rebrew.library.match as lm
 
     monkeypatch.setattr(cli_mod, "require_config", lambda **kw: cfg)
     monkeypatch.setattr(lm, "require_config", lambda **kw: cfg)
@@ -174,7 +174,7 @@ class TestLibMatch:
     def test_explicit_archive_excludes_automatic_vendored_objects(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single_va: bool, scope: str
     ) -> None:
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         pe, lib, va = _write_project(tmp_path)
         lib.write_bytes(make_lib_archive([("other.obj", make_coff_obj(b"\x90" * 40))]))
@@ -216,7 +216,7 @@ class TestLibMatch:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single_va: bool, machine: int
     ) -> None:
         """Zero-code aliases forward bodies/fixups without inventing a unique name."""
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe, lib, va = _write_project(tmp_path)
         members = [
@@ -251,7 +251,7 @@ class TestLibMatch:
     def test_complete_extent_and_object_padding(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tail: bytes
     ) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe, lib, va = _write_project(tmp_path)
         lib.write_bytes(
@@ -265,7 +265,7 @@ class TestLibMatch:
     def test_matching_prefix_is_not_a_complete_native_match(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single: bool
     ) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe, lib, va = _write_project(tmp_path)
         native = CODE + b"\x40" * 51
@@ -284,7 +284,7 @@ class TestLibMatch:
     def test_flags_reversed_library_function(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe_path, lib_path, _ = _write_project(tmp_path)
         _mock_cfg(tmp_path, pe_path, monkeypatch)
@@ -295,7 +295,7 @@ class TestLibMatch:
     def test_clean_function_not_flagged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe_path, lib_path, va = _write_project(tmp_path)
         # overwrite the reversed source's function region check: point the
@@ -308,7 +308,7 @@ class TestLibMatch:
         assert res.exit_code == 0, res.output
 
     def test_allowlist_suppresses(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe_path, lib_path, va = _write_project(tmp_path)
         _mock_cfg(tmp_path, pe_path, monkeypatch)
@@ -319,7 +319,7 @@ class TestLibMatch:
         assert cli_payload(res) == {"findings": [], "count": 0}
 
     def test_va_verdict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe_path, lib_path, va = _write_project(tmp_path)
         _mock_cfg(tmp_path, pe_path, monkeypatch)
@@ -331,7 +331,7 @@ class TestLibMatch:
     def test_address_only_native_match_needs_no_source_claim(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ambiguous: bool
     ) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
         from rebrew.metadata.functions import update_field
 
         pe = tmp_path / "target.dll"
@@ -363,7 +363,7 @@ class TestLibMatch:
 
         Regression: the window ran into the next function, so small LIBCMT
         functions (__errno, __fileno, _malloc) read as safe to reverse."""
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         body = bytes(range(1, 13))  # 12-byte library function
         pe = tmp_path / "target.dll"
@@ -383,7 +383,7 @@ class TestLibMatch:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, single_va: bool
     ) -> None:
         """Identical wrappers prove library origin without identifying a callee."""
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe, lib, va = _write_project(tmp_path)
         members = [
@@ -409,7 +409,7 @@ class TestLibMatch:
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe_path, lib_path, _ = _write_project(tmp_path)
         _mock_cfg(tmp_path, pe_path, monkeypatch)
@@ -424,7 +424,7 @@ class TestLibMatch:
     ) -> None:
         """Regression: MSVC marks helpers like _initterm STATIC; they are
         absent from the archive symbol index and must still be matched."""
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         image_base = 0x400000
         text_va = 0x1000
@@ -456,7 +456,7 @@ class TestLibMatch:
         assert "_static_helper" in res.output
 
     def test_missing_lib_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe_path, _, _ = _write_project(tmp_path)
         _mock_cfg(tmp_path, pe_path, monkeypatch)
@@ -466,7 +466,7 @@ class TestLibMatch:
     def test_bad_va_is_json_usage_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.lib_match import app
+        from rebrew.library.match import app
 
         pe_path, lib_path, _ = _write_project(tmp_path)
         _mock_cfg(tmp_path, pe_path, monkeypatch)
@@ -477,19 +477,19 @@ class TestLibMatch:
 
 class TestLoadAllowlist:
     def test_none_is_empty(self) -> None:
-        from rebrew.lib_match import load_allowlist
+        from rebrew.library.match import load_allowlist
 
         assert load_allowlist(None) == set()
 
     def test_hex_entries_comments_and_blanks(self, tmp_path: Path) -> None:
-        from rebrew.lib_match import load_allowlist
+        from rebrew.library.match import load_allowlist
 
         p = tmp_path / "allow.txt"
         p.write_text("# known CRT\n0x401000\n\n  0x401010  # inline\n", encoding="utf-8")
         assert load_allowlist(p) == {0x401000, 0x401010}
 
     def test_utf8_bom_is_tolerated(self, tmp_path: Path) -> None:
-        from rebrew.lib_match import load_allowlist
+        from rebrew.library.match import load_allowlist
 
         p = tmp_path / "allow.txt"
         p.write_bytes("\ufeff0x401000\n".encode())
@@ -498,7 +498,7 @@ class TestLoadAllowlist:
     def test_malformed_entry_exits_cleanly(self, tmp_path: Path) -> None:
         import typer
 
-        from rebrew.lib_match import load_allowlist
+        from rebrew.library.match import load_allowlist
 
         p = tmp_path / "allow.txt"
         p.write_text("0x401000\nnot-a-va\n", encoding="utf-8")
@@ -509,7 +509,7 @@ class TestLoadAllowlist:
 class TestMatchBytesRelocGuard:
     @pytest.mark.parametrize("leading", [False, True])
     def test_masked_and_unmasked_candidates(self, leading: bool) -> None:
-        from rebrew.lib_match import match_bytes, match_leading_body
+        from rebrew.library.match import match_bytes, match_leading_body
 
         data = bytes(range(16))
         changed = bytes([255]) + data[1:]
@@ -523,7 +523,7 @@ class TestMatchBytesRelocGuard:
         assert match(index, data) == [("plain", "a"), ("masked", "c")]
 
     def test_complete_body_padding_limit_and_relocations(self) -> None:
-        from rebrew.lib_match import match_complete_body
+        from rebrew.library.match import match_complete_body
 
         index = {
             "padded": [("a", CODE + b"\x90" * 15, set())],
@@ -534,7 +534,7 @@ class TestMatchBytesRelocGuard:
         assert match_complete_body(index, CODE) == [("padded", "a")]
 
     def test_leading_body_keeps_longest_ties(self) -> None:
-        from rebrew.lib_match import match_leading_body
+        from rebrew.library.match import match_leading_body
 
         index = {
             "short": [("s.obj", CODE[:8], set())],
@@ -548,7 +548,7 @@ class TestMatchBytesRelocGuard:
     def test_unmasked_mismatch_rejects_when_all_relocs_are_in_window(self, leading: bool) -> None:
         """Relocation masks cover only their own offsets: a body that differs at an
         unmasked byte is not a match even when every reloc lies inside the window."""
-        from rebrew.lib_match import match_bytes, match_leading_body
+        from rebrew.library.match import match_bytes, match_leading_body
 
         data = bytes(range(16))
         body = bytearray(data)
@@ -564,7 +564,7 @@ class TestMatchBytesRelocGuard:
     def test_relocs_beyond_window_do_not_reject_a_match(self) -> None:
         """Reloc offsets past the compared window must not tighten the
         mostly-relocation guard: only masks inside [0, len(data)) matter."""
-        from rebrew.lib_match import match_bytes
+        from rebrew.library.match import match_bytes
 
         body = bytes(range(20))
         data = body[:16]
@@ -580,7 +580,7 @@ class TestIndexObjects:
     """Loose .obj indexing for libraries vendored as source (no .LIB)."""
 
     def test_matches_a_named_object(self, tmp_path: Path) -> None:
-        from rebrew.lib_match import index_objects
+        from rebrew.library.match import index_objects
 
         obj = tmp_path / "mylib.obj"
         obj.write_bytes(make_coff_obj(LIB_CODE, func_symbol="_mylibfn"))
@@ -592,7 +592,7 @@ class TestIndexObjects:
 
     def test_short_file_is_skipped(self, tmp_path: Path) -> None:
         """A truncated object is skipped with a note, not a crash."""
-        from rebrew.lib_match import index_objects
+        from rebrew.library.match import index_objects
 
         obj = tmp_path / "stub.obj"
         obj.write_bytes(b"\x00\x00\x00\x00")
@@ -611,7 +611,7 @@ class TestVendoredObjects:
         return db
 
     def test_picks_only_references_entries(self, tmp_path: Path) -> None:
-        from rebrew.lib_match import vendored_objects
+        from rebrew.library.match import vendored_objects
 
         vendored_obj = tmp_path / "build" / "ref.obj"
         own_obj = tmp_path / "build" / "own.obj"
@@ -640,7 +640,7 @@ class TestVendoredObjects:
     def test_quoted_object_paths_preserve_spaces(
         self, tmp_path: Path, relative: bool, separator: str
     ) -> None:
-        from rebrew.lib_match import vendored_objects
+        from rebrew.library.match import vendored_objects
 
         obj = tmp_path / "build" / "vendor output" / "ref.obj"
         obj.parent.mkdir(parents=True)
@@ -659,23 +659,23 @@ class TestVendoredObjects:
         assert vendored_objects(db, tmp_path) == [obj]
 
     def test_missing_database_is_empty(self, tmp_path: Path) -> None:
-        from rebrew.lib_match import vendored_objects
+        from rebrew.library.match import vendored_objects
 
         assert vendored_objects(tmp_path / "nope.json", tmp_path) == []
 
     def test_malformed_database_warns(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from rebrew.lib_match import vendored_objects
+        from rebrew.library.match import vendored_objects
 
         db = tmp_path / "compile_commands.json"
         db.write_text("[{", encoding="utf-8")
-        with caplog.at_level("WARNING", logger="rebrew.lib_match"):
+        with caplog.at_level("WARNING", logger="rebrew.library.match"):
             assert vendored_objects(db, tmp_path) == []
         assert "unreadable build database" in caplog.text
 
     def test_relative_output_resolves_against_directory(self, tmp_path: Path) -> None:
-        from rebrew.lib_match import vendored_objects
+        from rebrew.library.match import vendored_objects
 
         (tmp_path / "build").mkdir()
         (tmp_path / "build" / "ref.obj").write_bytes(b"x")
@@ -698,7 +698,7 @@ class TestStockLib:
     def _runtime(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import shutil
 
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         monkeypatch.setattr(lm, "container_runtime", lambda: "docker")
         monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
@@ -710,7 +710,7 @@ class TestStockLib:
         ``ensure_stock_lib`` accepts any file already at the path, so a
         name-only key made the first extraction outlive every later profile.
         """
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         first = lm.stock_lib_cache(tmp_path, "LIBCMT.LIB", "msvc-6.0")
         second = lm.stock_lib_cache(tmp_path, "LIBCMT.LIB", "msvc-6.0-sp6")
@@ -721,7 +721,7 @@ class TestStockLib:
     def test_ensure_stock_lib_extracts_from_registry_image(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         self._runtime(monkeypatch)
         dest = tmp_path / ".scratch" / "libcmt_stock.LIB"
@@ -750,7 +750,7 @@ class TestStockLib:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A copy killed mid-transfer must not be reused as the toolchain library."""
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         self._runtime(monkeypatch)
         dest = tmp_path / ".scratch" / "libcmt_stock.LIB"
@@ -771,7 +771,7 @@ class TestStockLib:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A member that ends past EOF is not published as the cached archive."""
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
         from rebrew.compiler.toolchain import ToolchainError
 
         self._runtime(monkeypatch)
@@ -791,7 +791,7 @@ class TestStockLib:
     def test_assert_library_is_stock_runs_offline_read_only(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         self._runtime(monkeypatch)
         path = tmp_path / "libcmt_stock.LIB"
@@ -815,7 +815,7 @@ class TestStockLib:
 
         import typer
 
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         self._runtime(monkeypatch)
         path = tmp_path / "libcmt_stock.LIB"
@@ -846,7 +846,7 @@ class TestStockLib:
     ) -> None:
         import typer
 
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         self._runtime(monkeypatch)
         path = tmp_path / "libcmt_stock.LIB"
@@ -868,7 +868,7 @@ class TestStockLib:
         """A run that hashes fewer than two files is an error, not a pass."""
         import typer
 
-        import rebrew.lib_match as lm
+        import rebrew.library.match as lm
 
         self._runtime(monkeypatch)
         path = tmp_path / "libcmt_stock.LIB"
@@ -887,7 +887,7 @@ class TestStockLib:
 def test_batch_match_fails_closed_for_unchecked_functions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
-    from rebrew.lib_match import app
+    from rebrew.library.match import app
 
     pe, lib, va = _write_project(tmp_path)
     _mock_cfg(tmp_path, pe, monkeypatch)
@@ -898,7 +898,7 @@ def test_batch_match_fails_closed_for_unchecked_functions(
         def fail_extract(*args, **kwargs):
             raise ValueError("bad native address")
 
-        monkeypatch.setattr("rebrew.lib_match.extract_raw_bytes", fail_extract)
+        monkeypatch.setattr("rebrew.library.match.extract_raw_bytes", fail_extract)
     result = CliRunner().invoke(app, ["--lib", str(lib), "--json"])
     assert result.exit_code == 2, result.output
     report = cli_payload(result)

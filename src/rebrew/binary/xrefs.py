@@ -1,0 +1,331 @@
+"""xrefs.py — Cross-reference explorer: who references a given address.
+
+Scans the binary's code sections via :func:`rebrew.binary.analysis.scan_references`
+for absolute references pointing at a target VA and reports each one: the
+referencing instruction's address, its kind (``call`` / ``jmp`` / ``push`` /
+``iat_call`` / ...), and the disassembled instruction text.  When the target
+is an import-table slot, the imported API name is resolved and shown
+prominently. ``indexed_mem`` rows refer only to an encoded displacement base;
+the instruction text preserves the index and scale, not a resolved API callee.
+
+Usage:
+    rebrew binary xrefs <va> [binary]
+"""
+
+from __future__ import annotations
+
+import logging
+lazy from collections import Counter
+lazy from collections.abc import Sequence
+lazy from pathlib import Path
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    resolve_binary_arg,
+    untrusted_ident,
+)
+lazy from rebrew.binary.analysis import (
+    Xref,
+    instruction_text,
+    iter_instruction_stream,
+    iter_instructions,
+    scan_references,
+)
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.binary_model import BinaryInfo
+lazy from rebrew.formats.import_table import parse_import_table
+lazy from rebrew.utils import TerminalTable
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+#: Minimum length for a prefix-less all-letter hex token to read as a VA.
+#: Shorter all-letter tokens (``dead``, ``beef``, ``face``) read as plain
+#: words/names; a full 32-bit width (``deadbeef``) reads as an address.
+_MIN_BARE_HEX_LETTERS = 8
+
+
+def _looks_like_va(arg: str) -> bool:
+    """True when *arg* reads as a hex/int address rather than a file path.
+
+    Used to disambiguate ``rebrew binary xrefs <va> [binary]`` positionals — a VA
+    is ``0x...`` hex or a prefix-less number with at least one digit
+    (``401000``, ``1dead``), never a path or a bare word.  A bare word
+    like ``dead`` parses as hex but is far likelier a name/path, so only
+    a full-width all-letter token (``deadbeef``) still counts as a VA.
+    """
+    low = arg.strip().lower()
+    if low.startswith(("0x", "-0x")):
+        return True
+    if not low or any(ch in low for ch in "/\\."):
+        return False
+    if low.startswith(("+", "-")):
+        low = low[1:]
+        if not low:
+            return False
+    if not low or any(ch not in "0123456789abcdef" for ch in low):
+        return False
+    if any(ch.isdigit() for ch in low):
+        return True
+    return len(low) >= _MIN_BARE_HEX_LETTERS
+
+
+def _insn_text_by_va(info: BinaryInfo, wanted: set[int]) -> dict[int, str]:
+    """Disassembly text for the instruction starting at each VA in *wanted*.
+
+    Streams the ``.text`` scan and keeps only the requested addresses, stopping
+    past the last one: the reference list is a handful of sites, so
+    materialising every instruction in the section (and a dict entry for each)
+    was pure waste.  VAs not covered (e.g. a missing section, or a byte the
+    linear scan skipped) simply have no entry, so callers can render a blank
+    cell / null.
+    """
+    if not wanted:
+        return {}
+    text = info.sections.get(".text")
+    if text is None:
+        return {}
+    last = max(wanted)
+    out: dict[int, str] = {}
+    for insn in iter_instruction_stream(info, text.va, text.size):
+        if insn.va in wanted:
+            out[insn.va] = instruction_text(insn)
+            if len(out) == len(wanted):
+                break
+        elif insn.va > last:
+            break
+    return out
+
+
+def _payload(
+    target_va: int,
+    import_name: str | None,
+    refs: list[Xref],
+    insns: dict[int, str],
+) -> dict[str, Any]:
+    """Build the machine-readable result dict for ``--json`` output."""
+    return {
+        "target": target_va,
+        "import_name": import_name,
+        "count": len(refs),
+        "refs": [
+            {"kind": xref.kind, "from_va": xref.from_va, "instruction": insns.get(xref.from_va)}
+            for xref in refs
+        ],
+    }
+
+
+def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, Any]:
+    """Inventory every call made *from* one function, resolved per callee.
+
+    Counting calls is harder than it looks, and this project got it wrong three
+    times in four rounds (guild-rebrew docs/msvc6-c-shapes.md section 112;
+    sibling repo, not under this tree's docs/):
+
+    * grepping disassembly for "call" also matches operands and comments;
+    * counting *relocations* undercounts badly, because a relocation marks
+      where an address is materialised, not where it is called -- msvc6 caches
+      an import in a callee-saved register with ONE `mov reg,[__imp__X]` and
+      then issues any number of `call reg`;
+    * the direct-vs-register encoding ratio is a register-allocation artefact,
+      not a source property.
+
+    So each `call reg` that :func:`rebrew.binary.analysis.scan_references` reports as
+    an ``iat_call`` (the register holds that import slot's pointer on every
+    path) is attributed to the same callee as a direct call.  The result is the
+    inventory that actually reflects the source.
+    """
+    info = load_binary(binary)
+    try:
+        imports = parse_import_table(binary)  # {iat_va: api_name}
+    except Exception:  # the import table is optional for this inventory
+        # Log it: a malformed import table otherwise makes every
+        # register call in the inventory unresolvable, which reads as
+        # "this function makes no indirect calls" instead of a failure.
+        logging.getLogger(__name__).debug(
+            "import table parse failed for %s; indirect calls unresolved",
+            binary,
+            exc_info=True,
+        )
+        imports = {}
+
+    end = start + size
+    # call reg site -> the import slot its register holds on every path.
+    held = {
+        ref.from_va: ref.to_va
+        for ref in scan_references(info)
+        if ref.kind == "iat_call" and start <= ref.from_va < end
+    }
+    counts: Counter[str] = Counter()
+    sites: dict[str, list[int]] = {}
+
+    def record(name: str, va: int) -> None:
+        counts[name] += 1
+        sites.setdefault(name, []).append(va)
+
+    for ins in iter_instructions(info, start, size):
+        if ins.mnemonic != "call":
+            continue
+        op = ins.op_str.strip()
+        if op.startswith("dword ptr [0x"):
+            slot = int(op[op.index("[") + 1 : op.index("]")], 16)
+            record(imports.get(slot, f"[{slot:#x}]"), ins.va)
+        elif op.startswith("0x"):
+            record(op, ins.va)
+        elif ins.va in held:
+            record(imports.get(held[ins.va], f"[{held[ins.va]:#x}]"), ins.va)
+        else:
+            record(f"reg:{op}", ins.va)
+
+    return {
+        "start": start,
+        "size": size,
+        "total_calls": sum(counts.values()),
+        "callees": [
+            {"name": n, "count": c, "sites": sites[n]}
+            for n, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ],
+    }
+
+
+def build_xrefs_payload(
+    binary: Path,
+    target_va: int,
+    kinds: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Build the cross-reference payload for *target_va* in *binary*.
+
+    The same object the ``rebrew binary xrefs`` callback prints under ``--json``:
+    the target VA, the import-table name when the target is an IAT slot, and
+    one ``{kind, from_va, instruction}`` record per reference, optionally
+    narrowed to *kinds*.  An empty reference list is a valid result.
+
+    Raises:
+        OSError: The binary cannot be read.
+        ValueError: The binary cannot be parsed.
+    """
+    info = load_binary(binary)
+    refs = scan_references(info, target_va=target_va, include_indexed=True)
+    if kinds:
+        refs = [ref for ref in refs if ref.kind in kinds]
+    return _payload(
+        target_va,
+        parse_import_table(binary).get(target_va),
+        refs,
+        _insn_text_by_va(info, {ref.from_va for ref in refs}),
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+app = typer.Typer(
+    help="Show cross-references to a target address.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew binary xrefs 0x401000  # Who references 0x00401000\n\n"
+        "  rebrew binary xrefs 0x401000 --kind call  # Only direct calls\n\n"
+        "  rebrew binary xrefs 0x401000 --json  # Machine-readable output\n"
+    ),
+)
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    va: str = typer.Argument(..., help="Target address in hex (0x prefix optional)"),
+    binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
+    kind: list[str] = typer.Option(None, "--kind", help="Only show this ref kind (repeatable)"),
+    calls_from: int = typer.Option(
+        0,
+        "--calls-from",
+        help="Instead of refs TO va, inventory calls FROM the function at va, "
+        "for this many bytes (resolves register-cached imports)",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Show every reference to va in the binary's code sections."""
+    # Typer binds positionals in declaration order, so `va` comes first for
+    # `rebrew binary xrefs <va>`.  A binary-first call (`rebrew binary xrefs game.exe
+    # 0x1000`) is detected by the leading arg not looking like a VA and
+    # swapped.
+    if not _looks_like_va(va) and binary is not None and _looks_like_va(str(binary)):
+        va, binary = str(binary), Path(va)
+    target_va = parse_va(va, json_mode=json_output)
+
+    binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
+
+    if calls_from:
+        payload = build_calls_from_payload(binary, target_va, calls_from)
+        if json_output:
+            json_print(payload)
+        else:
+            table = TerminalTable(title=f"calls from {target_va:#x} ({calls_from} bytes)")
+            table.add_column("callee")
+            table.add_column("count", justify="right")
+            for row in payload["callees"]:
+                table.add_row(untrusted_ident(row["name"]), str(row["count"]))
+            console.print(table)
+            console.print(f"total calls: {payload['total_calls']}")
+        return
+
+    try:
+        payload = build_xrefs_payload(binary, target_va, kind)
+    except (OSError, ValueError) as exc:
+        error_exit(f"failed to load binary {binary}: {exc}", json_mode=json_output, code=EXIT_ERROR)
+
+    if json_output:
+        json_print(payload)
+        return
+
+    refs = payload["refs"]
+    if not refs:
+        console.print(f"no references to 0x{target_va:08X}")
+        return
+
+    console.print(f"[bold]{len(refs)}[/] references to [bold]0x{target_va:08X}[/]:")
+    import_name = payload["import_name"]
+    if import_name is not None:
+        console.print(f"[bold]target is import:[/bold] {untrusted_ident(import_name)}")
+    counts = Counter(ref["kind"] for ref in refs)
+    if counts["indexed_mem"]:
+        console.print(
+            "[dim]indexed_mem: displacement bases, not resolved addresses or API callees[/dim]"
+        )
+    for ref_kind in sorted(counts):
+        console.print(f"  [bold]{ref_kind}[/]: {counts[ref_kind]}")
+    table = TerminalTable(title=f"xrefs to 0x{target_va:08X}")
+    table.add_column("from_va", justify="right")
+    table.add_column("kind")
+    table.add_column("instruction")
+    for ref in refs:  # build_xrefs_payload keeps scan_references' (from_va, to_va) order
+        table.add_row(
+            f"0x{ref['from_va']:08X}",
+            ref["kind"],
+            untrusted_ident(ref["instruction"] or ""),
+        )
+    console.print(table)
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

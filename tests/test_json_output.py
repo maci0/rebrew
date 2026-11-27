@@ -465,7 +465,7 @@ class TestRebrewTestBatchJson:
 class TestAsmJsonSchema:
     """``rebrew binary asm show --json`` payload, built by the real dump path.
 
-    The keys are the ones ``rebrew.asm._run_hex_mode`` prints; a field rename
+    The keys are the ones ``rebrew.binary.asm._run_hex_mode`` prints; a field rename
     or a dropped annotation must fail here.
     """
 
@@ -490,7 +490,7 @@ class TestAsmJsonSchema:
         )
 
     def test_asm_schema(self, tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
-        from rebrew.asm import _run_hex_mode
+        from rebrew.binary.asm import _run_hex_mode
 
         cfg = self._cfg(tmp_path)
         (tmp_path / "fake.dll").write_bytes(b"MZ")
@@ -512,7 +512,7 @@ class TestAsmJsonSchema:
 
     def test_asm_truncation_fields(self, tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
         """A short image reports the request and the truncation, not a short dump."""
-        from rebrew.asm import _run_hex_mode
+        from rebrew.binary.asm import _run_hex_mode
 
         cfg = self._cfg(tmp_path)
         (tmp_path / "fake.dll").write_bytes(b"MZ")
@@ -559,8 +559,8 @@ module = "SERVER"
         """No signatures loaded is a JSON error object, not a bare traceback."""
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
-        from rebrew.flirt import app
+        import rebrew.library.flirt as flirt_mod
+        from rebrew.library.flirt import app
 
         root = self._project(tmp_path)
         monkeypatch.chdir(root)

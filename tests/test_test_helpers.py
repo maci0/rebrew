@@ -1213,7 +1213,7 @@ class TestFixSizeEvidence:
     def test_known_binding_checks_cover_the_extended_reference(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native_address: int, expected: bool
     ) -> None:
-        from rebrew.coff_reloc import CoffRelocRecord, relocation_binding_evidence
+        from rebrew.compare.coff_reloc import CoffRelocRecord, relocation_binding_evidence
         from rebrew.verify.test import _fix_size_evidence_ok
 
         cfg = self._cfg(tmp_path)

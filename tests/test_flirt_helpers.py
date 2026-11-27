@@ -4,7 +4,7 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.flirt import arch_stride, find_func_size, iter_match_offsets
+from rebrew.library.flirt import arch_stride, find_func_size, iter_match_offsets
 
 
 class TestFindFuncSize:
@@ -62,7 +62,7 @@ class TestMatchTextDedup:
             def match(self, data):
                 return [_M([("printf", 0, 0)])]
 
-        from rebrew.flirt import match_text
+        from rebrew.library.flirt import match_text
 
         code = b"\x55\x89\xe5\x5d\xc3" + b"\x90" * 64
         matches = match_text(_Matcher(), code, 0x1000, stride=1)
@@ -73,14 +73,14 @@ class TestMatchTextDedup:
 
 class TestLoadSignaturesErrors:
     def test_bad_file_warns(self, tmp_path: Path) -> None:
-        from rebrew.flirt import load_signatures
+        from rebrew.library.flirt import load_signatures
 
         (tmp_path / "bad.pat").write_text("not a pat file", encoding="utf-8")
         with pytest.warns(UserWarning, match="Error loading"):
             assert load_signatures(str(tmp_path)) == []
 
     def test_unreadable_file_warns(self, tmp_path: Path) -> None:
-        from rebrew.flirt import load_signatures
+        from rebrew.library.flirt import load_signatures
 
         (tmp_path / "broken.sig").write_bytes(b"")
         with pytest.warns(UserWarning, match="Error loading"):

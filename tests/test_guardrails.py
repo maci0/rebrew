@@ -339,7 +339,7 @@ class TestDuplicateVADetection:
         for name in ("func_a.c", "func_b.c"):
             write_source(tmp_path / name, STUB_HEADER, encoding="utf-8")
 
-        from rebrew.match_batch import find_all_stubs
+        from rebrew.matching.batch import find_all_stubs
 
         with pytest.raises(ValueError, match="address anchor conflicts"):
             find_all_stubs(tmp_path)
@@ -351,7 +351,7 @@ class TestDuplicateVADetection:
         write_source(tmp_path / "func_a.c", header_a, encoding="utf-8")
         write_source(tmp_path / "func_b.c", header_b, encoding="utf-8")
 
-        from rebrew.match_batch import find_all_stubs
+        from rebrew.matching.batch import find_all_stubs
 
         stubs = find_all_stubs(tmp_path)
         assert len(stubs) == 2

@@ -1,4 +1,4 @@
-"""Tests for `rebrew.probe`, the no-side-effect per-function ruler."""
+"""Tests for `rebrew.matching.probe`, the no-side-effect per-function ruler."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner, Result
 
-from rebrew.coff_reloc import CatalogScanError, CoffRelocRecord
-from rebrew.probe import matched_reloc_count
+from rebrew.compare.coff_reloc import CatalogScanError, CoffRelocRecord
+from rebrew.matching.probe import matched_reloc_count
 
 
 class TestMatchedRelocCount:
@@ -51,10 +51,10 @@ class TestProbeRelocationContext:
         iat: bool = False,
         catalog_error: bool = False,
     ) -> Result:
-        import rebrew.coff_reloc as relocs
+        import rebrew.compare.coff_reloc as relocs
         import rebrew.compiler.overrides as overrides
         import rebrew.matcher.parsers as parsers
-        import rebrew.probe as probe
+        import rebrew.matching.probe as probe
 
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -134,10 +134,10 @@ class TestProbeAnnotationSelection:
     def test_second_function_uses_its_symbol_size_and_flags(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.coff_reloc as relocs
+        import rebrew.compare.coff_reloc as relocs
         import rebrew.compiler.overrides as overrides
         import rebrew.matcher.parsers as parsers
-        import rebrew.probe as probe
+        import rebrew.matching.probe as probe
 
         cfg = SimpleNamespace(
             root=tmp_path,

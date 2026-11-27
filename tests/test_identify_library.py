@@ -14,7 +14,7 @@ from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
-from rebrew.identify_library import (
+from rebrew.library.identify import (
     LibCandidate,
     collect_candidates,
     infer_module,
@@ -70,11 +70,11 @@ class TestCollectCandidates:
                 va=0x1000, name="GetTickCount", module="MSVCRT", kind="import", confidence=0.3
             )
         ]
-        monkeypatch.setattr("rebrew.identify_library._crt_candidates", lambda cfg: crt)
+        monkeypatch.setattr("rebrew.library.identify._crt_candidates", lambda cfg: crt)
         monkeypatch.setattr(
-            "rebrew.identify_library._flirt_candidates", lambda cfg, m, _unreadable: flirt
+            "rebrew.library.identify._flirt_candidates", lambda cfg, m, _unreadable: flirt
         )
-        monkeypatch.setattr("rebrew.identify_library._import_candidates", lambda cfg, m: imp)
+        monkeypatch.setattr("rebrew.library.identify._import_candidates", lambda cfg, m: imp)
         out = collect_candidates(_cfg(tmp_path))
         assert len(out) == 1
         assert out[0].kind == "crt"
@@ -84,11 +84,11 @@ class TestCollectCandidates:
             LibCandidate(va=0x2000, name="b", module="MSVCRT", kind="import", confidence=0.3),
             LibCandidate(va=0x1000, name="a", module="MSVCRT", kind="import", confidence=0.3),
         ]
-        monkeypatch.setattr("rebrew.identify_library._crt_candidates", lambda cfg: [])
+        monkeypatch.setattr("rebrew.library.identify._crt_candidates", lambda cfg: [])
         monkeypatch.setattr(
-            "rebrew.identify_library._flirt_candidates", lambda cfg, m, _unreadable: []
+            "rebrew.library.identify._flirt_candidates", lambda cfg, m, _unreadable: []
         )
-        monkeypatch.setattr("rebrew.identify_library._import_candidates", lambda cfg, m: imp)
+        monkeypatch.setattr("rebrew.library.identify._import_candidates", lambda cfg, m: imp)
         out = collect_candidates(_cfg(tmp_path))
         assert [c.va for c in out] == [0x1000, 0x2000]
 
@@ -101,11 +101,11 @@ class TestCollectCandidates:
                 va=0x4000, name="GetTickCount", module="MSVCRT", kind="import", confidence=0.3
             )
         ]
-        monkeypatch.setattr("rebrew.identify_library._crt_candidates", lambda cfg: [])
+        monkeypatch.setattr("rebrew.library.identify._crt_candidates", lambda cfg: [])
         monkeypatch.setattr(
-            "rebrew.identify_library._flirt_candidates", lambda cfg, m, _unreadable: flirt
+            "rebrew.library.identify._flirt_candidates", lambda cfg, m, _unreadable: flirt
         )
-        monkeypatch.setattr("rebrew.identify_library._import_candidates", lambda cfg, m: imp)
+        monkeypatch.setattr("rebrew.library.identify._import_candidates", lambda cfg, m: imp)
         out = collect_candidates(_cfg(tmp_path))
         assert {(c.va, c.kind) for c in out} == {(0x3000, "flirt"), (0x4000, "import")}
 
@@ -305,7 +305,7 @@ class TestExistingVas:
         marker is not appended over it: the old helper
         (collect_library_annotations) drops FUNCTION markers outside
         library_modules."""
-        import rebrew.identify_library as il
+        import rebrew.library.identify as il
 
         cfg = _cfg(tmp_path)
         cfg.source_ext = ".c"
@@ -324,7 +324,7 @@ class TestExistingVas:
         Returning ``set()`` made every candidate look uncovered and caused
         LIBRARY markers to be written over already-decompiled functions.
         """
-        import rebrew.identify_library as il
+        import rebrew.library.identify as il
 
         cfg = _cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True)
@@ -341,7 +341,7 @@ class TestDefaultModuleDeterminism:
     def test_default_module_is_sorted_first(self, tmp_path: Path, monkeypatch) -> None:
         """The default module must not depend on set iteration order (hash
         randomization): it is the alphabetically-first configured module."""
-        import rebrew.identify_library as il
+        import rebrew.library.identify as il
 
         cfg = _cfg(tmp_path)
         # A list makes the pre-fix behaviour deterministic (first element) so
@@ -364,15 +364,15 @@ class TestCrtSourceRef:
     def test_source_ref_includes_line(self, tmp_path: Path, monkeypatch) -> None:
         """SOURCE is written as ``file:line`` (the crt-match --fix-source
         spelling), not the bare filename the docstring promises parity with."""
-        import rebrew.identify_library as il
-        from rebrew.crt_match import CrtMatch, CrtSourceEntry
+        import rebrew.library.identify as il
+        from rebrew.library.crt_match import CrtMatch, CrtSourceEntry
 
         cfg = _cfg(tmp_path)
         entry = CrtSourceEntry(
             name="_malloc", file="crt/malloc.c", line=42, is_asm=False, module="MSVCRT"
         )
         monkeypatch.setattr(
-            "rebrew.crt_match.match_all",
+            "rebrew.library.crt_match.match_all",
             lambda cfg: [
                 CrtMatch(
                     va=0x1000,
@@ -436,17 +436,17 @@ timeout = 60
         cfg = _cfg(tmp_path)
         (tmp_path / "src").mkdir(parents=True, exist_ok=True)
         monkeypatch.setattr(
-            "rebrew.identify_library.require_config", lambda target=None, json_mode=False: cfg
+            "rebrew.library.identify.require_config", lambda target=None, json_mode=False: cfg
         )
         monkeypatch.setattr(
-            "rebrew.identify_library.collect_candidates",
+            "rebrew.library.identify.collect_candidates",
             lambda cfg, module: [
                 LibCandidate(
                     va=0x1000, name="_malloc", module="MSVCRT", kind="flirt", confidence=0.5
                 )
             ],
         )
-        monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
+        monkeypatch.setattr("rebrew.library.identify._existing_vas", lambda cfg: set())
         result = CliRunner().invoke(app, ["library", "identify", "--json"])
         assert result.exit_code == 0, result.output
         payload = cli_payload(result)  # pure JSON, even after a write
@@ -463,17 +463,17 @@ timeout = 60
     def test_dry_run_lists_candidates(self, tmp_path: Path, monkeypatch) -> None:
         cfg = _cfg(tmp_path)
         monkeypatch.setattr(
-            "rebrew.identify_library.require_config", lambda target=None, json_mode=False: cfg
+            "rebrew.library.identify.require_config", lambda target=None, json_mode=False: cfg
         )
         monkeypatch.setattr(
-            "rebrew.identify_library.collect_candidates",
+            "rebrew.library.identify.collect_candidates",
             lambda cfg, module: [
                 LibCandidate(
                     va=0x1000, name="_malloc", module="MSVCRT", kind="flirt", confidence=0.5
                 )
             ],
         )
-        monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
+        monkeypatch.setattr("rebrew.library.identify._existing_vas", lambda cfg: set())
         result = CliRunner().invoke(app, ["library", "identify", "--dry-run"])
         assert result.exit_code == 0
         assert "_malloc" in result.output
@@ -494,7 +494,7 @@ class TestImportModuleFromDll:
         )
 
     def test_import_stub_uses_dll_module(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.identify_library import _import_candidates
+        from rebrew.library.identify import _import_candidates
 
         monkeypatch.setattr(
             "rebrew.formats.import_table.find_import_stub_slots",
@@ -519,7 +519,7 @@ class TestImportModuleFromDll:
 
         from bin_util import make_lib_archive
 
-        from rebrew.identify_library import _import_candidates
+        from rebrew.library.identify import _import_candidates
 
         names = b"_bind@12\0WS2_32.dll\0"
         # IMPORT_OBJECT_HEADER: Sig1 0, Sig2 0xFFFF, version, i386, time, size, ordinal, flags
@@ -551,7 +551,7 @@ class TestImportModuleFromDll:
         import lief
         from bin_util import make_lib_archive, make_pe
 
-        from rebrew.identify_library import _import_candidates
+        from rebrew.library.identify import _import_candidates
 
         image_base, text_va = 0x400000, 0x1000
         imports = [("WS2_32.dll", ["a"]), ("OLEAUT32.dll", ["b"])]
@@ -594,7 +594,7 @@ class TestImportModuleFromDll:
         }
 
     def test_import_without_dll_falls_back_to_heuristic(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.identify_library import _import_candidates
+        from rebrew.library.identify import _import_candidates
 
         monkeypatch.setattr(
             "rebrew.formats.import_table.find_import_stub_slots", lambda path: {0x1000: 1}
@@ -631,7 +631,7 @@ class TestBuildSigs:
         )
 
     def test_build_flirt_sigs_writes_pat(self, tmp_path: Path) -> None:
-        from rebrew.identify_library import build_flirt_sigs
+        from rebrew.library.identify import build_flirt_sigs
 
         cfg = self._project_with_lib(tmp_path)
         n = build_flirt_sigs(cfg)
@@ -643,7 +643,7 @@ class TestBuildSigs:
         assert "_myfunc" in text
 
     def test_no_lib_dir_returns_zero(self, tmp_path: Path) -> None:
-        from rebrew.identify_library import build_flirt_sigs
+        from rebrew.library.identify import build_flirt_sigs
 
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -656,14 +656,14 @@ class TestBuildSigs:
     def test_cli_build_sigs_dry_run(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.identify_library import app
+        from rebrew.library.identify import app
 
         cfg = self._project_with_lib(tmp_path)
         monkeypatch.setattr(
-            "rebrew.identify_library.require_config", lambda target=None, json_mode=False: cfg
+            "rebrew.library.identify.require_config", lambda target=None, json_mode=False: cfg
         )
-        monkeypatch.setattr("rebrew.identify_library.collect_candidates", lambda cfg, module: [])
-        monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
+        monkeypatch.setattr("rebrew.library.identify.collect_candidates", lambda cfg, module: [])
+        monkeypatch.setattr("rebrew.library.identify._existing_vas", lambda cfg: set())
         result = CliRunner().invoke(app, ["--build-sigs", "--dry-run", "--json"])
         assert result.exit_code == 0, result.output
         payload = cli_payload(result)
@@ -675,20 +675,20 @@ class TestSigFileModuleAttribution:
     """H3: module attribution from sig-file names + zlib prefixes."""
 
     def test_known_stems(self) -> None:
-        from rebrew.identify_library import _module_from_sig_file
+        from rebrew.library.identify import _module_from_sig_file
 
         assert _module_from_sig_file("msvcrt_vc6.pat", "X") == "MSVCRT"
         assert _module_from_sig_file("libcmt_vc6.pat", "X") == "MSVCRT"
         assert _module_from_sig_file("zlib_vc6.pat", "X") == "ZLIB"
 
     def test_unknown_stem_uppercased(self) -> None:
-        from rebrew.identify_library import _module_from_sig_file
+        from rebrew.library.identify import _module_from_sig_file
 
         assert _module_from_sig_file("mylib_vc6.pat", "X") == "MYLIB"
         assert _module_from_sig_file("weird.pat", "X") == "WEIRD"
 
     def test_zlib_prefixes(self) -> None:
-        from rebrew.identify_library import infer_module
+        from rebrew.library.identify import infer_module
 
         assert infer_module("deflateInit", "X") == "ZLIB"
         assert infer_module("inflate", "X") == "ZLIB"
@@ -698,7 +698,7 @@ class TestSigFileModuleAttribution:
 
     def test_flirt_uses_file_module(self, tmp_path: Path, monkeypatch) -> None:
         """A zlib_vc6.pat hit gets ZLIB, not the CRT default."""
-        from rebrew.identify_library import _flirt_candidates
+        from rebrew.library.identify import _flirt_candidates
 
         root = tmp_path / "proj"
         (root / "flirt_sigs").mkdir(parents=True)
@@ -728,11 +728,67 @@ class TestSigFileModuleAttribution:
         assert any(c.name == "_deflate" and c.module == "ZLIB" for c in out)
 
 
+class TestConsoleSdkAttribution:
+    """Console SDK sig-file stems and unambiguous API prefixes."""
+
+    @pytest.mark.parametrize(
+        ("filename", "expected"),
+        [
+            ("libultra.pat", "LIBULTRA"),
+            ("libgultra.pat", "LIBULTRA"),
+            ("libultra_rom.pat", "LIBULTRA"),
+            ("libpsx.pat", "PSYQ"),
+            ("libgpu.pat", "PSYQ"),
+            ("libgte.pat", "PSYQ"),
+            ("libcd.pat", "PSYQ"),
+            ("libspu.pat", "PSYQ"),
+            ("psyq.pat", "PSYQ"),
+            ("psx_libc.pat", "PSX_LIBC"),
+            ("dolphin.pat", "DOLPHIN"),
+            ("libdolphin.pat", "DOLPHIN"),
+        ],
+    )
+    def test_console_sig_file_stems(self, filename: str, expected: str) -> None:
+        from rebrew.library.identify import _module_from_sig_file
+
+        assert _module_from_sig_file(filename, "MSVCRT") == expected
+
+    @pytest.mark.parametrize(
+        ("symbol", "expected"),
+        [
+            ("osCreateThread", "LIBULTRA"),
+            ("osSendMesg", "LIBULTRA"),
+            ("osRecvMesg", "LIBULTRA"),
+            ("guPerspective", "LIBULTRA"),
+            ("guLookAt", "LIBULTRA"),
+            ("guOrtho", "LIBULTRA"),
+            ("alSynAllocVoice", "LIBULTRA"),
+            ("ResetGraph", "PSYQ"),
+            ("DrawSync", "PSYQ"),
+            ("VSync", "PSYQ"),
+            ("SpuInit", "PSYQ"),
+            ("OSInit", "DOLPHIN"),
+            ("GXInit", "DOLPHIN"),
+            ("GXBegin", "DOLPHIN"),
+            ("PADRead", "DOLPHIN"),
+            ("DVDRead", "DOLPHIN"),
+            # Existing x86 / generic names stay unaffected:
+            ("_malloc", "MSVCRT"),
+            ("memcpy", "MSVCRT"),
+            ("deflateInit", "ZLIB"),
+            ("WeirdAPI", "DEFAULT"),
+            ("GetTickCount", "DEFAULT"),
+        ],
+    )
+    def test_console_api_prefixes(self, symbol: str, expected: str) -> None:
+        assert infer_module(symbol, "DEFAULT") == expected
+
+
 class TestBuildSigsRobustness:
     """One corrupt .lib must not abort sig generation for the rest."""
 
     def test_corrupt_lib_skipped_not_abort(self, tmp_path: Path) -> None:
-        from rebrew.identify_library import build_flirt_sigs
+        from rebrew.library.identify import build_flirt_sigs
 
         lib_dir = tmp_path / "tools" / "msvc-6.0-win32" / "VC98" / "Lib"
         lib_dir.mkdir(parents=True)
@@ -757,7 +813,7 @@ class TestBuildSigsRobustness:
 
     def test_import_lib_keeps_no_pat(self, tmp_path: Path) -> None:
         """An archive with no code must not leave the ``---``-only file doctor flags."""
-        from rebrew.identify_library import build_flirt_sigs
+        from rebrew.library.identify import build_flirt_sigs
 
         lib_dir = tmp_path / "tools" / "msvc-6.0-win32" / "VC98" / "Lib"
         lib_dir.mkdir(parents=True)
@@ -779,7 +835,7 @@ class TestBuildSigsRobustness:
 @settings(max_examples=100, deadline=None)
 def test_module_from_sig_file_properties(filename: str) -> None:
     """Attribution is deterministic, uppercase, and never empty."""
-    from rebrew.identify_library import _module_from_sig_file
+    from rebrew.library.identify import _module_from_sig_file
 
     module = _module_from_sig_file(filename, "FALLBACK")
     assert module == module.upper()

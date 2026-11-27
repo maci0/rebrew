@@ -135,7 +135,7 @@ module = "SERVER"
 
 class TestMatchAllDryRunIdempotent:
     def test_twice_identical_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.match import app
+        from rebrew.matching.cli import app
 
         for va, symbol in ((0x10001000, "_func_a"), (0x10002000, "_func_b")):
             _write(tmp_path / f"func_{va:08x}.c", _single(va, symbol))
@@ -144,7 +144,7 @@ class TestMatchAllDryRunIdempotent:
             'format = 3\n["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n["SERVER.0x10002000"]\nsize = 128\nstatus = "STUB"\n',
         )
         monkeypatch.setattr(
-            "rebrew.match.require_config",
+            "rebrew.matching.cli.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
                 module="SERVER",
                 source_ext=".c",

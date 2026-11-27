@@ -32,6 +32,7 @@ lazy from pathlib import Path
 lazy from typing import Any, TypeGuard
 
 import typer
+lazy import msgspec
 
 from rebrew.cli import (
     CFLAGS_HELP,
@@ -59,7 +60,7 @@ from rebrew.cli import (
     require_source_arg,
     source_targets_run,
 )
-lazy from rebrew.coff_reloc import (
+lazy from rebrew.compare.coff_reloc import (
     CatalogScanError,
     binding_summary,
     build_iat_region,
@@ -404,7 +405,7 @@ def main(
         context: Extra declarations to compile with the source; the result
             records the context hash the match was earned under.
         instructions: Add the ``instructions`` comparison
-            (:func:`rebrew.instruction_diff.instruction_diff`) to the JSON
+            (:func:`rebrew.compare.instruction_diff.instruction_diff`) to the JSON
             result; needs --json and one function.
         json_output: Emit machine-readable JSON responses.
         target: Optional target profile name from ``rebrew-project.toml``.
@@ -1101,7 +1102,7 @@ def _cached_name_map(key: str) -> dict[str, int] | None:
 def _read_name_map_payload(path: Path) -> dict[str, Any] | None:
     """Current-version cache document, or ``None`` when the file is missing or older."""
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = msgspec.json.decode(path.read_bytes())
     except OSError, ValueError:
         return None
     if not isinstance(raw, dict) or raw.get("version") != _NAME_MAP_CACHE_VERSION:
@@ -1232,7 +1233,7 @@ def _store_disk_name_map(
     }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(path, json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        atomic_write_text(path, msgspec.json.encode(payload, order="sorted").decode("utf-8"))
     except OSError as exc:
         # A cache that silently fails to persist is rebuilt on every run;
         # log it so an unwritable cache dir is visible instead of a
@@ -1702,7 +1703,7 @@ def _run_test_impl(
                 json.dumps(measured_inputs, sort_keys=True, ensure_ascii=True).encode()
             ).hexdigest()
 
-    from rebrew.alignment import record_alignment
+    from rebrew.compare.alignment import record_alignment
 
     record_alignment(cfg, cmp, target_bytes, int(va_str, 16) if va_str else 0, measured_inputs)
     result_dict = build_result_dict_from_compare(
@@ -1718,7 +1719,7 @@ def _run_test_impl(
         include_mismatches=json_output,
     )
     if instructions:
-        from rebrew.instruction_diff import record_instructions
+        from rebrew.compare.instruction_diff import record_instructions
 
         record_instructions(cfg, cmp, target_bytes, int(va_str, 16) if va_str else 0)
         if cmp.instructions is not None:
@@ -2417,7 +2418,7 @@ def _test_multi(
                     cmp.message = LINKED_MESSAGE
                     measured_inputs = kept
 
-            from rebrew.alignment import record_alignment
+            from rebrew.compare.alignment import record_alignment
 
             record_alignment(cfg, cmp, target_bytes, ann.va, measured_inputs)
             if json_output:

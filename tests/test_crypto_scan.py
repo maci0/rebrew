@@ -1,4 +1,4 @@
-"""Tests for rebrew.crypto_scan: constant tables, name patterns, CLI."""
+"""Tests for rebrew.binary.crypto_scan: constant tables, name patterns, CLI."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
-from rebrew.crypto_scan import (
+from rebrew.binary.crypto_scan import (
     _AES_INV_SBOX,
     _AES_SBOX,
     _MD5_T,

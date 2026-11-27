@@ -162,7 +162,7 @@ class TestCallerCounts:
         The parser count is the gate. A source without the word ``extern``
         is not parsed. Editing one file parses that file again.
         """
-        import rebrew.c_parser as c_parser
+        import rebrew.c_syntax.parser as c_parser
         import rebrew.todo as todo
 
         cfg = _make_cfg(tmp_path)
@@ -502,7 +502,7 @@ class TestCollectors:
         prover lane — classify as improve-match with a near-diag command."""
         from rebrew.metadata.functions import GA_CEILING_PREFIX
 
-        monkeypatch.setattr("rebrew.prove.angr_available", lambda: False)
+        monkeypatch.setattr("rebrew.matching.prove.angr_available", lambda: False)
         existing = {
             0x1000: {
                 "status": "NEAR_MATCHING",
@@ -519,7 +519,7 @@ class TestCollectors:
     def test_ga_ceiling_with_angr_routes_to_prover(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.metadata.functions import GA_CEILING_PREFIX
 
-        monkeypatch.setattr("rebrew.prove.angr_available", lambda: True)
+        monkeypatch.setattr("rebrew.matching.prove.angr_available", lambda: True)
         existing = {
             0x1000: {
                 "status": "NEAR_MATCHING",
@@ -617,7 +617,7 @@ class TestCollectors:
         assert "0B diff" not in item.description
         assert "byte_delta" not in item.to_dict()
         if cached:
-            monkeypatch.setattr("rebrew.prove.angr_available", lambda: True)
+            monkeypatch.setattr("rebrew.matching.prove.angr_available", lambda: True)
             assert _collect_prover_candidates(existing, {0x1000: 33}, entries) == []
 
     @pytest.mark.parametrize(
@@ -875,7 +875,7 @@ class TestCollectors:
         its blocker, never re-routed to `rebrew prove` or a flag sweep."""
         from rebrew.metadata.functions import GA_CEILING_PREFIX
 
-        monkeypatch.setattr("rebrew.prove.angr_available", lambda: has_angr)
+        monkeypatch.setattr("rebrew.matching.prove.angr_available", lambda: has_angr)
         blocker = GA_CEILING_PREFIX + " register-only delta"
         existing = {
             0x3000: {
@@ -1016,12 +1016,14 @@ class TestCollectors:
         (status counts it as unstarted): it becomes an identify-library action."""
         cached = tmp_path / "libcmt.lib"
         cached.write_bytes(b"!<arch>\n")
-        monkeypatch.setattr("rebrew.lib_match.stock_lib_cache", lambda root, name, profile: cached)
-        monkeypatch.setattr("rebrew.lib_match.index_library", lambda path: {})
+        monkeypatch.setattr(
+            "rebrew.library.match.stock_lib_cache", lambda root, name, profile: cached
+        )
+        monkeypatch.setattr("rebrew.library.match.index_library", lambda path: {})
         candidates = [("_strncnt", "strncnt.obj")]
         if ambiguous:
             candidates.append(("_another", "another.obj"))
-        monkeypatch.setattr("rebrew.lib_match.match_bytes", lambda index, data: candidates)
+        monkeypatch.setattr("rebrew.library.match.match_bytes", lambda index, data: candidates)
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.extract_raw_bytes", lambda path, va, size: b"\x90" * size
         )
@@ -2488,7 +2490,7 @@ class TestGaCeilingRouting:
     def test_ceiling_not_fix_delta(
         self, monkeypatch: pytest.MonkeyPatch, has_angr: bool, category: str, command: str
     ) -> None:
-        monkeypatch.setattr("rebrew.prove.angr_available", lambda: has_angr)
+        monkeypatch.setattr("rebrew.matching.prove.angr_available", lambda: has_angr)
         existing = {
             0x1000: {
                 "status": "NEAR_MATCHING",
@@ -2969,7 +2971,7 @@ class TestMissingManagedBindings:
         later edit is visible, and the kept rows stay the missing definition
         and the missing file.
         """
-        import rebrew.c_parser as c_parser
+        import rebrew.c_syntax.parser as c_parser
         from rebrew.metadata.functions import record_function_identity
         from rebrew.todo import _collect_missing_bindings
 

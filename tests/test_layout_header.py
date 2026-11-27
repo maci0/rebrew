@@ -137,8 +137,8 @@ class TestLayoutFirstCallers:
     def test_text_size_uses_layout_without_lief(self, tmp_path: Path, monkeypatch) -> None:
         import sys
 
+        from rebrew.binary.sections import get_text_section_size
         from rebrew.formats import binary_loader
-        from rebrew.sections import get_text_section_size
 
         binp = tmp_path / "program.exe"
         binp.write_bytes(b"MZ")

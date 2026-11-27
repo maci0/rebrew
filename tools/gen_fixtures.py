@@ -5,9 +5,10 @@ hand (no wine, no vendored toolchain) so the parse/compare/reloc paths —
 and the ``gen_flirt_pat`` → ``flirt`` pipeline — run end-to-end in CI:
 
     mini.obj      COFF object: two x86 functions, a DIR32 and a REL32 reloc
-    mini_pe.exe   Minimal PE containing the same code (+ one KERNEL32 import)
-    mini.elf      Minimal ELF32 (EM_386) with the same code
-    mini.lib      COFF archive wrapping mini.obj (FLIRT generation input)
+    mini_pe.exe     Minimal PE containing the same code (+ one KERNEL32 import)
+    mini.elf        Minimal ELF32 (EM_386) with the same code
+    mini_mips32.elf Minimal big-endian ELF32 (EM_MIPS) with two MIPS32 functions
+    mini.lib        COFF archive wrapping mini.obj (FLIRT generation input)
 
 ``tests/test_binary_fixtures.py`` regenerates everything in memory and
 asserts the checked-in bytes are byte-identical, so the fixtures and this
@@ -56,6 +57,14 @@ _COFF_RELOCS: list[tuple[int, int, str]] = [
     (0x14, 0x14, "_callee"),  # REL32 inside _func2 (4 bytes past func2 start)
 ]
 
+# MIPS32 big-endian fixture (EM_MIPS = 8):
+# 0x00401000 helper: addiu $v0, $a0, 1; jr $ra; nop  (12 bytes)
+# 0x00401010 caller: addiu $sp, $sp, -24; sw $ra, 20($sp); jal 0x00401000; nop;
+#                    lw $ra, 20($sp); jr $ra; addiu $sp, $sp, 24  (28 bytes)
+MIPS_FUNC1 = bytes.fromhex("24820001 03e00008 00000000")
+MIPS_FUNC2 = bytes.fromhex("27bdffe8 afbf0014 0c100400 00000000 8fbf0014 03e00008 27bd0018")
+MIPS_CODE = MIPS_FUNC1 + b"\x00\x00\x00\x00" + MIPS_FUNC2 + b"\x00\x00\x00\x00"
+
 
 def build_all() -> dict[str, bytes]:
     """Return {fixture_filename: bytes} for every checked-in fixture."""
@@ -75,6 +84,9 @@ def build_all() -> dict[str, bytes]:
         "mini.obj": obj,
         "mini_pe.exe": bin_util.make_pe(CODE, imports=[("KERNEL32.dll", ["GetTickCount"])]),
         "mini.elf": bin_util.make_elf(CODE, image_base=0x400000, text_va=0x401000),
+        "mini_mips32.elf": bin_util.make_elf(
+            MIPS_CODE, image_base=0x400000, text_va=0x401000, machine=8, endian=">"
+        ),
         "mini.lib": bin_util.make_lib_archive([("mini.obj", obj)]),
     }
 

@@ -1,4 +1,4 @@
-"""Tests for rebrew.match near-miss NEAR_MATCHING mode and rebrew.data.cli dispatch table detection."""
+"""Tests for rebrew.matching.cli near-miss NEAR_MATCHING mode and rebrew.data.cli dispatch table detection."""
 
 import re
 import struct
@@ -7,7 +7,7 @@ lazy from pathlib import Path
 from source_util import write_source
 
 from rebrew.data.scan import DispatchEntry, DispatchTable, find_dispatch_tables
-from rebrew.match_batch import find_near_miss, parse_matching_info
+from rebrew.matching.batch import find_near_miss, parse_matching_info
 
 
 def _make_c(d, name, va, status, blocker="", skip=False) -> None:
@@ -29,7 +29,7 @@ def _make_c(d, name, va, status, blocker="", skip=False) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tests for rebrew.match near-miss mode (#6)
+# Tests for rebrew.matching.cli near-miss mode (#6)
 # ---------------------------------------------------------------------------
 
 

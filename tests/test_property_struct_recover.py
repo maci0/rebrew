@@ -1,6 +1,6 @@
 """Hypothesis fuzz for the decompiler-text parser behind ``rebrew types recover``.
 
-``rebrew.struct_recover`` reads a whole decompilation (Kuna, Ghidra, r2ghidra)
+``rebrew.c_syntax.struct_recover`` reads a whole decompilation (Kuna, Ghidra, r2ghidra)
 as text: six regexes extract member offsets, array indexes and pointer base
 types, and the evidence it keeps is rendered into ``typedef struct`` blocks
 that ``--output`` appends to a project header.  Every offset, index and type
@@ -29,7 +29,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.struct_recover import (
+from rebrew.c_syntax.struct_recover import (
     PSEUDO_TYPES,
     ParseResult,
     parse_decomp_for_structs,

@@ -1524,7 +1524,7 @@ gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
 Shell HTML (zstd-19): 3819 bytes on the wire (was ~8.2 KB with inlined JS).
-`/app.js` is served without its full-line comments (they stay in the source the bun harness runs). At this checkpoint, both entry assets totaled 12116 bytes zstd / 12737 gzip, inside the RFC 6928
+`/app.js` is served without its full-line comments (they stay in the source the bun harness runs). At this checkpoint, both entry assets totaled 12157 bytes zstd / 12785 gzip, inside the RFC 6928
 14600-byte initial window less a 500-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 13600), so the loading chrome paints before
 `/app.js` finishes. Gate:
@@ -1592,8 +1592,8 @@ inside the one document that has to fit RFC 6928's initial window, and it cost
 178 gzip bytes of the shell; linked, it is fetched off the critical path (a tab
 icon is not first paint). Hashing the linked URL cost 16 gzip bytes of the
 shell and buys the whole icon request back on every load after the first. The
-entry assets are now 12116 zstd / 12737 gzip against the 13600 B budget, so
-gzip has 863 B of room. One shell-trimming idea is a negative result worth
+entry assets are now 12157 zstd / 12785 gzip against the 13600 B budget, so
+gzip has 815 B of room. One shell-trimming idea is a negative result worth
 recording: deduplicating near-identical JavaScript *raised* the compressed
 size by 340 B even though it removed 262 raw ones, because the copies were
 what gzip matched.

@@ -6,7 +6,7 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.c_parser import find_c_function_definitions, find_extern_variables
+from rebrew.c_syntax.parser import find_c_function_definitions, find_extern_variables
 from rebrew.metadata.anchors import parse_address_anchors
 from rebrew.metadata.bindings import derive_c_symbol
 from rebrew.metadata.data import record_data_rows, set_data_fields_batch

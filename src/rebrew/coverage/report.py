@@ -9,7 +9,7 @@ output directory with four pages:
   Large tables split across
   ``index-pN.html`` so the first paint stays within a few hundred rows.
 - ``strings.html`` — printable strings extracted from the binary's data
-  sections (via :mod:`rebrew.analysis`) with per-string reference counts;
+  sections (via :mod:`rebrew.binary.analysis`) with per-string reference counts;
   likewise paginated when the list is long. A multi-page function or
   strings pager names the address span of its rows.
 - ``imports.html`` — PE import table (dll, API, IAT slot) and detected
@@ -66,7 +66,7 @@ from rebrew.status_style import (
     status_text_css,
 )
 from rebrew.theme import FAVICON_SVG, inline
-lazy from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
+lazy from rebrew.binary.analysis import StringEntry, Xref, iter_strings, string_refs
 lazy from rebrew.compression import precompress
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
@@ -1479,7 +1479,7 @@ def decomp_dev_report(
 
     Returns the document and the machine-readable summary dict.
     """
-    from rebrew.sections import get_text_section_size
+    from rebrew.binary.sections import get_text_section_size
     from rebrew.workspace.status import FUZZY_STATUSES, MATCHED_STATUSES
 
     sizes: dict[int, int] = {}

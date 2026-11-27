@@ -6,7 +6,7 @@ from typing import Any
 from cli_json import cli_payload
 from source_util import write_source
 
-import rebrew.near_analysis as nd
+import rebrew.compare.near_analysis as nd
 from rebrew.metadata.bindings import SourceBinding
 
 # Hand-crafted 32-bit x86 encodings.
@@ -347,7 +347,7 @@ class TestAnalyzeVerdict:
     def test_catalog_json_emits_one_document(self) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.near_diag import app
+        from rebrew.compare.near_diag import app
 
         result = CliRunner().invoke(app, ["--catalog", "--json"])
         assert result.exit_code == 0, result.output
@@ -414,7 +414,7 @@ class TestRelocVerdictHonesty:
     (invalid-reloc) bytes differ — the canonical status is then NEAR_MATCHING."""
 
     def _verdict(self, counts: dict[str, int], total: int) -> tuple[str, str]:
-        from rebrew.near_analysis import _verdict
+        from rebrew.compare.near_analysis import _verdict
 
         return _verdict(counts, total)
 
@@ -480,7 +480,7 @@ class TestSecondarySuggestionBoundary:
     """The >=25% threshold fires at exactly 25%."""
 
     def test_exactly_25_percent_fires(self) -> None:
-        from rebrew.near_analysis import _verdict
+        from rebrew.compare.near_analysis import _verdict
 
         # structural dominates (9/12), register is exactly 25% (3/12) →
         # the secondary hint fires.
@@ -490,7 +490,7 @@ class TestSecondarySuggestionBoundary:
         assert "register" in suggestion.lower()
 
     def test_below_25_percent_no_hint(self) -> None:
-        from rebrew.near_analysis import _verdict
+        from rebrew.compare.near_analysis import _verdict
 
         # register is 20% (2/10) → below the threshold, no hint.
         counts = {"match": 0, "register": 2, "equivalent": 0, "reloc": 0, "structural": 8}
@@ -502,7 +502,7 @@ class TestMutationSuggestions:
     """H6: every verdict category maps to GA mutation operators."""
 
     def test_every_category_has_suggestions_or_is_reloc(self) -> None:
-        from rebrew.near_analysis import MUTATION_SUGGESTIONS
+        from rebrew.compare.near_analysis import MUTATION_SUGGESTIONS
 
         for category in ("register", "equivalent", "structural"):
             assert MUTATION_SUGGESTIONS[category], f"{category} has no suggestions"
@@ -513,8 +513,8 @@ class TestMutationSuggestions:
 
     def test_operators_exist_in_mutator(self) -> None:
         """Every suggested operator must be a real registered mutation."""
+        from rebrew.compare.near_analysis import MUTATION_SUGGESTIONS
         from rebrew.matcher.mutator import ALL_MUTATIONS
-        from rebrew.near_analysis import MUTATION_SUGGESTIONS
 
         defined = {fn.__name__ for fn in ALL_MUTATIONS}
         for category, ops in MUTATION_SUGGESTIONS.items():
@@ -522,7 +522,7 @@ class TestMutationSuggestions:
                 assert op in defined, f"{op} (for {category}) not in ALL_MUTATIONS"
 
     def test_analyze_returns_mutations(self) -> None:
-        from rebrew.near_analysis import analyze
+        from rebrew.compare.near_analysis import analyze
 
         target = bytes.fromhex("55 8b ec 8b 45 08 5d c3")  # mov eax, [ebp+8]
         compiled = bytes.fromhex("55 8b ec 8b 45 0c 5d c3")  # mov eax, [ebp+0xc]
@@ -535,7 +535,7 @@ class TestMutationSuggestions:
         """A structural-dominant delta with a >=15% register component must
         suggest BOTH categories' operators — the register fix is otherwise
         invisible."""
-        from rebrew.near_analysis import analyze, mutation_suggestions
+        from rebrew.compare.near_analysis import analyze, mutation_suggestions
 
         target = MOV_EAX_1 * 3 + MOV_EAX_EBX * 2 + RET
         compiled = MOV_EAX_2 * 3 + MOV_EAX_ECX * 2 + RET
@@ -568,7 +568,9 @@ def _patch_near_diag_cli(monkeypatch: Any, tmp_path: Path, *, size: int) -> Path
         target_name="S",
         target_binary=tmp_path / "x.exe",
     )
-    monkeypatch.setattr("rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg)
+    monkeypatch.setattr(
+        "rebrew.compare.near_diag.require_config", lambda target=None, json_mode=False: cfg
+    )
     monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
     src = tmp_path / "f.c"
     write_source(
@@ -599,7 +601,7 @@ def _invoke_fix_blocker(
     """Run ``--fix-blocker`` on one stub; return the CLI result and the writes."""
     from typer.testing import CliRunner
 
-    from rebrew.near_diag import app
+    from rebrew.compare.near_diag import app
 
     src = _patch_near_diag_cli(monkeypatch, tmp_path, size=8)
     writes: list[object] = []
@@ -607,7 +609,7 @@ def _invoke_fix_blocker(
     if existing_entry is not None:
         monkeypatch.setattr("rebrew.metadata.functions.get_entry", lambda *a, **k: existing_entry)
     monkeypatch.setattr(
-        "rebrew.near_diag.analyze",
+        "rebrew.compare.near_diag.analyze",
         lambda *a, **k: {
             "verdict": verdict,
             "suggestion": suggestion,
@@ -632,7 +634,7 @@ class TestFixBlocker:
     """rebrew diagnose near --fix-blocker writes the verdict as BLOCKER metadata."""
 
     def testblocker_text_non_match(self) -> None:
-        from rebrew.near_analysis import blocker_text
+        from rebrew.compare.near_analysis import blocker_text
 
         text = blocker_text(
             {"verdict": "REGISTER (90% of delta)", "suggestion": "Register allocation differs."}
@@ -641,12 +643,12 @@ class TestFixBlocker:
         assert "Register allocation" in text
 
     def testblocker_text_short(self) -> None:
-        from rebrew.near_analysis import blocker_text
+        from rebrew.compare.near_analysis import blocker_text
 
         assert len(blocker_text({"verdict": "STRUCTURAL", "suggestion": "x" * 500})) <= 200
 
     def testblocker_text_includes_mutations(self) -> None:
-        from rebrew.near_analysis import blocker_text
+        from rebrew.compare.near_analysis import blocker_text
 
         text = blocker_text(
             {
@@ -660,7 +662,7 @@ class TestFixBlocker:
         assert len(text) <= 200
 
     def testblocker_text_mutations_outrank_suggestion_tail(self) -> None:
-        from rebrew.near_analysis import blocker_text
+        from rebrew.compare.near_analysis import blocker_text
 
         # A huge mutation list + long suggestion must keep the mutations and
         # the suggestion's first sentence (or drop the tail), never exceed 200.
@@ -704,7 +706,7 @@ class TestAllBatch:
 
         from typer.testing import CliRunner
 
-        from rebrew.near_diag import app
+        from rebrew.compare.near_diag import app
 
         cfg = NS(
             root=tmp_path,
@@ -716,7 +718,7 @@ class TestAllBatch:
             target_binary=tmp_path / "x.exe",
         )
         monkeypatch.setattr(
-            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+            "rebrew.compare.near_diag.require_config", lambda target=None, json_mode=False: cfg
         )
         monkeypatch.setattr(
             "rebrew.source.discovery.iter_sources", lambda *a, **k: [tmp_path / "f.c"]
@@ -735,7 +737,7 @@ class TestAllBatch:
             lambda *a, **k: (b"\x90" * 8, {}, []),
         )
         monkeypatch.setattr(
-            "rebrew.near_diag.analyze",
+            "rebrew.compare.near_diag.analyze",
             lambda *a, **k: {
                 "verdict": "REGISTER (90% of delta)",
                 "suggestion": "Register allocation differs.",
@@ -761,10 +763,10 @@ class TestAllBatch:
 
         from typer.testing import CliRunner
 
-        from rebrew.near_diag import app
+        from rebrew.compare.near_diag import app
 
         monkeypatch.setattr(
-            "rebrew.near_diag.require_config",
+            "rebrew.compare.near_diag.require_config",
             lambda target=None, json_mode=False: NS(
                 root=tmp_path,
                 reversed_dir=tmp_path,
@@ -784,10 +786,10 @@ class TestAllBatch:
 
         from typer.testing import CliRunner
 
-        from rebrew.near_diag import app
+        from rebrew.compare.near_diag import app
 
         monkeypatch.setattr(
-            "rebrew.near_diag.require_config",
+            "rebrew.compare.near_diag.require_config",
             lambda target=None, json_mode=False: NS(
                 root=tmp_path,
                 reversed_dir=tmp_path,
@@ -978,7 +980,7 @@ class TestValidatedRelocMasking:
     ) -> dict:
         from typer.testing import CliRunner
 
-        from rebrew.near_diag import app
+        from rebrew.compare.near_diag import app
 
         src = _patch_near_diag_cli(monkeypatch, tmp_path, size=10)
         monkeypatch.setattr(
@@ -988,9 +990,11 @@ class TestValidatedRelocMasking:
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (compiled, {0: "_g", 5: "_h"}, []),
         )
-        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg, **kw: {"_g": 0x5000})
         monkeypatch.setattr(
-            "rebrew.coff_reloc.smart_reloc_compare",
+            "rebrew.compare.coff_reloc.build_name_to_va", lambda cfg, **kw: {"_g": 0x5000}
+        )
+        monkeypatch.setattr(
+            "rebrew.compare.coff_reloc.smart_reloc_compare",
             reloc_fn or (lambda *a, **k: (False, 0, 10, [0], [5])),
         )
         result = CliRunner().invoke(app, ["--json", str(src)])
@@ -1061,7 +1065,7 @@ class TestFixBlockerStatus:
     def _invoke_fix(self, monkeypatch, tmp_path: Path, *extra_args: str) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.near_diag import app
+        from rebrew.compare.near_diag import app
 
         src = _patch_near_diag_cli(monkeypatch, tmp_path, size=10)
         monkeypatch.setattr(
@@ -1116,7 +1120,7 @@ class TestDecoratedNameSelection:
 
         from typer.testing import CliRunner
 
-        from rebrew.near_diag import _DiagnoseError, app
+        from rebrew.compare.near_diag import _DiagnoseError, app
 
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -1126,7 +1130,7 @@ class TestDecoratedNameSelection:
             module="GAME",
         )
         monkeypatch.setattr(
-            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+            "rebrew.compare.near_diag.require_config", lambda target=None, json_mode=False: cfg
         )
         write_source(
             tmp_path / "_foo.c",
@@ -1155,7 +1159,7 @@ class TestDecoratedNameSelection:
             seen["va"] = ann.va
             raise _DiagnoseError("stop")
 
-        monkeypatch.setattr("rebrew.near_diag._diagnose_one", _stop)
+        monkeypatch.setattr("rebrew.compare.near_diag._diagnose_one", _stop)
         runner = CliRunner()
         runner.invoke(app, ["--size", "4", "--json", "foo"])
         assert seen["va"] == 0x4000

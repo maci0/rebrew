@@ -1,6 +1,6 @@
 """Property-based fuzz for the C source scanners feeding Ghidra's CParser.
 
-``rebrew.signature_parser`` and ``rebrew.struct_parser`` read rebrew's own C
+``rebrew.c_syntax.signature_parser`` and ``rebrew.c_syntax.struct_parser`` read rebrew's own C
 sources — files that mix MSVC extensions, function-pointer parameters, and
 non-UTF-8 bytes lifted out of the target headers — and re-emit text that
 Ghidra's parser must accept.  These harnesses drive both scanners with
@@ -18,9 +18,9 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.c_parser import get_ts_parser
-from rebrew.signature_parser import extract_function_signatures
-from rebrew.struct_parser import extract_structs_from_file, extract_type_definitions
+from rebrew.c_syntax.parser import get_ts_parser
+from rebrew.c_syntax.signature_parser import extract_function_signatures
+from rebrew.c_syntax.struct_parser import extract_structs_from_file, extract_type_definitions
 
 #: Constructs Ghidra's CParser rejects, so ``_normalize_signature`` must
 #: remove all of them.  Matched on word boundaries so an identifier that

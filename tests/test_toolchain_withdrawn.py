@@ -49,7 +49,7 @@ def test_init_does_not_offer_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_a_toolchain_sweep_leaves_it_out() -> None:
-    from rebrew.match_sweep import _vendored_msvc_toolchains
+    from rebrew.matching.sweep import _vendored_msvc_toolchains
 
     names = [name for name, _cl, _inc in _vendored_msvc_toolchains(SimpleNamespace())]
     assert WITHDRAWN not in names and "msvc-9.0" in names

@@ -58,10 +58,10 @@ workflows, and limitations.
 - **Gap:** `rebrew cfg target add NAME --binary FILE` calls `_detect_format_and_arch`
   on the binary path. If the binary isn't placed yet (likely on fresh projects), the
   detector silently falls back to defaults and the stanza is wrong-but-quiet.
-- **Evidence:** `src/rebrew/cfg.py:162` `_detect_format_and_arch`, `src/rebrew/cfg.py:302` `add_target`.
+- **Evidence:** `src/rebrew/binary/cfg.py:162` `_detect_format_and_arch`, `src/rebrew/binary/cfg.py:302` `add_target`.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `add_target` now refuses a missing binary without `--force` (and warns
-  with it); `src/rebrew/cfg.py:426` guard; the silent wrong-but-quiet stanza is gone.
+  with it); `src/rebrew/binary/cfg.py:426` guard; the silent wrong-but-quiet stanza is gone.
 - **Suggested fix (high level):** Warn loudly (or refuse without `--force`) when the
   binary file doesn't exist at the configured `original/` path, so users don't end up
   with a silently mis-formatted target stanza.
@@ -84,11 +84,11 @@ workflows, and limitations.
 - **Gap:** PRD 01 notes that multi-target projects share one compiler profile and
   per-target overrides require manual TOML editing. The CLI does not have a
   `cfg set targets.<name>.compiler` short-hand; users must use dotted-key set.
-- **Evidence:** `src/rebrew/cfg.py:450` `set_value` handles arbitrary dotted keys
+- **Evidence:** `src/rebrew/binary/cfg.py:450` `set_value` handles arbitrary dotted keys
   generically, but the `--help` text only shows scalar examples; no shortcut.
 - **Severity:** enhancement (fixed)
 - **Fixed:** dedicated `rebrew cfg target set-compiler TARGET PROFILE` ships
-  (`src/rebrew/cfg.py:699`), and the `cfg` epilog now shows dotted-key examples
+  (`src/rebrew/binary/cfg.py:699`), and the `cfg` epilog now shows dotted-key examples
   (`cfg set compiler.timeout 120`, `cfg show targets.main.binary`).
 - **Suggested fix:** Add a worked example to `rebrew cfg set --help` for
   per-target compiler overrides, or a dedicated `cfg set-compiler TARGET PROFILE`
@@ -104,10 +104,10 @@ workflows, and limitations.
   (not overrides). `rebrew binary asm show VA --size N` accepts a `--size` override, so the
   two extraction commands are inconsistent.
 - **Evidence:** `uv run rebrew binary extract show --help` (no `--size`),
-  `src/rebrew/extract.py:335` `show_candidate`.
+  `src/rebrew/binary/extract.py:335` `show_candidate`.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `show_candidate` now accepts `--size N` ("Override catalog-recorded size
-  for this extraction"); `src/rebrew/extract.py:377`.
+  for this extraction"); `src/rebrew/binary/extract.py:377`.
 - **Suggested fix:** Add `--size N` to `extract show` so it can extract a single
   function with a known size override.
 
@@ -119,7 +119,7 @@ workflows, and limitations.
   references non-existent `--sig-dir`.
 - **Severity:** nit (fixed)
 - **Fixed:** epilog now says "passed as the positional SIG_DIR argument" and no longer
-  mentions `--sig-dir` (`src/rebrew/flirt.py:128`).
+  mentions `--sig-dir` (`src/rebrew/library/flirt.py:128`).
 - **Suggested fix:** Update the help epilog to refer to the positional argument, or
   add `--sig-dir` as an alias.
 
@@ -178,7 +178,7 @@ workflows, and limitations.
   diff), 2 (build failure). Many scripts treat non-zero as "compile broken"; the
   shared meaning of "1" for structural diff and "1" elsewhere (NEAR_MATCHING in
   `rebrew test`) can confuse pipelines.
-- **Evidence:** `src/rebrew/diff.py` and `src/rebrew/test.py` epilogs.
+- **Evidence:** `src/rebrew/compare/diff.py` and `src/rebrew/test.py` epilogs.
 - **Severity:** nit (fixed)
 - **Fixed:** `docs/CLI.md` carries "Exit Code Alignment: `rebrew diff` vs
   `rebrew test`" (near the end of that file). It states the `test` contract
@@ -234,12 +234,12 @@ workflows, and limitations.
 
 - **Gap:** PRD acknowledges this. Functions returning a struct/longlong (EDX:EAX) or
   with relevant memory side effects may be incorrectly promoted to PROVEN.
-- **Evidence:** `src/rebrew/prove.py` (EAX-only proof goal), and PRD 04 open
+- **Evidence:** `src/rebrew/matching/prove.py` (EAX-only proof goal), and PRD 04 open
   questions section.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `--check-edx` (forced on when the return type is 64-bit) and
   `--watch-va` (compare 4 bytes of memory at a VA, repeatable) extend the proof
-  goal beyond EAX; `src/rebrew/prove.py:1096`/`1099`; `_compare_state_pairs`
+  goal beyond EAX; `src/rebrew/matching/prove.py:1096`/`1099`; `_compare_state_pairs`
   checks EAX+EDX+watched memory (`prove.py:582`).
 - **Suggested fix:** Extend proof goals to cover EDX:EAX pairs and selected memory
   locations referenced by the function, behind a flag.
@@ -248,9 +248,9 @@ workflows, and limitations.
 
 - **Gap:** Passing both `--no-seeds` and `--seed-file PATH` is accepted but their
   precedence isn't documented; current behaviour is `--no-seeds` wins.
-- **Evidence:** `src/rebrew/match.py` (typer option declarations).
+- **Evidence:** `src/rebrew/matching/cli.py` (typer option declarations).
 - **Severity:** nit (fixed)
-- **Fixed:** both flags still document the precedence (`src/rebrew/match.py`):
+- **Fixed:** both flags still document the precedence (`src/rebrew/matching/cli.py`):
   `--seed-file` is "Ignored if --no-seeds is also passed" and `--no-seeds`
   "takes precedence over --seed-file". The line numbers in the earlier note
   are stale.
@@ -525,8 +525,8 @@ workflows, and limitations.
   reads" matrix. The actual TOML key is `compiler.command` (dotted) and the
   ProjectConfig attribute is `compiler_command`. Newcomers reading CONFIG.md may
   try `rebrew cfg set compiler_command "wine CL.EXE"` and fail.
-- **Evidence:** `docs/CONFIG.md:286`, `src/rebrew/config.py:134`,
-  `src/rebrew/cfg.py:192` (uses dotted form in example).
+- **Evidence:** `docs/CONFIG.md:286`, `src/rebrew/config/__init__.py:134`,
+  `src/rebrew/binary/cfg.py:192` (uses dotted form in example).
 - **Severity:** nit (fixed)
 - **Fixed:** CONFIG.md now uses the dotted key `compiler.command` throughout
   (`docs/CONFIG.md:286` and the matrix at `:313`).

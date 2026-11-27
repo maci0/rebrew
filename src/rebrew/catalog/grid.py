@@ -15,17 +15,17 @@ if TYPE_CHECKING:
     from rebrew.catalog.models import GhidraDataLabel
     from rebrew.formats.binary_model import BinaryInfo
 
-lazy from rebrew.catalog.loaders import load_ghidra_data_labels
-lazy from rebrew.catalog.registry import RegistryEntry, is_jump_table
-lazy from rebrew.formats.import_table import IMPORT_THUNK_SIZE, find_import_stubs
-lazy from rebrew.metadata.bindings import SourceBinding
-lazy from rebrew.metadata.data import DATA_STATUS_UNCHECKED
-lazy from rebrew.sections import (
+lazy from rebrew.binary.sections import (
     get_globals,
     has_back_jumps,
     sections_from_info,
     trim_trailing_padding,
 )
+lazy from rebrew.catalog.loaders import load_ghidra_data_labels
+lazy from rebrew.catalog.registry import RegistryEntry, is_jump_table
+lazy from rebrew.formats.import_table import IMPORT_THUNK_SIZE, find_import_stubs
+lazy from rebrew.metadata.bindings import SourceBinding
+lazy from rebrew.metadata.data import DATA_STATUS_UNCHECKED
 lazy from rebrew.utils import floor_pct, merged_span_bytes
 lazy from rebrew.workspace.status import MATCHED_STATUSES, STATUS_ALIASES
 

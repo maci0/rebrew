@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 
-from rebrew.c_conditionals import conditional_fragments, structural_variants
-from rebrew.c_parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
+from rebrew.c_syntax.conditionals import conditional_fragments, structural_variants
+from rebrew.c_syntax.parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
 
 
 @lru_cache(maxsize=256)

@@ -7,7 +7,7 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-lazy from rebrew.analysis import (
+lazy from rebrew.binary.analysis import (
     data_references,
     instruction_text,
     iter_instructions,

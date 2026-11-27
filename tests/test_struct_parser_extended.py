@@ -4,14 +4,14 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.struct_parser import _iter_definitions, get_ts_parser
+from rebrew.c_syntax.struct_parser import _iter_definitions, get_ts_parser
 
 
 def test_parser_unavailable_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*a: object, **k: object) -> object:
         raise ImportError("no tree-sitter")
 
-    monkeypatch.setattr("rebrew.c_parser._get_parser", _boom)
+    monkeypatch.setattr("rebrew.c_syntax.parser._get_parser", _boom)
     assert get_ts_parser() is None
 
 

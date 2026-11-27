@@ -19,7 +19,7 @@ lazy import capstone
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
-lazy from rebrew.analysis import capstone_handle
+lazy from rebrew.binary.analysis import capstone_handle
 lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
 lazy from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo

@@ -29,7 +29,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from rebrew.asm import listing_renderer
+from rebrew.binary.asm import listing_renderer
 from rebrew.ops import WorkerConfig, dispatch
 
 #: The formats the backend renders in process, and the arch rebrew lists as NASM source.

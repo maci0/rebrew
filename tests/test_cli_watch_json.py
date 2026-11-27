@@ -13,9 +13,9 @@ class TestWatchOutputContract:
         "module, route",
         [
             ("verify.test", ["test", "f.c"]),
-            ("diff", ["diff", "f.c"]),
-            ("prove", ["prove", "f.c"]),
-            ("match", ["match", "run", "f.c"]),
+            ("compare.diff", ["diff", "f.c"]),
+            ("matching.prove", ["prove", "f.c"]),
+            ("matching.cli", ["match", "run", "f.c"]),
             ("verify.cli", ["verify"]),
         ],
     )
@@ -32,11 +32,11 @@ class TestWatchOutputContract:
 
         monkeypatch.setattr(owner, "require_config", _unexpected)
         monkeypatch.setattr("rebrew.utils.watch_files", _unexpected)
-        if module == "prove":
+        if module == "matching.prove":
             monkeypatch.setattr(owner, "_require_angr", _unexpected)
         if module == "verify.test":
             monkeypatch.setattr(owner, "_watch_loop", _unexpected)
-        if module == "match":
+        if module == "matching.cli":
             monkeypatch.setattr(owner, "run_single_ga", _unexpected)
         result = CliRunner().invoke(app, [*route, "--watch", "--json"])
         assert result.exit_code == 2, result.output

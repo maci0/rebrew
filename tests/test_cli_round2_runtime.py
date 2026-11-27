@@ -19,7 +19,7 @@ class TestPreviewRequirements:
         def _unexpected(*args: object, **kwargs: object) -> None:
             pytest.fail("an invalid preview started project/decompiler work")
 
-        monkeypatch.setattr("rebrew.struct_recover.require_config", _unexpected)
+        monkeypatch.setattr("rebrew.c_syntax.struct_recover.require_config", _unexpected)
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _unexpected)
         result = CliRunner().invoke(app, ["types", "recover", "--dry-run", "--json"])
         assert result.exit_code == 2, result.output
@@ -134,7 +134,7 @@ class _SelectionReached(Exception):
 
 
 class TestSourceSelectors:
-    @pytest.mark.parametrize("module", ["drift_cli", "climb", "decompme"])
+    @pytest.mark.parametrize("module", ["compare.drift_cli", "matching.climb", "decompme"])
     @pytest.mark.parametrize("selector", ["second", "0x2000"])
     def test_symbol_or_va_selects_the_requested_function_in_a_shared_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module: str, selector: str

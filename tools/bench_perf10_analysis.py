@@ -164,8 +164,8 @@ def _make_decomps(rng: random.Random) -> list[str]:
 
 
 def bench_struct_extract_recover() -> dict[str, Any]:
-    from rebrew.struct_parser import extract_structs_from_file
-    from rebrew.struct_recover import parse_decomp_for_structs, synthesize_struct
+    from rebrew.c_syntax.struct_parser import extract_structs_from_file
+    from rebrew.c_syntax.struct_recover import parse_decomp_for_structs, synthesize_struct
 
     rng = random.Random(SEED + 1)
     decomps = _make_decomps(rng)

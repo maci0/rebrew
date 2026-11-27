@@ -5,7 +5,7 @@ lazy from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.types import StructDef, parse_structs
+from rebrew.c_syntax.types import StructDef, parse_structs
 
 
 class TestParseStructs:
@@ -120,7 +120,7 @@ class TestParseStructs:
 
         The field used to end the struct, so ``tail`` was dropped.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char (*)[4]") == 4
         assert type_size("char (**)[4]") == 4
@@ -270,7 +270,7 @@ def test_parse_structs_structured_source_invariants(src: str) -> None:
 
 class TestStructSizes:
     def test_known_type_sizes(self) -> None:
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("int") == 4
         assert type_size("char") == 1
@@ -284,20 +284,20 @@ class TestStructSizes:
         assert type_size("unsigned short[2][4]") == 16
 
     def test_unknown_type_is_none(self) -> None:
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("struct Unknown") is None
         assert type_size("") is None
 
     def test_negative_array_size_is_none(self) -> None:
         # ``char pad[-2]; int x;`` used to lay both fields at offset 0.
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[-2]") is None
         assert type_size("int[-1]") is None
 
     def test_void_field_type_is_none(self) -> None:
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("void") is None
         assert type_size("void *") == 4  # pointers still size
@@ -320,7 +320,7 @@ class TestStructSizes:
         An unknown size used to stop the struct, so the following field
         was dropped and ``char c; long long x;`` did not pad ``x`` to 8.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("long long") == 8
         assert type_size("unsigned long long") == 8
@@ -344,7 +344,7 @@ class TestStructSizes:
         """``long double`` is 8 and aligned like ``double``. ``short int`` is
         ``short`` and ``long int`` is ``long``. An unknown size stopped the
         struct on the ``char``."""
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("long double") == 8
         assert type_size("short int") == 2
@@ -361,7 +361,7 @@ class TestStructSizes:
 
     def test_div_and_mod_array_bounds(self) -> None:
         """Integer ``/`` and ``%`` fold in an array bound. ``1 / 0`` is not a bound."""
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[8 / 2]") == 4
         assert type_size("int[7 / 2]") == 12
@@ -383,7 +383,7 @@ class TestStructSizes:
         stopped. Division and remainder are toward zero, so ``(-5) / 2 + 3``
         is 1. A negative final bound and a shift of a negative stay unknown.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[4 + -2]") == 2
         assert type_size("char[2 * -1 + 4]") == 2
@@ -407,7 +407,7 @@ class TestStructSizes:
         ``15 & 7`` is 7. A negative operand and ``~`` stay unknown: signed
         bitwise is not two's complement here.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[15 & 7]") == 7
         assert type_size("char[15 | 16]") == 31
@@ -428,7 +428,7 @@ class TestStructSizes:
         truncate (``(char)256``) or reinterpret a negative as unsigned
         (``(unsigned)-1``) stays unknown.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[(int)(2 + 2)]") == 4
         assert type_size("char[(unsigned)4]") == 4
@@ -451,7 +451,7 @@ class TestStructSizes:
         ``1 ? 4 : 2`` is 4 and ``0 ? 8 : 2`` is 2. A name in either arm
         stays unknown, including the arm that C would not evaluate.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[1 ? 4 : 2]") == 4
         assert type_size("char[0 ? 8 : 2]") == 2
@@ -469,7 +469,7 @@ class TestStructSizes:
         ``(2, 3)`` is 3 and ``(2, 3, 4)`` is 4. Every operand must fold,
         so a name or ``1 / 0`` on the left stays unknown.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[(2, 3)]") == 3
         assert type_size("char[(2, 3, 4)]") == 4
@@ -486,7 +486,7 @@ class TestStructSizes:
         ``sizeof(int)`` is 4 and ``sizeof(char) * 4`` is 4. An unknown
         type and ``sizeof`` of an expression stay unknown.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[sizeof(int)]") == 4
         assert type_size("char[sizeof(char) * 4]") == 4
@@ -508,7 +508,7 @@ class TestStructSizes:
 
         ``1 < 2 ? 4 : 8`` is 4. ``2 > 1`` is 1.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[1 < 2]") == 1
         assert type_size("char[1 > 2]") == 0
@@ -530,7 +530,7 @@ class TestStructSizes:
         ``1 && 2`` is 1. ``0 || 3`` is 1. ``!0`` is 1. An unknown operand
         stays unknown.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[1 && 2]") == 1
         assert type_size("char[1 && 0]") == 0
@@ -552,7 +552,7 @@ class TestStructSizes:
         ``'A'`` is 65, ``'\\n'`` is 10, and ``'\\x10'`` is 16. A
         multi-character literal stays unknown.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char['A']") == 65
         assert type_size("char['\\n']") == 10
@@ -571,7 +571,7 @@ class TestStructSizes:
         ``sizeof("hi")`` is 3 and ``sizeof("")`` is 1. Adjacent strings
         are one literal.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size('char[sizeof("hi")]') == 3
         assert type_size('char[sizeof("")]') == 1
@@ -596,7 +596,7 @@ class TestStructSizes:
         ``sizeof(wchar_t)`` and a ``wchar_t`` field used to be unknown, so
         the struct stopped and the following ``int`` was dropped.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("wchar_t") == 2
         assert type_size("char[sizeof(wchar_t)]") == 2
@@ -613,7 +613,7 @@ class TestStructSizes:
         ``sizeof(u'A')`` is 2, and ``sizeof(U'A')`` is 4. A
         multi-character literal is still an ``int``.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[sizeof('A')]") == 4
         assert type_size("char[sizeof 'A']") == 4
@@ -631,7 +631,7 @@ class TestStructSizes:
         ``sizeof((int)(1))`` stays unknown: the outer parentheses make it
         an expression, and ``sizeof`` of an expression is not folded.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[sizeof((int))]") == 4
         assert type_size("char[sizeof(((int)))]") == 4
@@ -651,7 +651,7 @@ class TestStructSizes:
         ``sizeof(bool)`` and a ``bool`` field used to be unknown, so the
         struct stopped and the following ``int`` was dropped.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("bool") == 1
         assert type_size("char[sizeof(bool)]") == 1
@@ -668,7 +668,7 @@ class TestStructSizes:
         subscript and the bound stayed unknown. ``const wchar_t[3]`` already
         parsed as a type. An unknown name stays unknown.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[sizeof(wchar_t[3])]") == 6
         assert type_size("char[sizeof(wchar_t[2][3])]") == 12
@@ -681,7 +681,7 @@ class TestStructSizes:
         ``(*)`` inside the bound sized ``int[sizeof(char (*)[4])]`` as one
         pointer. ``char *[2]`` stayed unknown, so the next field was dropped.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("int[sizeof(char (*)[4])]") == 16
         assert type_size("char[sizeof(char (**)[4])]") == 4
@@ -704,7 +704,7 @@ class TestStructSizes:
         ``int()`` read ``0x10`` as not a number, ``010`` as ten, and
         ``2 + 2`` as not a number, so the struct stopped at that field.
         """
-        from rebrew.types import type_size
+        from rebrew.c_syntax.types import type_size
 
         assert type_size("char[0x10]") == 16
         assert type_size("char[010]") == 8
@@ -720,20 +720,20 @@ class TestStructSizes:
 
 class TestCheckStruct:
     def test_clean_declaration(self) -> None:
-        from rebrew.types import check_struct, parse_structs
+        from rebrew.c_syntax.types import check_struct, parse_structs
 
         structs = parse_structs("typedef struct { int x; char y; } Foo;")
         assert check_struct(structs["Foo"], {0: 4, 4: 1}) == []
 
     def test_missing_offset(self) -> None:
-        from rebrew.types import check_struct, parse_structs
+        from rebrew.c_syntax.types import check_struct, parse_structs
 
         structs = parse_structs("typedef struct { int x; } Foo;")
         findings = check_struct(structs["Foo"], {0: 4, 8: 4})
         assert findings == [{"offset": 8, "evidenced_width": 4, "issue": "missing"}]
 
     def test_narrow_field(self) -> None:
-        from rebrew.types import check_struct, parse_structs
+        from rebrew.c_syntax.types import check_struct, parse_structs
 
         structs = parse_structs("typedef struct { char x; } Foo;")
         findings = check_struct(structs["Foo"], {0: 4})
@@ -742,7 +742,7 @@ class TestCheckStruct:
     def test_nested_struct_field_span_resolved(self) -> None:
         """A read inside a nested-struct field is not reported as missing when
         the known-structs map supplies its size."""
-        from rebrew.types import check_struct, parse_structs
+        from rebrew.c_syntax.types import check_struct, parse_structs
 
         structs = parse_structs(
             "typedef struct { int a; int b; } Inner;\n"
@@ -755,7 +755,7 @@ class TestCheckStruct:
 
 class TestCollectEvidence:
     def test_named_evidence_merged(self, tmp_path: Path) -> None:
-        from rebrew.types_cli import collect_evidence
+        from rebrew.c_syntax.types_cli import collect_evidence
 
         dec = tmp_path / "f.dec.c"
         dec.write_text(
@@ -768,24 +768,24 @@ class TestCollectEvidence:
 
 class TestRewriteParamType:
     def test_rewrites_indexed_param(self) -> None:
-        from rebrew.types import rewrite_param_type
+        from rebrew.c_syntax.types import rewrite_param_type
 
         src = "int __cdecl foo(int a, void *p) { return a; }\n"
         out = rewrite_param_type(src, "foo", 1, "Player *")
         assert out == "int __cdecl foo(int a, Player *p) { return a; }\n"
 
     def test_missing_function_returns_none(self) -> None:
-        from rebrew.types import rewrite_param_type
+        from rebrew.c_syntax.types import rewrite_param_type
 
         assert rewrite_param_type("int foo(void) { return 0; }\n", "bar", 0, "int") is None
 
     def test_bad_index_returns_none(self) -> None:
-        from rebrew.types import rewrite_param_type
+        from rebrew.c_syntax.types import rewrite_param_type
 
         assert rewrite_param_type("int foo(int a) { return a; }\n", "foo", 3, "int") is None
 
     def test_legacy_bytes_round_trip(self, tmp_path: Path) -> None:
-        from rebrew.types import rewrite_param_type
+        from rebrew.c_syntax.types import rewrite_param_type
         from rebrew.utils import read_compile_source
 
         path = tmp_path / "f.c"
@@ -812,13 +812,15 @@ class TestApplyTypeCli:
     def test_apply_rewrites_param(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.types_cli import app
+        from rebrew.c_syntax.types_cli import app
 
         src = tmp_path / "src"
         src.mkdir()
         f = src / "foo.c"
         f.write_text("int __cdecl foo(int a, void *p) { return a; }\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.types_cli.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.c_syntax.types_cli.require_config", lambda **kw: self._cfg(tmp_path)
+        )
         res = CliRunner().invoke(app, ["apply", "foo", "--param", "1", "--type", "Player *"])
         assert res.exit_code == 0, res.output
         assert "Player *p" in f.read_text(encoding="utf-8")
@@ -826,14 +828,16 @@ class TestApplyTypeCli:
     def test_apply_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.types_cli import app
+        from rebrew.c_syntax.types_cli import app
 
         src = tmp_path / "src"
         src.mkdir()
         f = src / "foo.c"
         before = "int __cdecl foo(int a, void *p) { return a; }\n"
         f.write_text(before, encoding="utf-8")
-        monkeypatch.setattr("rebrew.types_cli.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr(
+            "rebrew.c_syntax.types_cli.require_config", lambda **kw: self._cfg(tmp_path)
+        )
         res = CliRunner().invoke(
             app, ["apply", "foo", "--param", "1", "--type", "Player *", "--dry-run"]
         )

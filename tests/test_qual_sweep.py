@@ -1,4 +1,4 @@
-"""Tests for :mod:`rebrew.qual_sweep` candidate selection.
+"""Tests for :mod:`rebrew.matching.qual_sweep` candidate selection.
 
 The sweep compiles every candidate qualifier in parallel and keeps one
 winner, so its choice has to depend on the candidate list rather than on how
@@ -19,8 +19,8 @@ lazy from collections.abc import Iterator
 import pytest
 from source_util import SourceFixture, write_source
 
-import rebrew.qual_sweep
-from rebrew.qual_sweep import main
+import rebrew.matching.qual_sweep
+from rebrew.matching.qual_sweep import main
 from rebrew.utils import SOURCE_BACKUP_DIRNAME
 
 SOURCE = SourceFixture(
@@ -36,7 +36,7 @@ def _joined_pools(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     An interrupted pool leaves a started candidate running. It looks
     ``score_fn`` up when it scores, so it called the next test's patch.
     """
-    pool = rebrew.qual_sweep.interruptible_pool
+    pool = rebrew.matching.qual_sweep.interruptible_pool
     executors: list[concurrent.futures.ThreadPoolExecutor] = []
 
     @contextlib.contextmanager
@@ -45,7 +45,7 @@ def _joined_pools(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
             executors.append(executor)
             yield executor
 
-    monkeypatch.setattr(rebrew.qual_sweep, "interruptible_pool", recorded)
+    monkeypatch.setattr(rebrew.matching.qual_sweep, "interruptible_pool", recorded)
     yield
     for executor in executors:
         executor.shutdown(wait=True)
@@ -56,14 +56,14 @@ def _prepare(monkeypatch: object, tmp_path: Path, score: object) -> Path:
     write_source(src, SOURCE, encoding="utf-8")
     cfg = SimpleNamespace(root=tmp_path)
     sel = SimpleNamespace(symbol="_demo@4", size=12)
-    monkeypatch.setattr(rebrew.qual_sweep, "require_config", lambda **k: cfg)  # type: ignore[attr-defined]
+    monkeypatch.setattr(rebrew.matching.qual_sweep, "require_config", lambda **k: cfg)  # type: ignore[attr-defined]
     monkeypatch.setattr(
-        rebrew.qual_sweep, "select_annotation", lambda *a, **k: (src, sel, 0x10001000)
+        rebrew.matching.qual_sweep, "select_annotation", lambda *a, **k: (src, sel, 0x10001000)
     )  # type: ignore[attr-defined]
     monkeypatch.setattr(  # type: ignore[attr-defined]
-        rebrew.qual_sweep, "resolve_compile_overrides", lambda *a, **k: ("msvc-6.0", "/O2")
+        rebrew.matching.qual_sweep, "resolve_compile_overrides", lambda *a, **k: ("msvc-6.0", "/O2")
     )
-    monkeypatch.setattr(rebrew.qual_sweep, "score_fn", score)  # type: ignore[attr-defined]
+    monkeypatch.setattr(rebrew.matching.qual_sweep, "score_fn", score)  # type: ignore[attr-defined]
     return src
 
 
@@ -73,11 +73,11 @@ class TestStatementCandidates:
         ["    volatile int a;\n", "\n  volatile int a;\n\n", "volatile int\n  a;\n", "\n\t\n"],
     )
     def test_no_candidate_for_qualified_or_empty_unit(self, declaration: str) -> None:
-        assert rebrew.qual_sweep.variants(declaration) == []
+        assert rebrew.matching.qual_sweep.variants(declaration) == []
 
     def test_multiline_declaration_qualifies_first_nonempty_line(self) -> None:
         declaration = "\n    unsigned\n        int a;\n"
-        assert rebrew.qual_sweep.variants(declaration) == [
+        assert rebrew.matching.qual_sweep.variants(declaration) == [
             ("volatile", "\n    volatile unsigned\n        int a;\n")
         ]
 
@@ -85,11 +85,11 @@ class TestStatementCandidates:
         "statement", ["return 0;", "return value;", "return\tvalue;", "goto done;"]
     )
     def test_control_flow_is_not_a_declaration(self, statement: str) -> None:
-        assert not rebrew.qual_sweep._is_decl(statement)
+        assert not rebrew.matching.qual_sweep._is_decl(statement)
 
     @pytest.mark.parametrize("declaration", ["return_code result;", "goto_target destination;"])
     def test_typedef_names_with_statement_prefixes_are_declarations(self, declaration: str) -> None:
-        assert rebrew.qual_sweep._is_decl(declaration)
+        assert rebrew.matching.qual_sweep._is_decl(declaration)
 
     def test_preview_only_lists_local_declarations(self, monkeypatch, tmp_path, capsys) -> None:
         src = _prepare(monkeypatch, tmp_path, None)
@@ -292,14 +292,14 @@ def test_candidates_preserve_original_header_directory(tmp_path, monkeypatch):
         seen.append(path)
         return SimpleNamespace(obj_bytes=b"\x90" * 12, full_obj_size=12, match_percent=50.0)
 
-    monkeypatch.setattr(rebrew.qual_sweep, "require_config", lambda **kw: cfg)
+    monkeypatch.setattr(rebrew.matching.qual_sweep, "require_config", lambda **kw: cfg)
     monkeypatch.setattr(
-        rebrew.qual_sweep, "select_annotation", lambda *a, **kw: (source, ann, 0x1000)
+        rebrew.matching.qual_sweep, "select_annotation", lambda *a, **kw: (source, ann, 0x1000)
     )
     monkeypatch.setattr(
-        rebrew.qual_sweep, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2")
+        rebrew.matching.qual_sweep, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2")
     )
-    monkeypatch.setattr(rebrew.qual_sweep, "compile_and_compare", compare)
+    monkeypatch.setattr(rebrew.matching.qual_sweep, "compile_and_compare", compare)
     monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a: b"\x90" * 12)
     main(
         source=str(source),
@@ -322,7 +322,7 @@ def test_jobs_use_project_default_unless_overridden(tmp_path, monkeypatch, expli
 
     source = _prepare(monkeypatch, tmp_path, lambda *a: (0.0, 0))
     monkeypatch.setattr(
-        rebrew.qual_sweep,
+        rebrew.matching.qual_sweep,
         "require_config",
         lambda **kw: SimpleNamespace(root=tmp_path, default_jobs=7),
     )
@@ -332,7 +332,7 @@ def test_jobs_use_project_default_unless_overridden(tmp_path, monkeypatch, expli
         seen.append(jobs)
         return interruptible_pool(jobs)
 
-    monkeypatch.setattr(rebrew.qual_sweep, "interruptible_pool", pool)
+    monkeypatch.setattr(rebrew.matching.qual_sweep, "interruptible_pool", pool)
     main(
         source=str(source),
         va=None,

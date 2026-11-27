@@ -27,9 +27,12 @@ import typer
 
 from rebrew.cli import TargetOption, console, require_config
 from rebrew.compiler.context import CONTEXT_UNIT_NAME
-lazy from rebrew.signature_parser import extract_function_prototypes, extract_function_signatures
+lazy from rebrew.c_syntax.signature_parser import (
+    extract_function_prototypes,
+    extract_function_signatures,
+)
+lazy from rebrew.c_syntax.struct_parser import extract_type_blocks
 lazy from rebrew.source.discovery import iter_library_headers, iter_sources
-lazy from rebrew.struct_parser import extract_type_blocks
 lazy from rebrew.utils import atomic_write_text
 
 logger = logging.getLogger(__name__)

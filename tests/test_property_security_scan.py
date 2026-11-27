@@ -18,7 +18,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from rebrew.c_parser import get_ts_parser
+from rebrew.c_syntax.parser import get_ts_parser
 from rebrew.security_scan import _RULES, _SNIPPET_MAX_CHARS, scan_source
 from rebrew.utils import split_source_lines
 

@@ -4,7 +4,7 @@ Coverage-guided sibling of tests/test_property_signature_parser.py and
 tests/test_property_c_parser.py (Hypothesis drives those harnesses in CI;
 this file is the libFuzzer entry point for local/OSSFuzz runs).
 
-``rebrew.signature_parser`` and ``rebrew.struct_parser`` read untrusted C
+``rebrew.c_syntax.signature_parser`` and ``rebrew.c_syntax.struct_parser`` read untrusted C
 source — decompiler and LLM output that mixes MSVC extensions,
 function-pointer parameters, and non-UTF-8 bytes — and re-emit text that
 Ghidra's ``CParser`` / ``parse-c-structure`` must accept.  Arbitrary bytes
@@ -30,9 +30,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import atheris
 
-from rebrew.c_parser import get_ts_parser
-from rebrew.signature_parser import extract_function_prototypes, extract_function_signatures
-from rebrew.struct_parser import (
+from rebrew.c_syntax.parser import get_ts_parser
+from rebrew.c_syntax.signature_parser import (
+    extract_function_prototypes,
+    extract_function_signatures,
+)
+from rebrew.c_syntax.struct_parser import (
     extract_enums_from_file,
     extract_structs_from_file,
     extract_type_blocks,

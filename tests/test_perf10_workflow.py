@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from rebrew import prove
 from rebrew.data.layout import estimate_type_size
+from rebrew.matching import prove
 from rebrew.metadata.functions import GA_CEILING_PREFIX
 from rebrew.todo import (
     CAT_IMPROVE_MATCH,

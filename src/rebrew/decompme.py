@@ -41,7 +41,6 @@ import logging
 import re
 from typing import Any, Literal, Protocol, runtime_checkable
 lazy import hashlib
-lazy import json
 lazy import math
 lazy import os
 lazy import time
@@ -49,6 +48,7 @@ lazy from collections.abc import Callable, Iterator, Mapping
 lazy from pathlib import Path
 
 import typer
+lazy import msgspec
 lazy import tenacity
 
 from rebrew.cli import (
@@ -187,7 +187,7 @@ def extract_function_text(text: str, name: str) -> str | None:
     (no tree-sitter, no definitions, ambiguous name); the caller then falls
     back to the whole file.
     """
-    from rebrew.c_parser import find_c_function_definitions
+    from rebrew.c_syntax.parser import find_c_function_definitions
 
     defs = find_c_function_definitions(text)
     if not defs:
@@ -254,7 +254,7 @@ def build_scratch_payload(
         "platform": platform,
         "compiler_flags": compiler_flags,
         "diff_label": diff_label,
-        "diff_flags": json.dumps([f"--disassemble={diff_label}"]),
+        "diff_flags": msgspec.json.encode([f"--disassemble={diff_label}"]).decode("utf-8"),
         "context": context,
         "source_code": source_code,
         "name": name or diff_label,
@@ -584,7 +584,7 @@ def read_uploads(root: Path) -> dict[str, dict[str, str]]:
     except OSError, UnicodeError:
         return {}
     try:
-        data = json.loads(raw)
+        data = msgspec.json.decode(raw)
     except ValueError as exc:
         log.warning(
             "decomp.me upload ledger %s is corrupt (%s); ignoring it — "
@@ -689,7 +689,12 @@ def record_upload(
                 fresh = dict(ordered[-_UPLOADS_MAX_ENTRIES:])
             path.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_text(
-                path, json.dumps(fresh, indent=2, sort_keys=True) + "\n", mode=_UPLOADS_FILE_MODE
+                path,
+                msgspec.json.format(msgspec.json.encode(fresh, order="sorted"), indent=2).decode(
+                    "utf-8"
+                )
+                + "\n",
+                mode=_UPLOADS_FILE_MODE,
             )
     except OSError as exc:
         log.warning("decomp.me upload ledger not written (%s); the next run will upload again", exc)

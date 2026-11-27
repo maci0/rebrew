@@ -12,7 +12,7 @@ from source_util import write_source
 from tree_snapshot import project_files
 from typer.testing import CliRunner
 
-from rebrew.asm import app
+from rebrew.binary.asm import app
 from rebrew.metadata.functions import get_entry
 
 _CODE = bytes.fromhex("558bec83ec08b801000000c9c3")
@@ -40,7 +40,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         compiler_profile="msvc-6.0",
         arch="x86_32",
     )
-    monkeypatch.setattr("rebrew.asm.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.binary.asm.require_config", lambda **kwargs: cfg)
     monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **kw: _CODE)
     return cfg
 
@@ -62,7 +62,7 @@ def _forbid_generation(monkeypatch: pytest.MonkeyPatch) -> None:
         "_run_nasm",
         "_record_inline_c_identity",
     ]:
-        monkeypatch.setattr(f"rebrew.asm.{name}", refuse)
+        monkeypatch.setattr(f"rebrew.binary.asm.{name}", refuse)
 
 
 def _fake_nasm(code: bytes, va: int, label: str, _read_image: Any) -> tuple[str, dict[str, Any]]:
@@ -120,7 +120,7 @@ class TestShowArtifacts:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inline_c: bool
     ) -> None:
         _project(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr("rebrew.binary.asm.disassemble_to_nasm", _fake_nasm)
         output = tmp_path / "output" / ("f.c" if inline_c else "f.asm")
         before = (tmp_path / "rebrew-functions.toml").read_bytes()
         args = [
@@ -157,9 +157,9 @@ class TestShowArtifacts:
 class TestVerifyExit:
     def test_byte_mismatch_exits_1(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _project(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr("rebrew.binary.asm.disassemble_to_nasm", _fake_nasm)
         monkeypatch.setattr(
-            "rebrew.asm.verify_roundtrip",
+            "rebrew.binary.asm.verify_roundtrip",
             lambda *_a, **_k: (False, "FAIL: 1 byte diffs at offsets [0]"),
         )
         result = CliRunner().invoke(
@@ -185,9 +185,9 @@ class TestVerifyExit:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _project(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr("rebrew.binary.asm.disassemble_to_nasm", _fake_nasm)
         monkeypatch.setattr(
-            "rebrew.asm.verify_roundtrip",
+            "rebrew.binary.asm.verify_roundtrip",
             lambda *_a, **_k: (False, "nasm not on PATH (install nasm)"),
         )
         result = CliRunner().invoke(
@@ -212,10 +212,10 @@ class TestVerifyExit:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _project(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr("rebrew.binary.asm.disassemble_to_nasm", _fake_nasm)
         output = tmp_path / "output"
         monkeypatch.setattr(
-            "rebrew.asm.verify_roundtrip",
+            "rebrew.binary.asm.verify_roundtrip",
             lambda *_a, **_k: (False, "FAIL: size mismatch (nasm=1, original=2)"),
         )
         mismatch = CliRunner().invoke(app, ["batch", "--output", str(output), "--verify", "--json"])
@@ -225,7 +225,7 @@ class TestVerifyExit:
         assert "verify_exit" not in mismatch_payload
 
         monkeypatch.setattr(
-            "rebrew.asm.verify_roundtrip",
+            "rebrew.binary.asm.verify_roundtrip",
             lambda *_a, **_k: (False, "NASM assembly failed"),
         )
         unavailable = CliRunner().invoke(
@@ -244,7 +244,7 @@ class TestBatchArtifacts:
         from rebrew.metadata.functions import load_metadata
 
         cfg = _project(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr("rebrew.binary.asm.disassemble_to_nasm", _fake_nasm)
         generated = cfg.reversed_dir / "generated"
         output = generated
         if alias:
@@ -295,7 +295,7 @@ class TestBatchArtifacts:
             symbol="_f",
             size=len(_CODE),
         )
-        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr("rebrew.binary.asm.disassemble_to_nasm", _fake_nasm)
         result = CliRunner().invoke(
             app, ["batch", "--inline-c", "--output", str(tmp_path / "artifacts"), "--json"]
         )
@@ -319,7 +319,8 @@ class TestBatchArtifacts:
         other = tmp_path / "client"
         other.mkdir()
         monkeypatch.setattr(
-            "rebrew.asm.load_config", lambda root, target: SimpleNamespace(reversed_dir=other)
+            "rebrew.binary.asm.load_config",
+            lambda root, target: SimpleNamespace(reversed_dir=other),
         )
         destinations = {
             "selected": cfg.reversed_dir,
@@ -341,7 +342,7 @@ class TestBatchArtifacts:
                 "Unsafe output must stop before source scanning or byte extraction"
             )
 
-        monkeypatch.setattr("rebrew.asm.iter_sources", refuse)
+        monkeypatch.setattr("rebrew.binary.asm.iter_sources", refuse)
         monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", refuse)
         result = CliRunner().invoke(
             app, ["batch", "--output", str(output), "--inline-c", "--verify", "--dry-run", "--json"]
@@ -383,7 +384,7 @@ class TestBatchArtifacts:
             return _CODE
 
         monkeypatch.setattr("rebrew.formats.binary_loader.extract_raw_bytes", extract)
-        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr("rebrew.binary.asm.disassemble_to_nasm", _fake_nasm)
         output = tmp_path / "output"
         args = ["batch", "--inline-c", "--output", str(output), "--json"]
         if dry_run:
@@ -456,7 +457,7 @@ class TestBatchArtifacts:
             "rebrew.formats.binary_loader.extract_raw_bytes",
             lambda binary, va, size: _CODE if va == 0x1000 else None,
         )
-        monkeypatch.setattr("rebrew.asm.disassemble_to_nasm", _fake_nasm)
+        monkeypatch.setattr("rebrew.binary.asm.disassemble_to_nasm", _fake_nasm)
         output = tmp_path / "output"
         result = CliRunner().invoke(app, ["batch", "--output", str(output), "--json"])
         assert result.exit_code == 0, result.output
@@ -497,7 +498,7 @@ class TestInspectionArtifacts:
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.function_extent_from_disasm", lambda *a, **kw: None
         )
-        monkeypatch.setattr("rebrew.asm.next_function_va", lambda *a: None)
+        monkeypatch.setattr("rebrew.binary.asm.next_function_va", lambda *a: None)
         output = tmp_path / "output" / "view.txt"
         if existing:
             output.parent.mkdir()
@@ -549,7 +550,7 @@ class TestInspectionArtifacts:
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.function_extent_from_disasm", lambda *a, **kw: None
         )
-        monkeypatch.setattr("rebrew.asm.next_function_va", lambda *a: None)
+        monkeypatch.setattr("rebrew.binary.asm.next_function_va", lambda *a: None)
         blocked = tmp_path / "blocked"
         blocked.write_text("Keep this file\n")
         result = CliRunner().invoke(

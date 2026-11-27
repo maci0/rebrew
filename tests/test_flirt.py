@@ -6,7 +6,7 @@ lazy from pathlib import Path
 import pytest
 from cli_json import cli_payload
 
-from rebrew.flirt import find_func_size, iter_match_offsets, load_signatures
+from rebrew.library.flirt import find_func_size, iter_match_offsets, load_signatures
 
 # ---------------------------------------------------------------------------
 # find_func_size
@@ -92,7 +92,7 @@ class TestLoadSignatures:
 
     def test_no_flirt_module(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Returns empty list when flirt module is not available."""
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         monkeypatch.setattr(flirt_mod, "flirt", None)
         sigs = load_signatures("/some/dir")
@@ -112,8 +112,8 @@ class TestLoadSignatures:
         not read as no index: every file unfiltered is the load that does not fit in
         memory."""
         from rebrew.config import ConfigError
-        from rebrew.flirt import load_signatures_for
-        from rebrew.gen_flirt_pat import bytes_to_pat_line
+        from rebrew.library.flirt import load_signatures_for
+        from rebrew.library.gen_flirt_pat import bytes_to_pat_line
 
         sig_dir = tmp_path / "sigs"
         sig_dir.mkdir()
@@ -149,7 +149,7 @@ def _patch_flirt(
 ) -> None:
     from types import SimpleNamespace
 
-    import rebrew.flirt as flirt_mod
+    import rebrew.library.flirt as flirt_mod
 
     monkeypatch.setattr(
         flirt_mod,
@@ -181,7 +181,7 @@ class TestCliSurface:
         """--va (single-function check) is part of the CLI contract."""
         from typer.testing import CliRunner
 
-        from rebrew.flirt import app
+        from rebrew.library.flirt import app
 
         result = CliRunner().invoke(app, ["--help"])
         assert result.exit_code == 0
@@ -192,7 +192,7 @@ class TestCliSurface:
     ) -> None:
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         _patch_flirt(monkeypatch, tmp_path)
         result = CliRunner().invoke(flirt_mod.app, ["--va", "0x2000"])
@@ -209,7 +209,7 @@ class TestAmbiguousReporting:
 
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         class FakeMatch:
             names: ClassVar[list[tuple[str, str, int]]] = [
@@ -240,7 +240,7 @@ class TestAmbiguousReporting:
 
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         class FakeMatch:
             names: ClassVar[list[tuple[str, str, int]]] = [
@@ -267,7 +267,7 @@ class TestAmbiguousReporting:
 
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         class FakeMatch:
             names: ClassVar[list[tuple[str, str, int]]] = [
@@ -294,7 +294,7 @@ class TestSmallTextSectionSchema:
 
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         _patch_flirt(monkeypatch, tmp_path, raw_size=16)
         result = CliRunner().invoke(flirt_mod.app, ["--json"])
@@ -322,7 +322,7 @@ class TestSmallTextSectionSchema:
 
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         _patch_flirt(monkeypatch, tmp_path, raw_size=16)
         # VA 0x1005 is inside the 16-byte .text (0x1000..0x1010) → check runs
@@ -338,7 +338,7 @@ class TestSmallTextSectionSchema:
     ) -> None:
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         _patch_flirt(monkeypatch, tmp_path, raw_size=16)
         result = CliRunner().invoke(flirt_mod.app, ["--va", "0x2000"])
@@ -357,7 +357,7 @@ class TestMultiSectionScan:
     def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         monkeypatch.setattr(
             flirt_mod,
@@ -399,7 +399,7 @@ class TestMultiSectionScan:
 
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(flirt_mod.app, ["--json"])
@@ -419,7 +419,7 @@ class TestMultiSectionScan:
 
         from typer.testing import CliRunner
 
-        import rebrew.flirt as flirt_mod
+        import rebrew.library.flirt as flirt_mod
 
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(flirt_mod.app, ["--json", "--va", "0x2000"])

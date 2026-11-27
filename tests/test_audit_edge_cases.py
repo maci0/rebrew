@@ -10,7 +10,7 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.coff_reloc import smart_reloc_compare
+from rebrew.compare.coff_reloc import smart_reloc_compare
 from rebrew.metadata.bindings import __all__ as annotation_all
 
 # ---------------------------------------------------------------------------
@@ -334,7 +334,7 @@ class TestIatRegionBuild:
     def test_configured_thunks_included(self, tmp_path: Path, monkeypatch) -> None:
         from types import SimpleNamespace
 
-        from rebrew.coff_reloc import build_iat_region
+        from rebrew.compare.coff_reloc import build_iat_region
 
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.dll",
@@ -349,7 +349,7 @@ class TestIatRegionBuild:
     def test_empty_cfg_defaults(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.coff_reloc import build_iat_region
+        from rebrew.compare.coff_reloc import build_iat_region
 
         cfg = SimpleNamespace(target_binary=tmp_path / "nope.dll", iat_thunks=None)
         assert build_iat_region(cfg) == set()
@@ -360,7 +360,7 @@ class TestIatRegionBuild:
         from pathlib import Path
         from types import SimpleNamespace
 
-        from rebrew.coff_reloc import build_iat_region
+        from rebrew.compare.coff_reloc import build_iat_region
 
         pe = Path(__file__).resolve().parent / "fixtures" / "mini_pe.exe"
         assert pe.exists()
@@ -378,7 +378,7 @@ class TestIatRegionBuild:
 
         import lief
 
-        from rebrew.coff_reloc import build_iat_region
+        from rebrew.compare.coff_reloc import build_iat_region
         from rebrew.formats.binary_loader import iat_slot_vas
 
         binary = tmp_path / "imports.exe"
@@ -399,7 +399,7 @@ class TestIatRegionBuild:
         """call [jmp_stub] vs recompiled call [__imp__] — masked by position."""
         import struct
 
-        from rebrew.coff_reloc import smart_reloc_compare
+        from rebrew.compare.coff_reloc import smart_reloc_compare
 
         stub = 0x1001A160
         obj = b"\xff\x15" + struct.pack("<I", 0) + b"\xc3"
@@ -424,7 +424,7 @@ class TestCatalogScanFailClosed:
     def test_scan_failure_raises(self) -> None:
         from types import SimpleNamespace
 
-        from rebrew.coff_reloc import CatalogScanError, build_name_to_va
+        from rebrew.compare.coff_reloc import CatalogScanError, build_name_to_va
 
         with pytest.raises(CatalogScanError, match="global/function scan failed"):
             build_name_to_va(SimpleNamespace())  # no reversed_dir attr

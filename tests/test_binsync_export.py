@@ -383,7 +383,8 @@ class TestBinsyncExportGlobals:
                 ),
             },
         )
-        result, outdir = _invoke(tmp_path, monkeypatch)
+        with pytest.warns(UserWarning, match="data row .* has no name"):
+            result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         gv_path = outdir / "global_vars.toml"
         assert gv_path.exists()
@@ -1059,7 +1060,7 @@ class TestBinaryHashAndSharedTypes:
     def test_failing_header_does_not_drop_later_structs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.types as types_mod
+        import rebrew.c_syntax.types as types_mod
 
         _make_project(tmp_path, {"foo.c": self._FOO})
         src = tmp_path / "src"
@@ -1074,7 +1075,7 @@ class TestBinaryHashAndSharedTypes:
                 raise ValueError("boom")
             return real_parse(text)
 
-        monkeypatch.setattr("rebrew.types.parse_structs", _parse)
+        monkeypatch.setattr("rebrew.c_syntax.types.parse_structs", _parse)
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
         assert (outdir / "structs" / "Point.toml").exists()
@@ -1680,7 +1681,7 @@ class TestMigratedPrototypeFallback:
         monkeypatch.chdir(tmp_path)
         migrated = runner.invoke(app, ["source", "register"], catch_exceptions=False)
         assert migrated.exit_code == 0, migrated.output
-        monkeypatch.setattr("rebrew.c_parser.function_signatures", lambda _source: {})
+        monkeypatch.setattr("rebrew.c_syntax.parser.function_signatures", lambda _source: {})
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
         init = _load_func(outdir / "functions" / "10001000.toml")

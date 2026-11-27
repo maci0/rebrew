@@ -6,7 +6,7 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
-lazy from rebrew.c_parser import find_variable_roles
+lazy from rebrew.c_syntax.parser import find_variable_roles
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.metadata.bindings import FUNCTION_KINDS, iter_source_bindings
 lazy from rebrew.source.c_rename import ParsedSource, definitions

@@ -7,8 +7,8 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.match_ga import BinaryMatchingGA, _ga_args_hash, read_ga_checkpoint
 from rebrew.matcher.core import BuildResult, GACheckpoint
+from rebrew.matching.ga import BinaryMatchingGA, _ga_args_hash, read_ga_checkpoint
 
 _SOURCE = "int f(void) { return 0; }"
 _TARGET = b"\x55\x8b\xec\x5d\xc3"
@@ -170,7 +170,7 @@ class TestCheckpointIO:
         ckpt_dir = tmp_path / "out" / "checkpoints"
         ckpt_dir.mkdir(parents=True)
         (ckpt_dir / "_f.json").write_text('{"generation": 3, "trunc', encoding="utf-8")
-        with caplog.at_level(logging.WARNING, logger="rebrew.match"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.matching.cli"):
             loaded = read_ga_checkpoint(tmp_path / "out", "_f")
         assert loaded is None
         assert any("restarts _f from scratch" in r.message for r in caplog.records)
@@ -183,8 +183,8 @@ class TestCheckpointIO:
 
         ga = _make_ga(tmp_path)
         with (
-            caplog.at_level(logging.WARNING, logger="rebrew.match"),
-            patch("rebrew.match_ga.atomic_write_text", side_effect=OSError("disk full")),
+            caplog.at_level(logging.WARNING, logger="rebrew.matching.cli"),
+            patch("rebrew.matching.ga.atomic_write_text", side_effect=OSError("disk full")),
         ):
             ga._save_checkpoint(2)
             ga._save_checkpoint(3)
@@ -260,7 +260,7 @@ class TestResume:
         with (
             patch.object(BinaryMatchingGA, "_compile_source", return_value=BuildResult(ok=False)),
             patch.object(BinaryMatchingGA, "_compute_fitness", return_value=1.0),
-            patch("rebrew.match_ga._CHECKPOINT_INTERVAL", 1),
+            patch("rebrew.matching.ga._CHECKPOINT_INTERVAL", 1),
             make_run() as uninterrupted,
         ):
             with patch.object(BinaryMatchingGA, "_save_checkpoint", capture_checkpoint):

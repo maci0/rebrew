@@ -1,4 +1,4 @@
-"""Tests for :mod:`rebrew.climb` -- statement chunking and the hill-climb search.
+"""Tests for :mod:`rebrew.matching.climb` -- statement chunking and the hill-climb search.
 
 The CLI layer needs a project and a docker compile, so these drive the search
 itself through ``_climb`` with a stub scorer: that is where the logic lives, and
@@ -19,12 +19,12 @@ import pytest
 from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 
-import rebrew.alignment
-import rebrew.climb
-from rebrew.climb import _climb, _statements, _swap, _within_size_budget, function_span
+import rebrew.compare.alignment
+import rebrew.matching.climb
+from rebrew.matching.climb import _climb, _statements, _swap, _within_size_budget, function_span
 from rebrew.utils import SOURCE_BACKUP_DIRNAME
 
-REPO_SRC = str(Path(rebrew.climb.__file__).resolve().parents[1])
+REPO_SRC = str(Path(rebrew.matching.climb.__file__).resolve().parents[1])
 
 SOURCE = SourceFixture(
     "/* ADDRESS: SERVER 0x10001000 */\n// demo\nint demo(int arg)\n{\n\tint a;\n\ta = arg;\n\n\tif (a > 3) {\n\t\ta = 5;\n\t}\n\n\tb = a;\n\treturn b;\n}\n",
@@ -118,13 +118,13 @@ class TestScoreAligned:
     def _result(self, monkeypatch):
         from types import SimpleNamespace
 
-        import rebrew.analysis
+        import rebrew.binary.analysis
 
         result = SimpleNamespace(
             obj_bytes=b"obj", full_obj_size=12, full_obj_bytes=None, reloc_offsets=[]
         )
-        monkeypatch.setattr(rebrew.climb, "compile_and_compare", lambda *a, **k: result)
-        return result, rebrew.analysis
+        monkeypatch.setattr(rebrew.matching.climb, "compile_and_compare", lambda *a, **k: result)
+        return result, rebrew.binary.analysis
 
     def test_score_includes_full_object_tail(self, monkeypatch, tmp_path) -> None:
         from types import SimpleNamespace
@@ -135,7 +135,7 @@ class TestScoreAligned:
         result.full_obj_bytes = result.obj_bytes + b"\xc3"
         result.full_obj_size = 4
         cfg = SimpleNamespace()
-        score, size = rebrew.climb._score_aligned(
+        score, size = rebrew.matching.climb._score_aligned(
             cfg,
             tmp_path / "f.c",
             "_f",
@@ -144,7 +144,7 @@ class TestScoreAligned:
             {},
             0x401000,
             None,
-            rebrew.alignment.instruction_texts(cfg, target, 0x401000),
+            rebrew.compare.alignment.instruction_texts(cfg, target, 0x401000),
         )
         assert score == (3 + 1) * 5 - 1
         assert size == 4
@@ -171,7 +171,7 @@ class TestScoreAligned:
         monkeypatch.setattr(nd, "disasm_insns", lambda code, *a, **k: list(streams[code]))
         cfg = SimpleNamespace(capstone_arch="CS_ARCH_X86", capstone_mode="CS_MODE_32")
 
-        score, obj_len = rebrew.climb._score_aligned(
+        score, obj_len = rebrew.matching.climb._score_aligned(
             cfg,
             tmp_path / "f.c",
             "_f",
@@ -180,7 +180,7 @@ class TestScoreAligned:
             {},
             0x1000,
             None,
-            rebrew.alignment.instruction_texts(cfg, b"target", 0x1000),
+            rebrew.compare.alignment.instruction_texts(cfg, b"target", 0x1000),
         )
 
         assert score == (2 + 1) * 5 - 1  # two pairs, one hunk, scale len(target) + 2
@@ -210,7 +210,7 @@ class TestScoreAligned:
 
         def score_of(obj: bytes) -> tuple[float, int]:
             _result.obj_bytes = obj
-            score = rebrew.climb._score_aligned(
+            score = rebrew.matching.climb._score_aligned(
                 cfg,
                 tmp_path / "f.c",
                 "_f",
@@ -219,9 +219,9 @@ class TestScoreAligned:
                 {},
                 0x1000,
                 None,
-                rebrew.alignment.instruction_texts(cfg, b"target", 0x1000),
+                rebrew.compare.alignment.instruction_texts(cfg, b"target", 0x1000),
             )[0]
-            return score, rebrew.alignment.AlignedMatcher.last_visits
+            return score, rebrew.compare.alignment.AlignedMatcher.last_visits
 
         scattered, scattered_visits = score_of(b"scattered")
         deleted, deleted_visits = score_of(b"deleted")
@@ -241,7 +241,7 @@ class TestAlignedMatcher:
     def test_blocks_and_opcodes_are_optimal_lcs(self) -> None:
         from rapidfuzz.distance import LCSseq
 
-        from rebrew.alignment import AlignedMatcher
+        from rebrew.compare.alignment import AlignedMatcher
 
         streams: list[tuple[list[str], list[str]]] = [
             ([], []),
@@ -427,7 +427,7 @@ class TestRestoreOnSignal:
     ) -> None:
         import signal
 
-        from rebrew.climb import _install_restore_handler
+        from rebrew.matching.climb import _install_restore_handler
 
         watched = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
         before = {number: signal.getsignal(number) for number in watched}
@@ -461,7 +461,7 @@ class TestRestoreOnSignal:
             "import os, signal, sys\n"
             "from pathlib import Path\n"
             f"sys.path.insert(0, {REPO_SRC!r})\n"
-            "from rebrew.climb import _install_restore_handler\n"
+            "from rebrew.matching.climb import _install_restore_handler\n"
             "path = Path(sys.argv[1])\n"
             "original = path.read_text()\n"
             "_install_restore_handler(path, original, 'utf-8')\n"
@@ -515,7 +515,7 @@ class TestRestoreOnSignal:
 
         from typer.testing import CliRunner
 
-        import rebrew.climb as climb_mod
+        import rebrew.matching.climb as climb_mod
 
         source = tmp_path / "demo.c"
         write_source(
@@ -546,7 +546,7 @@ class TestRestoreOnSignal:
 
         from typer.testing import CliRunner
 
-        import rebrew.climb as climb_mod
+        import rebrew.matching.climb as climb_mod
 
         source = tmp_path / "demo.c"
         write_source(
@@ -586,7 +586,7 @@ class TestRestoreOnSignal:
 
         from typer.testing import CliRunner
 
-        import rebrew.climb as climb_mod
+        import rebrew.matching.climb as climb_mod
 
         source = tmp_path / "demo.c"
         write_source(
@@ -634,7 +634,7 @@ class TestRestoreOnSignal:
 
         from typer.testing import CliRunner
 
-        import rebrew.climb as climb_mod
+        import rebrew.matching.climb as climb_mod
 
         source = tmp_path / "demo.c"
         original_text = SourceFixture(
@@ -717,15 +717,17 @@ def test_preview_preserves_original_header_directory(tmp_path, monkeypatch, obje
             match_count=4,
         )
 
-    monkeypatch.setattr(rebrew.climb, "require_config", lambda **kw: cfg)
-    monkeypatch.setattr(rebrew.climb, "target_module", lambda c: "SERVER")
-    monkeypatch.setattr(rebrew.climb, "read_source_bindings", lambda *a, **kw: [ann])
-    monkeypatch.setattr(rebrew.climb, "extract_raw_bytes", lambda *a: b"\x90" * 4)
-    monkeypatch.setattr(rebrew.climb, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2"))
-    monkeypatch.setattr(rebrew.climb, "build_name_to_va", lambda c: {})
-    monkeypatch.setattr(rebrew.climb, "compile_and_compare", compare)
+    monkeypatch.setattr(rebrew.matching.climb, "require_config", lambda **kw: cfg)
+    monkeypatch.setattr(rebrew.matching.climb, "target_module", lambda c: "SERVER")
+    monkeypatch.setattr(rebrew.matching.climb, "read_source_bindings", lambda *a, **kw: [ann])
+    monkeypatch.setattr(rebrew.matching.climb, "extract_raw_bytes", lambda *a: b"\x90" * 4)
+    monkeypatch.setattr(
+        rebrew.matching.climb, "resolve_compile_overrides", lambda *a: ("msvc-6.0", "/O2")
+    )
+    monkeypatch.setattr(rebrew.matching.climb, "build_name_to_va", lambda c: {})
+    monkeypatch.setattr(rebrew.matching.climb, "compile_and_compare", compare)
     result = CliRunner().invoke(
-        rebrew.climb.app, ["--dry-run", "--objective", objective, "--json", str(source)]
+        rebrew.matching.climb.app, ["--dry-run", "--objective", objective, "--json", str(source)]
     )
     assert result.exit_code == 0, result.output
 
@@ -747,7 +749,7 @@ def test_explicit_target_accepts_unregistered_source(tmp_path, monkeypatch, mark
 
     from typer.testing import CliRunner
 
-    import rebrew.climb as climb_mod
+    import rebrew.matching.climb as climb_mod
 
     source = tmp_path / "probe.c"
     original = "int probe(int arg)\n{\n int value;\n value = arg;\n return value;\n}\n"
@@ -804,7 +806,7 @@ def test_unregistered_source_requires_complete_overrides(tmp_path, monkeypatch, 
 
     from typer.testing import CliRunner
 
-    import rebrew.climb as climb_mod
+    import rebrew.matching.climb as climb_mod
 
     source = tmp_path / "probe.c"
     source.write_text("int probe(void) { int value; value = 0; return value; }\n")

@@ -51,8 +51,8 @@ def _project(tmp_path: Path, members=None):
 
 def _adopt(cfg, lib, *extra: str):
     with (
-        patch("rebrew.library.require_config", return_value=cfg),
-        patch("rebrew.lib_match.external_archive_args", return_value=([lib], [])),
+        patch("rebrew.library.cli.require_config", return_value=cfg),
+        patch("rebrew.library.match.external_archive_args", return_value=([lib], [])),
     ):
         return CliRunner().invoke(
             umbrella,
@@ -224,9 +224,9 @@ class TestLibraryAdopt:
     def test_vendored_object_match_is_refused(self, tmp_path: Path) -> None:
         cfg, _lib = _project(tmp_path)
         with (
-            patch("rebrew.library.require_config", return_value=cfg),
+            patch("rebrew.library.cli.require_config", return_value=cfg),
             patch(
-                "rebrew.lib_match.project_match_index",
+                "rebrew.library.match.project_match_index",
                 return_value=({"_x": [("x.c.obj", CODE, set())]}, [], []),
             ),
         ):
@@ -309,7 +309,7 @@ class TestLibraryAdoptNoClaim:
                 kind="FUNCTION",
             )
 
-        with patch("rebrew.identify_library.prepare_library_header", side_effect=claim):
+        with patch("rebrew.library.identify.prepare_library_header", side_effect=claim):
             result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
         assert result.exit_code == 2, result.output
         assert "inputs changed" in result.output
@@ -449,7 +449,7 @@ def test_adopt_rechecks_inventory_after_review_before_writing(tmp_path: Path) ->
     def mutate_inventory(*_args: object) -> None:
         cfg.inventory_file.write_text(json.dumps([{"va": VA, "size": len(CODE) - 1}]))
 
-    with patch("rebrew.identify_library.prepare_library_header", side_effect=mutate_inventory):
+    with patch("rebrew.library.identify.prepare_library_header", side_effect=mutate_inventory):
         result = _adopt(cfg, tmp_path / "mylib.lib", "--json")
     assert result.exit_code == 2, result.output
     assert get_entry(cfg.metadata_dir, VA, "SERVER") == before
@@ -465,7 +465,7 @@ def test_adopt_rejects_inventory_created_after_review(tmp_path: Path) -> None:
     def create_inventory(*_args: object) -> None:
         inventory.write_text(json.dumps([{"va": VA, "size": len(CODE) - 1}]))
 
-    with patch("rebrew.identify_library.prepare_library_header", side_effect=create_inventory):
+    with patch("rebrew.library.identify.prepare_library_header", side_effect=create_inventory):
         result = _adopt(cfg, lib, "--json")
     assert result.exit_code == 2, result.output
     assert get_entry(cfg.metadata_dir, VA, "SERVER") == before

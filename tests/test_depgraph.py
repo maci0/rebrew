@@ -244,11 +244,11 @@ class TestBuildGraph:
 
 def test_call_in_an_outer_tail_keeps_the_outer_caller(monkeypatch) -> None:
     """A short range nested in a longer one must not drop calls past it."""
-    from rebrew.analysis import Xref
+    from rebrew.binary.analysis import Xref
     from rebrew.depgraph import binary_call_edges
 
     monkeypatch.setattr(
-        "rebrew.analysis.scan_references",
+        "rebrew.binary.analysis.scan_references",
         lambda info: [Xref(kind="call", from_va=0x1200, to_va=0x2000)],
     )
     edges = binary_call_edges(

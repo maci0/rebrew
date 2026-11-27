@@ -10,7 +10,7 @@ import pytest
 from source_util import write_store_fixture
 from typer.testing import CliRunner
 
-import rebrew.symbolize as symbolize
+import rebrew.c_syntax.symbolize as symbolize
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "mini_pe.exe"
 _HIGHLOW = lief.PE.RelocationEntry.BASE_TYPES.HIGHLOW

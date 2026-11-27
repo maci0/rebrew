@@ -23,7 +23,7 @@ Executable, object and archive file parsers: the layer every analysis, compile a
 | `archives.py` | Static archive members and stock-library cache paths |
 | `pdb.py` | PDB compiler, flags, and function-name extraction via `llvm-pdbutil` |
 
-Externals (the only packages this one may import): `errors`, `registry`, `utils`. `registry` is the entry-point lookup behind `rebrew.binary_loaders`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
+Externals (the only packages this one may import): `errors`, `registry`, `utils`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 

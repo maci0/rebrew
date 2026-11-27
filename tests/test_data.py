@@ -421,7 +421,7 @@ def test_migrated_foreign_data_in_shared_source_stays_scoped(
 
 
 def test_function_pointer_declaration_not_treated_as_function() -> None:
-    from rebrew.c_parser import find_extern_variables
+    from rebrew.c_syntax.parser import find_extern_variables
 
     line = "extern int (__cdecl *g_callback)(int, int);"
     assert [v.name for v in find_extern_variables(line)] == ["g_callback"]
@@ -831,8 +831,8 @@ class TestEstimateTypeSize:
         as a single pointer. ``int (*)[4]`` stays one pointer.
         ``sizeof`` of the abstract form is the whole array.
         """
+        from rebrew.c_syntax.types import type_size
         from rebrew.data.layout import data_symbol_size, estimate_type_size
-        from rebrew.types import type_size
 
         assert estimate_type_size("int (*[4])") == 16
         assert estimate_type_size("int (**[2])") == 8
@@ -852,8 +852,8 @@ class TestEstimateTypeSize:
         was sized as one pointer. ``int (*table[4])`` is four pointers.
         ``int (*[2])[3]`` stays two, and ``char (*)[4]`` stays one.
         """
+        from rebrew.c_syntax.types import type_size
         from rebrew.data.layout import estimate_type_size
-        from rebrew.types import type_size
 
         assert estimate_type_size("extern int (*table[2])[3];") == 8
         assert estimate_type_size("int (*table[2])[3]") == 8
@@ -873,8 +873,8 @@ class TestEstimateTypeSize:
         was 16 bytes. ``int (*table[2])[3]`` stays two pointers, and a
         ``(*)`` inside a bound stays that bound.
         """
+        from rebrew.c_syntax.types import type_size
         from rebrew.data.layout import data_symbol_size, estimate_type_size
-        from rebrew.types import type_size
 
         assert estimate_type_size("extern char (*row)[4];") == 4
         assert estimate_type_size("char (*row)[4]") == 4
@@ -927,9 +927,9 @@ class TestEstimateTypeSize:
         not a dimension and the declaration was one pointer.
         ``char (* const row)[4]`` stays one pointer.
         """
-        from rebrew.c_parser import array_type_shape
+        from rebrew.c_syntax.parser import array_type_shape
+        from rebrew.c_syntax.types import type_size
         from rebrew.data.layout import data_symbol_size, estimate_type_size
-        from rebrew.types import type_size
 
         assert estimate_type_size("int (* const table[2])[3]") == 8
         assert estimate_type_size("int (*const table[2])[3]") == 8
@@ -953,8 +953,8 @@ class TestEstimateTypeSize:
         and the declaration was one int. ``int[sizeof(int (*[2])[3])]``
         stays eight ints.
         """
+        from rebrew.c_syntax.types import type_size
         from rebrew.data.layout import data_symbol_size, estimate_type_size
-        from rebrew.types import type_size
 
         assert estimate_type_size("int[sizeof(int (*table[2])[3])]") == 32
         assert estimate_type_size("int[sizeof(int (* const table[2])[3])]") == 32
@@ -971,8 +971,8 @@ class TestEstimateTypeSize:
         and the declaration was one int. ``char (*row)[4]`` stays one
         pointer. ``int[sizeof(char (*)[4])]`` stays four ints.
         """
+        from rebrew.c_syntax.types import type_size
         from rebrew.data.layout import data_symbol_size, estimate_type_size
-        from rebrew.types import type_size
 
         assert estimate_type_size("int[sizeof(char (*row)[4])]") == 16
         assert estimate_type_size("int[sizeof(char (* const row)[4])]") == 16
@@ -990,9 +990,9 @@ class TestEstimateTypeSize:
         ``char (__cdecl *row)[4]`` stays one pointer.
         ``void (__cdecl *cbs[4])(int)`` is four function pointers.
         """
-        from rebrew.c_parser import array_type_shape
+        from rebrew.c_syntax.parser import array_type_shape
+        from rebrew.c_syntax.types import type_size
         from rebrew.data.layout import data_symbol_size, estimate_type_size
-        from rebrew.types import type_size
 
         assert estimate_type_size("int (__cdecl *table[2])[3]") == 8
         assert estimate_type_size("int (__cdecl *[2])[3]") == 8

@@ -254,7 +254,7 @@ class TestUnpackCli:
     def _run(self, *args: str):
         from typer.testing import CliRunner
 
-        from rebrew import lzexe_cli
+        from rebrew.binary import lzexe as lzexe_cli
 
         return CliRunner().invoke(lzexe_cli.app, list(args))
 

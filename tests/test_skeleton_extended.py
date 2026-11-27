@@ -216,7 +216,8 @@ class TestFetchXrefContext:
             "init_mcp_session",
             lambda *a, **k: (_ for _ in ()).throw(httpx.RequestError("down", request=None)),
         )
-        assert fetch_xref_context("http://x", "/p", 0x1000) is None
+        with pytest.warns(UserWarning, match=r"Ghidra MCP cross-reference fetch failed.*down"):
+            assert fetch_xref_context("http://x", "/p", 0x1000) is None
 
 
 class TestListUncoveredExtras:

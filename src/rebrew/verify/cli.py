@@ -78,7 +78,7 @@ lazy from rebrew.compiler.compile import (
 )
 lazy from rebrew.compiler.overrides import resolve_compile_overrides_cached
 lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
-lazy from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
+lazy from rebrew.matching.semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 lazy from rebrew.metadata.document import canonical_va_key
 lazy from rebrew.metadata.functions import canonical_status, should_promote_status
 lazy from rebrew.source.discovery import contained_path, source_roots
@@ -510,11 +510,11 @@ def verify_entry(
             with contextlib.suppress(Exception):
                 log.debug("diff_lines failed for 0x%x: %s", entry.va, exc)
             result.diff_lines = None
-    from rebrew.alignment import record_alignment
+    from rebrew.compare.alignment import record_alignment
 
     record_alignment(cfg, result, target_bytes, entry.va, entry.comparison_inputs)
     if instructions:
-        from rebrew.instruction_diff import record_instructions
+        from rebrew.compare.instruction_diff import record_instructions
 
         record_instructions(cfg, result, target_bytes, entry.va)
     return result
@@ -1514,7 +1514,7 @@ def main(
 
     whole_report: dict[str, Any] | None = None
     if whole_binary:
-        from rebrew.binary_gate import (
+        from rebrew.binary.gate import (
             check_layout_freshness,
             compare_snapshots,
             snapshot_binary,
@@ -2855,7 +2855,11 @@ def prepare_entries(
             unique_entries.append(entry)
     # Only selected identities enter the call catalog. Stale duplicates must
     # not introduce additional names or count a managed library as game code.
-    from rebrew.coff_reloc import CatalogScanError, binding_evidence_current, build_name_to_va
+    from rebrew.compare.coff_reloc import (
+        CatalogScanError,
+        binding_evidence_current,
+        build_name_to_va,
+    )
 
     try:
         name_to_va = build_name_to_va(
@@ -3151,7 +3155,7 @@ def run_verification(
     # Fail closed: a VA-map scan failure aborts the run instead of masking
     # relocs against an empty map (false RELOC).
     if name_to_va is None:
-        from rebrew.coff_reloc import CatalogScanError, build_name_to_va
+        from rebrew.compare.coff_reloc import CatalogScanError, build_name_to_va
 
         try:
             name_to_va = build_name_to_va(cfg)

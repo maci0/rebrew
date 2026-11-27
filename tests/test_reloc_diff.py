@@ -81,7 +81,7 @@ def _run(args: list[str]) -> tuple[int, dict]:
 
 
 def test_covering_data_row_can_extend_past_an_interior_view() -> None:
-    from rebrew.reloc_diff import NameIndex
+    from rebrew.compare.reloc_diff import NameIndex
 
     names = NameIndex([(0x1010, 8, "g_owner"), (0x1012, 1, "g_view")])
     assert names.covering(0x1012) == "g_view"

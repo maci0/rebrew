@@ -15,20 +15,20 @@ def _write(path: Path, text: str) -> None:
 
 class TestCompareSections:
     def test_matching_sections(self) -> None:
-        from rebrew.binary_gate import compare_sections
+        from rebrew.binary.gate import compare_sections
 
         ref = {".text": 100, ".data": 20}
         assert compare_sections(ref, dict(ref)) == {"match": True, "diffs": []}
 
     def test_size_drift_flagged(self) -> None:
-        from rebrew.binary_gate import compare_sections
+        from rebrew.binary.gate import compare_sections
 
         res = compare_sections({".text": 100}, {".text": 104})
         assert res["match"] is False
         assert res["diffs"] == [{"section": ".text", "expected": 100, "actual": 104}]
 
     def test_missing_and_added(self) -> None:
-        from rebrew.binary_gate import compare_sections
+        from rebrew.binary.gate import compare_sections
 
         res = compare_sections({".text": 100}, {".data": 20})
         assert res["match"] is False
@@ -38,7 +38,7 @@ class TestCompareSections:
 
 class TestCompareNameSets:
     def test_exports_match(self) -> None:
-        from rebrew.binary_gate import compare_name_sets
+        from rebrew.binary.gate import compare_name_sets
 
         assert compare_name_sets(["a", "b"], ["b", "a"]) == {
             "match": True,
@@ -47,7 +47,7 @@ class TestCompareNameSets:
         }
 
     def test_imports_drift(self) -> None:
-        from rebrew.binary_gate import compare_name_sets
+        from rebrew.binary.gate import compare_name_sets
 
         res = compare_name_sets(["a", "b"], ["b", "c"])
         assert res["match"] is False
@@ -57,17 +57,17 @@ class TestCompareNameSets:
 
 class TestCompareBytes:
     def test_equal_bytes(self) -> None:
-        from rebrew.binary_gate import compare_bytes
+        from rebrew.binary.gate import compare_bytes
 
         assert compare_bytes(b"abc", b"abc") == {"match": True, "first_diff": None}
 
     def test_first_diff_reported(self) -> None:
-        from rebrew.binary_gate import compare_bytes
+        from rebrew.binary.gate import compare_bytes
 
         assert compare_bytes(b"abc", b"axc") == {"match": False, "first_diff": 1}
 
     def test_length_mismatch(self) -> None:
-        from rebrew.binary_gate import compare_bytes
+        from rebrew.binary.gate import compare_bytes
 
         res = compare_bytes(b"ab", b"abc")
         assert res["match"] is False
@@ -78,7 +78,7 @@ class TestCompareBytes:
         self, expected: bytes, tail: bytes, shared: int
     ) -> None:
         """The XOR search agrees with scanning one byte at a time."""
-        from rebrew.binary_gate import compare_bytes
+        from rebrew.binary.gate import compare_bytes
 
         actual = expected[:shared] + tail
         first = next(
@@ -110,13 +110,13 @@ class TestCompareSnapshots:
         return base
 
     def test_match(self) -> None:
-        from rebrew.binary_gate import compare_snapshots
+        from rebrew.binary.gate import compare_snapshots
 
         s = self._snap()
         assert compare_snapshots(s, dict(s))["match"] is True
 
     def test_drift(self) -> None:
-        from rebrew.binary_gate import compare_snapshots
+        from rebrew.binary.gate import compare_snapshots
 
         res = compare_snapshots(self._snap(), self._snap(exports=["b"]))
         assert res["match"] is False
@@ -124,7 +124,7 @@ class TestCompareSnapshots:
 
     @pytest.mark.parametrize("actual", [b"bXnary", b"binary-tail", b"binar"])
     def test_file_drift_with_identical_structure(self, actual: bytes) -> None:
-        from rebrew.binary_gate import compare_snapshots
+        from rebrew.binary.gate import compare_snapshots
 
         res = compare_snapshots(self._snap(), self._snap(file=actual))
         assert res["match"] is False
@@ -132,14 +132,14 @@ class TestCompareSnapshots:
         assert res["sections"]["match"] is True
 
     def test_rsrc_absent_both_sides(self) -> None:
-        from rebrew.binary_gate import compare_snapshots
+        from rebrew.binary.gate import compare_snapshots
 
         res = compare_snapshots(self._snap(rsrc=None), self._snap(rsrc=None))
         assert res["rsrc"]["match"] is True
         assert res["match"] is True
 
     def test_relocations_report_missing_and_extra(self) -> None:
-        from rebrew.binary_gate import compare_snapshots
+        from rebrew.binary.gate import compare_snapshots
 
         res = compare_snapshots(
             self._snap(relocations=["0x00001004:3"]),
@@ -150,7 +150,7 @@ class TestCompareSnapshots:
         assert res["relocations"]["added"] == ["0x00001008:3"]
 
     def test_absolute_padding_is_not_a_fixup(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.binary_gate import pe_relocation_snapshot
+        from rebrew.binary.gate import pe_relocation_snapshot
 
         pe = SimpleNamespace(
             relocations=[
@@ -179,14 +179,14 @@ class TestCompareSnapshots:
         )
 
     def test_relocation_parse_failure_is_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.binary_gate import pe_relocation_snapshot
+        from rebrew.binary.gate import pe_relocation_snapshot
 
         monkeypatch.setattr("lief.PE.parse", lambda data: None)
         with pytest.raises(ValueError, match="base relocations"):
             pe_relocation_snapshot(b"invalid")
 
     def test_snapshot_exports_without_export_cli(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.binary_gate import snapshot_binary
+        from rebrew.binary.gate import snapshot_binary
 
         info = SimpleNamespace(
             sections={
@@ -227,7 +227,7 @@ class TestCompareSnapshots:
         }
 
     def test_snapshot_missing_file(self, tmp_path: Path) -> None:
-        from rebrew.binary_gate import snapshot_binary
+        from rebrew.binary.gate import snapshot_binary
 
         snap = snapshot_binary(tmp_path / "nope.dll")
         assert snap["sections"] == {}
@@ -235,7 +235,7 @@ class TestCompareSnapshots:
         assert "nope.dll" in snap["error"]
 
     def test_unreadable_both_sides_is_drift(self, tmp_path: Path) -> None:
-        from rebrew.binary_gate import compare_snapshots, snapshot_binary
+        from rebrew.binary.gate import compare_snapshots, snapshot_binary
 
         res = compare_snapshots(
             snapshot_binary(tmp_path / "a.dll"), snapshot_binary(tmp_path / "b.dll")
@@ -244,7 +244,7 @@ class TestCompareSnapshots:
         assert len(res["errors"]) == 2
 
     def test_import_parse_failure_is_drift(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.binary_gate import compare_snapshots, snapshot_binary
+        from rebrew.binary.gate import compare_snapshots, snapshot_binary
 
         info = SimpleNamespace(sections={}, data=b"", image_base=0x400000)
         monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", lambda path: info)
@@ -267,7 +267,7 @@ class TestLayoutFreshness:
     ) -> None:
         from bin_util import make_pe
 
-        from rebrew.binary_gate import check_layout_freshness, layout_fingerprint
+        from rebrew.binary.gate import check_layout_freshness, layout_fingerprint
         from rebrew.formats.pe_headers import pe_layout
 
         data = bytearray(make_pe(b"\x90\xc3", pe32_plus=pe32_plus))
@@ -298,7 +298,7 @@ class TestLayoutFreshness:
         ``OverflowError`` out of ``verify --whole-binary``."""
         from bin_util import make_pe
 
-        from rebrew.binary_gate import check_layout_freshness, layout_fingerprint
+        from rebrew.binary.gate import check_layout_freshness, layout_fingerprint
 
         binary = tmp_path / "ref.dll"
         binary.write_bytes(make_pe(b"\x90\xc3"))
@@ -314,25 +314,25 @@ class TestLayoutFreshness:
         assert len(result["actual"]) == 64
 
     def test_missing_fingerprint_is_unknown(self, tmp_path: Path) -> None:
-        from rebrew.binary_gate import check_layout_freshness
+        from rebrew.binary.gate import check_layout_freshness
 
         res = check_layout_freshness(tmp_path, tmp_path / "ref.dll")
         assert res == {"match": True, "status": "unknown", "expected": None, "actual": None}
 
     def test_matching_fingerprint(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.binary_gate import check_layout_freshness
+        from rebrew.binary.gate import check_layout_freshness
 
         (tmp_path / "layout.fingerprint").write_text("a" * 64 + "\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.binary_gate.layout_fingerprint", lambda p: "a" * 64)
+        monkeypatch.setattr("rebrew.binary.gate.layout_fingerprint", lambda p: "a" * 64)
         res = check_layout_freshness(tmp_path, tmp_path / "ref.dll")
         assert res["match"] is True
         assert res["status"] == "fresh"
 
     def test_stale_fingerprint(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.binary_gate import check_layout_freshness
+        from rebrew.binary.gate import check_layout_freshness
 
         (tmp_path / "layout.fingerprint").write_text("a" * 64 + "\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.binary_gate.layout_fingerprint", lambda p: "b" * 64)
+        monkeypatch.setattr("rebrew.binary.gate.layout_fingerprint", lambda p: "b" * 64)
         res = check_layout_freshness(tmp_path, tmp_path / "ref.dll")
         assert res["match"] is False
         assert res["status"] == "stale"
@@ -343,12 +343,12 @@ class TestLayoutFreshness:
         Reporting it as "unknown" (match) would let a layout package scaffolded
         against a different reference binary ship as fresh.
         """
-        from rebrew.binary_gate import check_layout_freshness
+        from rebrew.binary.gate import check_layout_freshness
 
         fp = tmp_path / "layout.fingerprint"
         fp.write_text("abc123\n", encoding="utf-8")
         monkeypatch.setattr(
-            "rebrew.binary_gate.Path.read_text",
+            "rebrew.binary.gate.Path.read_text",
             lambda self, **kw: (_ for _ in ()).throw(PermissionError(self)),
         )
         res = check_layout_freshness(tmp_path, tmp_path / "ref.dll")

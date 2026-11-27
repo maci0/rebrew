@@ -1,0 +1,1168 @@
+"""``rebrew build round-trip`` — splice matched function bytes back into the target PE.
+
+Pipeline: enumerate every EXACT/RELOC function from rebrew-functions.toml,
+compile each via the existing compile_and_compare path, apply COFF relocations
+against the active target's function + data catalogs, splice the patched
+bytes into a byte copy of the original PE at each function's file offset,
+SHA-256 the result, write ``<binary>.reasm`` next to the original, exit
+non-zero on any unexpected byte mismatch.
+
+Relocation targets that the catalog cannot resolve by name are tried against
+three round-trip-specific fallbacks before being reported as catalog gaps:
+Ghidra auto-names that encode their VA in trailing hex (``_g_1003546c``),
+MSVC ``$L<N>``/``$cleanup_loop$<N>`` jump/dispatch tables mapped from the
+compiled .obj's own layout, and string literals whose compiled copy is a
+strict prefix of the target's (bound to the target string's start).  The
+post-splice byte compare turns any wrong fallback hit into a visible
+``catalog_resolution_drift`` mismatch rather than silent corruption.
+
+PROVEN functions are deliberately skipped — their bytes differ from the
+original by design (semantic equivalence, not byte equivalence) — and are
+reported as ``skipped_proven`` without altering the spliced PE.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+lazy import hashlib
+lazy import re
+lazy import struct
+lazy from collections.abc import Callable
+lazy from typing import Any
+
+import typer
+lazy from rich.console import Group
+lazy from rich.panel import Panel
+lazy from rich.text import Text
+
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    EXIT_OK,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
+lazy from rebrew.binary.sections import trim_trailing_padding
+lazy from rebrew.call_progress import ProgressReporter
+lazy from rebrew.compare.coff_reloc import (
+    CoffRelocRecord,
+    UnresolvedSymbolError,
+    apply_coff_relocations,
+    build_symbol_resolver,
+)
+lazy from rebrew.compiler.compile import compile_to_obj
+lazy from rebrew.config import ProjectConfig, target_module
+lazy from rebrew.errors import RebrewError
+lazy from rebrew.formats.binary_loader import load_binary, va_to_file_offset
+lazy from rebrew.formats.binary_model import BinaryInfo, SectionInfo
+lazy from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+lazy from rebrew.metadata.bindings import iter_source_bindings, resolve_symbol
+lazy from rebrew.metadata.functions import load_metadata
+lazy from rebrew.source.discovery import iter_sources
+lazy from rebrew.status_style import STATUS_COLORS
+lazy from rebrew.utils import (
+    TerminalTable,
+    atomic_write_bytes,
+    floor_pct,
+    merged_span_bytes,
+    preset_module_key,
+    safe_shlex_split,
+    untrusted_ident,
+)
+lazy from rebrew.workspace.status import MATCHED_STATUSES
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew build round-trip  # Splice matches back, verify byte equality\n\n"
+    "  # Report the result\n"
+    "  rebrew build round-trip --output build/roundtrip.exe --json\n"
+)
+
+
+app = typer.Typer(
+    help="Splice every matched function back into the target PE and verify byte equality.",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+#: Trailing hex run in a Ghidra auto-name (``_g_1003546c``).
+_TRAILING_HEX_RE = re.compile(r"([0-9a-fA-F]+)$")
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Override output PE path (default: <binary>.reasm next to target)",
+    ),
+    no_write: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Preview changes without writing",
+    ),
+    symbol_filter: str | None = typer.Option(
+        None, "--filter", help="Only round-trip functions whose symbol contains this substring"
+    ),
+    strict_catalog: bool = typer.Option(
+        False,
+        "--strict-catalog",
+        help="Exit non-zero when any EXACT/RELOC function hits an unresolved catalog symbol",
+    ),
+    fix_headers: bool = typer.Option(
+        False,
+        "--fix-headers",
+        help="Patch the reasm copy's PE header (linker/OS/subsystem versions, "
+        "TSAWARE, stack, timestamp, checksum) to match the original. Values "
+        "from \\[link] in rebrew-project.toml, falling back to the original's "
+        "own fields",
+    ),
+    allow_naked: bool = typer.Option(
+        False,
+        "--allow-naked",
+        help="Define REBREW_ALLOW_NAKED so fenced naked functions use their "
+        "__declspec(naked) + __asm exact-byte branch (round-trip only; the "
+        "comparison build keeps the idiomatic C fallback)",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Splice every matched function back into the target PE and verify byte equality."""
+    cfg = require_config(target=target, json_mode=json_output)
+    raise typer.Exit(
+        _run_round_trip(
+            cfg,
+            output=output,
+            no_write=no_write,
+            symbol_filter=symbol_filter,
+            json_output=json_output,
+            strict_catalog=strict_catalog,
+            fix_headers=fix_headers,
+            allow_naked=allow_naked,
+        )
+    )
+
+
+@dataclass
+class _SpliceFn:
+    symbol: str
+    va: int
+    size: int
+    status: str
+    path: Path
+    module: str
+    cflags: list[str]
+    toolchain: str = ""
+
+
+def _collect_splice_set(
+    cfg: ProjectConfig, symbol_filter: str | None
+) -> tuple[list[_SpliceFn], list[_SpliceFn], int]:
+    """Walk every annotated function, partition into splice set, PROVEN-skip set, and other count.
+
+    Returns (splice_list, proven_list, other_count) where other_count includes functions
+    with metadata but status not in {EXACT, RELOC, PROVEN} (e.g. NEAR_MATCHING, STUB, missing).
+    """
+    splice: list[_SpliceFn] = []
+    proven: list[_SpliceFn] = []
+    other_count = 0
+    entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    for path, anns in iter_source_bindings(
+        iter_sources(cfg.reversed_dir, cfg),
+        target=target_module(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    ):
+        for ann in anns:
+            if symbol_filter and symbol_filter not in resolve_symbol(ann, path):
+                continue
+            md = entries.get((ann.module, ann.va), {})
+            # ann.status is the CANONICALIZED, metadata-merged value (the raw
+            # store may hold a hand-edited "exact"/"proven " spelling, which the
+            # partition below would silently drop into other_count).
+            status = ann.status or md.get("status", "STUB")
+            # The SAME resolution verify/test use: per-function metadata →
+            # nearest rebrew-libraries.toml → module cflags preset → project
+            # cflags → "/O2 /Gd" (the manual chain here skipped the preset and
+            # the default, so round-trip compiled different bytes than verify).
+            from rebrew.compiler.overrides import resolve_compile_overrides
+
+            toolchain, resolved_cflags = resolve_compile_overrides(
+                cfg,
+                path.parent,
+                getattr(ann, "toolchain", "") or str(md.get("toolchain") or ""),
+                getattr(ann, "cflags", "") or str(md.get("cflags") or ""),
+                getattr(ann, "module", ""),
+            )
+            fn = _SpliceFn(
+                symbol=resolve_symbol(ann, path),
+                va=ann.va,
+                size=int(getattr(ann, "size", 0) or md.get("size", 0) or 0),
+                status=status,
+                path=path,
+                module=ann.module,
+                cflags=safe_shlex_split(resolved_cflags),
+                toolchain=toolchain or "",
+            )
+            if status in MATCHED_STATUSES:
+                splice.append(fn)
+            elif status == "PROVEN":
+                proven.append(fn)
+            else:
+                other_count += 1
+    return splice, proven, other_count
+
+
+def _compile_and_extract(
+    cfg: ProjectConfig, fn: _SpliceFn, work_dir: Path
+) -> tuple[bytes, list[CoffRelocRecord], dict[str, bytes], dict[str, int], str, str]:
+    """Compile fn.path inside ``work_dir`` and pull out the splice inputs.
+
+    Returns ``(text_bytes, reloc_records, str_symbols, local_labels, failure, detail)``
+    where ``str_symbols`` maps MSVC string-constant names (``$SG<N>`` /
+    ``??_C@...``) to their content bytes and ``local_labels`` maps ``$L<N>``
+    compiler labels (jump/dispatch tables) to target VAs via
+    :func:`_extract_local_labels`.  On compile failure ``failure`` is the
+    mismatch reason, ``not_run`` when the remote compile service never ran the
+    compile (``service_unavailable``) and ``compile_drift`` otherwise, and
+    ``detail`` carries the error; the other fields are empty.  ``failure`` is
+    ``""`` on success.
+    """
+    from rebrew.compiler.compile import service_unavailable
+
+    errors: list[RebrewError] = []
+    obj_path, err = compile_to_obj(
+        cfg,
+        fn.path,
+        fn.cflags,
+        work_dir,
+        toolchain=getattr(fn, "toolchain", "") or None,
+        backend_errors=errors,
+    )
+    if obj_path is None:
+        if errors and service_unavailable(errors[0]):
+            return b"", [], {}, {}, "not_run", f"not run (service unavailable): {errors[0]}"
+        return b"", [], {}, {}, "compile_drift", err or "compile failed"
+
+    text, _reloc_offsets = parse_obj_symbol_bytes(obj_path, fn.symbol)
+    if text is None:
+        return b"", [], {}, {}, "compile_drift", f"symbol {fn.symbol} not found in .obj"
+    relocs = parse_obj_relocs_full(obj_path, fn.symbol)
+    str_syms = _extract_string_symbols(obj_path, {r.symbol for r in relocs})
+    # Only the function's own referenced labels may be mapped — sibling
+    # functions' $L labels share the section but not this function's layout.
+    local_labels = _extract_local_labels(
+        obj_path, fn.symbol, fn.va, referenced={r.symbol for r in relocs}
+    )
+    return bytes(text), relocs, str_syms, local_labels, "", ""
+
+
+def _sg_key(name: str) -> str:
+    """Normalize MSVC ``$SG`` / ``_$SG`` symbol names for membership tests."""
+    return name.lstrip("_")
+
+
+def _extract_elf_string_symbols(obj_path: str | Path, symbol_names: set[str]) -> dict[str, bytes]:
+    """Extract NUL-terminated string bytes from ELF ``.rodata*``/``.data*``/``.sdata*`` sections."""
+    import lief
+
+    try:
+        elf = lief.ELF.parse(str(obj_path))
+    except Exception:
+        return {}
+    if elf is None:
+        return {}
+    out: dict[str, bytes] = {}
+    for sym in list(getattr(elf, "symbols", None) or []):
+        name = str(getattr(sym, "name", "") or "")
+        if name not in symbol_names:
+            continue
+        sec = getattr(sym, "section", None)
+        if sec is None:
+            continue
+        sec_name = str(getattr(sec, "name", "") or "")
+        if not sec_name.startswith((".rodata", ".data", ".sdata")):
+            continue
+        sec_data = bytes(sec.content)
+        sec_va = int(getattr(sec, "virtual_address", 0) or 0)
+        raw_val = int(getattr(sym, "value", 0) or 0)
+        start = raw_val - sec_va if sec_va and raw_val >= sec_va else raw_val
+        if start < 0 or start >= len(sec_data):
+            continue
+        end = sec_data.find(b"\x00", start)
+        content = sec_data[start:] if end < 0 else sec_data[start : end + 1]
+        if content:
+            out[name] = content
+    return out
+
+
+def _extract_string_symbols(obj_path: str | Path, symbol_names: set[str]) -> dict[str, bytes]:
+    """Extract bytes for string constants referenced by relocations.
+
+    Handles MSVC COFF forms (``$SG<N>`` in ``.rdata$<N>``/``.data`` and
+    ``??_C@...`` mangled constants) as well as ELF ``.rodata*``/``.data*``/
+    ``.sdata*`` string symbols. Returns ``{sym_name: bytes}`` keyed by the
+    **reloc-side** symbol name (so later resolve/apply steps see the same
+    spelling the reloc table used). Content includes the trailing NUL so
+    target scans match whole strings, not prefixes of longer ones.
+    """
+    if not symbol_names:
+        return {}
+    try:
+        with open(obj_path, "rb") as fh:
+            magic = fh.read(4)
+    except OSError:
+        return {}
+    if magic == b"\x7fELF":
+        return _extract_elf_string_symbols(obj_path, symbol_names)
+
+    sg_by_key: dict[str, str] = {}
+    for s in symbol_names:
+        if "$SG" in s:
+            sg_by_key[_sg_key(s)] = s
+        elif s.startswith("??_C@"):
+            sg_by_key[s] = s
+    if not sg_by_key:
+        return {}
+    import lief
+
+    coff = lief.COFF.parse(str(obj_path))
+    if coff is None:
+        return {}
+    out: dict[str, bytes] = {}
+    for sym in coff.symbols:
+        name = str(sym.name or "")
+        reloc_name = sg_by_key.get(_sg_key(name))
+        if reloc_name is None or sym.section is None:
+            continue
+        sec_data = bytes(sym.section.content)
+        start = sym.value
+        if start < 0 or start >= len(sec_data):
+            continue
+        # Include the NUL terminator so target search cannot match a prefix.
+        end = sec_data.find(b"\x00", start)
+        content = sec_data[start:] if end < 0 else sec_data[start : end + 1]
+        if content:
+            out[reloc_name] = content
+    return out
+
+
+def _resolve_string_symbols_in_target(
+    target_bytes: bytes,
+    str_syms: dict[str, bytes],
+    sections: dict[str, SectionInfo],  # SectionInfo dict from BinaryInfo
+) -> dict[str, int]:
+    """Find each string literal in the target's .rdata/.data and return VAs.
+
+    *str_syms* values should be NUL-terminated (see :func:`_extract_string_symbols`).
+    A literal is first matched whole (with its NUL terminator); if that misses,
+    the match is retried without the terminator so a compiled literal that is a
+    strict prefix of the target's copy (e.g. the source is missing a trailing
+    ``\\n``) still binds to the **start** of the target string — the address the
+    reloc actually needs.  Prefix binding is safe because the post-splice byte
+    compare catches any wrong-address patch as a catalog_resolution_drift
+    mismatch rather than silently corrupting the output.
+    """
+    found: dict[str, int] = {}
+    # Scan .rdata and .data sections only.  The search is bounded by the
+    # section's raw file extent (not its virtual size): virtual > raw happens
+    # whenever a section has a BSS tail (PE .data routinely does), and a
+    # probe must never match bytes belonging to the *next* section on disk.
+    candidate_secs = []
+    for name in (".rdata", ".rodata", ".data", ".sdata"):
+        sec = sections.get(name)
+        if sec is not None:
+            raw_end = sec.file_offset + getattr(sec, "raw_size", sec.size)
+            candidate_secs.append((sec.va, raw_end, sec.file_offset))
+    for sym_name, content in str_syms.items():
+        if not content:
+            continue
+        # Fallback probe: the compiled literal without its NUL terminator,
+        # used only when the whole (terminated) match misses.  An empty
+        # probe must never be searched (find(b"") always matches).
+        probes = [content]
+        stripped = content.rstrip(b"\x00")
+        if stripped and stripped != content:
+            probes.append(stripped)
+        for sec_va, scan_end, file_off in candidate_secs:
+            for probe in probes:
+                pos = file_off
+                while True:
+                    pos = target_bytes.find(probe, pos, scan_end)
+                    if pos < 0:
+                        break
+                    # Only accept a match at a string boundary: the section
+                    # start, a NUL (the previous string's terminator), a control
+                    # byte, or a 0xff sentinel (MSVC string pools are often
+                    # delimited by 0xffffffff).  Printable ASCII (0x20-0x7e) and
+                    # high-ASCII (0x80-0xfe) are string content, so a probe
+                    # matching there is a substring of a longer string — e.g.
+                    # "at\x00" inside "Sat\x00" (the day-name table).
+                    if pos == file_off:
+                        found[sym_name] = sec_va + (pos - file_off)
+                        break
+                    prev = target_bytes[pos - 1]
+                    if prev < 0x20 or prev == 0xFF:
+                        found[sym_name] = sec_va + (pos - file_off)
+                        break
+                    pos += 1
+                if sym_name in found:
+                    break
+            if sym_name in found:
+                break
+    return found
+
+
+def _extract_local_labels(
+    obj_path: str | Path,
+    fn_symbol: str,
+    fn_va: int,
+    referenced: set[str] | None = None,
+) -> dict[str, int]:
+    """Map MSVC ``$``-prefixed compiler labels to their target VAs.
+
+    MSVC emits jump tables, dispatch tables, switch labels, and cleanup loops
+    as ``$L<N>`` / ``$cleanup_loop$<N>`` symbols **in the same .text section**
+    as the function (immediately after the code, e.g. the
+    ``jmp dword ptr [edx*4 + <table>]`` operand).  Because round-trip only
+    splices functions whose compiled layout is byte-identical to the target
+    (verified by the post-splice compare), a label's offset relative to the
+    function symbol in the .obj equals its offset relative to ``fn_va`` in the
+    target, so ``target_va = fn_va + (sym.value - fn.value)``.
+
+    ``$``-prefixed symbols in *other* sections (e.g. ``.rdata`` string
+    constants under this name form) are left unresolved — those keep going
+    through string content matching / the catalog.  When *referenced* is
+    given (the function's own reloc symbol set), only labels it names are
+    mapped — ``$``-labels of *sibling* functions in the same .c file share
+    the section but not the function's layout, and must never enter the map.
+    """
+    import lief
+
+    coff = lief.COFF.parse(str(obj_path))
+    if coff is None:
+        return {}
+    fn_sym = next((s for s in coff.symbols if str(s.name or "") == fn_symbol), None)
+    if fn_sym is None or fn_sym.section is None:
+        return {}
+    fn_sec = fn_sym.section.name
+    fn_off = fn_sym.value
+    out: dict[str, int] = {}
+    for sym in coff.symbols:
+        name = str(sym.name or "")
+        if not name.startswith("$") or sym.section is None:
+            continue
+        if sym.section.name != fn_sec:
+            continue
+        if referenced is not None and name not in referenced:
+            continue
+        out[name] = fn_va + (sym.value - fn_off)
+    return out
+
+
+def _name_encoded_va(symbol: str) -> int | None:
+    """Decode the VA Ghidra auto-names embed in their trailing hex digits.
+
+    Ghidra's ``_g_1003546c`` / ``_s_<preview>_1002d9ec`` conventions append the
+    symbol's VA to the auto-generated name, which lets us resolve symbols the
+    catalog cannot find by name alone.  The trailing run must be 6-8 hex
+    digits (a 32-bit VA) — 4-digit suffixes and ordinary names are ignored,
+    and a longer run (9+ digits) is *not* truncated to 8, so
+    ``_g_123456789``-style names never decode to a plausible-but-wrong VA.
+    The ``0x100000`` floor keeps false hits rare (a genuine
+    ``_g_myvar_12345678``-looking name would be misread, which we accept as a
+    documented edge case).
+
+    Compiler-generated ``$``-symbols are refused outright: ``$SG123456``
+    (MSVC string literal) and ``$L123456`` (jump-table label) encode an index,
+    not a VA, and ``$L`` names resolve through ``local_labels`` instead — a
+    leftover one must fall through as unresolved rather than relocate to
+    address 0x123456.
+    """
+    if symbol.startswith("$"):
+        return None
+    m = _TRAILING_HEX_RE.search(symbol)
+    if not m:
+        return None
+    suffix = m.group(1)
+    if not 6 <= len(suffix) <= 8:
+        return None
+    va = int(suffix, 16)
+    return va if va >= 0x100000 else None
+
+
+def _make_resolver(
+    funcs_by_va: dict[int, str],
+    data_by_name: dict[str, int],
+    local_labels: dict[str, int] | None = None,
+) -> Callable[[str], int | None]:
+    """Build a symbol resolver with local-label + Ghidra name-encoded-VA fallbacks.
+
+    Composes the shared catalog resolver (rebrew.compare.coff_reloc) with two
+    round-trip-only fallbacks, fired only when the catalog itself cannot
+    resolve a symbol:
+
+    * ``local_labels`` — ``$L<N>`` jump/dispatch tables from the compiled .obj
+      (see :func:`_extract_local_labels`).
+    * Ghidra auto-name VA encoding (``_g_1003546c``) via :func:`_name_encoded_va`.
+
+    Kept local to round-trip because both conventions are codegen/Ghidra
+    artifacts — the shared resolver (used by test/verify) must not interpret
+    arbitrary symbol names as VAs.
+    """
+
+    _resolve = build_symbol_resolver(funcs_by_va, data_by_name)
+    _local = local_labels or {}
+
+    def resolve_va(symbol: str) -> int | None:
+        va = _resolve(symbol)
+        if va is not None:
+            return va
+        if symbol in _local:
+            return _local[symbol]
+        stripped = symbol.lstrip("_")
+        if stripped in _local:
+            return _local[stripped]
+        return _name_encoded_va(symbol)
+
+    return resolve_va
+
+
+def _source_is_naked_fenced(path: str | Path) -> bool:
+    """True when *path* guards its body behind ``#ifdef REBREW_ALLOW_NAKED``.
+
+    The fenced sources are exactly the functions that need the define for
+    byte-identity; round-trip reports them so the reccmp recomp build can be
+    checked against the same list (those sources must also be compiled with
+    ``-DREBREW_ALLOW_NAKED=1``).
+    """
+    try:
+        from rebrew.utils import read_source_text
+
+        text = read_source_text(Path(path))[0]
+    except OSError:
+        return False
+    return "#ifdef REBREW_ALLOW_NAKED" in text
+
+
+def _target_binary_format(cfg: Any) -> str:
+    """Return the configured or sniffed target container format (e.g. ``"elf"``, ``"pe"``)."""
+    fmt = str(getattr(cfg, "binary_format", "") or getattr(cfg, "format", "") or "").lower()
+    if fmt:
+        return fmt
+    binary = getattr(cfg, "target_binary", None)
+    if binary is not None:
+        try:
+            with open(binary, "rb") as fh:
+                magic = fh.read(4)
+                if magic == b"\x7fELF":
+                    return "elf"
+                if magic[:2] == b"MZ":
+                    return "pe"
+        except OSError:
+            pass
+    return ""
+
+
+def _trailing_padding_for_cfg(cfg: Any) -> tuple[int, ...] | None:
+    """Return arch-appropriate trailing padding bytes for ``trim_trailing_padding``."""
+    arch = str(getattr(cfg, "arch", "") or "").lower()
+    if arch.startswith(("mips", "ppc", "arm", "sh", "xtensa")):
+        return (0x00,)
+    if arch == "x86_16":
+        return (0x90, 0x00)
+    if arch.startswith("x86"):
+        return None
+    raw_pad = getattr(cfg, "padding_bytes", None)
+    if raw_pad:
+        return tuple(int(b) for b in raw_pad)
+    return None
+
+
+def _run_round_trip(
+    cfg: ProjectConfig,
+    *,
+    output: Path | None,
+    no_write: bool,
+    symbol_filter: str | None,
+    json_output: bool,
+    strict_catalog: bool = False,
+    fix_headers: bool = False,
+    allow_naked: bool = False,
+) -> int:
+    """Top-level orchestration. Returns the process exit code."""
+    target_fmt = _target_binary_format(cfg)
+    if cfg.image_base == 0 and target_fmt != "elf":
+        error_exit(
+            "round-trip requires a non-zero image_base — it is auto-detected from "
+            f"the target binary ({cfg.target_binary}); check that the binary "
+            "exists and 'format' is set correctly in rebrew-project.toml",
+            json_mode=json_output,
+        )
+    try:
+        original = cfg.target_binary.read_bytes()
+    except FileNotFoundError:
+        error_exit(f"target binary missing: {cfg.target_binary}", json_mode=json_output)
+
+    reasm = bytearray(original)
+    # info is loaded lazily — only parsed when at least one function reaches
+    # the file-offset lookup.  This avoids touching LIEF when the splice set
+    # is empty or every entry fails compilation.
+    info: BinaryInfo | None = None
+
+    splice_set, proven_set, other_count = _collect_splice_set(cfg, symbol_filter)
+
+    # Naked reconstruction is a round-trip-only capability: the
+    # REBREW_ALLOW_NAKED define selects the `__declspec(naked)` + __asm
+    # branch of fenced sources (exact bytes) instead of the idiomatic C
+    # fallback.  It is NEVER added by test/verify/match — only here.
+    fenced_naked_vas: list[str] = []
+    if allow_naked:
+        define = "-DREBREW_ALLOW_NAKED" if cfg.posix_style else "/DREBREW_ALLOW_NAKED"
+        for fn in splice_set:
+            fn.cflags.append(define)
+            # The fenced functions are exactly the ones that require the
+            # define for byte-identity — report them so the reccmp recomp
+            # build matrix can be checked against this list (those sources
+            # must be compiled with -DREBREW_ALLOW_NAKED=1 too).
+            if _source_is_naked_fenced(fn.path):
+                fenced_naked_vas.append(f"0x{fn.va:08x}")
+
+    funcs_by_va, data_by_name = _load_catalogs(cfg)
+
+    mismatches: list[dict[str, str | None]] = []
+    skipped_catalog: list[dict[str, str | None]] = []  # entries we can't splice due to catalog gaps
+    spliced_vas: set[str] = set()
+    # .text-relative spans, for the byte-coverage union below.
+    spliced_ranges: list[tuple[int, int]] = []
+    extra_string_syms: dict[str, int] = {}
+    from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
+
+    work_dir = writable_temp_dir("rebrew-rt-")
+    # The parent's progress (the op worker's call): the functions of the splice
+    # set this loop has finished, spliced or not.
+    reporter = ProgressReporter.from_environment()
+    try:
+        for done, fn in enumerate(splice_set):
+            reporter.report(done, len(splice_set))
+            text, relocs, str_syms, local_labels, failure, detail = _compile_and_extract(
+                cfg, fn, work_dir
+            )
+            if failure:
+                mismatches.append(_mismatch(fn, failure, detail))
+                continue
+            # Per-function resolver: local_labels are specific to this
+            # function's compiled .obj; string symbols accumulate across
+            # functions.  Rebuild every iteration so both are always live.
+            if str_syms:
+                if info is None:
+                    info = load_binary(cfg.target_binary)
+                resolved = _resolve_string_symbols_in_target(info.data, str_syms, info.sections)
+                extra_string_syms.update(resolved)
+            merged_data = dict(data_by_name)
+            merged_data.update(extra_string_syms)
+            resolve_va = _make_resolver(funcs_by_va, merged_data, local_labels)
+            try:
+                patched = apply_coff_relocations(
+                    text,
+                    relocs,
+                    resolve_va,
+                    section_va=fn.va,
+                )
+            except UnresolvedSymbolError as exc:
+                # Catalog gap — we can't splice but the original bytes are still
+                # in the reasm buffer, so SHA equality is preserved.  Don't count
+                # this as a mismatch by default; --strict-catalog fails the run.
+                skipped_catalog.append(_mismatch(fn, "unresolved_symbol", exc.symbol))
+                continue
+            except NotImplementedError as exc:
+                mismatches.append(_mismatch(fn, "reloc_application_failed", str(exc)))
+                continue
+            if fn.size <= 0:
+                mismatches.append(_mismatch(fn, "oversize", "size <= 0 in metadata"))
+                continue
+            # va_to_file_offset does not raise; it falls back to (va - text_va + text_raw_offset).
+            # The downstream oversize check catches any VA that would write outside the buffer.
+            if info is None:
+                info = load_binary(cfg.target_binary)
+            offset = va_to_file_offset(info, fn.va)
+            if offset < 0 or offset >= len(reasm):
+                mismatches.append(_mismatch(fn, "oversize", f"VA 0x{fn.va:08x} outside image"))
+                continue
+            end = offset + fn.size
+            if end > len(reasm):
+                mismatches.append(_mismatch(fn, "oversize", None))
+                continue
+            # SIZE metadata may include trailing NOP/INT3 padding that the
+            # compiler never emits (Ghidra sizes often do).  `rebrew test`
+            # tolerates that (padding-tolerant byte compare), so round-trip
+            # must too — compare against the trimmed span, otherwise a
+            # genuinely matched function reports a false "oversize" because
+            # len(compiled) < SIZE (e.g. cm_ExAllocThemaPredigt: SIZE 176,
+            # compiles to 172, 4 trailing padding bytes).
+            original_slice = bytes(original[offset:end])
+            trimmed_size = trim_trailing_padding(
+                original_slice, padding=_trailing_padding_for_cfg(cfg)
+            )
+            # The compiled text (padding already stripped by
+            # parse_obj_symbol_bytes) must match the target's real-code span
+            # EXACTLY.  Shorter is a genuine oversize; longer means the
+            # source emits code the target doesn't have — the compiled tail
+            # would be silently dropped by the splice below, so it must fail
+            # the verification too.
+            if trimmed_size <= 0 or len(patched) != trimmed_size:
+                mismatches.append(_mismatch(fn, "oversize", None))
+                continue
+            # Sanity: patched bytes must match the original at this offset.
+            # Split reasons so diagnosis is accurate:
+            #   - no relocs applied → compile_drift (wrong code / cflags / size)
+            #   - relocs applied → catalog_resolution_drift (wrong symbol VA)
+            if bytes(patched[:trimmed_size]) != original_slice[:trimmed_size]:
+                first_diff = next(
+                    (i for i in range(trimmed_size) if patched[i] != original_slice[i]), 0
+                )
+                reason = "catalog_resolution_drift" if relocs else "compile_drift"
+                detail = f"first byte diff at offset 0x{first_diff:x}"
+                # When the diff sits inside a REL32 relocation, decode the two
+                # call/jmp targets so the user can fix the source call
+                # directly (this is exactly what `rebrew test` masks).
+                if relocs:
+                    for r in relocs:
+                        if r.offset <= first_diff < r.offset + 4 and r.type == 0x14:
+                            target_src = resolve_va(r.symbol)
+                            target_orig = _rel32_target(original_slice, r.offset, fn.va)
+                            if target_orig is not None:
+                                target_src_str = (
+                                    f"{target_src:#x}" if target_src is not None else "?"
+                                )
+                                name_src = _target_name(funcs_by_va, target_src) or _list_name(
+                                    cfg, target_src
+                                )
+                                name_orig = _target_name(funcs_by_va, target_orig) or _list_name(
+                                    cfg, target_orig
+                                )
+                                detail += (
+                                    f"; reloc@{r.offset:#x}: source → {target_src_str}"
+                                    f" ({name_src}), target → {target_orig:#x} ({name_orig})"
+                                )
+                            break
+                mismatches.append(
+                    _mismatch(
+                        fn,
+                        reason,
+                        detail,
+                    )
+                )
+                continue
+            # Splice only the verified real-code span; any trailing padding
+            # stays untouched in the buffer (already byte-identical to the
+            # original), so SHA equality is preserved by construction.
+            reasm[offset : offset + trimmed_size] = patched[:trimmed_size]
+            spliced_vas.add(f"0x{fn.va:08x}")
+            spliced_ranges.append((fn.va - info.text_va, fn.va - info.text_va + trimmed_size))
+        reporter.report(len(splice_set), len(splice_set))
+    finally:
+        remove_temp_dir(work_dir)
+
+    # --fix-headers: patch the reasm PE header (linker/OS/subsystem versions,
+    # TSAWARE, stack/heap, timestamp, checksum) so the byte-identical goal is
+    # not blocked by header cosmetics.  Values come from [link] config where
+    # set; unconfigured fields are copied from the ORIGINAL so the patched
+    # header matches it.  file_align is reported but not patched (needs a
+    # relink — /ALIGN).  Runs before the SHA comparison so a truly identical
+    # reasm reports match=True.
+    header_parity: list[dict[str, object]] = []
+    if fix_headers and target_fmt in ("", "pe") and original[:2] == b"MZ":
+        from rebrew.formats.pe_headers import (
+            PATCHABLE,
+            patch_pe_headers,
+            read_pe_header_fields,
+        )
+        from rebrew.formats.pe_headers import (
+            header_parity as _header_parity,
+        )
+
+        original_fields = read_pe_header_fields(original)
+        if original_fields is not None:
+            configured = getattr(cfg, "link", None)
+            configured_fields = configured.to_patch_fields(original_fields) if configured else {}
+            patch: dict[str, int] = {}
+            for label in PATCHABLE:
+                if label in configured_fields:
+                    patch[label] = configured_fields[label]
+                elif label in original_fields:
+                    patch[label] = original_fields[label]
+            reasm = bytearray(patch_pe_headers(bytes(reasm), patch))
+            header_parity = _header_parity(
+                original, bytes(reasm), configured_fields if configured_fields else None
+            )
+
+    sha_original = hashlib.sha256(bytes(original)).hexdigest()
+    sha_reasm = hashlib.sha256(bytes(reasm)).hexdigest()
+    # Match = byte-exactness of the rebuilt PE AND no verification failures.
+    # Passthrough fallbacks keep the SHA equal even when a splice fails, but a
+    # mismatch (compile drift, oversize, reloc failure, drift) means a function
+    # in the splice set was not verified — the round trip is incomplete, so the
+    # CLI exits non-zero (docs: "exit 1 on mismatch").
+    # Catalog gaps are informational unless --strict-catalog is set.  Under
+    # --strict-catalog, an entry that neither spliced nor mismatched went to
+    # skipped_catalog, so `catalog_ok` alone already fails the run — a
+    # separate "nothing verified" term is redundant (every splice-set entry
+    # terminates in exactly one of spliced / mismatch / skipped_catalog).
+    catalog_ok = not strict_catalog or not skipped_catalog
+    match = not mismatches and sha_original == sha_reasm and catalog_ok
+
+    out_path = output or cfg.target_binary.with_suffix(cfg.target_binary.suffix + ".reasm")
+    if not no_write:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_bytes(out_path, bytes(reasm))
+
+    # Byte-coverage accounting: how much of .text came from our compilation
+    # versus passthrough from the input PE.  Uses the actual spliced span
+    # (trimmed of padding), not the metadata SIZE which can include trailing
+    # NOP/INT3 bytes the compiler never emits.  Both sets are merged and
+    # clipped to .text: a SIZE that overruns the section (or a neighbour)
+    # otherwise reported coverage above 100%.
+    # Keep the lazy-LIEF contract (see the `info` comment above): when nothing
+    # reached the file-offset lookup, don't parse the binary — coverage is 0.
+    text_size = info.text_size if info is not None else 0
+    text_clip = (0, text_size) if text_size else None
+    text_va = info.text_va if info is not None else 0
+    proven_ranges = [
+        (fn.va - text_va, fn.va - text_va + fn.size) for fn in proven_set if fn.size > 0
+    ]
+    spliced_bytes = merged_span_bytes(spliced_ranges, text_clip)
+    # PROVEN is reported as the bytes it adds, so the three figures partition
+    # .text: a PROVEN SIZE that reaches into a spliced span (or past the
+    # section) is not counted twice.
+    covered_bytes = merged_span_bytes([*spliced_ranges, *proven_ranges], text_clip)
+    proven_bytes = max(covered_bytes - spliced_bytes, 0)
+    passthrough_bytes = max(text_size - covered_bytes, 0)
+
+    # Aggregate reason breakdown for at-a-glance triage (e.g. "92 skipped:
+    # 85 unresolved_symbol, 5 size_mismatch, 2 ...").
+    reason_counts: dict[str, int] = {}
+    for _skip_entry in [*skipped_catalog, *mismatches]:
+        reason_label = str(_skip_entry.get("reason") or "unknown")
+        reason_counts[reason_label] = reason_counts.get(reason_label, 0) + 1
+
+    report = {
+        "schema_version": 1,
+        "target": cfg.target_name,
+        "binary": str(cfg.target_binary),
+        "arch": getattr(cfg, "arch", ""),
+        "out": str(out_path) if not no_write else None,
+        "sha256_original": sha_original,
+        "sha256_reasm": sha_reasm,
+        "match": match,
+        "strict_catalog": strict_catalog,
+        "spliced": len(spliced_vas),
+        "skipped_proven": len(proven_set),
+        "skipped_other": other_count,
+        "fenced_naked": {
+            "count": len(fenced_naked_vas),
+            "vas": fenced_naked_vas,
+        },
+        "skipped_catalog": skipped_catalog,
+        "mismatches": mismatches,
+        "reason_counts": reason_counts,
+        "header_parity": header_parity,
+        "byte_coverage": {
+            "text_size": text_size,
+            "spliced_bytes": spliced_bytes,
+            "proven_bytes": proven_bytes,
+            "passthrough_bytes": passthrough_bytes,
+            "spliced_pct": floor_pct(spliced_bytes, text_size, 2),
+            "passthrough_pct": floor_pct(passthrough_bytes, text_size, 2),
+        },
+    }
+    if json_output:
+        json_print(report)
+    else:
+        _render_rich(report)
+
+    return EXIT_OK if match else EXIT_MISMATCH
+
+
+def _mismatch(fn: _SpliceFn, reason: str, detail: str | None) -> dict[str, str | None]:
+    return {
+        "symbol": fn.symbol,
+        "va": f"0x{fn.va:08x}",
+        "status": fn.status,
+        "reason": reason,
+        "detail": detail,
+    }
+
+
+def _rel32_target(blob: bytes, offset: int, fn_va: int) -> int | None:
+    """Decode a REL32 displacement at fn-relative *offset* to an absolute VA.
+
+    The displacement is relative to the byte after the 4-byte field, so the
+    next-IP is ``fn_va + offset + 4``.  Returns ``None`` when the field lies
+    past the end of *blob*.
+    """
+    if offset + 4 > len(blob):
+        return None
+    disp: int = struct.unpack("<i", blob[offset : offset + 4])[0]
+    return fn_va + offset + 4 + disp
+
+
+def _target_name(funcs_by_va: dict[int, str], va: int | None) -> str:
+    """Best-effort human name for a call target VA (empty when unknown)."""
+    if va is None:
+        return "?"
+    return funcs_by_va.get(va, "")
+
+
+def _list_name(cfg: ProjectConfig, va: int | None) -> str:
+    """Function-list name for an un-annotated target VA (e.g. fcn.1001a286).
+
+    The annotated-function map only knows reversed functions; the function
+    list (r2) names everything the disassembler found.  Falls back to the
+    ``fcn.<va>``-style name so drift details are actionable even for
+    un-reversed targets.  Returns "" when unavailable.  The inventory is
+    indexed by VA (:func:`rebrew.catalog.cached_function_by_va`), so a
+    mismatch asks for one entry instead of projecting every name.
+    """
+    if va is None:
+        return ""
+    from rebrew.catalog import cached_function_by_va
+
+    try:
+        entry = cached_function_by_va(cfg).get(va)
+    except OSError, ValueError, KeyError, TypeError:
+        return ""
+    if entry is None:
+        return ""
+    try:
+        return str(entry["name"])
+    except KeyError, TypeError:
+        return ""
+
+
+def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
+    """Build the function ``{va: name}`` map + the data ``{name: va}`` map.
+
+    Sources, in priority order:
+      * Function VAs: union of ``cfg.dll_exports`` and every annotated function in
+        ``cfg.reversed_dir`` (annotations are the canonical inter-function name source
+        for the active target).
+      * Data names: the single ``rebrew-data.toml`` at ``cfg.metadata_dir``
+        (filtered to the active target's module) plus DATA/GLOBAL annotations.
+    """
+    from rebrew.metadata.data import load_data_metadata
+
+    target_module_name = target_module(cfg)  # honors cfg.module overrides
+    # An annotation's marker is compared in preset_module_key (NFC, then
+    # upper): a `.c` written with an NFD-accented marker spells the same module
+    # as the config's NFC one, and byte equality dropped its functions from
+    # the export and data maps.
+    wanted_module = preset_module_key(target_module_name) if target_module_name else None
+    funcs: dict[int, str] = dict(cfg.dll_exports)  # base layer: PE exports
+    # Data names live in cfg.metadata_dir/rebrew-data.toml — not under each
+    # annotated source's parent directory.  DATA/GLOBAL annotations are also
+    # folded in below.
+    data: dict[str, int] = {}
+    # Scan source files plus any sibling headers (e.g. library_msvc.h) for
+    # LIBRARY/FUNCTION annotations.  Headers carry CRT and Win32 symbol VAs.
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    sources.extend(cfg.reversed_dir.rglob("*.h"))
+    for _path, anns in iter_source_bindings(
+        sources,
+        target=target_module_name,
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    ):
+        for ann in anns:
+            key = resolve_symbol(ann, _path)
+            if wanted_module is None or preset_module_key(ann.module) != wanted_module or not key:
+                continue
+            # DATA/GLOBAL annotations (e.g. an IAT import slot annotated as a
+            # global named like its function) belong in the data map, never in
+            # the function VA map — otherwise a same-named function is shadowed
+            # and REL32 calls resolve to the data slot (CreateListenSocket:
+            # function@0x10009e60 vs data@0x101deb14).
+            if ann.is_data:
+                data[key] = ann.va
+            else:
+                funcs[ann.va] = key
+
+    for (mod, va), meta in load_data_metadata(cfg.metadata_dir, deepcopy=False).items():
+        if mod == target_module_name and meta.get("name"):
+            data[meta["name"]] = va
+            if meta.get("link_symbol"):
+                data[str(meta["link_symbol"])] = va
+    return funcs, data
+
+
+def _render_rich(report: dict[str, Any]) -> None:
+    """Rich panel + table summary, aligned with ``rebrew status`` and ``rebrew verify --summary``."""
+    binary_path = report.get("binary", "")
+    binary_name = Path(binary_path).name if binary_path else ""
+    arch = report.get("arch", "")
+    match = report.get("match", False)
+    mismatches = report.get("mismatches", [])
+    spliced = report.get("spliced", 0)
+    skipped_proven = report.get("skipped_proven", 0)
+    skipped_other = report.get("skipped_other", 0)
+    sha_orig = report.get("sha256_original", "")
+    sha_reasm = report.get("sha256_reasm", "")
+    out_path = report.get("out")
+    byte_coverage = report.get("byte_coverage", {}) or {}
+
+    # --- Panel header ---
+    header_parts: list[str] = []
+    if binary_name:
+        header_parts.append(f"[bold]{untrusted_ident(binary_name)}[/bold]")
+    if arch:
+        header_parts.append(f"[dim]{untrusted_ident(arch)}[/dim]")
+    title = "[bold]Rebrew Round-Trip[/bold]"
+    if header_parts:
+        title += "  " + "  ".join(header_parts)
+
+    # --- Stats line ---
+    skipped_catalog = report.get("skipped_catalog", []) or []
+    n_catalog = len(skipped_catalog)
+    n_mismatch = len(mismatches)
+
+    # --- Coverage bar (include catalog gaps so incompleteness is visible) ---
+    total = spliced + skipped_proven + skipped_other + n_catalog + n_mismatch
+    bar_items: list[Text] = []
+    if total > 0:
+        from rebrew.present import BAR_WIDTH, filled_cells
+
+        filled = filled_cells(spliced, total, BAR_WIDTH)
+        bar_text = Text()
+        bar_text.append("  Spliced  ", style="bold")
+        bar_text.append("█" * filled, style="green")
+        bar_text.append("░" * (BAR_WIDTH - filled), style="dim")
+        bar_text.append(f"  {spliced}/{total}", style="bold")
+        bar_items.append(bar_text)
+
+    stats_parts: list[str] = [
+        f"[green]spliced: {spliced}[/green]",
+        f"[cyan]proven skipped: {skipped_proven}[/cyan]",
+        f"[dim]other skipped: {skipped_other}[/dim]",
+    ]
+    if n_catalog:
+        stats_parts.append(f"[yellow]catalog gaps: {n_catalog}[/yellow]")
+    if n_mismatch:
+        stats_parts.append(f"[red]mismatches: {n_mismatch}[/red]")
+    fenced = (report.get("fenced_naked") or {}).get("count", 0)
+    if fenced:
+        stats_parts.append(f"[magenta]naked fenced: {fenced}[/magenta]")
+    reason_counts = report.get("reason_counts", {}) or {}
+    if reason_counts:
+        reason_breakdown = ", ".join(f"{k}: {v}" for k, v in sorted(reason_counts.items()))
+        stats_parts.append(f"[dim]({reason_breakdown})[/dim]")
+    stats_text = Text.from_markup("  " + "  ·  ".join(stats_parts))
+
+    # --- SHA lines ---
+    sha_orig_disp = sha_orig[:16] if sha_orig else "-"
+    sha_reasm_disp = sha_reasm[:16] if sha_reasm else "-"
+    sha_orig_text = Text.from_markup(f"  [dim]Original:[/dim] [cyan]{sha_orig_disp}[/cyan]")
+    sha_reasm_text = Text.from_markup(f"  [dim]Reasm:   [/dim] [cyan]{sha_reasm_disp}[/cyan]")
+
+    summary_items: list[Text] = [
+        *bar_items,
+        Text(""),  # spacer
+        stats_text,
+    ]
+
+    # --- Byte coverage breakdown ---
+    if byte_coverage.get("text_size", 0) > 0:
+        text_size = byte_coverage["text_size"]
+        spliced_b = byte_coverage.get("spliced_bytes", 0)
+        proven_b = byte_coverage.get("proven_bytes", 0)
+        passthru_b = byte_coverage.get("passthrough_bytes", 0)
+        spliced_pct = byte_coverage.get("spliced_pct", 0.0)
+        passthru_pct = byte_coverage.get("passthrough_pct", 0.0)
+        from rebrew.present import BAR_WIDTH, filled_cells
+
+        sp_filled = filled_cells(spliced_b, text_size, BAR_WIDTH)
+        pr_filled = filled_cells(proven_b, text_size, BAR_WIDTH)
+        # One bar of the section. Compiled and proven are different shares of it.
+        if sp_filled + pr_filled > BAR_WIDTH:
+            pr_filled = BAR_WIDTH - sp_filled
+        pass_filled = BAR_WIDTH - sp_filled - pr_filled
+        byte_bar = Text()
+        byte_bar.append("  .text    ", style="bold")
+        byte_bar.append("█" * sp_filled, style="green")
+        if pr_filled:
+            byte_bar.append("█" * pr_filled, style="cyan")
+        byte_bar.append("░" * pass_filled, style="dim")
+        byte_bar.append(
+            f"  {spliced_b:,}/{text_size:,}B compiled ({spliced_pct:.1f}%)",
+            style="bold",
+        )
+        summary_items.append(byte_bar)
+        breakdown = Text.from_markup(
+            f"  [green]compiled: {spliced_b:,}B ({spliced_pct:.1f}%)[/green]  ·  "
+            f"[cyan]proven: {proven_b:,}B[/cyan]  ·  "
+            f"[dim]passthrough: {passthru_b:,}B ({passthru_pct:.1f}%)[/dim]"
+        )
+        summary_items.append(breakdown)
+        summary_items.append(Text(""))
+
+    summary_items.append(sha_orig_text)
+    summary_items.append(sha_reasm_text)
+
+    if out_path:
+        summary_items.append(Text.from_markup(f"  [dim]Output:[/dim] {untrusted_ident(out_path)}"))
+
+    # --- Mismatch table ---
+    table_items: list[TerminalTable] = []
+    if mismatches:
+        summary_items.append(Text(""))  # spacer before table
+        table = TerminalTable(title="Mismatches", show_header=True, header_style="bold")
+        table.add_column("VA", style="cyan", no_wrap=True)
+        table.add_column("Symbol", style="magenta")
+        table.add_column("Status", style="bold")
+        table.add_column("Reason")
+        table.add_column("Detail")
+        for m in mismatches:
+            st = m.get("status", "")
+            color = STATUS_COLORS.get(st, "red")
+            st_str = f"[{color}]{untrusted_ident(st)}[/{color}]" if st else "-"
+            reason = m.get("reason", "")
+            detail = m.get("detail") or "-"
+            table.add_row(
+                m.get("va", "-"),
+                untrusted_ident(m.get("symbol", "-")),
+                st_str,
+                untrusted_ident(reason),
+                untrusted_ident(detail),
+            )
+        table_items.append(table)
+
+    # --- Subtitle (verdict) ---
+    if match:
+        subtitle = "[bold green]✔ match[/bold green]"
+    else:
+        n = len(mismatches)
+        subtitle = f"[bold red]✗ {n} mismatch{'es' if n != 1 else ''}[/bold red]"
+
+    # --- Assemble panel ---
+    all_content: list[Text | TerminalTable] = [*summary_items, *table_items]
+    panel = Panel(
+        Group(*all_content),
+        title=title,
+        subtitle=subtitle,
+        border_style="blue",
+    )
+    console.print(panel)
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

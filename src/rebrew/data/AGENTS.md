@@ -18,7 +18,7 @@ Global and static data analysis, layout convergence, BSS calibration, ownership 
 | `tu_check.py` | Translation-unit data consistency checks |
 | `calibrate_bss.py` | Calibrate `.bss` layout padding offsets |
 
-Externals (the only packages this one may import): `buildsys.layout_meta`, `c_parser`, `cast_rewrite`, `catalog`, `cli`, `config`, `errors`, `formats.archives`, `formats.binary_loader`, `formats.coff`, `formats.ne_loader`, `formats.pe_headers`, `metadata.anchors`, `metadata.binding_history`, `metadata.bindings`, `metadata.coordinated`, `metadata.data`, `metadata.functions`, `metadata.storage`, `object_evidence`, `present`, `sections`, `source.discovery`, `source.rename_ops`, `status_style`, `utils`, `workspace`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
+Externals (the only packages this one may import): `binary.sections`, `buildsys.layout_meta`, `c_syntax.cast_rewrite`, `c_syntax.parser`, `catalog`, `cli`, `config`, `errors`, `formats.archives`, `formats.binary_loader`, `formats.coff`, `formats.ne_loader`, `formats.pe_headers`, `metadata.anchors`, `metadata.binding_history`, `metadata.bindings`, `metadata.coordinated`, `metadata.data`, `metadata.functions`, `metadata.storage`, `object_evidence`, `present`, `source.discovery`, `source.rename_ops`, `status_style`, `utils`, `workspace`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 

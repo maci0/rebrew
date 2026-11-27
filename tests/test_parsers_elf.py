@@ -81,7 +81,7 @@ class TestElfObjParsing:
         assert _parse_elf_symbol_bytes("unused.o", "helper") == (b"123456", {})
 
     def test_mos_objects_cannot_use_four_byte_relocation_masks(self, tmp_path: Path) -> None:
-        from rebrew.gen_flirt_pat import parse_elf_obj
+        from rebrew.library.gen_flirt_pat import parse_elf_obj
 
         obj = _compile(tmp_path)
         data = bytearray(obj.read_bytes())
@@ -159,7 +159,7 @@ class TestElfObjParsing:
 
 
 def test_parse_elf_obj_takes_static_functions_on_request(tmp_path: Path) -> None:
-    from rebrew.gen_flirt_pat import parse_elf_obj
+    from rebrew.library.gen_flirt_pat import parse_elf_obj
 
     src = tmp_path / "statics.c"
     src.write_text(

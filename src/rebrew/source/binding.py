@@ -20,7 +20,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-lazy from rebrew.c_parser import (
+lazy from rebrew.c_syntax.parser import (
     find_function_name_in_node,
     function_signatures,
     mask_msvc_syntax,
@@ -205,7 +205,7 @@ def _refuse_generated_name_of_another_function(cfg: ProjectConfig, va: int, name
 
 def _replacement_type_key(identity: dict[str, Any] | None, source: Path | None) -> str | None:
     """Type key of the replacement definition, or None when there is nothing to compare."""
-    from rebrew.c_parser import prototype_type_key
+    from rebrew.c_syntax.parser import prototype_type_key
 
     if identity is None or source is None:
         return None
@@ -222,7 +222,7 @@ def _refuse_conflicting_prototype(
     The name then already means another function in this target (a placeholder
     or a stale twin name); binding a definition to it breaks that caller.
     """
-    from rebrew.c_parser import prototype_type_key
+    from rebrew.c_syntax.parser import prototype_type_key
 
     if name not in text:
         return
@@ -298,7 +298,7 @@ def _obsolete_body(
     cfg: ProjectConfig, va: int, current: dict[str, Any], source: Path
 ) -> Path | None:
     """Remove only a single-body file with no remaining storage or metadata owner."""
-    from rebrew.c_parser import find_c_function_definitions, find_extern_variables
+    from rebrew.c_syntax.parser import find_c_function_definitions, find_extern_variables
     from rebrew.metadata.data import load_data_metadata
     from rebrew.metadata.source_provenance import load_source_files
 

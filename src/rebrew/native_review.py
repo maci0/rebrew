@@ -7,7 +7,7 @@ lazy import json
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.coff_reloc import build_name_to_va, smart_reloc_compare
+lazy from rebrew.compare.coff_reloc import build_name_to_va, smart_reloc_compare
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.metadata.functions import FUNCTION_IDENTITY_FIELDS, METADATA_FILENAME, get_entry

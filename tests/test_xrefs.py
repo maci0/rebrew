@@ -1,4 +1,4 @@
-"""Unit tests for rebrew.xrefs — the cross-reference explorer CLI.
+"""Unit tests for rebrew.binary.xrefs — the cross-reference explorer CLI.
 
 Drives the CLI through ``CliRunner`` against ``bin_util.make_xref_probe``,
 the same synthetic PE ``test_analysis`` uses.
@@ -17,7 +17,7 @@ from bin_util import PROBE_IMAGE_BASE, PROBE_TEXT_VA, make_pe, make_xref_probe
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew.xrefs import app, build_xrefs_payload
+from rebrew.binary.xrefs import app, build_xrefs_payload
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -46,13 +46,15 @@ class TestXrefsCli:
     def test_indexed_call_does_not_resolve_an_imported_api(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.xrefs import build_calls_from_payload
+        from rebrew.binary.xrefs import build_calls_from_payload
 
         table = PROBE_TEXT_VA + 0x80
         code = b"\xff\x14\x85" + table.to_bytes(4, "little") + b"\xc3" + b"\x90" * 256
         path = tmp_path / "indexed-call.exe"
         path.write_bytes(make_pe(code))
-        monkeypatch.setattr("rebrew.xrefs.parse_import_table", lambda _path: {table: "KnownImport"})
+        monkeypatch.setattr(
+            "rebrew.binary.xrefs.parse_import_table", lambda _path: {table: "KnownImport"}
+        )
         payload = build_xrefs_payload(path, table)
         assert payload["import_name"] == "KnownImport"  # identity of the queried slot only
         assert payload["refs"][0]["kind"] == "indexed_mem"
@@ -203,7 +205,7 @@ class TestVaFirstPositional:
     previously the first positional bound to `binary` and VA was missing."""
 
     def test_looks_like_va(self) -> None:
-        from rebrew.xrefs import _looks_like_va
+        from rebrew.binary.xrefs import _looks_like_va
 
         assert _looks_like_va("0x401000") is True
         assert _looks_like_va("0x401000") is True
@@ -224,7 +226,7 @@ class TestVaFirstPositional:
 
         from typer.testing import CliRunner
 
-        from rebrew.xrefs import app
+        from rebrew.binary.xrefs import app
 
         path, _ = make_xref_probe(tmp_path)
         cfg = NS(
@@ -241,7 +243,7 @@ class TestVaFirstPositional:
     def test_binary_first_still_works(self, tmp_path: Path) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.xrefs import app
+        from rebrew.binary.xrefs import app
 
         path, _ = make_xref_probe(tmp_path)
         result = CliRunner().invoke(app, [str(path), "0x401000"])
@@ -304,7 +306,7 @@ class TestCallsFromInventory:
 
         from bin_util import _resolve_probe_iat_slot
 
-        from rebrew.xrefs import build_calls_from_payload
+        from rebrew.binary.xrefs import build_calls_from_payload
 
         imports = [("KERNEL32.dll", ["HeapCreate"])]
 
@@ -349,7 +351,7 @@ class TestCallsFromInventory:
         assert payload["callees"][0]["count"] == 1
 
     def test_helper_is_exported_for_the_cli(self) -> None:
-        from rebrew import xrefs
+        from rebrew.binary import xrefs
 
         assert hasattr(xrefs, "build_calls_from_payload")
         sig = __import__("inspect").signature(xrefs.build_calls_from_payload)

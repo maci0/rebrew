@@ -43,7 +43,7 @@ lazy from rebrew.catalog import (
     build_function_registry,
     cached_function_list,
 )
-lazy from rebrew.coff_reloc import build_name_to_va
+lazy from rebrew.compare.coff_reloc import build_name_to_va
 lazy from rebrew.compiler.overrides import resolve_compile_overrides
 lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
 lazy from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
@@ -334,7 +334,7 @@ def _function_call_map(
 
 def _function_strings(info: Any) -> dict[int, set[int]]:
     """Function VA to referenced string-VA set."""
-    from rebrew.analysis import iter_strings, string_refs
+    from rebrew.binary.analysis import iter_strings, string_refs
 
     strings = iter_strings(info)
     refs = string_refs(info, strings)
@@ -543,7 +543,7 @@ class _PartitionScorer:
 
     def _score_cluster(self, cluster: list[int], workdir: Path) -> tuple[int, int]:
         """Score one cluster as ``(matched_bytes, compiler_invocations)``."""
-        from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
+        from rebrew.compare.coff_reloc import build_iat_region, smart_reloc_compare
         from rebrew.compiler.compile import compile_to_obj
         from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
         from rebrew.utils import safe_shlex_split

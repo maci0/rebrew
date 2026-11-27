@@ -58,7 +58,7 @@ _FLAG_SENSITIVE_MNEMONIC = 0.8
 # across threads safely.  ``score_candidate`` runs concurrently in
 # ``flag_sweep`` / ``BinaryMatchingGA`` worker pools; per-thread caching keeps
 # the construction-elision win without inviting handle-level races.  Other
-# per-function disassembly sites (``rebrew.similar.disasm_signature``) build a
+# per-function disassembly sites (``rebrew.compare.similar.disasm_signature``) build a
 # handle per function too and share this cache.
 _cs_tls = threading.local()
 
@@ -319,9 +319,13 @@ def _normalize_and_mnems_x86_32(
     capstone's per-instruction ctypes marshaling entirely.
     """
     md = get_cs(cs_arch, cs_mode, detail=False)
+    x86_32 = cs_arch == _DEFAULT_CS_ARCH and cs_mode == _DEFAULT_CS_MODE
+    if not x86_32:
+        mnems = [mnem for _addr, _size, mnem, _op in md.disasm_lite(code, 0)]
+        return code, mnems
     md_det = get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
-    mnems: list[str] = []
+    mnems = []
     for addr, size, mnem, _op in md.disasm_lite(code, 0):
         mnems.append(mnem)
         if size >= 5:
@@ -888,7 +892,7 @@ def diff_functions(
     if reloc_offsets is not None:
         norm_target = normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
         norm_cand = normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
-    else:
+    elif cs_arch == _DEFAULT_CS_ARCH and cs_mode == _DEFAULT_CS_MODE:
         norm_target_buf = bytearray(target_bytes)
         norm_cand_buf = bytearray(candidate_bytes)
         # Cached detail handle for the rare SIB/disp32 fallback in the raw
@@ -900,6 +904,9 @@ def diff_functions(
             _zero_reloc_fields_raw(addr, size, b, norm_cand_buf, _md_det_fallback)
         norm_target = bytes(norm_target_buf)
         norm_cand = bytes(norm_cand_buf)
+    else:
+        norm_target = target_bytes
+        norm_cand = candidate_bytes
 
     # Inline pointer tables decode into different instruction boundaries when
     # the object holds unresolved relocations. Once the complete buffers match
@@ -921,13 +928,13 @@ def diff_functions(
                 mnem, op = "db", raw.hex(" ")
             cand_insns.append((addr, size, mnem, op, raw))
 
-    if register_aware and norm_target:
+    if register_aware and norm_target and cs_arch == _DEFAULT_CS_ARCH:
         _t_buf = bytearray(norm_target)
         _apply_register_mask(target_bytes, _t_buf, cs_arch, cs_mode)
         reg_norm_target = bytes(_t_buf)
     else:
         reg_norm_target = None
-    if register_aware and norm_cand:
+    if register_aware and norm_cand and cs_arch == _DEFAULT_CS_ARCH:
         _c_buf = bytearray(norm_cand)
         _apply_register_mask(candidate_bytes, _c_buf, cs_arch, cs_mode)
         reg_norm_cand = bytes(_c_buf)

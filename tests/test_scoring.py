@@ -685,7 +685,7 @@ def test_diff_csv_format_flag_accepted() -> None:
     """Verify --format csv option exists in rebrew diff CLI."""
     from typer.testing import CliRunner
 
-    from rebrew.diff import app
+    from rebrew.compare.diff import app
 
     runner = CliRunner()
     help_output = runner.invoke(app, ["--help"]).stdout

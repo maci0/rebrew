@@ -136,7 +136,6 @@ __all__ = [
     "clear_identity_fields",
     "clear_library_override_cache",
     "clear_metadata_cache",
-    "coerce_metadata_value",
     "delete_entries_batch",
     "delete_metadata_entry",
     "find_library_override",
@@ -1853,12 +1852,10 @@ def apply_metadata_entry(ann: SourceBinding, entry: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 #
 # The typed entry layer is ``metadata.model.MetadataEntry``; it is the only
-# entry model, so status checks go through it
-# rather than through a second facade here.
-# The status vocabulary is owned by :mod:`rebrew.workspace.status`; import it
-# from there (or ``rebrew.workspace``).  ``coerce_metadata_value`` below remains live:
-# metadata.model validates against KNOWN_STATUSES, and lint --fix coerces
-# values through coerce_metadata_value.
+# entry model, so status checks go through it rather than through a second
+# facade here.  The status vocabulary is owned by :mod:`rebrew.workspace.status`;
+# import it from there (or ``rebrew.workspace``).  ``metadata.model`` validates
+# against KNOWN_STATUSES.
 
 #: Blocker prefix marking a function whose residual byte delta is
 #: register-only ("effective match") — the GA ceiling.  Written by
@@ -1888,21 +1885,6 @@ def as_metadata_int(value: Any) -> int:
     if isinstance(value, str):
         return parse_int_literal(value)
     raise ValueError(f"expected int, got {value!r}")
-
-
-def coerce_metadata_value(key: str, value: Any) -> Any:
-    """Coerce *value* to the canonical type for metadata field *key* (lower-case TOML key).
-
-    Only fields with a single unambiguous type are coerced; everything else
-    passes through untouched.  String spellings follow ``metadata.model._coerce``:
-    both decimal (``"42"``) and hex (``"0x2A"``) are accepted.
-    """
-    if key in ("size", "blocker_delta") and not (
-        isinstance(value, int) and not isinstance(value, bool)
-    ):
-        with contextlib.suppress(ValueError, TypeError):
-            return as_metadata_int(value)
-    return value
 
 
 # ---------------------------------------------------------------------------

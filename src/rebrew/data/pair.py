@@ -488,8 +488,8 @@ def _plan_rewrite(
     path: Path, plan: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], bytes | None]:
     """Prepare the address-cast rewrite without publishing it."""
-    from rebrew.c_parser import pointer_cast_literals
-    from rebrew.cast_rewrite import declare_externs, rewrite_casts
+    from rebrew.c_syntax.cast_rewrite import declare_externs, rewrite_casts
+    from rebrew.c_syntax.parser import pointer_cast_literals
     from rebrew.utils import is_safe_c_ident, read_source_text
 
     # Row starts only: an interior operand needs ``(char *) &name + off`` and is left for review.

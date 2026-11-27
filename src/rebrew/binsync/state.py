@@ -20,11 +20,12 @@ lazy from collections.abc import Callable, Sequence
 lazy from pathlib import Path
 lazy from typing import Any
 
+lazy import msgspec
 lazy import tomlkit
 
+lazy from rebrew.c_syntax.types import StructDef
 lazy from rebrew.catalog import build_function_registry, cached_function_list, scan_reversed_dir
 lazy from rebrew.config import ProjectConfig, inventory_path_for
-lazy from rebrew.types import StructDef
 lazy from rebrew.utils import is_safe_c_ident, parse_int_literal, preset_module_key
 
 log = logging.getLogger(__name__)
@@ -375,7 +376,7 @@ def global_name_and_type(
     filepath: str,
 ) -> tuple[str | None, str | None]:
     """Resolve a canonical data identity to its actual C declaration."""
-    from rebrew.c_parser import find_extern_variables
+    from rebrew.c_syntax.parser import find_extern_variables
     from rebrew.metadata.bindings import DATA_KINDS, read_source_bindings
     from rebrew.source.discovery import iter_sources
     from rebrew.utils import read_source_text
@@ -419,7 +420,7 @@ def resolve_global_types(
 ) -> dict[int, str]:
     """Map VA → C type string for each global entry.
 
-    Uses :func:`rebrew.c_parser.find_extern_variables` on the C declaration
+    Uses :func:`rebrew.c_syntax.parser.find_extern_variables` on the C declaration
     bound to each data row, which is the authoritative source (also handles
     non-extern DATA declarations).  Falls back to
     :func:`rebrew.data.scan.scan_globals` name→type index when the direct
@@ -514,7 +515,7 @@ def locals_map(entry: object) -> dict[int, dict[str, object]]:
 
 def normalize_prototype(proto: str) -> str:
     """Canonical signature for sync comparisons, without body or cosmetic spacing."""
-    from rebrew.c_parser import prototype_name_span
+    from rebrew.c_syntax.parser import prototype_name_span
     from rebrew.utils import strip_body
 
     text = strip_body(proto).strip().rstrip(";").strip()
@@ -928,8 +929,6 @@ def sync_health(
     only what they synced or edited, so an identity absent from it is not a
     removal and is left out of the field decisions.
     """
-    import json
-
     from rebrew.metadata.document import FORMAT_VERSION
     from rebrew.metadata.functions import SYNC_FIELD_RULES
 
@@ -1037,9 +1036,9 @@ def sync_health(
                     "cflags": fingerprint.cflags,
                     "reference_size": str(fingerprint.size),
                     "compiler_hash": compiler_config_hash(cfg),
-                    "defines": json.dumps(
-                        sorted(getattr(cfg, "defines", None) or []), separators=(",", ":")
-                    ),
+                    "defines": msgspec.json.encode(
+                        sorted(getattr(cfg, "defines", None) or [])
+                    ).decode("utf-8"),
                 }
                 stale |= any(
                     evidence[field] != value
@@ -1314,7 +1313,7 @@ def expand_type_aliases(text: str, aliases: dict[str, str]) -> str:
 
 def _expand_member_types(source_text: str, aliases: dict[str, str]) -> str:
     """Expand member type identifiers without changing names, bounds or pragmas."""
-    from rebrew.c_parser import node_text, parse_c_source
+    from rebrew.c_syntax.parser import node_text, parse_c_source
 
     tree, source = parse_c_source(source_text)
     declared: set[str] = set()
@@ -1352,7 +1351,7 @@ def parse_struct_fields(
 ) -> list[dict[str, Any]]:
     """``{name, type, offset, size}`` field dicts of one struct definition.
 
-    Laid out by the shared :mod:`rebrew.types` model (tree-sitter, 32-bit
+    Laid out by the shared :mod:`rebrew.c_syntax.types` model (tree-sitter, 32-bit
     MSVC alignment) after simple typedef *aliases* are expanded, so a
     ``DWORD`` member is sized as ``unsigned long`` and exported under that
     spelling.  A member whose size the model cannot know (a nested or
@@ -1361,7 +1360,7 @@ def parse_struct_fields(
     because their offsets are unknown and declib keys members by offset.
     Members are never guessed.
     """
-    from rebrew.types import parse_structs
+    from rebrew.c_syntax.types import parse_structs
 
     text = _expand_member_types(typedef_text, aliases) if aliases else typedef_text
     parsed = parse_structs(text)
@@ -1376,7 +1375,7 @@ def _parsed_struct_fields(
     name: str, struct: StructDef, known: dict[str, StructDef]
 ) -> list[dict[str, Any]]:
     """Convert the shared layout without losing its file's packing context."""
-    from rebrew.types import type_size
+    from rebrew.c_syntax.types import type_size
 
     fields = [
         {"name": field, "type": spelling, "offset": offset, "size": type_size(spelling, known) or 0}
@@ -1396,7 +1395,7 @@ def _parsed_struct_fields(
 
 def _tag_or_typedef_name(definition: str, specifier_type: str) -> str:
     """Return the typedef alias or tag name for a top-level struct/enum definition."""
-    from rebrew.c_parser import node_text, parse_c_source
+    from rebrew.c_syntax.parser import node_text, parse_c_source
 
     tree, raw = parse_c_source(definition.strip())
     for node in tree.root_node.named_children:
@@ -1433,7 +1432,7 @@ def _struct_name(typedef_text: str) -> str:
 
 def _unsafe_type_names(source: str) -> set[str]:
     """Names whose scope, conditional selection or repeated definition is unknown."""
-    from rebrew.c_parser import node_text, parse_c_source
+    from rebrew.c_syntax.parser import node_text, parse_c_source
 
     tree, raw = parse_c_source(source)
     root = tree.root_node
@@ -1496,8 +1495,8 @@ def collect_struct_definitions(
     *files* is an already-built :func:`_iter_definition_files` list, so a
     caller collecting several kinds of definition walks the tree once.
     """
-    from rebrew.struct_parser import extract_structs_from_file, extract_type_definitions
-    from rebrew.types import parse_structs
+    from rebrew.c_syntax.struct_parser import extract_structs_from_file, extract_type_definitions
+    from rebrew.c_syntax.types import parse_structs
     from rebrew.utils import read_source_text
 
     result: dict[str, tuple[str, list[dict[str, Any]], int | None]] = {}
@@ -1614,7 +1613,7 @@ def _enum_members(definition: str) -> dict[str, int]:
     A bare ``IDENT`` takes the previous value + 1, starting at 0.
     An unknown explicit value invalidates the complete projection.
     """
-    from rebrew.c_parser import node_text, parse_c_source
+    from rebrew.c_syntax.parser import node_text, parse_c_source
 
     tree, raw = parse_c_source(definition.strip())
     enum_spec: Any = None
@@ -1671,7 +1670,7 @@ def collect_enum_definitions(
 
     *files* is an already-built :func:`_iter_definition_files` list.
     """
-    from rebrew.struct_parser import extract_enums_from_file
+    from rebrew.c_syntax.struct_parser import extract_enums_from_file
     from rebrew.utils import read_source_text
 
     result: dict[str, tuple[str, dict[str, int]]] = {}
@@ -1707,7 +1706,7 @@ def _typedef_name_and_type(definition: str) -> tuple[str, str] | None:
     hex size (``x106`` in ``typedef char Pad[0x106];``), which the sync
     exported as a type of that name.
     """
-    from rebrew.c_parser import node_text, parse_c_source
+    from rebrew.c_syntax.parser import node_text, parse_c_source
 
     tree, raw = parse_c_source(definition.strip())
     nodes = [node for node in tree.root_node.named_children if node.type != "comment"]
@@ -1736,7 +1735,7 @@ def collect_typedef_definitions(
     Struct and enum typedefs are excluded (the struct/enum collectors own them).
     *files* is an already-built :func:`_iter_definition_files` list.
     """
-    from rebrew.struct_parser import extract_type_definitions
+    from rebrew.c_syntax.struct_parser import extract_type_definitions
     from rebrew.utils import read_source_text
 
     result: dict[str, tuple[str, str]] = {}
@@ -1767,7 +1766,7 @@ def collect_typedef_definitions(
 
 def type_sync_records(cfg: ProjectConfig) -> dict[str, dict[str, Any]]:
     """Native type projections shared by hashing, reconciliation and export."""
-    from rebrew.types import type_size
+    from rebrew.c_syntax.types import type_size
 
     records: dict[str, dict[str, Any]] = {}
     files = _iter_definition_files(cfg)

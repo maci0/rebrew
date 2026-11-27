@@ -1037,7 +1037,7 @@ class TestMsvcSyntax:
         ],
     )
     def test_mask_preserves_multiline_tokens_and_unicode_bytes(self, source: str) -> None:
-        from rebrew.c_parser import mask_msvc_syntax
+        from rebrew.c_syntax.parser import mask_msvc_syntax
 
         raw = source.encode("utf-8", "surrogateescape")
         masked = mask_msvc_syntax(source).encode("utf-8", "surrogateescape")
@@ -1048,7 +1048,7 @@ class TestMsvcSyntax:
         ]
 
     def test_mask_keeps_offsets_and_parses_msvc_definitions(self) -> None:
-        from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+        from rebrew.c_syntax.parser import mask_msvc_syntax, parse_c_source
 
         source = (
             "Bank* __cdecl load(Bank* bank)\n{\n\t__asm {\n\t\tmov edi, bank // keep\n\t}\n"

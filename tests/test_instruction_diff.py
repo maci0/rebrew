@@ -12,7 +12,7 @@ from typing import Any
 
 from cli_json import cli_payload
 
-from rebrew.instruction_diff import MAX_BYTES, instruction_diff
+from rebrew.compare.instruction_diff import MAX_BYTES, instruction_diff
 
 # fcn_00401420 (129 bytes, RELOC): the rebuilt `call` carries a relocation at 6.
 MEMOPS_VA = 0x401420
@@ -410,8 +410,8 @@ def _switch_rebuild(tmp_path: Path, labels: list[tuple[int, int]]) -> tuple[Any,
     from bin_util import make_coff_obj, make_pe
     from test_ops import ENTRY_VA, SWITCH
 
+    from rebrew.compare.instruction_diff import record_instructions
     from rebrew.compiler.compile import _extract_and_compare
-    from rebrew.instruction_diff import record_instructions
 
     unlinked = bytearray(SWITCH)
     for at, _ in labels:

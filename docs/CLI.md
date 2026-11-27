@@ -288,7 +288,7 @@ asks for `--size`, since it would otherwise record an inventory size as metadata
 
 `test --json --instructions` (one function) adds `instructions`, the
 instruction-level comparison of the target bytes and the rebuild
-(`rebrew.instruction_diff`), unless the rebuild is `EXACT` (then it is the
+(`rebrew.compare.instruction_diff`), unless the rebuild is `EXACT` (then it is the
 target listing against itself, which `rebrew.instruction_listing` answers):
 `original` and `rebuilt` instruction lists decoded at the function VA with the
 capstone text of `binary asm show` (`offset`, `bytes` hex, `mnemonic`,
@@ -349,7 +349,7 @@ remaining targets still run. A wholly unbound scope exits 1. This excludes
 `--target`, `--all-targets`, batch filters, watch/linked mode and target-pinned
 VA/symbol/size/byte-slice overrides. Compiler flags/context still apply explicitly.
 
-Strict source/data proof callers can use `rebrew.coff_reloc.smart_reloc_compare(..., strict=True)`. This is an API mode, not a CLI flag. It rejects mapped address mismatches even when the actual address is absent from the catalog, and reports unbound, unsupported, out-of-extent and symbol-free claims in `invalid_relocs`. Compiler-local labels must be bound from their COFF owner; explicit IAT-region policy remains applicable. Ordinary test/verify source agreement keeps its existing tolerant contract.
+Strict source/data proof callers can use `rebrew.compare.coff_reloc.smart_reloc_compare(..., strict=True)`. This is an API mode, not a CLI flag. It rejects mapped address mismatches even when the actual address is absent from the catalog, and reports unbound, unsupported, out-of-extent and symbol-free claims in `invalid_relocs`. Compiler-local labels must be bound from their COFF owner; explicit IAT-region policy remains applicable. Ordinary test/verify source agreement keeps its existing tolerant contract.
 
 ### `rebrew verify`
 
@@ -682,7 +682,7 @@ packaged backend that cannot run here is refused before anything runs (error kin
 packaged backend's state from the same check. Ghidra is reached at
 `REBREW_GHIDRA_MCP_ENDPOINT`, else `http://localhost:8080/mcp/message`.
 
-`--named` applies the **known-struct naming pass** (`rebrew.name_decomp`):
+`--named` applies the **known-struct naming pass** (`rebrew.c_syntax.name_decomp`):
 decompiler output types struct pointers as primitives (`int a1` +
 `*(int *)(a1 + 0x10)`), so the pass matches each anonymous pointer variable
 against the project's declared structs (from the reversed sources and
@@ -3183,7 +3183,7 @@ the payload answers empty `blocks` with a `note` (exit 0) rather than
 guessing a window.  The block list is capped: `block_total`/`block_cap`/
 `truncated` state the true count and whether the cap was hit, and edges
 touching a dropped block are omitted so the returned graph stays
-self-consistent.  Segmentation is `rebrew.cfg_ged.build_cfg_view`, the same
+self-consistent.  Segmentation is `rebrew.binary.cfg_ged.build_cfg_view`, the same
 segmenter behind the CFG similarity metric (which resolves no jump table),
 and `--format cfg` covers x86 targets.
 
@@ -7299,7 +7299,7 @@ Op details the contract leaves open:
   covers `x86_32` only. `size` is 1 byte to 1 MiB, the bound of the other
   extent ops.
 - `rebrew.disassemble` and `rebrew.disassemble_bytes` answer `renderer` beside
-  `text`: `rebrew.asm.LISTING_RENDERER`, the capstone version and the nasm
+  `text`: `rebrew.binary.asm.LISTING_RENDERER`, the capstone version and the nasm
   version (`nasm-none` without nasm), such as `1+capstone-5.0.7+nasm-2.16.03`.
   Equal renderers render the same bytes to the same text, so a caller may keep
   a listing across engine builds while the renderer is unchanged.
@@ -7316,8 +7316,8 @@ Op details the contract leaves open:
   `rebrew.library_functions` lists each i386 COFF function linked at 0 as
   far as its references to its own section go (a jump table's `$L` label,
   plus the addend the field holds), so its tables are data too.
-- `rebrew.xrefs`: `kinds` narrows the reply to at most 64 reference kinds,
-  each one a reference can have (`rebrew.analysis.is_xref_kind`: `call`,
+- `rebrew.binary.xrefs`: `kinds` narrows the reply to at most 64 reference kinds,
+  each one a reference can have (`rebrew.binary.analysis.is_xref_kind`: `call`,
   `jmp`, `iat_call`, `iat_jmp`, `push`, `push_mem`, `mov`, `cmp`, `lea`,
   `mov_mem`, `mov_mem_store`, `indexed_mem`, or a mnemonic plus `_mem`);
   anything else answers 400.
@@ -7333,12 +7333,12 @@ Op details the contract leaves open:
 - `rebrew.structs`: `limit` caps the annotated functions decompiled; `0`
   means no cap. A run where the decompiler returns nothing is an
   `engine-error` naming the skipped count.
-- `rebrew.crypto_scan`: each finding has `kind`, `name` and `confidence`; a
+- `rebrew.binary.crypto_scan`: each finding has `kind`, `name` and `confidence`; a
   `constant` finding also has `va` and `section`.
 - `rebrew.import-project`: live coverage is always read refreshed; `build_db`
   asks for exactly that and only excludes `snapshots`.
 - Discovery rule: `rebrew.analyse` answers `discovery_rule`, the version of
-  the rule its functions were discovered under (`rebrew.discover.DISCOVERY_RULE`):
+  the rule its functions were discovered under (`rebrew.binary.discover.DISCOVERY_RULE`):
   which addresses start functions, their extents, and which are import stubs.
   `rebrew.vocabulary` answers the current one.  The number rises with every
   release that moves a start, an extent or a kind of any binary's functions,
@@ -7485,7 +7485,7 @@ Op details the contract leaves open:
   fingerprints. Each of the five is null when the detector cannot tell.
 - `rebrew.library_functions` answers `boundaries` beside `functions`: the
   version of the rule that cuts an object into functions
-  (`rebrew.gen_flirt_pat.FUNCTION_BOUNDARIES`, `2`). Under `1` (6.56.0 and
+  (`rebrew.library.gen_flirt_pat.FUNCTION_BOUNDARIES`, `2`). Under `1` (6.56.0 and
   before, no field) every named symbol of a COFF code section was a function,
   so MSVC's `memcpy.obj` was 37 fragments; rows stored under another value
   describe other functions and are rebuilt, not mixed.
@@ -7521,7 +7521,7 @@ Op details the contract leaves open:
   `retained_source_operation` answers `split`'s `source` and `output_dir`, `merge`'s
   `output` and the keys of `rename`'s `input_hashes` as project paths, and projects
   each operation's result onto its shape (`rebrew.ops.replies.RETAINED_RESULTS`).
-- `rebrew.identify_library` answers `unreadable_signatures`: the paths in the
+- `rebrew.library.identify` answers `unreadable_signatures`: the paths in the
   project's `flirt_sigs/` of the signature files it skipped because they could not
   be read or parsed (python-flirt's panics included).
 - Reconstruction ops (`reference_flirt`, `verify_function`, `verify_target`,

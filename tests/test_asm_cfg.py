@@ -19,8 +19,8 @@ import typer
 from cli_json import cli_payload
 from typer.testing import CliRunner, Result
 
-import rebrew.asm as asm
-import rebrew.cfg_ged as cfg_ged
+import rebrew.binary.asm as asm
+import rebrew.binary.cfg_ged as cfg_ged
 import rebrew.formats.binary_loader as binary_loader
 
 runner = CliRunner()

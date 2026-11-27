@@ -307,7 +307,7 @@ class TestSingleDomainSubcommandEntry:
         assert "rebrew.buildsys.cmake_tc" in loaded
         for sibling in (
             "rebrew.buildsys.delphi",
-            "rebrew.round_trip",
+            "rebrew.matching.round_trip",
             "rebrew.buildsys.postlink",
             "rebrew.buildsys.link_sweep",
         ):

@@ -1,4 +1,4 @@
-"""test_prove.py — Unit tests for rebrew.prove.
+"""test_prove.py — Unit tests for rebrew.matching.prove.
 
 Tests cover prototype parsing, resolve_source, argument constraints,
 Win32 SimProcedure registry, and CLI behaviour.
@@ -22,7 +22,7 @@ from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import Result
 
-from rebrew.prove import (
+from rebrew.matching.prove import (
     _apply_arg_constraints,
     _parse_prototype,
     angr_available,
@@ -328,7 +328,7 @@ class TestProveCLIStatusGuard:
     def _invoke(self, proj_dir: Path, src: Path, monkeypatch: pytest.MonkeyPatch):
         from typer.testing import CliRunner
 
-        from rebrew.prove import app
+        from rebrew.matching.prove import app
 
         monkeypatch.chdir(proj_dir)
         return CliRunner().invoke(
@@ -454,8 +454,8 @@ class TestProveCLIStatusGuard:
         """A Z3 counterexample persists as a metadata NOTE for the reverser."""
         from types import SimpleNamespace
 
+        from rebrew.matching.prove import _record_prove_counterexample
         from rebrew.metadata.functions import load_metadata
-        from rebrew.prove import _record_prove_counterexample
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         ann = SimpleNamespace(module="GAME", va=0x1000)
@@ -470,8 +470,8 @@ class TestProveCLIStatusGuard:
         """Timeout/path-explosion messages carry no counterexample — no note."""
         from types import SimpleNamespace
 
+        from rebrew.matching.prove import _record_prove_counterexample
         from rebrew.metadata.functions import load_metadata
-        from rebrew.prove import _record_prove_counterexample
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         ann = SimpleNamespace(module="GAME", va=0x1000)
@@ -484,8 +484,8 @@ class TestProveCLIStatusGuard:
         """A reverser's own note is never overwritten by the prove note."""
         from types import SimpleNamespace
 
+        from rebrew.matching.prove import _record_prove_counterexample
         from rebrew.metadata.functions import load_metadata, update_field
-        from rebrew.prove import _record_prove_counterexample
 
         update_field(tmp_path, 0x1000, "note", "mine: hand analysis", module="GAME")
         cfg = SimpleNamespace(metadata_dir=tmp_path)
@@ -501,8 +501,8 @@ class TestProveCLIStatusGuard:
         the write-side pin: record, then clear, leaves no note behind."""
         from types import SimpleNamespace
 
+        from rebrew.matching.prove import _clear_prove_counterexample, _record_prove_counterexample
         from rebrew.metadata.functions import load_metadata
-        from rebrew.prove import _clear_prove_counterexample, _record_prove_counterexample
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         ann = SimpleNamespace(module="GAME", va=0x1000)
@@ -521,8 +521,8 @@ class TestProveCLIStatusGuard:
         module wrote."""
         from types import SimpleNamespace
 
+        from rebrew.matching.prove import _clear_prove_counterexample
         from rebrew.metadata.functions import load_metadata, update_field
-        from rebrew.prove import _clear_prove_counterexample
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         ann = SimpleNamespace(module="GAME", va=0x1000)
@@ -541,14 +541,14 @@ class TestWin32SimProcedures:
     """Verify the Win32 SimProcedure registry is populated correctly."""
 
     def test_registry_populated(self) -> None:
-        from rebrew.prove_simprocs import get_win32_simprocs
+        from rebrew.matching.prove_simprocs import get_win32_simprocs
 
         procs = get_win32_simprocs()
         assert isinstance(procs, dict)
         assert len(procs) > 50  # should have ~80+ entries
 
     def test_common_apis_present(self) -> None:
-        from rebrew.prove_simprocs import get_win32_simprocs
+        from rebrew.matching.prove_simprocs import get_win32_simprocs
 
         procs = get_win32_simprocs()
         for name in (
@@ -568,7 +568,7 @@ class TestWin32SimProcedures:
     def test_all_are_simproc_subclasses(self) -> None:
         import angr
 
-        from rebrew.prove_simprocs import get_win32_simprocs
+        from rebrew.matching.prove_simprocs import get_win32_simprocs
 
         procs = get_win32_simprocs()
         for name, cls in procs.items():
@@ -582,7 +582,7 @@ class TestWin32SimProcedures:
 
         from thread_util import join_all
 
-        import rebrew.prove_simprocs as sp
+        import rebrew.matching.prove_simprocs as sp
 
         old = sp._WIN32_SIMPROCS
         try:
@@ -615,7 +615,7 @@ class TestWin32SimProcedures:
         import angr
         from angr import claripy
 
-        from rebrew.prove_simprocs import get_win32_simprocs
+        from rebrew.matching.prove_simprocs import get_win32_simprocs
 
         procs = get_win32_simprocs()
         handle_cls = procs["CreateFileA"]
@@ -665,7 +665,7 @@ class TestWin32SimProcedures:
         import angr
         from angr import claripy
 
-        from rebrew.prove_simprocs import get_win32_simprocs
+        from rebrew.matching.prove_simprocs import get_win32_simprocs
 
         alloc_cls = get_win32_simprocs()["LocalAlloc"]
         blob = bytes.fromhex("FF 15 00 20 00 00 C3")
@@ -945,7 +945,7 @@ class TestProveEquivalence:
 
     def test_identical_blobs_proven(self) -> None:
         """Two copies of the same bytes must always be proven equivalent."""
-        from rebrew.prove import prove_equivalence
+        from rebrew.matching.prove import prove_equivalence
 
         # Simple x86: push ebp; mov ebp,esp; xor eax,eax; pop ebp; ret
         blob = bytes.fromhex("5589e531c05dc3")
@@ -954,7 +954,7 @@ class TestProveEquivalence:
 
     def test_identical_blobs_with_empty_constraints(self) -> None:
         """Empty arg_constraints should not affect proving."""
-        from rebrew.prove import prove_equivalence
+        from rebrew.matching.prove import prove_equivalence
 
         blob = bytes.fromhex("5589e531c05dc3")
         proven, msg = prove_equivalence(
@@ -969,7 +969,7 @@ class TestProveEquivalence:
 
     def test_slice_identical_blobs(self) -> None:
         """Slicing identical blobs to a sub-range should still prove equivalent."""
-        from rebrew.prove import prove_equivalence
+        from rebrew.matching.prove import prove_equivalence
 
         # push ebp; mov ebp,esp; xor eax,eax; ret; nop; nop
         blob = bytes.fromhex("5589e531c0c39090")
@@ -987,7 +987,7 @@ class TestProveEquivalence:
 
     def test_slice_out_of_range_returns_error(self) -> None:
         """Slicing beyond blob length should return an error, not crash."""
-        from rebrew.prove import prove_equivalence
+        from rebrew.matching.prove import prove_equivalence
 
         blob = bytes.fromhex("5589e531c05dc3")
         proven, msg = prove_equivalence(
@@ -1004,7 +1004,7 @@ class TestProveEquivalence:
 
     def test_identical_blobs_check_edx_proven(self) -> None:
         """Identical blobs with check_edx=True must still be proven equivalent."""
-        from rebrew.prove import prove_equivalence
+        from rebrew.matching.prove import prove_equivalence
 
         # push ebp; mov ebp,esp; xor eax,eax; pop ebp; ret
         blob = bytes.fromhex("5589e531c05dc3")
@@ -1021,7 +1021,7 @@ class TestProveEquivalence:
 
     def test_message_includes_eax_only_label_by_default(self) -> None:
         """Success message must mention EAX (not EAX+EDX) when check_edx is False."""
-        from rebrew.prove import prove_equivalence
+        from rebrew.matching.prove import prove_equivalence
 
         blob = bytes.fromhex("5589e531c05dc3")
         proven, msg = prove_equivalence(
@@ -1038,7 +1038,7 @@ class TestProveEquivalence:
 
     def test_64bit_prototype_auto_enables_edx(self) -> None:
         """A 'long long' return prototype must trigger EDX checking automatically."""
-        from rebrew.prove import prove_equivalence
+        from rebrew.matching.prove import prove_equivalence
 
         # push ebp; mov ebp,esp; xor eax,eax; xor edx,edx; pop ebp; ret
         blob = bytes.fromhex("5589e531c031d25dc3")
@@ -1094,7 +1094,7 @@ class TestProveEquivalenceCheckEdxMocked:
         expect_edx_in_msg: bool,
     ) -> None:
         """EAX matches but EDX differs: rejected when check_edx=True, accepted otherwise."""
-        import rebrew.prove as prove_mod
+        import rebrew.matching.prove as prove_mod
 
         state_orig = self._make_mock_state(eax_val=42, edx_val=0)
         state_comp = self._make_mock_state(eax_val=42, edx_val=99)  # EDX differs
@@ -1111,7 +1111,7 @@ class TestProveEquivalenceCheckEdxMocked:
             states = [state_orig] if calls["n"] == 1 else [state_comp]
             return states, False
 
-        monkeypatch.setattr("rebrew.prove._run_simulation", fake_run_simulation)
+        monkeypatch.setattr("rebrew.matching.prove._run_simulation", fake_run_simulation)
 
         proven, msg = prove_mod.prove_equivalence(
             b"\xc3",
@@ -1132,7 +1132,7 @@ class TestPrepareProveInputsDir32:
     ) -> None:
         from types import SimpleNamespace
 
-        import rebrew.prove as pm
+        import rebrew.matching.prove as pm
 
         ann = SimpleNamespace(
             va=0x1000,
@@ -1203,7 +1203,7 @@ class TestPrepareProveInputsDir32:
 
         import pytest
 
-        import rebrew.prove as pm
+        import rebrew.matching.prove as pm
 
         ann = SimpleNamespace(
             va=0x1000,
@@ -1269,7 +1269,7 @@ def _watch_va_run(
     """
     from typer.testing import CliRunner
 
-    import rebrew.prove as pm
+    import rebrew.matching.prove as pm
 
     src = tmp_path / "src"
     src.mkdir(exist_ok=True)
@@ -1354,7 +1354,7 @@ class TestProveInputsWatchedVasMetadata:
     def _prepare(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_vas: object) -> object:
         from types import SimpleNamespace
 
-        import rebrew.prove as pm
+        import rebrew.matching.prove as pm
 
         ann = SimpleNamespace(
             va=0x1000,
@@ -1419,7 +1419,7 @@ class TestProveInputsWatchedVasMetadata:
     def test_garbage_metadata_raises(self, tmp_path: Path, monkeypatch: object) -> None:
         import pytest
 
-        import rebrew.prove as pm
+        import rebrew.matching.prove as pm
 
         with pytest.raises(pm._ProveError, match="watched_vas"):
             self._prepare(tmp_path, monkeypatch, ["garbage"])  # type: ignore[arg-type]
@@ -1427,7 +1427,7 @@ class TestProveInputsWatchedVasMetadata:
     def test_out_of_range_metadata_raises(self, tmp_path: Path, monkeypatch: object) -> None:
         import pytest
 
-        import rebrew.prove as pm
+        import rebrew.matching.prove as pm
 
         with pytest.raises(pm._ProveError, match="outside 0..0xFFFFFFFF"):
             self._prepare(tmp_path, monkeypatch, [0x100000000])  # type: ignore[arg-type]
@@ -1460,7 +1460,7 @@ class TestMaxDeltaFilter:
         )
 
     def test_filters_by_blocker_delta(self, tmp_path: Path, monkeypatch, capsys) -> None:
-        from rebrew.prove import _run_all_batch
+        from rebrew.matching.prove import _run_all_batch
 
         src = tmp_path / "src"
         src.mkdir()
@@ -1481,7 +1481,7 @@ class TestMaxDeltaFilter:
             module="T",
         )
         annos = [self._anno(0x1000, 2), self._anno(0x2000, 40), self._anno(0x3000, None)]
-        monkeypatch.setattr("rebrew.prove.read_source_bindings", lambda *a, **k: annos)
+        monkeypatch.setattr("rebrew.matching.prove.read_source_bindings", lambda *a, **k: annos)
         # Capture which candidates reach the proving loop, and that
         # --stub-thunks is forwarded to each _prove_single call.
         seen: list[int] = []
@@ -1490,8 +1490,8 @@ class TestMaxDeltaFilter:
             seen.append(k.get("stub_thunks", False))
             return False
 
-        monkeypatch.setattr("rebrew.prove._prove_single", _fake_prove_one)
-        monkeypatch.setattr("rebrew.prove.build_name_to_va", lambda cfg, **kw: {})
+        monkeypatch.setattr("rebrew.matching.prove._prove_single", _fake_prove_one)
+        monkeypatch.setattr("rebrew.matching.prove.build_name_to_va", lambda cfg, **kw: {})
         _run_all_batch(
             cfg,
             timeout=10,
@@ -1605,7 +1605,9 @@ class TestProveCeilingFilter:
         )
         shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
         calls: list[str] = []
-        monkeypatch.setattr("rebrew.prove._prove_single", lambda *a, **k: (False, "mocked"))
+        monkeypatch.setattr(
+            "rebrew.matching.prove._prove_single", lambda *a, **k: (False, "mocked")
+        )
         return tmp_path, calls
 
     def test_ceiling_selects_only_documented(
@@ -1613,7 +1615,7 @@ class TestProveCeilingFilter:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.prove import app
+        from rebrew.matching.prove import app
 
         proj_dir, calls = self._make_project(tmp_path, monkeypatch)
         monkeypatch.chdir(proj_dir)
@@ -1627,7 +1629,7 @@ class TestProveCeilingFilter:
     def test_all_still_covers_both(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.prove import app
+        from rebrew.matching.prove import app
 
         proj_dir, _ = self._make_project(tmp_path, monkeypatch)
         monkeypatch.chdir(proj_dir)
@@ -1654,7 +1656,7 @@ class TestProveBatchEmptySchema:
 
         from typer.testing import CliRunner
 
-        from rebrew.prove import app
+        from rebrew.matching.prove import app
 
         (tmp_path / "rebrew-project.toml").write_text(
             '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\nsource_ext = ".c"\n'
@@ -1747,7 +1749,7 @@ class TestAngrAvailable:
         """The real import probe keeps its actionable message for broken installs."""
         import sys
 
-        from rebrew.prove import _require_angr
+        from rebrew.matching.prove import _require_angr
 
         monkeypatch.setitem(sys.modules, "angr", None)
         with pytest.raises(ImportError, match="rebrew prove"):
@@ -1780,7 +1782,7 @@ class TestPromoteAlreadyMatched:
 
     def test_updates_metadata_and_verify_cache(self, tmp_path: Path) -> None:
 
-        from rebrew.prove import _promote_already_matched
+        from rebrew.matching.prove import _promote_already_matched
         from rebrew.verify.hash import (
             DEFAULT_TOOLCHAIN,
             comparison_inputs,
@@ -1857,7 +1859,7 @@ class TestPromoteAlreadyMatched:
         """
         from types import SimpleNamespace
 
-        from rebrew.prove import _promote_already_matched
+        from rebrew.matching.prove import _promote_already_matched
 
         cfg = self._make_cfg(tmp_path)
         va = 0x1000
@@ -1895,7 +1897,7 @@ class TestDecoratedNameSelection:
 
         from typer.testing import CliRunner
 
-        from rebrew.prove import app
+        from rebrew.matching.prove import app
 
         (tmp_path / "rebrew-project.toml").write_text(
             '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\n'
@@ -1929,7 +1931,7 @@ class TestDecoratedNameSelection:
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("rebrew.prove._require_angr", lambda: None)
+        monkeypatch.setattr("rebrew.matching.prove._require_angr", lambda: None)
         runner = CliRunner()
         asked_foo = runner.invoke(
             app, ["--json", "--target", "GAME", "foo"], catch_exceptions=False
@@ -1951,7 +1953,7 @@ class TestProveSelectionFlags:
     def test_illegal_combinations_exit_2_before_angr(self) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.prove import app
+        from rebrew.matching.prove import app
 
         runner = CliRunner()
         cases = [
@@ -1972,7 +1974,7 @@ class TestProveSelectionFlags:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.prove import app
+        from rebrew.matching.prove import app
 
         monkeypatch.setenv("COLUMNS", "200")
         result = CliRunner().invoke(app, ["--help"])

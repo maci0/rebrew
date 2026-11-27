@@ -9,7 +9,7 @@ from cli_json import cli_payload
 from decompiler_engine import offer_decompilers
 from source_util import write_source
 
-from rebrew.name_decomp import (
+from rebrew.c_syntax.name_decomp import (
     apply_known_names,
     struct_definitions_to_layouts,
     struct_field_layout,
@@ -359,7 +359,7 @@ class TestCli:
             source_ext=".c",
             root=tmp_path,
         )
-        monkeypatch.setattr("rebrew.name_decomp.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.name_decomp.require_config", lambda **kw: cfg)
 
         def _fake_fetch(backend, binary, va, root):
             return "int a0;\n*(char *)(a0 + 0x10) = 1;\n*(int *)(a0 + 0x14) = 2;\n", backend
@@ -401,7 +401,7 @@ class TestCli:
             source_ext=".c",
             root=tmp_path,
         )
-        monkeypatch.setattr("rebrew.name_decomp.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.name_decomp.require_config", lambda **kw: cfg)
 
         def _fake_fetch(backend, binary, va, root):
             return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", backend
@@ -440,7 +440,7 @@ class TestCli:
             source_ext=".c",
             root=tmp_path,
         )
-        monkeypatch.setattr("rebrew.name_decomp.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.name_decomp.require_config", lambda **kw: cfg)
 
         def _fake_fetch(backend, binary, va, root):
             return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", backend
@@ -493,7 +493,7 @@ class TestCliDecompilerNotAvailable:
 
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", ran)
         cfg = SimpleNamespace(target_binary=tmp_path / "x.exe", root=tmp_path)
-        monkeypatch.setattr("rebrew.name_decomp.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.name_decomp.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(
             main_mod.app, ["decompile", "0x401000", "--decompiler", decompiler, "--json"]
         )
@@ -508,7 +508,7 @@ class TestCliDecompilerNotAvailable:
 
 class TestSharedModelLayouts:
     def test_aligned_offsets(self) -> None:
-        from rebrew.name_decomp import struct_definitions_to_layouts
+        from rebrew.c_syntax.name_decomp import struct_definitions_to_layouts
 
         layouts = struct_definitions_to_layouts(
             {"P": "typedef struct { char a; int b; short c; } P;"}
@@ -519,7 +519,7 @@ class TestSharedModelLayouts:
         assert lay.size == 12
 
     def test_incomplete_struct_marks(self) -> None:
-        from rebrew.name_decomp import struct_definitions_to_layouts
+        from rebrew.c_syntax.name_decomp import struct_definitions_to_layouts
 
         layouts = struct_definitions_to_layouts(
             {"Q": "typedef struct { int a; unsigned b : 3; } Q;"}
@@ -541,6 +541,6 @@ _KUNA_994_ANNOTATED = """unsigned int sub_401580(void)
 
 
 def test_line_comments_are_not_pointer_declaration_types() -> None:
-    from rebrew.name_decomp import _pointer_vars
+    from rebrew.c_syntax.name_decomp import _pointer_vars
 
     assert _pointer_vars(_KUNA_994_ANNOTATED) == set()

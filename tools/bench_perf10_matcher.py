@@ -1,7 +1,7 @@
 """Two load-independent matcher microbenchmarks on seeded synthetic inputs.
 
 ``binary_similarity_aggregate``
-    :func:`rebrew.binary_similarity.aggregate_similarity` over a rectangular
+    :func:`rebrew.binary.similarity.aggregate_similarity` over a rectangular
     set of signature records (mnemonic histograms, call and branch counts).
 ``score_candidate_heuristic``
     :func:`rebrew.matcher.scoring.score_candidate` without reloc offsets, with
@@ -182,7 +182,7 @@ def _reference_score(sa: dict[str, Any], sb: dict[str, Any]) -> float:
 
 
 def _workload_binary_similarity() -> dict[str, Any]:
-    from rebrew.binary_similarity import aggregate_similarity, score_matrix
+    from rebrew.binary.similarity import aggregate_similarity, score_matrix
 
     rng = random.Random(SEED)
     funcs_a = _build_signature_funcs(rng, SIG_FUNCS_A, 0x401000)

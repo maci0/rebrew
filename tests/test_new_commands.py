@@ -8,7 +8,7 @@ from cli_json import cli_payload
 
 class TestQualSweepVariants:
     def test_variants_rewrite_declaration(self) -> None:
-        from rebrew.qual_sweep import variants
+        from rebrew.matching.qual_sweep import variants
 
         out = variants("int x;")
         assert out, "expected at least one qualifier rewrite"
@@ -18,12 +18,12 @@ class TestQualSweepVariants:
             assert text != "int x;"
 
     def test_variants_ignore_string_contents(self) -> None:
-        from rebrew.qual_sweep import _strip_literals
+        from rebrew.matching.qual_sweep import _strip_literals
 
         assert _strip_literals('char *s = "int x;";') == 'char *s = "";'
 
     def test_is_decl(self) -> None:
-        from rebrew.qual_sweep import _is_decl
+        from rebrew.matching.qual_sweep import _is_decl
 
         assert _is_decl("int x;")
         assert _is_decl("int x = 1;")
@@ -38,7 +38,7 @@ class TestQualSweepVariants:
         The sweep skipped it, so no qualifier was tried on that local.
         A function body stays excluded.
         """
-        from rebrew.qual_sweep import _is_decl
+        from rebrew.matching.qual_sweep import _is_decl
 
         assert _is_decl("char (*g)[4];")
         assert _is_decl("char (**g)[4];")
@@ -53,7 +53,7 @@ class TestQualSweepVariants:
         parentheses, so the sweep skipped them. A function body stays
         excluded.
         """
-        from rebrew.qual_sweep import _is_decl
+        from rebrew.matching.qual_sweep import _is_decl
 
         assert _is_decl("int *table[4];")
         assert _is_decl("int **ptrs[2];")
@@ -70,7 +70,7 @@ class TestQualSweepVariants:
         star and the name, so the sweep skipped them. A parameter list
         sat before the semicolon. A function body stays excluded.
         """
-        from rebrew.qual_sweep import _is_decl
+        from rebrew.matching.qual_sweep import _is_decl
 
         assert _is_decl("int (__cdecl *table[2])[3];")
         assert _is_decl("int (* const table[2])[3];")
@@ -83,7 +83,7 @@ class TestQualSweepVariants:
         assert not _is_decl("x = 1;")
 
     def test_function_span(self) -> None:
-        from rebrew.qual_sweep import function_span
+        from rebrew.matching.qual_sweep import function_span
 
         lines = ["int f(void) {", "  return 1;", "}", "int g(void) {", "}"]
         assert function_span(lines, "f") == (0, 3)
@@ -97,7 +97,7 @@ class TestQualSweepCandidateFiles:
 
         from typer.testing import CliRunner
 
-        from rebrew import qual_sweep
+        from rebrew.matching import qual_sweep
 
         src = tmp_path / "f.c"
         src.write_text("int f(void) {\n  int a;\n  int b;\n  return a + b;\n}\n", encoding="utf-8")
@@ -140,7 +140,7 @@ class TestQualSweepCompileOverrides:
         from typer.testing import CliRunner
 
         import rebrew.formats.binary_loader
-        from rebrew import qual_sweep
+        from rebrew.matching import qual_sweep
 
         src = tmp_path / "f.c"
         src.write_text("int f(void) {\n  int a;\n  return a;\n}\n", encoding="utf-8")
@@ -168,19 +168,19 @@ class TestQualSweepCompileOverrides:
 
 class TestGapTraceHelpers:
     def test_masked_key_reloc(self) -> None:
-        from rebrew.gap_trace import _masked_key
+        from rebrew.compare.gap_trace import _masked_key
 
         assert _masked_key(b"\x12\x34", True, "mov") == b"\x00\x00"
 
     def test_masked_key_branch(self) -> None:
-        from rebrew.gap_trace import _BRANCHES, _masked_key
+        from rebrew.compare.gap_trace import _BRANCHES, _masked_key
 
         branch = next(iter(_BRANCHES))
         assert _masked_key(b"\x74\x05", False, branch) == b"\x74\x00"
 
     def test_masked_key_accepts_bytearray(self) -> None:
         """Capstone hands back bytearray, and difflib rejects an unhashable key."""
-        from rebrew.gap_trace import _BRANCHES, _masked_key
+        from rebrew.compare.gap_trace import _BRANCHES, _masked_key
 
         branch = next(iter(_BRANCHES))
         keys = [
@@ -215,7 +215,7 @@ class TestGapTraceHelpers:
 
         import lief
 
-        from rebrew import gap_trace
+        from rebrew.compare import gap_trace
 
         binary = SimpleNamespace(
             sections=[
@@ -232,7 +232,7 @@ class TestGapTraceHelpers:
         assert body == expected
 
     def test_first_fault_skips_equal_prefix(self) -> None:
-        from rebrew.gap_trace import first_fault
+        from rebrew.compare.gap_trace import first_fault
 
         ref = [(0, b"\x90", "nop", ""), (1, b"\x40", "inc", "eax")]
         obj = [(0, b"\x90", "nop", ""), (1, b"\x48", "dec", "eax")]
@@ -242,13 +242,13 @@ class TestGapTraceHelpers:
         assert fault["object"]["mnemonic"] == "dec"
 
     def test_first_fault_none_when_streams_agree(self) -> None:
-        from rebrew.gap_trace import first_fault
+        from rebrew.compare.gap_trace import first_fault
 
         same = [(0, b"\xc3", "ret", "")]
         assert first_fault(same, same) is None
 
     def test_masked_key_plain(self) -> None:
-        from rebrew.gap_trace import _masked_key
+        from rebrew.compare.gap_trace import _masked_key
 
         assert _masked_key(b"\x89\xd8", False, "mov") == b"\x89\xd8"
 
@@ -267,9 +267,9 @@ class TestGapTraceHelpers:
 
         from typer.testing import CliRunner
 
-        import rebrew.gap_trace as gap_trace
-        from rebrew.analysis import Insn
+        import rebrew.compare.gap_trace as gap_trace
         from rebrew.app.main import app
+        from rebrew.binary.analysis import Insn
 
         src = tmp_path / "f.c"
         src.write_text("int f(void) { return 0; }\n", encoding="utf-8")
@@ -299,7 +299,7 @@ class TestGapTraceHelpers:
         )
         monkeypatch.setattr(gap_trace, "_obj_text", lambda *_a: (b"", set()))
         monkeypatch.setattr(
-            "rebrew.analysis.capstone_for",
+            "rebrew.binary.analysis.capstone_for",
             lambda *_a: SimpleNamespace(disasm=lambda *_a: iter(obj)),
         )
 

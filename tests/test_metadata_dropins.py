@@ -217,14 +217,14 @@ class TestTypeDropins:
     def test_bind_refreshes_shard_and_combines_targets(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.type_metadata import bind_type, load_types
+        from rebrew.c_syntax.type_metadata import bind_type, load_types
 
         file = tmp_path / "types.h"
         file.write_text("typedef struct ITEM { int value; } ITEM;\n")
         cfg: Any = SimpleNamespace(metadata_dir=tmp_path, module="S", cflags="")
-        monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+        monkeypatch.setattr("rebrew.c_syntax.type_metadata.compile_type", lambda *args: None)
         monkeypatch.setattr(
-            "rebrew.type_metadata._inputs",
+            "rebrew.c_syntax.type_metadata._inputs",
             lambda *args: dict.fromkeys(
                 ("source_hash", "headers_hash", "context_hash", "binary_hash"), "a" * 64
             ),
@@ -242,7 +242,7 @@ class TestTypeDropins:
 
 class TestLibraryDropins:
     def test_cli_updates_lists_and_removes_directory_only_settings(self, tmp_path: Path) -> None:
-        from rebrew.library import app
+        from rebrew.library.cli import app
         from rebrew.metadata.functions import find_library_override, library_override_fingerprint
 
         runner = CliRunner()

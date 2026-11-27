@@ -7,7 +7,7 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew.binary_similarity import aggregate_similarity, app, score_matrix
+from rebrew.binary.similarity import aggregate_similarity, app, score_matrix
 
 
 def _sig(hist: dict[str, int], calls: int = 0, branches: int = 0) -> dict:
@@ -127,7 +127,7 @@ class TestAggregateSimilarity:
 
 class TestCli:
     def _patch(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:
-        import rebrew.binary_similarity as bs
+        import rebrew.binary.similarity as bs
 
         target = tmp_path / "a.dll"
         target.write_bytes(b"MZfake")
@@ -140,7 +140,7 @@ class TestCli:
             _json.dumps([{"va": 0x2000, "size": 100, "name": "g1"}]), encoding="utf-8"
         )
         cfg = SimpleNamespace(target_binary=target, reversed_dir=tmp_path)
-        monkeypatch.setattr("rebrew.binary_similarity.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.binary.similarity.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             bs,
             "_load_side",
@@ -170,7 +170,7 @@ class TestCli:
         from rebrew.cli import EXIT_ERROR
 
         cfg = SimpleNamespace(target_binary=tmp_path / "a.dll")
-        monkeypatch.setattr("rebrew.binary_similarity.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.binary.similarity.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(
             app, ["--other-list", str(tmp_path / "x.txt"), str(tmp_path / "nope.dll")]
         )
@@ -187,7 +187,7 @@ class TestCli:
         other = tmp_path / "b.dll"
         other.write_bytes(b"MZfake")
         cfg = SimpleNamespace(target_binary=target)
-        monkeypatch.setattr("rebrew.binary_similarity.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.binary.similarity.require_config", lambda **kw: cfg)
         # No --other-list and no --other-target → explicit error.
         result = CliRunner().invoke(app, [str(other)])
         assert result.exit_code == EXIT_ERROR

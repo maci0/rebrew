@@ -14,9 +14,9 @@ from test_analysis_capture_inventory import _capture
 from test_ops import _worker_dirs
 
 import rebrew.ops as ops
+from rebrew.binary.pe_info import pe_info
 from rebrew.formats.binary_loader import UnsupportedBinaryFormat, detect_format_and_arch
 from rebrew.ops import WorkerConfig
-from rebrew.pe_info import pe_info
 
 NE_OFFSET = 0x100  # e_lfanew of make_ne, as in a Borland-linked Windows 3.x executable
 NE_TARGET_OS_OFFSET = 0x36

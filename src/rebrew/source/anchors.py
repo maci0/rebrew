@@ -7,7 +7,7 @@ lazy from typing import Any
 
 import typer
 
-lazy from rebrew.c_parser import find_c_function_definitions
+lazy from rebrew.c_syntax.parser import find_c_function_definitions
 lazy from rebrew.cli import (
     EXPECTED_DIGEST_HELP,
     console,

@@ -76,7 +76,7 @@ def _sweep_scoring_params(cfg: Any) -> tuple[int, int]:
 def _filter_wine_stderr(text: str) -> str:
     """Filter Wine noise from stderr text (lazy-imported from rebrew.compiler.compile).
 
-    Imported lazily because rebrew.compiler.compile imports rebrew.coff_reloc, which imports
+    Imported lazily because rebrew.compiler.compile imports rebrew.compare.coff_reloc, which imports
     rebrew.matcher — a module-level import here would be circular.
     """
     from rebrew.compiler.compile import filter_wine_stderr

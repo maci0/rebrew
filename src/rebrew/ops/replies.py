@@ -13,7 +13,6 @@ A reply that carries the verdict of a remote compile that never ran names why wi
 
 import base64
 import binascii
-import json
 import logging
 import types
 from functools import cache
@@ -31,6 +30,8 @@ from typing import (
     get_type_hints,
     is_typeddict,
 )
+
+lazy import msgspec
 
 log = logging.getLogger(__name__)
 
@@ -68,14 +69,14 @@ _JSON_TYPES = {
 
 @cache
 def _response_schemas() -> dict[str, object]:
-    contract = json.loads(files("rebrew").joinpath("rebrew.schema.json").read_bytes())
+    contract = msgspec.json.decode(files("rebrew").joinpath("rebrew.schema.json").read_bytes())
     return {name: op["response"] for name, op in contract["ops"].items()}
 
 
 def reply_schema_error(name: str, reply: bytes) -> str | None:
     """Check the emitted JSON and describe any schema violation without exposing values."""
     try:
-        _validate(_response_schemas()[name], json.loads(reply), "$")
+        _validate(_response_schemas()[name], msgspec.json.decode(reply), "$")
     except _ReplySchemaError as exc:
         return str(exc)
     return None
@@ -240,7 +241,7 @@ class CompileInputs(TypedDict):
 
 
 class RelocationBinding(TypedDict, total=False):
-    """One relocated operand and what binds it (``rebrew.coff_reloc.relocation_binding_evidence``).
+    """One relocated operand and what binds it (``rebrew.compare.coff_reloc.relocation_binding_evidence``).
 
     A row read back from the verify cache lacks the members the cache stores as null.
     """
@@ -293,7 +294,7 @@ class ComparisonRow(TypedDict, total=False):
 
 
 class InstructionComparison(TypedDict):
-    """``rebrew.instruction_diff.instruction_diff``: the original and rebuilt listings paired."""
+    """``rebrew.compare.instruction_diff.instruction_diff``: the original and rebuilt listings paired."""
 
     max_bytes: int
     truncated: bool

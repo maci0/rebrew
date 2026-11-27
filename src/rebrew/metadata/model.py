@@ -57,7 +57,7 @@ def _coerce(key: str, value: Any) -> Any:
     """Coerce *value* to the canonical type for *key* (raises on failure)."""
     if key in _INT_FIELDS:
         try:
-            # Shared with coerce_metadata_value / apply_metadata_entry so a
+            # Shared with apply_metadata_entry so a
             # hand-edited ``size = 12.9`` cannot truncate to 12, and ``±inf``
             # cannot raise OverflowError past load's MetadataValidationError
             # catch.

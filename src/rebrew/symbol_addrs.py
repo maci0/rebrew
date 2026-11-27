@@ -19,7 +19,7 @@ Output modes (one per run, all sorted by VA):
 - **symbols dump** (``--references``): a CSV with a header and a
   ``referenced_by`` column naming the symbols that address each one (the splat
   ``dump_symbols`` idea).  References come from the shared disassembly xref
-  scan (:func:`rebrew.analysis.scan_references`).
+  scan (:func:`rebrew.binary.analysis.scan_references`).
 
 ``--pe-symbols`` extends either mode with symbols named from the target PE's
 data directories (:mod:`rebrew.formats.pe_symbols`): the entry point, exports,
@@ -296,12 +296,12 @@ def merge_pe_symbols(
 def build_references(rows: list[SymbolRow], binary: Path) -> dict[int, list[str]]:
     """Map each symbol VA to the sorted names of the symbols referencing it.
 
-    Uses :func:`rebrew.analysis.scan_references`, the shared disassembly xref
+    Uses :func:`rebrew.binary.analysis.scan_references`, the shared disassembly xref
     scan, rather than re-walking the image here.  A reference site that falls
     in no known symbol is named ``fcn_<VA>`` (the dossier's convention), so an
     unresolved caller is visible instead of dropped.
     """
-    from rebrew.analysis import scan_references
+    from rebrew.binary.analysis import scan_references
     from rebrew.formats.binary_loader import load_binary
 
     targets = {row.va for row in rows if row.va is not None}

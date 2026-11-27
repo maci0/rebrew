@@ -26,7 +26,7 @@ from typing import Any
 lazy import bisect
 
 from rebrew.errors import RebrewError
-lazy from rebrew.c_parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
+lazy from rebrew.c_syntax.parser import find_function_name_in_node, mask_msvc_syntax, parse_c_source
 
 # ---------------------------------------------------------------------------
 # Occurrence roles
@@ -889,7 +889,7 @@ def rename_function_source(source: str, new_name: str) -> str:
     Comments/literals and other namespaces stay intact. Refuse shadowing or a
     destination already used by the source, including an implicit external call.
     """
-    from rebrew.c_parser import extract_function_name_and_proto, function_source_error
+    from rebrew.c_syntax.parser import extract_function_name_and_proto, function_source_error
 
     reason = function_source_error(source, allow_declarations=True)
     if reason is not None:

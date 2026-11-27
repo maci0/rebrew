@@ -11,16 +11,22 @@ from bin_util import make_pe_stub
 from cli_json import cli_payload
 from typer import Exit as TyperExit
 
-from rebrew.cfg import (
+from rebrew.binary.cfg import (
     _BOOL_CONFIG_KEYS,
     _detect_format_and_arch,
     _resolve_target,
     load_toml,
     save_toml,
 )
+from rebrew.config import ConfigWarning
 
-#: The loader module whose boolean reads ``_BOOL_CONFIG_KEYS`` must cover.
-_CONFIG_PY = Path(__file__).resolve().parents[1] / "src" / "rebrew" / "config.py"
+#: The loader package whose boolean reads ``_BOOL_CONFIG_KEYS`` must cover.
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "src" / "rebrew" / "config"
+
+
+def _config_source() -> str:
+    return "\n".join(p.read_text(encoding="utf-8") for p in sorted(_CONFIG_DIR.glob("*.py")))
+
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -37,7 +43,7 @@ bin_dir = "bin/server.dll"
 origins = ["GAME", "ZLIB"]
 
 # Per-target cflags
-[targets."server.dll".cflags_presets]
+[targets."server.dll".compiler.cflags_presets]
 ZLIB = "/O3"
 
 [compiler]
@@ -223,11 +229,11 @@ class TestSetCflags:
     def test_set_target_cflags(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
         doc, path = load_toml(root)
-        doc["targets"]["server.dll"]["cflags_presets"]["GAME"] = "/O1 /Gd"
+        doc["targets"]["server.dll"]["compiler"]["cflags_presets"]["GAME"] = "/O1 /Gd"
         save_toml(doc, path)
 
         doc2, _ = load_toml(root)
-        assert doc2["targets"]["server.dll"]["cflags_presets"]["GAME"] == "/O1 /Gd"
+        assert doc2["targets"]["server.dll"]["compiler"]["cflags_presets"]["GAME"] == "/O1 /Gd"
 
     def test_set_global_cflags(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
@@ -473,7 +479,7 @@ class TestDetectFormatAndArch:
 
 from typer.testing import CliRunner  # noqa: E402
 
-from rebrew.cfg import app as cfg_app  # noqa: E402
+from rebrew.binary.cfg import app as cfg_app  # noqa: E402
 
 runner = CliRunner()
 
@@ -1040,7 +1046,7 @@ class TestBoolConfigKeysStayInStepWithTheLoader:
     """
 
     def test_every_as_bool_field_is_guarded(self) -> None:
-        source = _CONFIG_PY.read_text(encoding="utf-8")
+        source = _config_source()
         fields = set(re.findall(r'_as_bool\(\s*\w+\.get\("([^"]+)"', source))
         assert fields, "no _as_bool fields found; the scan no longer matches the loader"
         assert fields <= _BOOL_CONFIG_KEYS, f"unguarded boolean keys: {fields - _BOOL_CONFIG_KEYS}"
@@ -1052,7 +1058,7 @@ class TestBoolConfigKeysStayInStepWithTheLoader:
         cannot just call ``_as_bool``, but it is still a boolean key and
         ``cfg set`` still needs to refuse a stringified value.
         """
-        source = _CONFIG_PY.read_text(encoding="utf-8")
+        source = _config_source()
         assert 'link_raw.get("tsaware")' in source
         assert "tsaware" in _BOOL_CONFIG_KEYS
 
@@ -1127,7 +1133,7 @@ class TestCLISetCflags:
 # _resolve_dotted_key unit tests
 # ---------------------------------------------------------------------------
 
-from rebrew.cfg import _resolve_dotted_key  # noqa: E402
+from rebrew.binary.cfg import _resolve_dotted_key  # noqa: E402
 
 
 class TestResolveDottedKey:
@@ -1153,7 +1159,9 @@ class TestResolveDottedKey:
         """Deeply nested key through dotted target name."""
         root = _make_project(tmp_path)
         doc, _ = load_toml(root)
-        parent, final, parts = _resolve_dotted_key(doc, "targets.server.dll.cflags_presets.ZLIB")
+        parent, final, parts = _resolve_dotted_key(
+            doc, "targets.server.dll.compiler.cflags_presets.ZLIB"
+        )
         assert final == "ZLIB"
         assert parent[final] == "/O3"
 
@@ -1191,7 +1199,7 @@ class TestCLIDump:
         def refuse(**kwargs: object) -> None:
             raise AssertionError("Conflicting formats must be rejected before config loading")
 
-        monkeypatch.setattr("rebrew.cfg.load_toml", refuse)
+        monkeypatch.setattr("rebrew.binary.cfg.load_toml", refuse)
         result = runner.invoke(cfg_app, ["raw", *args])
         assert result.exit_code == 2, result.output
         assert cli_payload(result) == {
@@ -1475,14 +1483,16 @@ class TestCLISetCompiler:
     def test_set_compiler_dry_run(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler --dry-run previews without writing."""
         _make_project(tmp_path)
+        before = (tmp_path / "rebrew-project.toml").read_bytes()
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
             cfg_app, ["target", "set-compiler", "server.dll", "msvc-6.0", "--dry-run"]
         )
         assert result.exit_code == 0
         assert "dry-run" in result.output
+        assert (tmp_path / "rebrew-project.toml").read_bytes() == before
         doc, _ = load_toml(tmp_path)
-        assert "compiler" not in doc["targets"]["server.dll"]
+        assert "profile" not in doc["targets"]["server.dll"]["compiler"]
 
     def test_set_compiler_unknown_profile_rejected(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler rejects unknown profiles with a list of valid choices."""
@@ -1540,7 +1550,7 @@ class TestCLISetCompiler:
 
 class TestResolveDottedKeyEdges:
     def test_create_missing_creates_tables(self) -> None:
-        from rebrew.cfg import _resolve_dotted_key
+        from rebrew.binary.cfg import _resolve_dotted_key
 
         doc: dict = {}
         parent, final, parts = _resolve_dotted_key(
@@ -1553,7 +1563,7 @@ class TestResolveDottedKeyEdges:
         import pytest
         import typer
 
-        from rebrew.cfg import _resolve_dotted_key
+        from rebrew.binary.cfg import _resolve_dotted_key
 
         with pytest.raises(typer.Exit):
             _resolve_dotted_key({"existing": {}}, "missing.key")
@@ -1562,7 +1572,7 @@ class TestResolveDottedKeyEdges:
         import pytest
         import typer
 
-        from rebrew.cfg import _resolve_dotted_key
+        from rebrew.binary.cfg import _resolve_dotted_key
 
         # "scalar.a.b" resolves "scalar" → int, then the next loop iteration
         # hits the non-dict guard.
@@ -1584,7 +1594,7 @@ def _write_project(tmp_path: Path, toml: str = "") -> Path:
 def _invoke_cfg(tmp_path: Path, monkeypatch: object, args: list[str], toml: str = "") -> object:
     from typer.testing import CliRunner
 
-    from rebrew.cfg import app
+    from rebrew.binary.cfg import app
 
     _write_project(tmp_path, toml)
     monkeypatch.chdir(tmp_path)
@@ -1786,16 +1796,18 @@ class TestCfgWriteCommandsJson:
 class TestCLISetCflagsDryRun:
     def test_set_cflags_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
+        before = (tmp_path / "rebrew-project.toml").read_bytes()
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(
             cfg_app, ["module", "set-cflags", "GAME", "/O1", "--target", "server.dll", "--dry-run"]
         )
         assert result.exit_code == 0
+        assert (tmp_path / "rebrew-project.toml").read_bytes() == before
         doc, _ = load_toml(tmp_path)
         # No per-target preset written (the dry-run must not touch the toml;
         # the global GAME preset already exists in the fixture).
         tgt = doc["targets"]["server.dll"]
-        assert "compiler" not in tgt or "cflags_presets" not in tgt["compiler"]
+        assert "GAME" not in tgt["compiler"]["cflags_presets"]
 
 
 class TestSetBinsyncStateDir:
@@ -1890,7 +1902,8 @@ class TestCLIEffective:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")
         monkeypatch.setenv("REBREW_LLM_API_KEY", "s3cret")
-        result = runner.invoke(cfg_app, ["effective", "--json"])
+        with pytest.warns(ConfigWarning, match=r"\[llm\]\.api_key is set in rebrew-project\.toml"):
+            result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
         payload = cli_payload(result)
         assert payload["config"]["llm_endpoint"] == "https://toml.example/v1"
@@ -2020,7 +2033,8 @@ class TestCLIEffective:
         for name, value in knobs.items():
             monkeypatch.setenv(name, value)
         monkeypatch.setenv("GH_TOKEN", "not-a-rebrew-knob")
-        result = runner.invoke(cfg_app, ["effective", "--json"])
+        with pytest.warns(ConfigWarning, match=r"api_key is set but .*endpoint is empty"):
+            result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
         assert "s3cret" not in result.stdout
         assert cli_payload(result)["env_overrides"] == sorted(knobs)
@@ -2036,7 +2050,8 @@ class TestCLIEffective:
             + '\n[llm]\nendpoint = "https://toml.example/v1"\napi_key = "t0ml"\n',
         )
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["effective", "--json"])
+        with pytest.warns(ConfigWarning, match=r"\[llm\]\.api_key is set in rebrew-project\.toml"):
+            result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
         payload = cli_payload(result)
         assert payload["config"]["llm_endpoint"] == "https://toml.example/v1"
@@ -2072,7 +2087,7 @@ class TestConfigWriteLock:
         """
         import threading
 
-        from rebrew import cfg as cfg_mod
+        from rebrew.binary import cfg as cfg_mod
 
         _make_project(tmp_path, SAMPLE_TOML)
         monkeypatch.chdir(tmp_path)
@@ -2133,7 +2148,7 @@ class TestConfigWriteLock:
         """Static check: each cfg writer's body is inside project_toml_lock."""
         import inspect
 
-        from rebrew import cfg as cfg_mod
+        from rebrew.binary import cfg as cfg_mod
 
         for name in (
             "add_target",

@@ -588,8 +588,8 @@ def execute_data(
     bin_info: Any = None  # single lazy binary parse, shared with data dispatch
     if bin_path.exists():
         try:
+            from rebrew.binary.sections import sections_from_info
             from rebrew.formats.binary_loader import load_binary
-            from rebrew.sections import sections_from_info
 
             bin_info = load_binary(bin_path)
             sections = sections_from_info(bin_info)

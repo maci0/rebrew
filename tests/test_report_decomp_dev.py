@@ -52,7 +52,7 @@ class TestDecompDevReport:
             "iter_source_bindings",
             lambda sources, target=None, metadata_dir=None, project_root=None: [(src_file, annos)],
         )
-        monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1000)
+        monkeypatch.setattr("rebrew.binary.sections.get_text_section_size", lambda _p: 0x1000)
         monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: None)
         # No data sections → data measures stay 0 without erroring.
         monkeypatch.setattr(
@@ -280,7 +280,7 @@ class TestDecompDevDataMeasure:
                 (src_file, [_fake_ann(0x1000, 64, "f", "EXACT")])
             ],
         )
-        monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1000)
+        monkeypatch.setattr("rebrew.binary.sections.get_text_section_size", lambda _p: 0x1000)
         monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: None)
         # report.py imports load_binary inside the function, so patch the source.
         monkeypatch.setattr(

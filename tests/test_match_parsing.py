@@ -4,7 +4,7 @@ lazy from pathlib import Path
 
 from source_util import SourceFixture, write_source
 
-from rebrew.match_batch import (
+from rebrew.matching.batch import (
     find_all_stubs,
     find_near_miss,
     parse_matching_info,
@@ -104,7 +104,7 @@ class TestParseMatchingInfo:
         row through every delta filter and display a false perfect match.
         """
         from rebrew.limits import NO_DELTA
-        from rebrew.match_batch import parse_matching_all
+        from rebrew.matching.batch import parse_matching_all
 
         f = _write_stub(
             tmp_path,
@@ -187,7 +187,7 @@ class TestFindNearMiss:
 
 class TestUpdateCflagsAnnotation:
     def test_updates_cflags(self, tmp_path: Path) -> None:
-        from rebrew.match_batch import update_cflags_annotation
+        from rebrew.matching.batch import update_cflags_annotation
 
         f = _stub_file(tmp_path, status="STUB")
         assert update_cflags_annotation(f, "/O1") is True
@@ -195,12 +195,12 @@ class TestUpdateCflagsAnnotation:
         assert update_cflags_annotation(f, "/O1") is False
 
     def test_no_marker_returns_false(self, tmp_path: Path) -> None:
-        from rebrew.match_batch import update_cflags_annotation
+        from rebrew.matching.batch import update_cflags_annotation
 
         f = _write_stub(tmp_path, "plain.c", "int plain(void) { return 0; }\n")
         assert update_cflags_annotation(f, "/O1") is False
 
     def test_unreadable_returns_false(self, tmp_path: Path) -> None:
-        from rebrew.match_batch import update_cflags_annotation
+        from rebrew.matching.batch import update_cflags_annotation
 
         assert update_cflags_annotation(tmp_path / "missing.c", "/O1") is False

@@ -5,7 +5,7 @@ lazy from pathlib import Path
 
 from source_util import write_source
 
-from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
+from rebrew.matching.semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata.bindings import read_source_bindings, source_bindings
 
 

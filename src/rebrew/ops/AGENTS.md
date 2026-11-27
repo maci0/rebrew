@@ -6,13 +6,18 @@ Worker dispatch protocol (`rebrew ops call` / `rebrew ops serve`), typed request
 
 | Module | Role |
 |--------|------|
-| `__init__.py` | Worker config, op handlers, `dispatch`, HTTP transport, and CLI |
+| `__init__.py` | `Op`/`OPS`/`dispatch`, CLI entry points, and package re-exports |
+| `core.py` | Limits, refusal constants/helpers, `OpsError`, cancellation, and `WorkerConfig` |
+| `staging.py` | Filestore resolution, pinned URL downloads, workspace confinement, and snapshot staging |
+| `handlers_analysis.py` | Disassembly, analysis, reporting, metadata, and child-command ops |
+| `handlers_project.py` | Verification, build, candidate, data, and retained-snapshot ops |
+| `http.py` | HTTP transport (`OpsServer`, bearer auth, admission caps, metrics, progress streaming) |
 | `requests.py` | Frozen wire request dataclasses decoded via `msgspec` |
 | `replies.py` | Closed `TypedDict` reply contracts and JSON schema projection |
 | `named_snapshot.py` | Retained-source snapshot assembly and verification |
 | `snapshot_mutations.py` | Retained-source mutation operations |
 
-Externals (the only packages this one may import): `analysis`, `analyze`, `asm`, `buildsys.splat_config`, `c_parser`, `call_progress`, `cfg_ged`, `cli`, `compiler`, `compiler.compile`, `compiler.recompile_client`, `compiler.temp_dirs`, `compiler.toolchain`, `config`, `coverage.input_contract`, `coverage.project`, `coverage.report`, `coverage.toml`, `crypto_scan`, `decompiler`, `describe`, `discover`, `errors`, `fingerprints`, `flirt`, `formats.archives`, `formats.binary_loader`, `formats.binary_model`, `formats.import_table`, `formats.relocations`, `gen_flirt_pat`, `ghidra`, `identify_library`, `imports`, `instruction_diff`, `matcher.scoring`, `metadata.anchors`, `metadata.bindings`, `metadata.functions`, `metadata.replication`, `metadata.sqlite`, `metadata.storage`, `metadata_sets`, `metadata_transfer`, `name_decomp`, `naming`, `pe_info`, `project_archive`, `security_scan`, `skeleton`, `source.c_rename`, `source.discovery`, `source.rename_ops`, `strings`, `struct_recover`, `telemetry`, `toolchain_detect`, `utils`, `verify.cache`, `verify.test`, `workspace`, `xrefs`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
+Externals (the only packages this one may import): `binary.analysis`, `binary.analyze`, `binary.asm`, `binary.cfg_ged`, `binary.crypto_scan`, `binary.describe`, `binary.discover`, `binary.fingerprints`, `binary.imports`, `binary.pe_info`, `binary.strings`, `binary.xrefs`, `buildsys.splat_config`, `c_syntax.name_decomp`, `c_syntax.parser`, `c_syntax.struct_recover`, `call_progress`, `cli`, `compare.instruction_diff`, `compiler`, `compiler.compile`, `compiler.recompile_client`, `compiler.temp_dirs`, `compiler.toolchain`, `config`, `coverage.input_contract`, `coverage.project`, `coverage.report`, `coverage.toml`, `decompiler`, `errors`, `formats.archives`, `formats.binary_loader`, `formats.binary_model`, `formats.import_table`, `formats.relocations`, `ghidra`, `library.flirt`, `library.gen_flirt_pat`, `library.identify`, `matcher.scoring`, `metadata.anchors`, `metadata.bindings`, `metadata.functions`, `metadata.replication`, `metadata.sqlite`, `metadata.storage`, `metadata_sets`, `metadata_transfer`, `naming`, `project_archive`, `security_scan`, `skeleton`, `source.c_rename`, `source.discovery`, `source.rename_ops`, `telemetry`, `toolchain_detect`, `utils`, `verify.cache`, `verify.test`, `workspace`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 

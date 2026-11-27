@@ -1,4 +1,4 @@
-"""Tests for rebrew.gen_flirt_pat — archive parsing and PAT line generation."""
+"""Tests for rebrew.library.gen_flirt_pat — archive parsing and PAT line generation."""
 
 import struct
 from types import SimpleNamespace
@@ -10,7 +10,12 @@ from cli_json import cli_payload
 from hypothesis import strategies as st
 
 from rebrew.compiler.toolchain_paths import toolchains_repo
-from rebrew.gen_flirt_pat import ObjectFunction, _crc16_flirt, bytes_to_pat_line, parse_archive
+from rebrew.library.gen_flirt_pat import (
+    ObjectFunction,
+    _crc16_flirt,
+    bytes_to_pat_line,
+    parse_archive,
+)
 
 #: MSVC 6.0's multithreaded static CRT, where the recompile-toolchains checkout
 #: (REBREW_TOOLCHAINS_DIR) vendors the compiler.
@@ -300,14 +305,14 @@ class TestElfFixupWidth:
         return SimpleNamespace(type=type_name, size=size_bits)
 
     def test_sane_size_wins(self) -> None:
-        from rebrew.gen_flirt_pat import _elf_fixup_width
+        from rebrew.library.gen_flirt_pat import _elf_fixup_width
 
         # 32 bits -> 4 bytes, the ordinary ELF case.
         assert _elf_fixup_width(self._reloc("RISCV_32", 32)) == 4
         assert _elf_fixup_width(self._reloc("X86_64_RELATIVE", 64)) == 8
 
     def test_riscv_branch_size_minus_one_masks_the_word(self) -> None:
-        from rebrew.gen_flirt_pat import _elf_fixup_width
+        from rebrew.library.gen_flirt_pat import _elf_fixup_width
 
         # LIEF reports size == -1 (2**64-1) for every RISC-V relocation; masking
         # one byte left three bytes of a link-time immediate in the pattern.
@@ -317,7 +322,7 @@ class TestElfFixupWidth:
         assert _elf_fixup_width(self._reloc("RISCV_RVC_JUMP", minus_one)) == 2
 
     def test_unknown_type_falls_back_to_the_instruction_word(self) -> None:
-        from rebrew.gen_flirt_pat import _elf_fixup_width
+        from rebrew.library.gen_flirt_pat import _elf_fixup_width
 
         assert _elf_fixup_width(self._reloc("SOMETHING_NEW", 0)) == 4
 
@@ -483,7 +488,7 @@ class TestGenFlirtPatCli:
         lib = tmp_path / "msvcrt.lib"
         lib.write_bytes(b"fake")
         monkeypatch.setattr(
-            "rebrew.gen_flirt_pat.parse_archive",
+            "rebrew.library.gen_flirt_pat.parse_archive",
             lambda p: members if members is not None else [],
         )
 
@@ -492,16 +497,16 @@ class TestGenFlirtPatCli:
                 raise ValueError("corrupt")
             yield ObjectFunction("_my_func", b"\x55\x8b\xec\x5d\xc3", {1, 2}, {}, {})
 
-        monkeypatch.setattr("rebrew.gen_flirt_pat.parse_coff_obj", _parse_coff)
+        monkeypatch.setattr("rebrew.library.gen_flirt_pat.parse_coff_obj", _parse_coff)
         monkeypatch.setattr(
-            "rebrew.gen_flirt_pat.bytes_to_pat_line",
+            "rebrew.library.gen_flirt_pat.bytes_to_pat_line",
             lambda name, code, relocs, labels: f"LEAD {name}",
         )
 
     def test_missing_lib_errors(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.gen_flirt_pat import app
+        from rebrew.library.gen_flirt_pat import app
 
         result = CliRunner().invoke(app, ["--json", str(tmp_path / "nope.lib")])
         assert result.exit_code != 0
@@ -511,7 +516,7 @@ class TestGenFlirtPatCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.gen_flirt_pat import app
+        from rebrew.library.gen_flirt_pat import app
 
         self._patch(monkeypatch, tmp_path, members=[("m1", b"data")])
         out = tmp_path / "out.pat"
@@ -530,7 +535,7 @@ class TestGenFlirtPatCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.gen_flirt_pat import app
+        from rebrew.library.gen_flirt_pat import app
 
         self._patch(monkeypatch, tmp_path, members=[("m1", b"data")], raise_parse=True)
         out = tmp_path / "out.pat"
@@ -547,7 +552,7 @@ class TestGenFlirtPatCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.gen_flirt_pat import app
+        from rebrew.library.gen_flirt_pat import app
 
         self._patch(monkeypatch, tmp_path, members=[("m1", b"data")], raise_parse=True)
         out = tmp_path / "out.pat"
@@ -563,7 +568,7 @@ class TestParseCoffObjReal:
     """parse_coff_obj against hand-rolled COFF objects (no MSVC needed)."""
 
     def test_basic_yield_with_reloc(self) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"\x90\x90\xa1\x00\x00\x00\x00\xc3"
         blob = make_coff_obj(code, relocs=[(2, 0x0006, "_extern_var")])
@@ -578,7 +583,7 @@ class TestParseCoffObjReal:
         assert 6 not in relocs
 
     def test_multiple_relocs_and_long_name(self) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         blob = make_coff_obj(
             b"\xe8\x00\x00\x00\x00\xa1\x00\x00\x00\x00\xc3",
@@ -598,7 +603,7 @@ class TestParseCoffObjReal:
     def test_symbol_boundaries_belong_to_section_indices(
         self, same_name: bool, second_start: int
     ) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         first = b"12345678"
         second = b"abcdefghijklmnop"
@@ -620,7 +625,7 @@ class TestParseCoffObjReal:
 
     @pytest.mark.parametrize("machine", [0x14C, 0x8664, 0x1C4])
     def test_absolute_padding_relocations_mask_no_bytes(self, machine: int) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"12345678"
         obj = bytearray(make_coff_obj(code, relocs=[(1, 0, "_unused")]))
@@ -645,7 +650,7 @@ class TestParseCoffObjReal:
         ],
     )
     def test_amd64_relocations_mask_the_declared_width(self, kind: int, width: int) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"0123456789abcdef"
         obj = bytearray(make_coff_obj(code, relocs=[(2, kind, "_external")]))
@@ -656,7 +661,7 @@ class TestParseCoffObjReal:
 
     @pytest.mark.parametrize("machine,kind", [(0x14C, 0x0D), (0x8664, 0x0C)])
     def test_secrel7_masks_only_one_byte(self, machine: int, kind: int) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"12345678"
         obj = bytearray(make_coff_obj(code, relocs=[(2, kind, "_external")]))
@@ -668,7 +673,7 @@ class TestParseCoffObjReal:
         _parse_cmdline STATIC, so they never reach the archive symbol index.
         Yielding only EXTERNAL symbols silently drops them from signatures and
         makes callers conclude the function is absent from the library."""
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         # _myfunc (EXTERNAL) at 0, a STATIC helper at 4.
         blob = make_coff_obj(
@@ -682,7 +687,7 @@ class TestParseCoffObjReal:
     def test_section_symbols_not_yielded_as_functions(self) -> None:
         """Section symbols (".text") share STORAGE_CLASS.STATIC and alias the
         first real function; they must not shadow its name."""
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         blob = make_coff_obj(b"\x90\x90\x90\xc3", section_symbols=[(".text", 0)])
         names = {row.name for row in parse_coff_obj(blob)}
@@ -690,13 +695,13 @@ class TestParseCoffObjReal:
         assert "_myfunc" in names
 
     def test_non_code_section_skipped(self) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         blob = make_coff_obj(b"\x00" * 8, section_chars=0x40000040)  # DATA|READ
         assert list(parse_coff_obj(blob)) == []
 
     def test_short_function_yielded_with_padding(self) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         # parse_coff_obj yields whatever the section holds (4-byte aligned);
         # the <4-byte filter lives in the gen_flirt_pat main loop.
@@ -708,7 +713,7 @@ class TestParseCoffObjReal:
     def test_labels_of_an_assembly_routine_stay_inside_it(self) -> None:
         """A hand-written routine whose internal labels are marked as functions
         (MSVC's memcpy.obj) is one function; its labels keep their names."""
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         blob = make_coff_obj(
             _ASM_ROUTINE,
@@ -743,7 +748,7 @@ class TestParseCoffObjReal:
 
     def test_address_taken_static_function_stays_a_function(self) -> None:
         """``push offset _cb`` takes an address; it does not reach the code."""
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"\x68\x00\x00\x00\x00\xc3" + b"\x40\x40\x40\xc3"
         blob = make_coff_obj(code, section_symbols=[("_cb", 6)], label_relocs=[(1, 6, 6)])
@@ -754,7 +759,7 @@ class TestParseCoffObjReal:
 
     def test_fall_through_label_is_inside(self) -> None:
         """A STATIC symbol the code before it runs into is a label of that code."""
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"\x40\x40\x40\x40" + b"\x48\x48\x48\xc3"
         blob = make_coff_obj(code, section_symbols=[("_loop", 4)])
@@ -766,7 +771,7 @@ class TestParseCoffObjReal:
         """``.bf``/``.lf``/``.ef`` (COFF line numbers, MFC's NAFXCW.LIB) are no
         boundary: ``.lf`` at offset 1 cut a 6-byte function to 1 byte, so it
         was dropped."""
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"\xb8\x00\x00\x00\x00\xc3"
         blob = make_coff_obj(code, section_symbols=[(".bf", 0), (".lf", 1), (".ef", 6)])
@@ -775,7 +780,7 @@ class TestParseCoffObjReal:
         ]
 
     def test_other_machines_keep_every_symbol(self) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"\x40\x40\x40\x40" + b"\x48\x48\x48\xc3"
         obj = bytearray(make_coff_obj(code, section_symbols=[("_loop", 4)]))
@@ -784,7 +789,7 @@ class TestParseCoffObjReal:
 
     @pytest.mark.skipif(not _VC98_LIBCMT.is_file(), reason=f"{_VC98_LIBCMT} not on this machine")
     def test_msvc6_memcpy_is_one_function(self) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         [obj] = [o for n, o in parse_archive(str(_VC98_LIBCMT)) if n.endswith("\\memcpy.obj")]
         [row] = parse_coff_obj(obj)
@@ -798,7 +803,7 @@ class TestParseCoffObjReal:
         """Every truncation of the routine's object, and every symbol-table
         byte set to 0x00/0x7F/0xFF, parses or is refused (ValueError), and
         each row's relocations and labels stay inside its code."""
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         blob = make_coff_obj(
             _ASM_ROUTINE,
@@ -825,12 +830,12 @@ class TestParseCoffObjReal:
                 assert all(0 < at < len(row.code) for at in row.labels)
 
     def test_tiny_blob_returns_nothing(self) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         assert list(parse_coff_obj(b"\x00" * 10)) == []
 
     def test_function_at_nonzero_offset(self) -> None:
-        from rebrew.gen_flirt_pat import parse_coff_obj
+        from rebrew.library.gen_flirt_pat import parse_coff_obj
 
         code = b"\x90" * 4 + b"\x55\x8b\xec\x5d\xc3"  # 4 bytes padding then the func
         blob = make_coff_obj(code, func_value=4)
@@ -850,8 +855,8 @@ class TestGenFlirtPatEndToEnd:
         import flirt
         from typer.testing import CliRunner
 
-        from rebrew.flirt import match_text
-        from rebrew.gen_flirt_pat import app
+        from rebrew.library.flirt import match_text
+        from rebrew.library.gen_flirt_pat import app
 
         obj = make_coff_obj(
             _ASM_ROUTINE,
@@ -882,7 +887,7 @@ class TestGenFlirtPatEndToEnd:
 
         from typer.testing import CliRunner
 
-        from rebrew.gen_flirt_pat import app
+        from rebrew.library.gen_flirt_pat import app
 
         code = bytes(range(40))  # 32-byte lead + CRC-protected tail
         obj = make_coff_obj(code, relocs=[(6, 0x0006, "_extern_data")])
@@ -908,7 +913,7 @@ class TestGenFlirtPatEndToEnd:
 
         from typer.testing import CliRunner
 
-        from rebrew.gen_flirt_pat import app
+        from rebrew.library.gen_flirt_pat import app
 
         code = bytes(range(40))
         obj = make_coff_obj(code, func_symbol="")
@@ -928,19 +933,19 @@ class TestWeakSignatureFilter:
     false-positive generators and must be dropped at generation time."""
 
     def test_weak_when_no_crc_and_few_literals(self) -> None:
-        from rebrew.gen_flirt_pat import is_weak_signature
+        from rebrew.library.gen_flirt_pat import is_weak_signature
 
         line = "558BEC83EC0000 00 0000 0008 :0000 _weak"
         assert is_weak_signature(line) is True
 
     def test_strong_when_no_crc_but_many_literals(self) -> None:
-        from rebrew.gen_flirt_pat import is_weak_signature
+        from rebrew.library.gen_flirt_pat import is_weak_signature
 
         line = "558BEC83EC00FF742408E8........5959C300000000 00 0000 0016 :0000 _ok"
         assert is_weak_signature(line) is False
 
     def test_strong_when_crc_present(self) -> None:
-        from rebrew.gen_flirt_pat import is_weak_signature
+        from rebrew.library.gen_flirt_pat import is_weak_signature
 
         # crc_len != 00 → the CRC protects the tail regardless of lead size.
         line = "558BEC83EC0000 08 1234 0010 :0000 _protected"
@@ -954,11 +959,13 @@ class TestWeakSignatureCli:
 
         from typer.testing import CliRunner
 
-        from rebrew.gen_flirt_pat import app
+        from rebrew.library.gen_flirt_pat import app
 
         lib = tmp_path / "msvcrt.lib"
         lib.write_bytes(b"fake")
-        monkeypatch.setattr("rebrew.gen_flirt_pat.parse_archive", lambda p: [("m1", b"data")])
+        monkeypatch.setattr(
+            "rebrew.library.gen_flirt_pat.parse_archive", lambda p: [("m1", b"data")]
+        )
 
         def _parse_coff(obj):
             # Weak: 7-byte prolog-only function → crc_len 0, 7 literal bytes.
@@ -966,7 +973,7 @@ class TestWeakSignatureCli:
             # Strong: 40 bytes, tail reloc → crc_len 0 but 32 literal lead bytes.
             yield ObjectFunction("_strong_fn", bytes(range(40)), {32}, {}, {})
 
-        monkeypatch.setattr("rebrew.gen_flirt_pat.parse_coff_obj", _parse_coff)
+        monkeypatch.setattr("rebrew.library.gen_flirt_pat.parse_coff_obj", _parse_coff)
         out = tmp_path / "out.pat"
         result = CliRunner().invoke(app, ["--json", "-o", str(out), str(lib)])
         assert result.exit_code == 0
@@ -983,13 +990,13 @@ class TestWeakSignatureBoundary:
     almost nothing."""
 
     def test_tiny_crc_window_weak(self) -> None:
-        from rebrew.gen_flirt_pat import is_weak_signature
+        from rebrew.library.gen_flirt_pat import is_weak_signature
 
         line = "558BEC83EC00 01 1234 0008 :0000 _w"
         assert is_weak_signature(line) is True
 
     def test_crc_window_of_8_strong(self) -> None:
-        from rebrew.gen_flirt_pat import is_weak_signature
+        from rebrew.library.gen_flirt_pat import is_weak_signature
 
         line = "558BEC83EC00 08 1234 000F :0000 _ok"
         assert is_weak_signature(line) is False
@@ -1052,7 +1059,7 @@ class TestAlternativeImplementations:
     def test_both_implementations_are_emitted(self, tmp_path: Path) -> None:
         import subprocess
 
-        from rebrew.gen_flirt_pat import generate_pat
+        from rebrew.library.gen_flirt_pat import generate_pat
 
         lib = tmp_path / "libdup.a"
         for tag, body in (("a", "return n + 1;"), ("b", "return n * 3 - 7;")):
@@ -1086,7 +1093,7 @@ class TestAlternativeImplementations:
 class TestParseElfObjReal:
     @pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
     def test_yields_functions_with_relocs(self, tmp_path: Path) -> None:
-        from rebrew.gen_flirt_pat import parse_elf_obj
+        from rebrew.library.gen_flirt_pat import parse_elf_obj
 
         obj_data = _compile_elf_object(tmp_path).read_bytes()
         results = {f.name: (f.code, f.relocations) for f in parse_elf_obj(obj_data)}
@@ -1103,7 +1110,7 @@ class TestParseElfObjReal:
     def test_generate_pat_elf_archive(self, tmp_path: Path) -> None:
         import subprocess
 
-        from rebrew.gen_flirt_pat import generate_pat
+        from rebrew.library.gen_flirt_pat import generate_pat
 
         obj = _compile_elf_object(tmp_path)
         lib = tmp_path / "libfixture.a"
@@ -1120,7 +1127,7 @@ class TestParseElfObjReal:
         """R_MIPS fixups mask the whole 4-byte instruction word."""
         import lief
 
-        from rebrew.gen_flirt_pat import parse_elf_obj
+        from rebrew.library.gen_flirt_pat import parse_elf_obj
 
         section = SimpleNamespace(flags=0x4, content=b"\x00\x00\x00\x00\x00\x00\x00\x00")
         sym = SimpleNamespace(
@@ -1152,7 +1159,7 @@ class TestParseElfObjReal:
     def test_non_mips_uses_reloc_size(self, monkeypatch) -> None:
         import lief
 
-        from rebrew.gen_flirt_pat import parse_elf_obj
+        from rebrew.library.gen_flirt_pat import parse_elf_obj
 
         section = SimpleNamespace(flags=0x4, content=b"\x00" * 16)
         sym = SimpleNamespace(
@@ -1178,7 +1185,7 @@ class TestParseElfObjReal:
 
 
 def test_coff_shared_string_suffix_name() -> None:
-    from rebrew.gen_flirt_pat import parse_coff_obj
+    from rebrew.library.gen_flirt_pat import parse_coff_obj
 
     blob = bytearray(make_coff_obj(b"\xff\x25\0\0\0\0", relocs=[(2, 6, "__imp__socket@12")]))
     offset, count = struct.unpack_from("<II", blob, 8)

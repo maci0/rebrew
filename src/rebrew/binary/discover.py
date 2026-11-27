@@ -1,0 +1,1356 @@
+"""rebrew binary functions — function enumeration for a target binary.
+
+Function discovery is the weak link in onboarding: rizin's ``aaa`` mis-merges
+functions on some toolchains (the MinGW GCC family) and ``aap`` misses
+frameless functions, and rizin sizes are frequently off by a few bytes.  This
+command chains several strategies and merges the best result:
+
+1. rizin ``aaa`` (full analysis)
+2. rizin ``aa; aap`` (function-prelude analysis)
+3. a capstone linear sweep over .text: function starts after padding runs,
+   ``push ebp; mov ebp, esp`` prologues, and direct-call targets
+4. unwind tables, which a stripped binary keeps: an ELF's ``.eh_frame``
+   records (every function, on a default x86-64 or AArch64 build) and an x64
+   PE's ``.pdata`` runtime functions (every non-leaf function), each an exact
+   start and size
+
+Candidates are merged by VA (dropping any that land inside a larger span) and
+each size is refined by disassembling to the first ``ret`` — the size that
+actually matches what a compiler emits (the "rizin said 34, real size 36"
+problem).
+
+Usage::
+
+    rebrew binary functions original/game.exe
+    rebrew binary functions game.exe --output src/game/function_structure.json
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+lazy import bisect
+lazy import re
+lazy import struct
+lazy import subprocess
+lazy from collections import Counter
+lazy from concurrent.futures import Future, ThreadPoolExecutor
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import (
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    option_default,
+    require_non_negative,
+    resolve_binary_arg,
+)
+lazy from rebrew.binary.analysis import direct_call_target, iter_instructions
+lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.import_table import IMPORT_THUNK_SIZE, find_import_stubs
+lazy from rebrew.utils import atomic_write_text, file_lock, read_json_text, run_process_group
+
+#: ``push bp/ebp; mov bp/ebp, sp/esp`` prologue bytes scanned for in the
+#: linear sweep (16-bit and 32-bit forms share the same opcode pair).
+_PROLOGUE_RE = re.compile(rb"\x55\x8b\xec")
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew binary functions mini.exe  # List functions, sizes validated\n\n"
+    "  # Write the inventory\n"
+    "  rebrew binary functions mini.exe --output src/game/function_structure.json\n\n"
+    "  # Machine-readable output\n"
+    "  rebrew binary functions mini.exe --min-size 32 --json\n\n"
+    "  # Page a large inventory\n"
+    "  rebrew binary functions mini.exe --limit 50 --offset 100 --json\n\n"
+    "  # Select JSON item fields\n"
+    "  rebrew binary functions mini.exe --json --fields va,name\n"
+)
+
+
+app = typer.Typer(
+    help="Enumerate functions: rizin aaa/aap + capstone sweep, sizes validated.",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+_FUNCTION_FIELDS = ("va", "size", "name")
+
+
+def _requested_function_fields(fields: str | None, *, json_mode: bool) -> list[str] | None:
+    """Validate a JSON field projection before resolving or scanning a binary."""
+    if fields is None:
+        return None
+    selected = [name.strip() for name in fields.split(",") if name.strip()]
+    unknown = sorted(set(selected) - set(_FUNCTION_FIELDS))
+    if unknown:
+        error_exit(
+            f"unknown --fields value(s): {', '.join(unknown)}; "
+            f"choose from: {', '.join(_FUNCTION_FIELDS)}",
+            json_mode=json_mode,
+            kind="usage",
+        )
+    return selected
+
+
+def _function_rows(
+    functions: list[tuple[int, int, str]], selected: list[str] | None
+) -> list[dict[str, Any]]:
+    """Render function records, optionally projecting only requested fields."""
+    rows = [{"va": f"0x{va:08x}", "size": size, "name": name} for va, size, name in functions]
+    if selected is None:
+        return rows
+    return [{name: row[name] for name in selected} for row in rows]
+
+
+#: setuptools entry-point group whose members register extra function
+#: discoverers.  A member is a callable ``fn(binary: Path) ->
+#: list[tuple[va, size, name]]`` keyed by its entry-point name — e.g. a
+#: Ghidra/rizin-alternative backend emitting the same triple shape
+#: ``discover --output`` writes.  An optional registry: a broken plugin is
+#: skipped with a warning instead of bricking discovery.
+DISCOVERER_ENTRY_POINT_GROUP = "rebrew.discoverers"
+
+#: A function discoverer: binary path in, ``[(va, size, name)]`` out.
+#: Empty list = nothing found (never None, never raises — providers that
+#: fail return [] so one broken backend cannot abort the merge).
+Discoverer = Callable[[Path], list[tuple[int, int, str]]]
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class Discovery:
+    """A merged function-discovery result."""
+
+    functions: list[tuple[int, int, str]] = field(default_factory=list)
+    sources: dict[str, int] = field(default_factory=dict)  # strategy -> count
+
+
+def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]]:
+    """Run rizin with *cmds* and parse ``afl`` output (3- or 4-column)."""
+    from rebrew.catalog import parse_rizin_afl
+
+    try:
+        # Group kill: rizin's analysis helpers must not outlive the timeout.
+        r = run_process_group(
+            ["rizin", "-q", "-c", "; ".join(cmds) + "; afl", str(binary)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300,
+        )
+    except OSError as exc:
+        logger.warning("rizin %s unavailable for %s: %s", cmds, binary, exc)
+        return []
+    except subprocess.TimeoutExpired:
+        logger.warning("rizin %s timed out after 300s on %s", cmds, binary)
+        return []
+    if r.returncode != 0:
+        logger.debug("rizin %s failed (rc=%d): %s", cmds, r.returncode, r.stderr[:500])
+        return []
+    return parse_rizin_afl(r.stdout)
+
+
+def _discover_rizin_aaa(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: rizin full analysis."""
+    return _rizin_functions(binary, ["aaa"])
+
+
+def _discover_rizin_aap(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: rizin function-prelude analysis."""
+    return _rizin_functions(binary, ["aa", "aap"])
+
+
+def _discover_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: capstone linear sweep (sizes unvalidated)."""
+    try:
+        return _capstone_sweep(binary)
+    except Exception as exc:
+        # A fallback source's absence must not be silent — without it,
+        # rizin-derived sizes go unvalidated.
+        logger.warning("capstone linear sweep failed (sizes unvalidated): %s", exc)
+        return []
+
+
+#: DW_EH_PE value formats (the encoding's low nibble) with a fixed width;
+#: ``absptr`` (0x00) is the target's pointer width and is added per call.
+_EH_PE_FORMATS = {0x02: "H", 0x03: "I", 0x04: "Q", 0x0A: "h", 0x0B: "i", 0x0C: "q"}
+_EH_PE_PCREL = 0x10
+_EH_PE_APPLICATION_MASK = 0x70
+_EH_PE_OMIT = 0xFF
+#: A record length of this value means a 64-bit length follows.
+_EH_EXTENDED_LENGTH = 0xFFFFFFFF
+
+
+#: A 64-bit ULEB128 is at most 10 bytes (7 payload bits each). A longer
+#: continuation is not a length this parser can place, and an unterminated
+#: run would otherwise build an arbitrary-width integer up to the section end.
+_ULEB128_MAX_BYTES = 10
+
+
+def _uleb128(data: bytes, pos: int) -> tuple[int, int]:
+    """``(value, next position)`` of the ULEB128 at *pos*.
+
+    IndexError when the encoding runs past *data*. ValueError when the
+    continuation bit is still set after 10 bytes.
+    """
+    value = shift = 0
+    for _ in range(_ULEB128_MAX_BYTES):
+        byte = data[pos]
+        pos += 1
+        value |= (byte & 0x7F) << shift
+        if byte & 0x80 == 0:
+            return value, pos
+        shift += 7
+    raise ValueError(f"ULEB128 longer than {_ULEB128_MAX_BYTES} bytes")
+
+
+def _parse_eh_frame(
+    data: bytes, section_va: int, *, pointer_size: int, big_endian: bool
+) -> list[tuple[int, int]]:
+    """``(start, size)`` of every FDE in the ``.eh_frame`` image *data* mapped at *section_va*.
+
+    Reads CIEs for their FDE pointer encoding (the ``zR`` augmentation) and
+    each FDE's initial location and address range.  Parsing stops at the zero
+    terminator or at the first malformed record, keeping what was read before
+    it; it never raises on bad input.  An FDE whose CIE was not seen, or whose
+    range is zero, is skipped.
+    """
+    order = ">" if big_endian else "<"
+    formats = {0x00: "Q" if pointer_size == 8 else "I", **_EH_PE_FORMATS}
+
+    def pointer(pos: int, encoding: int, *, pc_relative: bool = True) -> tuple[int, int]:
+        fmt = order + formats[encoding & 0x0F]
+        (value,) = struct.unpack_from(fmt, data, pos)
+        if pc_relative and encoding & _EH_PE_APPLICATION_MASK == _EH_PE_PCREL:
+            value += section_va + pos
+        return value, pos + struct.calcsize(fmt)
+
+    def fde_encoding(pos: int, end: int) -> int:
+        version = data[pos]
+        terminator = data.index(b"\0", pos + 1, end)
+        augmentation = data[pos + 1 : terminator]
+        pos = terminator + 1
+        if b"eh" in augmentation:  # pre-DWARF-2 GCC: an EH data pointer follows
+            pos += pointer_size
+        _code_align, pos = _uleb128(data, pos)
+        _data_align, pos = _uleb128(data, pos)  # SLEB128, but only skipped
+        pos = pos + 1 if version == 1 else _uleb128(data, pos)[1]
+        encoding = 0x00
+        if augmentation.startswith(b"z"):
+            _length, pos = _uleb128(data, pos)
+            for letter in augmentation[1:].decode("ascii"):
+                if letter == "R":
+                    encoding = data[pos]
+                    pos += 1
+                elif letter == "P":
+                    _personality, pos = pointer(pos + 1, data[pos])
+                elif letter == "L":
+                    pos += 1
+                elif letter not in "SB":
+                    break  # unknown letter: the rest of the data is unknown
+        return encoding
+
+    encodings: dict[int, int] = {}
+    extents: list[tuple[int, int]] = []
+    pos = 0
+    try:
+        while pos + 4 <= len(data):
+            (length,) = struct.unpack_from(order + "I", data, pos)
+            if length == 0:
+                break
+            body, id_format = pos + 4, "I"
+            if length == _EH_EXTENDED_LENGTH:
+                (length,) = struct.unpack_from(order + "Q", data, body)
+                body, id_format = body + 8, "Q"
+            end = body + length
+            if end > len(data):
+                break
+            (cie_id,) = struct.unpack_from(order + id_format, data, body)
+            fields = body + struct.calcsize(id_format)
+            if cie_id == 0:
+                encodings[pos] = fde_encoding(fields, end)
+            else:
+                encoding = encodings.get(body - cie_id)
+                if encoding is not None and encoding != _EH_PE_OMIT:
+                    start, fields = pointer(fields, encoding)
+                    size, _ = pointer(fields, encoding & 0x0F, pc_relative=False)
+                    if size > 0:
+                        extents.append((start, size))
+            pos = end
+    except struct.error, KeyError, ValueError, IndexError, UnicodeDecodeError:
+        logger.debug("malformed .eh_frame record at offset 0x%x; kept what came before", pos)
+    return extents
+
+
+def _discover_eh_frame(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: exact function extents from an ELF's ``.eh_frame``.
+
+    Only extents that start inside a code section are kept.  Empty for a
+    non-ELF binary or one without unwind records.
+    """
+    try:
+        info = load_binary(binary)
+    except (OSError, ValueError) as exc:
+        logger.warning("eh_frame discoverer: cannot load %s: %s", binary, exc)
+        return []
+    if info.format != "elf":
+        return []
+    section = next((s for s in info.sections.values() if s.name == ".eh_frame"), None)
+    if section is None or section.file_offset < 0 or section.raw_size <= 0:
+        return []
+    data = info.data[section.file_offset : section.file_offset + section.raw_size]
+    code = [(s.va, s.va + s.size) for s in info.sections.values() if s.is_code]
+    extents = _parse_eh_frame(
+        data,
+        section.va,
+        pointer_size=info.pointer_size,
+        big_endian=info.endian == "big",
+    )
+    return [
+        (va, size, f"fcn.{va:08x}")
+        for va, size in sorted(set(extents))
+        if any(lo <= va < hi for lo, hi in code)
+    ]
+
+
+def elf_function_symbols(binary: Path) -> list[tuple[int, int, str]]:
+    """Defined ELF function symbols in executable sections, excluding linkage stubs."""
+    import lief
+
+    from rebrew.formats.binary_loader import decode_binary_name
+
+    try:
+        info = load_binary(binary)
+        if info.format != "elf":
+            return []
+        elf = lief.ELF.parse(str(binary))
+        if elf is None:
+            return []
+        sections = [
+            s for s in info.sections.values() if s.is_code and not s.name.startswith(".plt")
+        ]
+        found: dict[int, tuple[int, str]] = {}
+        for symbol in elf.symbols:
+            va, size, name = int(symbol.value), int(symbol.size), decode_binary_name(symbol.name)
+            if symbol.type != lief.ELF.Symbol.TYPE.FUNC or not symbol.shndx or not name:
+                continue
+            if not any(
+                s.va <= va < s.va + s.size and (not size or va + size <= s.va + s.size)
+                for s in sections
+            ):
+                continue
+            previous = found.get(va)
+            if previous is None or (size > previous[0]):
+                found[va] = (size, name)
+        return [(va, size, name) for va, (size, name) in sorted(found.items())]
+    except OSError, ValueError, TypeError:
+        return []
+
+
+def _discover_pdata(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: exact function extents from an x64 PE's ``.pdata``.
+
+    A runtime function whose unwind info chains to another describes a
+    fragment of that function, not a start, and is skipped.  Empty for any
+    other binary.
+    """
+    import lief
+
+    config = lief.PE.ParserConfig()
+    config.parse_exceptions = True
+    try:
+        pe = lief.PE.parse(str(binary), config) if lief.is_pe(str(binary)) else None
+    except (OSError, ValueError) as exc:
+        logger.warning("pdata discoverer: cannot parse %s: %s", binary, exc)
+        return []
+    if pe is None:
+        return []
+    base = pe.optional_header.imagebase
+    out: list[tuple[int, int, str]] = []
+    for entry in pe.exceptions:
+        if not isinstance(entry, lief.PE.RuntimeFunctionX64):
+            continue
+        info = entry.unwind_info
+        if info is not None and info.chained is not None:
+            continue
+        size = entry.rva_end - entry.rva_start
+        if size > 0:
+            va = base + entry.rva_start
+            out.append((va, size, f"fcn.{va:08x}"))
+    return sorted(set(out))
+
+
+def _extent_contains(extents: list[tuple[int, int]]) -> Callable[[int], bool]:
+    """Whether a VA falls strictly inside a sorted ``(start, size)`` extent.
+
+    *extents* must be sorted by start. The greatest end among extents that
+    start strictly before the probe decides: checking only the latest such
+    start hides an outer function once a shorter extent nested inside it
+    has ended. Built once so each probe is a binary search.
+    """
+    starts = [start for start, _size in extents]
+    prefix_max_end = [0]
+    for start, size in extents:
+        prefix_max_end.append(max(prefix_max_end[-1], start + size))
+
+    def contains(va: int) -> bool:
+        index = bisect.bisect_left(starts, va)
+        return index > 0 and prefix_max_end[index] > va
+
+    return contains
+
+
+def _discover_ne_loader(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: 16-bit NE native loader (None unless NE)."""
+    from rebrew.formats.binary_loader import is_ne, load_binary
+    from rebrew.formats.ne_loader import enumerate_ne_functions
+
+    if not is_ne(binary):
+        return []
+    info = load_binary(binary)
+    return [(f.va, f.size, f.name) for f in enumerate_ne_functions(info)]
+
+
+def _discover_mz_sweep(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: 16-bit DOS MZ sweep (None unless MZ)."""
+    from rebrew.formats.binary_loader import is_mz
+
+    if not is_mz(binary):
+        return []
+    return sorted(_mz_capstone_sweep(binary))
+
+
+#: Packaged discoverers: name -> provider.  Plugins join via the
+#: ``rebrew.discoverers`` entry-point group (see :func:`discoverer_map`).
+_PACKAGED_DISCOVERERS: dict[str, Discoverer] = {
+    "rizin aaa": _discover_rizin_aaa,
+    "rizin aa;aap": _discover_rizin_aap,
+    "capstone sweep": _discover_capstone_sweep,
+    "eh_frame": _discover_eh_frame,
+    "elf symbols": elf_function_symbols,
+    "pdata": _discover_pdata,
+    "ne loader": _discover_ne_loader,
+    "mz sweep": _discover_mz_sweep,
+}
+
+
+def discoverer_map() -> dict[str, Discoverer]:
+    """Packaged discoverers + ``rebrew.discoverers`` entry-point plugins.
+
+    Merging order: packaged first, then plugins in discovery order.  A
+    broken or conflicting plugin is skipped with a warning (discovery
+    degrades to the packaged set) instead of bricking onboarding.
+    """
+    from rebrew.registry import RegistryError, iter_optional_callables, merge_into
+
+    merged: dict[str, Discoverer] = dict(_PACKAGED_DISCOVERERS)
+    for reg, discoverer in iter_optional_callables(
+        DISCOVERER_ENTRY_POINT_GROUP, logger, expected="discoverer"
+    ):
+        try:
+            merge_into(merged, reg.name, discoverer, reg.origin, group=reg.group)
+        except RegistryError as exc:
+            logger.warning("skipping %s registration %r: %s", reg.group, reg.name, exc)
+    return merged
+
+
+_DISCOVERERS_LOCK = threading.Lock()
+
+
+def refresh_discoverers() -> dict[str, Discoverer]:
+    """Re-run discovery and refresh the discoverer snapshot.
+
+    Long-lived processes can pick up discoverers installed after startup
+    without a restart."""
+    global _DISCOVERER_MAP
+
+    discovered = discoverer_map()
+    with _DISCOVERERS_LOCK:
+        _DISCOVERER_MAP = discovered
+    return dict(discovered)
+
+
+_DISCOVERER_MAP = discoverer_map()
+
+
+def _call_target_in_text(insn: Any, text_va: int, text_end: int) -> int | None:
+    """Immediate call target that lands inside ``[text_va, text_end)``."""
+    target = direct_call_target(insn.mnemonic, insn.op_str)
+    if target is None or not (text_va <= target < text_end):
+        return None
+    return target
+
+
+def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
+    """Linear-sweep candidates from .text: post-padding starts, frame prologues, call targets.
+
+    x86-32/64 uses the full heuristic set (int3/nop padding runs, ``push
+    ebp; mov ebp,esp`` prologues, ``e8 rel32`` call targets).  Other arches
+    (multi-arch P0) use a minimal sweep — the .text base plus direct call
+    targets (``bl``/``blx``, ``jal``, ``bsr``, including Capstone's ``#0x``
+    form) via the arch-aware disassembler — until arch-specific padding
+    and prologue patterns land with the first real target.
+    """
+    try:
+        info = load_binary(binary)
+    except (OSError, ValueError) as exc:
+        logger.warning("capstone sweep: cannot load %s: %s", binary, exc)
+        return []
+    text = next((s for s in info.sections.values() if s.name.lower() == ".text"), None)
+    if text is None:
+        return []
+    if text.size <= 0 or text.file_offset < 0:
+        return []
+    if text.file_offset + text.size > len(info.data):
+        return []
+    data = info.data
+    raw = data[text.file_offset : text.file_offset + text.size]
+    va_base = text.va
+
+    arch = getattr(info, "arch", "") or ""
+    if arch and not arch.startswith("x86"):
+        # Minimal non-x86 sweep: .text base + direct call targets.
+        nstarts: set[int] = {va_base}
+        text_end = text.va + text.size
+        for insn in iter_instructions(info, text.va, text.size):
+            target = _call_target_in_text(insn, text.va, text_end)
+            if target is not None:
+                nstarts.add(target)
+        return [(va, 0, f"fcn.{va:08x}") for va in sorted(nstarts)]
+
+    starts: set[int] = set()
+    # 1. the .text base is always a candidate
+    starts.add(va_base)
+    # 2. bytes after padding runs (int3 / nop alignment, documented
+    # multi-byte NOP forms only — never a bare 0x0F, which is a real opcode)
+    i = 0
+    n = len(raw)
+    while i < n - 1:
+        b = raw[i]
+        if b in (0xCC, 0x90):
+            j = i
+            while j < n:
+                if raw[j] in (0xCC, 0x90):
+                    j += 1
+                    continue
+                nop_len = _multibyte_nop_len(raw, j) if raw[j] in (0x0F, 0x66) else 0
+                if nop_len:
+                    j += nop_len
+                    continue
+                break
+            # a padding run of >= 3 bytes: the byte after it starts a function.
+            if j - i >= 3 and j < n:
+                starts.add(va_base + j)
+            i = j
+        else:
+            i += 1
+    # 3. `push ebp; mov ebp, esp` prologue
+    for m in _PROLOGUE_RE.finditer(raw):
+        starts.add(va_base + m.start())
+    # 4. direct-call targets (e8 rel32) via capstone
+    text_end = text.va + text.size
+    for insn in iter_instructions(info, text.va, text.size):
+        target = _call_target_in_text(insn, text.va, text_end)
+        if target is not None:
+            starts.add(target)
+
+    funcs: list[tuple[int, int, str]] = []
+    for va in sorted(starts):
+        funcs.append((va, 0, f"fcn.{va:08x}"))
+    return funcs
+
+
+_PAD = {0xCC, 0x90}
+
+_MULTIBYTE_NOP_PREFIXES = frozenset({(0x0F, 0x1F), (0x0F, 0x0D), (0x66, 0x90), (0x66, 0x0F)})
+
+
+def _multibyte_nop_len(raw: bytes | bytearray, i: int) -> int:
+    """Length of the multi-byte NOP at ``raw[i:]`` via Capstone, or 0.
+
+    Rejects register-direct ``mod == 0b11`` encodings (not documented padding).
+    """
+    n = len(raw)
+    if i + 1 >= n or (raw[i], raw[i + 1]) not in _MULTIBYTE_NOP_PREFIXES:
+        return 0
+    if raw[i] == 0x66 and raw[i + 1] == 0x90:
+        return 2
+    if i + 2 >= n or (raw[i + 2] >> 6) == 0b11:
+        return 0
+    import capstone
+
+    from rebrew.binary.analysis import capstone_handle
+
+    md = capstone_handle(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    chunk = bytes(raw[i : min(n, i + 15)])
+    for insn in md.disasm(chunk, 0, count=1):
+        if insn.mnemonic in ("nop", "prefetchw", "prefetch"):
+            return int(insn.size)
+        return 0
+    return 0
+
+
+def _is_padding(info: Any, va: int, end: int) -> bool:
+    """True when [va, end) disassembles to nothing but padding bytes."""
+    from rebrew.binary.analysis import extract_bytes
+
+    try:
+        raw = extract_bytes(info, va, end - va)
+    except Exception as exc:
+        # Same hazard as `_function_start`: "could not read" and
+        # "not padding" are different facts and this returns False for both, so a
+        # systematic read failure is indistinguishable from "no padding found".
+        # Reported once per run rather than at DEBUG.
+        _report_prologue_read_failed(
+            "could not read %d bytes at 0x%x for a padding test (%s); "
+            "failures here are treated as 'not padding', so a systematic "
+            "read problem looks like a missing boundary",
+            end - va,
+            va,
+            exc,
+        )
+        return False
+    i = 0
+    while i < len(raw):
+        b = raw[i]
+        if b in _PAD:
+            i += 1
+            continue
+        if b in (0x0F, 0x66) and i + 1 < len(raw):
+            nop_len = _multibyte_nop_len(raw, i)
+            if nop_len:
+                i += nop_len
+                continue
+        return False
+    return True
+
+
+#: Set once, the first time a prologue test cannot read the binary at all.  Round
+#: 193 shipped a version of this function that called a method the loader does not
+#: have; the `except` turned every call into `False`, the fix compiled, ran, and
+#: changed nothing, and nothing said so.  A read failure is not "not a prologue",
+#: so it is reported once per run rather than logged at DEBUG and forgotten.
+#: Guarded by ``_prologue_lock``: the check-then-set is not atomic, so two
+#: capstone-sweep workers can both see False and both warn (or one reads a
+#: torn flag) without it.
+_prologue_read_failed = False
+_prologue_lock = threading.Lock()
+
+
+def _report_prologue_read_failed(message: str, *args: object) -> None:
+    """Warn once per process that a prologue/padding read failed."""
+    global _prologue_read_failed
+    with _prologue_lock:
+        if _prologue_read_failed:
+            return
+        _prologue_read_failed = True
+    logger.warning(message, *args)
+
+
+def _function_start(info: Any, va: int) -> int | None:
+    """Return the prologue VA after optional nop padding, or None.
+
+    The second way a function ends, alongside trailing padding: the next
+    function begins.  A compiler prologue is `push ebp; mov ebp, esp`,
+    `sub esp, imm`, or the SEH form `push -1; push <handler>`, and MSVC pads
+    the join with `nop` (or `int3`, which it uses between functions in a
+    code segment).  Deliberately narrow: a false positive truncates a real
+    function, so anything that is not one of those exact shapes returns None
+    and the caller keeps the conservative gap.
+    """
+    from rebrew.binary.analysis import extract_bytes
+
+    try:
+        window = extract_bytes(info, va, 16)
+    except Exception as exc:
+        _report_prologue_read_failed(
+            "could not read 16 bytes at 0x%x for a prologue test (%s); "
+            "every such failure is treated as 'not a prologue', so a "
+            "systematic read problem looks exactly like 'no boundaries "
+            "found' -- which is how a fix that did nothing once shipped",
+            va,
+            exc,
+        )
+        return None
+    if not window:
+        return None
+    i = 0
+    while i < len(window) and window[i] in (0x90, 0xCC):
+        i += 1
+    body = window[i:]
+    # Prologue shapes a function can open with. `verify._looks_like_inventory_merge`
+    # repeats this list for raw bytes with no loader handle; keep the two in step
+    # so they agree about the same bytes.
+    if body.startswith(
+        (
+            b"\x55\x8b\xec",  # push ebp; mov ebp, esp
+            b"\x81\xec",  # sub esp, imm32
+            b"\x83\xec",  # sub esp, imm8
+            b"\x6a\xff\x68",  # push -1; push <seh handler>
+            b"\x64\xa1\x00\x00\x00\x00",  # mov eax, fs:[0]
+            # `mov eax, [<absolute global>]` -- the `a1` form.  MSVC 6 opens a
+            # function with it whenever the body's first use is a global, and it
+            # is how guild-rebrew's cm_ExModifyStat boundary looks: `90 a1 6c0b03
+            # 10 53 56 8b 74 24 0c`.  Narrow on purpose -- it is only consulted
+            # directly after a `ret`, where the alternative reading is "the
+            # function simply ended and the next one is elsewhere".
+            b"\xa1",
+            # `mov eax, dword ptr [esp+4]` -- MSVC loads the first stack
+            # argument there, and a function whose first act is to read its
+            # parameter opens with it: cm_ExSetAttribute, cm_ExCreateCitizen,
+            # cm_ChkSetGebBesitzer and cm_DispatchProduction all do.  Like `a1` it
+            # is only consulted right after a `ret`, which is what keeps a
+            # mid-function instance harmless.
+            b"\x8b\x44\x24\x04",
+            b"\x8b\x4c\x24\x04",
+        )
+    ):
+        return va + i
+    # `mov eax, imm32` -- a function that is nothing but `return <constant>`
+    # compiles to exactly that and a `ret`: guild-rebrew's cm_MarkAndReturn
+    # boundary is `b8 01 00 00 00 c3` at 0x1000d340, four bytes into the
+    # inventory entry the annotation ends at.  Narrower than `b8` alone: the
+    # immediate must be followed by a `ret`, which a mid-function `mov eax,
+    # <something>` almost never is.
+    if len(body) >= 6 and body[0] == 0xB8 and body[5] == 0xC3:
+        return va + i
+    # `push <reg>` then the SAME register loaded from `[esp+disp]` -- MSVC's
+    # opening for a function that saves a callee-saved register and then takes
+    # its first argument, e.g. cm_ExSetAttribute's `57 8b7c2408` (push edi; mov
+    # edi, [esp+8]).  Generated rather than listed because the register varies;
+    # the SIB byte 0x24 is what makes it `[esp+disp]`.
+    if (
+        len(body) >= 4
+        and 0x50 <= body[0] <= 0x57  # push eax..edi
+        and body[1] == 0x8B  # mov r32, r/m32
+        and body[3] == 0x24  # SIB: [esp+disp8]
+        and (body[2] & 0xC0) == 0x40  # mod=01 -> [esp+disp8]
+        and (body[2] & 0x07) == 0x04  # rm=100 -> SIB follows
+        and ((body[2] >> 3) & 7) == (body[0] - 0x50)  # same register
+    ):
+        return va + i
+    return None
+
+
+#: The version of the discovery rule: which function starts, extents and kinds
+#: :func:`discover_functions` and the coverage grid produce.  Bump it in every
+#: change that moves a start, an extent or a kind of any binary's functions;
+#: ``rebrew.analyse`` stamps each analysis with it and ``rebrew.vocabulary``
+#: answers the current one, so a client can tell an analysis made under an
+#: older rule (docs/CLI.md, "Discovery rule").
+DISCOVERY_RULE = 1
+
+#: Bytes decoded past a function start that has no known successor.
+_UNBOUNDED_WINDOW = 0x400
+
+
+def _code_limit(info: Any, va: int) -> int | None:
+    """Where the code that holds a function starting at *va* ends, or None when unknown.
+
+    The end of its section's file bytes, or the start of the first PE data
+    directory the header declares after *va* in that section (Win2k notepad's
+    import directory follows its last import thunk inside ``.text``),
+    whichever comes first.  None when no section holds *va*.
+    """
+    for section in getattr(info, "sections", {}).values():
+        sizes = [size for size in (section.size, section.raw_size) if size > 0]
+        end: int = section.va + min(sizes) if sizes else section.va
+        if section.va <= va < end:
+            starts: list[int] = [
+                d.va for d in getattr(info, "data_directories", ()) if va < d.va < end
+            ]
+            return min([end, *starts])
+    return None
+
+
+def _inside_data_directory(info: Any, va: int) -> bool:
+    """True when *va* lies inside a PE data directory the header declares."""
+    return any(d.va <= va < d.va + d.size for d in getattr(info, "data_directories", ()))
+
+
+def _validate_and_refine(
+    info: Any,
+    funcs: list[tuple[int, int, str]],
+    *,
+    vouched: frozenset[int] = frozenset(),
+    thunks: frozenset[int] = frozenset(),
+) -> list[tuple[int, int, str]]:
+    """Drop candidates that are inside another function's span; size = gap, trimmed of padding.
+
+    A start in *vouched* (one an unwind record names) is never dropped: code
+    that ends in a call to a noreturn function runs straight into the next
+    function with no ``ret``.  A start in *thunks* (an import thunk, ``jmp
+    [iat slot]``) ends the function before it and is never returned: it is
+    an import, not a function, whatever bytes follow it.
+
+    A candidate is a *real* function start when the previous function's code
+    reaches a ``ret`` followed by padding before the candidate.  If the code
+    runs straight into the candidate with no ret+padding boundary, the
+    candidate is a false positive (a call target inside the previous
+    function).  Sizes are the gap to the next validated start, minus trailing
+    padding — the size a compiler actually emits.  No extent runs past
+    :func:`_code_limit`, and no candidate inside a declared PE data directory
+    is a function; a function with no successor before that limit ends at its
+    first ``ret``, and has size 0 (unknown) without one.
+    """
+    funcs = sorted(
+        [
+            *(f for f in funcs if not _inside_data_directory(info, f[0])),
+            *((va, IMPORT_THUNK_SIZE, "") for va in thunks),
+        ],
+        key=lambda f: f[0],
+    )
+    vouched |= thunks
+    starts = Counter(f[0] for f in funcs)
+    out: list[tuple[int, int, str]] = []
+    i = 0
+    while i < len(funcs):
+        va, _s, name = funcs[i]
+        if va in thunks:
+            i += 1
+            continue
+        nxt = funcs[i + 1][0] if i + 1 < len(funcs) else None
+        limit = _code_limit(info, va)
+        if nxt is not None and limit is not None and nxt > limit:
+            nxt = None
+        gap = (nxt - va) if nxt else None
+        window = gap or (_UNBOUNDED_WINDOW if limit is None else min(_UNBOUNDED_WINDOW, limit - va))
+
+        # Find the function's end within the gap.  The FIRST ret is not it when
+        # the function returns early and keeps going -- so the sweep records the
+        # first ret and, past it, the first ret that a real prologue follows.
+        # Only the second ends a function; treating the first as the end truncates
+        # every function with an early return, and treating the gap as the end
+        # swallows the next function.  `_looks_like_inventory_merge` in
+        # verify.py scans for the same openers, so the two agree on what a
+        # merge is.
+        ret_end = None
+        boundary_end = None
+        boundary_start = None
+        last_mnemonic = ""
+        decoded_end = va
+        try:
+            for insn in iter_instructions(info, va, window):
+                last_mnemonic = insn.mnemonic
+                decoded_end = insn.va + insn.size
+                if not insn.mnemonic.startswith("ret"):
+                    continue
+                if ret_end is None:
+                    ret_end = insn.va + insn.size - va
+                boundary_start = _function_start(info, insn.va + insn.size)
+                if boundary_start is not None:
+                    boundary_end = insn.va + insn.size - va
+                    break
+        except Exception:
+            # Disassembly failure at this candidate: ret_end stays None, so the
+            # size falls back to the raw gap. Log it — a mis-sized function in
+            # the catalog is otherwise indistinguishable from a correct one.
+            logger.debug(
+                "instruction sweep failed at candidate 0x%x (size = raw gap)", va, exc_info=True
+            )
+
+        # The window IS the gap (`iter_instructions(info, va, gap)`), so the old
+        # `insn.va >= nxt` test could never fire and the phantom candidate was
+        # never dropped.  The real signal is "the predecessor decoded to the
+        # candidate with no boundary": no ret, and nothing that legitimately ends
+        # a function without one (a tail-call `jmp`, int3/hlt/ud2 padding).  An
+        # empty decode stays conservative — nothing is dropped.
+        # Only code that decodes all the way to the candidate runs into it: a
+        # window cut short (the section's file bytes end first, as at the end of
+        # an ELF `.plt`) proves nothing.  A prefixed jump (`bnd jmp`, `notrack
+        # jmp`) is a tail jump, and `nop` is padding, like int3/hlt/ud2.
+        hit_nxt = (
+            ret_end is None
+            and gap is not None
+            and nxt is not None
+            and nxt not in vouched
+            and decoded_end >= nxt
+            and last_mnemonic != ""
+            and last_mnemonic.split()[-1] != "jmp"
+            and last_mnemonic not in ("int3", "hlt", "ud2", "nop")
+        )
+
+        if hit_nxt:
+            # code runs straight into the next candidate with no ret — that
+            # candidate is a false positive inside this function: drop it.
+            removed = funcs[i + 1][0]
+            starts[removed] -= 1
+            if not starts[removed]:
+                del starts[removed]
+            del funcs[i + 1]
+            continue
+
+        # A `ret` immediately followed by a real prologue ends the function just
+        # as surely as trailing padding does -- and it means the discoverers
+        # MISSED the function that starts there.  Recovered here, before the
+        # size is decided, so the new candidate takes part in the normal
+        # gap/size logic and the next iteration sizes it too.
+        if boundary_start is not None:
+            nxt_va = boundary_start
+            if nxt_va not in starts:
+                starts[nxt_va] += 1
+                funcs.insert(i + 1, (nxt_va, 0, f"fcn.{nxt_va:x}"))
+                logger.info(
+                    "discoverer missed a function at 0x%x (inside 0x%x); recovered "
+                    "from the ret-then-prologue boundary",
+                    nxt_va,
+                    va,
+                )
+
+        if ret_end is not None and gap is not None:
+            tail = gap - ret_end
+            # `ret_end` is the function's size only when what follows is padding.
+            # Without this, a candidate whose successor is far away keeps the
+            # whole gap as its size and swallows every function in between --
+            # guild-rebrew's inventory held 0x1000d8a0 at 2208 bytes where the
+            # binary has a function ending at +142 and another at +144.
+            size = (
+                boundary_end
+                if boundary_end is not None and boundary_end < gap
+                else ret_end
+                if tail > 0 and nxt is not None and _is_padding(info, va + ret_end, nxt)
+                else gap
+            )
+        else:
+            size = gap if gap is not None else (ret_end or 0)
+        out.append((va, size, name))
+        i += 1
+    return out
+
+
+def _mz_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
+    """Linear-sweep candidates for a plain DOS MZ executable.
+
+    Rizin cannot analyze MZ; the code region (after the header + relocation
+    table) is swept in 16-bit mode for the classic cdecl prologue
+    ``push bp; mov bp,sp``, padding runs, the CS:IP entry point, and
+    ``e8 rel16`` call targets inside the region.  VAs are linear
+    ``segment*16+offset`` addresses (the DOS convention).
+    """
+    from rebrew.formats.binary_loader import parse_mz_header
+
+    h = parse_mz_header(binary)
+    with open(binary, "rb") as f:
+        f.seek(h["code_offset"])
+        raw = f.read(h["code_size"])
+    if not raw:
+        return []
+    # VAs are segment-relative linear addresses: the code region starts at
+    # VA 0 and the header's code segment ``e_cs`` lands at ``e_cs*16``
+    # (entry at ``e_cs*16 + e_ip``), consistent with load_binary's pseudo
+    # .text section.  VA(F) = F - code_offset.
+    va_base = h["va_base"]
+    starts: set[int] = set()
+
+    # 1. the code region base and the CS:IP entry are always candidates
+    starts.add(va_base)
+    entry = h["entry_va"]
+    if va_base <= entry < va_base + len(raw):
+        starts.add(entry)
+    # 2. bytes after padding runs (nop alignment)
+    i = 0
+    n = len(raw)
+    while i < n - 1:
+        if raw[i] == 0x90:
+            j = i
+            while j < n and raw[j] in (0x90, 0xCC):
+                j += 1
+            if j - i >= 2 and j < n:
+                starts.add(va_base + j)
+            i = j
+        else:
+            i += 1
+    # 3. `push bp; mov bp,sp` prologue (16-bit cdecl)
+    for m in _PROLOGUE_RE.finditer(raw):
+        starts.add(va_base + m.start())
+    # 4. direct-call targets (e8 rel16) inside the region
+    try:
+        import capstone
+
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
+    except Exception:
+        md = None
+    if md is not None:
+        for insn in md.disasm(raw, va_base):
+            if insn.mnemonic == "call" and insn.op_str.startswith("0x"):
+                try:
+                    tgt = int(insn.op_str, 16)
+                except ValueError:
+                    continue
+                if va_base <= tgt < va_base + n:
+                    starts.add(tgt)
+
+    # Sizes: extent up to the next candidate (linear-sweep convention);
+    # the last candidate runs to the end of the code region.
+    ordered = sorted(starts)
+    region_end = va_base + n
+    out: list[tuple[int, int, str]] = []
+    for i, va in enumerate(ordered):
+        end = ordered[i + 1] if i + 1 < len(ordered) else region_end
+        out.append((va, max(0, end - va), f"fcn.{va:04x}"))
+    return out
+
+
+def _is_discovery_result(found: Any) -> bool:
+    """True when *found* is a list of ``(va >= 0, size >= 0, name: str)`` rows."""
+    return isinstance(found, list) and all(
+        isinstance(row, tuple)
+        and len(row) == 3
+        and isinstance(row[0], int)
+        and isinstance(row[1], int)
+        and isinstance(row[2], str)
+        and row[0] >= 0
+        and row[1] >= 0
+        for row in found
+    )
+
+
+#: Providers that do not read one another, started together: two rizin child
+#: processes and the in-process capstone sweep.
+_CONCURRENT_PROVIDERS = ("rizin aaa", "rizin aa;aap", "capstone sweep")
+
+
+def _run_providers(
+    names: list[str],
+    binary: Path,
+    d: Discovery,
+    *,
+    providers: dict[str, Discoverer],
+    started: dict[str, Future[Any]] | None = None,
+) -> dict[str, list[tuple[int, int, str]]]:
+    """Run named providers, recording per-source counts on *d*.
+
+    A name in *started* takes that future's result instead of calling the
+    provider again. A provider that raises, or returns anything but a list of
+    ``(va: int >= 0, size: int >= 0, name: str)`` rows, is recorded as empty
+    (one broken backend cannot abort the merge).  Returns
+    ``{name: [(va, size, name)]}``.
+    """
+    out: dict[str, list[tuple[int, int, str]]] = {}
+    for name in names:
+        fn = providers.get(name)
+        if fn is None:
+            continue
+        try:
+            found = started[name].result() if started and name in started else fn(binary)
+        except Exception as exc:
+            logger.warning("discoverer %r failed (skipped): %s", name, exc)
+            found = []
+        if not _is_discovery_result(found):
+            logger.warning(
+                "discoverer %r returned %s (expected list[(va, size, name)]; skipped)",
+                name,
+                type(found).__name__,
+            )
+            found = []
+        d.sources[name] = len(found)
+        out[name] = found
+    return out
+
+
+def _merge_union(
+    found: dict[str, list[tuple[int, int, str]]], *, min_size: int = 0
+) -> dict[int, tuple[int, str]]:
+    """Prefer-larger-size union over provider outputs."""
+    merged: dict[int, tuple[int, str]] = {}
+    for funcs in found.values():
+        for va, size, name in funcs:
+            if min_size and size < min_size:
+                continue
+            cur = merged.get(va)
+            if cur is None or size > cur[0]:
+                merged[va] = (size, name)
+    return merged
+
+
+def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
+    """Chain packaged + plugin discoverers and merge into validated functions.
+
+    Format branches keep their size semantics: 16-bit NE binaries use the
+    native NE loader only (rizin output is garbage file-offset
+    "functions" \u2014 the 233-function false enumeration that once polluted
+    the SkiFree intake); plain DOS MZ binaries use the 16-bit sweep with
+    gap-to-next sizing (no symbol table); everything else merges the rizin
+    strategies with the capstone sweep and refines sizes against the binary.
+    Plugin discoverers (``rebrew.discoverers``) join every branch under
+    their entry-point name.
+    """
+    from rebrew.formats.binary_loader import is_mz, is_ne
+
+    d = Discovery()
+    with _DISCOVERERS_LOCK:
+        providers = _DISCOVERER_MAP
+    plugins = [n for n in providers if n not in _PACKAGED_DISCOVERERS]
+
+    if is_ne(binary):
+        merged = _merge_union(
+            _run_providers(["ne loader", *plugins], binary, d, providers=providers),
+            min_size=min_size,
+        )
+        d.functions = sorted((va, size, name) for va, (size, name) in merged.items())
+        return d
+
+    if is_mz(binary):
+        # Sizes are unknown in a bare MZ sweep (no symbol table) — estimate
+        # each candidate's extent as the gap to the next candidate so
+        # --min-size is honored (a size-0 filter would drop everything).
+        merged = _merge_union(
+            _run_providers(["mz sweep", *plugins], binary, d, providers=providers)
+        )
+        pairs = sorted(merged.items())
+        sized: list[tuple[int, int, str]] = []
+        for idx, (va, (_size, name)) in enumerate(pairs):
+            nxt = pairs[idx + 1][0] if idx + 1 < len(pairs) else va + 0x100
+            sized.append((va, max(1, nxt - va), name))
+        d.functions = [f for f in sized if f[1] >= min_size]
+        return d
+
+    # The rizin analyses are child processes and the sweep needs none of their
+    # output: start all three, then merge in the order below.
+    pool = ThreadPoolExecutor(max_workers=len(_CONCURRENT_PROVIDERS))
+    started = {
+        name: pool.submit(providers[name], binary)
+        for name in _CONCURRENT_PROVIDERS
+        if name in providers
+    }
+    try:
+        return _merge_discovered(binary, d, providers, plugins, started, min_size)
+    finally:
+        pool.shutdown(wait=True)
+
+
+def _merge_discovered(
+    binary: Path,
+    d: Discovery,
+    providers: dict[str, Discoverer],
+    plugins: list[str],
+    started: dict[str, Future[Any]],
+    min_size: int,
+) -> Discovery:
+    """The rizin, unwind, symbol, plugin and sweep candidates merged and validated."""
+    from rebrew.formats.binary_loader import iat_slot_vas, load_binary
+
+    found = _run_providers(
+        ["rizin aaa", "rizin aa;aap", "eh_frame", "pdata", "elf symbols", *plugins],
+        binary,
+        d,
+        providers=providers,
+        started=started,
+    )
+    # Merge: prefer-larger-size union over every provider (rizin strategies
+    # and plugins alike); the merged-rizin count tracks the rizin pair only.
+    merged = _merge_union(found)
+    symbols = {va: (size, name) for va, size, name in found.get("elf symbols", [])}
+    merged.update(symbols)
+    d.sources["merged-rizin"] = len(
+        _merge_union({k: found[k] for k in ("rizin aaa", "rizin aa;aap") if k in found})
+    )
+
+    # Add capstone sweep candidates not already present.
+    sweep = _run_providers(["capstone sweep"], binary, d, providers=providers, started=started)[
+        "capstone sweep"
+    ]
+    sweep_names = {va: name for va, _, name in sweep}
+    for va, name in sweep_names.items():
+        if va not in merged:
+            merged[va] = (0, name)
+    d.sources["capstone sweep"] = len(sweep_names)
+
+    # An unwind record is the compiler's own statement of a function's extent:
+    # any other candidate inside one is a branch target, not a function.
+    unwind = {
+        va: size for source in ("eh_frame", "pdata") for va, size, _name in found.get(source, [])
+    }
+    extents = sorted(unwind.items())
+    if extents:
+        inside = _extent_contains(extents)
+        merged = {va: entry for va, entry in merged.items() if va in symbols or not inside(va)}
+
+    # A PE's import address table is pointer data, and MSVC can open .text with
+    # it (Win2k notepad): a sweep reads its slots as code, so no candidate may
+    # start between its first and last slot.
+    slots = iat_slot_vas(binary)
+    if slots:
+        first_slot, last_slot = min(slots), max(slots)
+        merged = {va: entry for va, entry in merged.items() if not first_slot <= va <= last_slot}
+
+    # An import thunk (`jmp [iat slot]`) is an import, not a function, whatever
+    # follows it: no candidate starts at or inside one, and the refine pass
+    # keeps it only as the boundary that ends the code before it.
+    thunks = frozenset(find_import_stubs(binary))
+    in_thunk = {va + offset for va in thunks for offset in range(IMPORT_THUNK_SIZE)}
+    merged = {va: entry for va, entry in merged.items() if va not in in_thunk}
+
+    # Validate: drop candidates that fall inside a larger span.
+    ordered = sorted(merged.items())
+    kept: dict[int, tuple[int, str]] = {}
+    for i, (va, (size, name)) in enumerate(ordered):
+        nxt_va = ordered[i + 1][0] if i + 1 < len(ordered) else None
+        if nxt_va is not None and nxt_va - va <= 2 and va not in symbols:
+            continue  # duplicate/adjacent junk
+        kept[va] = (size, name)
+
+    funcs: list[tuple[int, int, str]] = [
+        (va, size, name) for va, (size, name) in sorted(kept.items())
+    ]
+
+    # Refine sizes against the binary (first-ret).
+    info = None
+    try:
+        info = load_binary(binary)
+        funcs = _validate_and_refine(
+            info, funcs, vouched=frozenset(unwind) | frozenset(symbols), thunks=thunks
+        )
+    except Exception as exc:
+        # Unvalidated gap-based sizes are still emitted, but the user must
+        # know the refine pass was skipped.
+        logger.warning("size refine step failed (emitting unvalidated sizes): %s", exc)
+
+    funcs = [
+        (va, symbols[va][0] if va in symbols and symbols[va][0] else unwind.get(va, size), name)
+        for va, size, name in funcs
+    ]
+    if info is not None and getattr(info, "format", "") == "elf":
+        plt = [(s.va, s.va + s.size) for s in info.sections.values() if s.name.startswith(".plt")]
+        funcs = [f for f in funcs if not any(lo <= f[0] < hi for lo, hi in plt)]
+        code = [s for s in info.sections.values() if s.is_code and not s.name.startswith(".plt")]
+        funcs = [
+            (
+                va,
+                min(
+                    size,
+                    next((s.va + s.size - va for s in code if s.va <= va < s.va + s.size), size),
+                ),
+                name,
+            )
+            for va, size, name in funcs
+        ]
+    funcs = [f for f in funcs if f[1] >= min_size or (f[0] in symbols and symbols[f[0]][0] > 0)]
+
+    d.functions = funcs
+    return d
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    binary: Path | None = typer.Argument(
+        None, help="Binary path (default: configured project target)"
+    ),
+    output: str | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write function_structure.json to this path (default: stdout as text)",
+        metavar="<path>",
+    ),
+    min_size: int = typer.Option(8, "--min-size", help="Drop functions smaller than this"),
+    limit: int | None = typer.Option(
+        None, "--limit", help="Maximum functions to list (0 = none; omitted = unlimited)"
+    ),
+    offset: int = typer.Option(0, "--offset", help="Skip this many functions before listing"),
+    fields: str | None = typer.Option(
+        None,
+        "--fields",
+        help="Comma-separated JSON item fields (envelope fields are always included)",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Enumerate functions with chained strategies and validated sizes."""
+    binary = option_default(binary, None)
+    output = option_default(output, None)
+    min_size = option_default(min_size, 8)
+    limit = option_default(limit, None)
+    offset = option_default(offset, 0)
+    fields = option_default(fields, None)
+    json_output = option_default(json_output, False)
+    target = option_default(target, None)
+    offset_val = require_non_negative(offset, "--offset", json_mode=json_output)
+    limit_val = (
+        require_non_negative(limit, "--limit", json_mode=json_output) if limit is not None else None
+    )
+    selected_fields = _requested_function_fields(fields, json_mode=json_output)
+    bin_path = resolve_binary_arg(binary, target=target, json_mode=json_output)
+
+    d = discover_functions(bin_path, min_size=min_size)
+    total = len(d.functions)
+    paged = d.functions[offset_val:]
+    if limit_val is not None:
+        paged = paged[:limit_val]
+    truncated = total - offset_val - len(paged) > 0
+    text = "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in paged)
+
+    if output:
+        import json
+
+        destination = Path(output)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with file_lock(destination.with_suffix(destination.suffix + ".lock")):
+                if destination.exists():
+                    previous = json.loads(read_json_text(destination))
+                    if not isinstance(previous, list) or any(
+                        not isinstance(row, dict) for row in previous
+                    ):
+                        raise ValueError("existing output is not a native function inventory")
+                    if any(row.get("extent_history") for row in previous):
+                        raise ValueError(
+                            "inventory contains reviewed extent history; reconcile it or choose a new output path"
+                        )
+                atomic_write_text(
+                    destination,
+                    json.dumps(
+                        [{"va": va, "size": size, "name": name} for va, size, name in d.functions],
+                        indent=2,
+                    )
+                    + "\n",
+                )
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            error_exit(str(exc), json_mode=json_output)
+
+    if json_output:
+        rows = _function_rows(paged, selected_fields)
+        json_print(
+            {
+                "binary": str(bin_path),
+                "functions": total,
+                "sources": d.sources,
+                "output": output,
+                "offset": offset_val,
+                "limit": limit_val,
+                "truncated": truncated,
+                "items": rows,
+                "sample": rows[:10],
+            }
+        )
+    else:
+        console.print(f"[green]{total} functions[/green] from {d.sources}")
+        if truncated:
+            console.print(
+                f"[dim]showing {len(paged)} of {total} (offset {offset_val}, limit {limit_val}); "
+                "increase --limit or use --json for all[/dim]"
+            )
+        if output:
+            console.print(f"  wrote {output}")
+        else:
+            print(text, end="")
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

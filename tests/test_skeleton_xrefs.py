@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import httpx
+import pytest
 
 from rebrew.config import ProjectConfig
 from rebrew.skeleton import fetch_xref_context, generate_skeleton
@@ -84,7 +85,10 @@ class TestFetchXrefContext:
 
         monkeypatch.setattr(sync_mod, "init_mcp_session", _raise)
 
-        result = fetch_xref_context("http://localhost:8080/mcp/message", "/server.dll", 0x00401000)
+        with pytest.warns(UserWarning, match=r"Ghidra MCP cross-reference fetch failed.*mcp down"):
+            result = fetch_xref_context(
+                "http://localhost:8080/mcp/message", "/server.dll", 0x00401000
+            )
         assert result is None
 
     def test_max_callers_limit(self, monkeypatch) -> None:

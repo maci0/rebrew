@@ -841,7 +841,7 @@ def plan_rebound_references(
         parsed = project.parsed(path)
         refs = function_reference_occurrences(parsed, old_name)
         if path == previous:
-            from rebrew.c_parser import find_function_name_in_node
+            from rebrew.c_syntax.parser import find_function_name_in_node
 
             bodies = [
                 node
@@ -1443,7 +1443,7 @@ def _plan_symbol_rows(
                 canonical_is_new = (
                     entry.name == new or c_name_from_symbol(entry.symbol or "") == new
                 )
-                from rebrew.c_parser import find_c_function_definitions
+                from rebrew.c_syntax.parser import find_c_function_definitions
 
                 names = find_c_function_definitions(project.texts[path][0])
                 if not (
@@ -1867,6 +1867,7 @@ def plan_field_rename(
 
 def _apply_coordinated_rename(cfg: ProjectConfig, plan: RenamePlan, metadata_dir: Path) -> int:
     """Publish a move and its owner rows in one exception-safe transaction."""
+    from rebrew.c_syntax.type_metadata import load_types
     from rebrew.metadata.coordinated import (
         coordinated_inputs,
         coordinated_transaction,
@@ -1876,7 +1877,6 @@ def _apply_coordinated_rename(cfg: ProjectConfig, plan: RenamePlan, metadata_dir
     from rebrew.metadata.functions import identity_file, record_function_rows
     from rebrew.metadata.source_provenance import rename_source_provenance
     from rebrew.metadata.storage import input_digest, managed_metadata_filenames, metadata_store
-    from rebrew.type_metadata import load_types
 
     supported_backends = (
         {"toml", "sqlite"} if plan.rows or plan.move else {"toml", "sqlite", "pgsql"}

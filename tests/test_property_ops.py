@@ -241,7 +241,7 @@ class TestDisassembleBytesExecution:
     @given(st.binary(max_size=128), st.integers(min_value=0, max_value=0xFFFFFFFF))
     @settings(max_examples=100, deadline=None)
     def test_capstone_listing_insns_stay_in_range(self, code: bytes, va: int) -> None:
-        from rebrew.analysis import disasm_insns
+        from rebrew.binary.analysis import disasm_insns
         from rebrew.ops import _capstone_for
 
         for arch in ("arm32", "arm64", "mips32", "ppc32", "x86_64"):

@@ -487,3 +487,119 @@ class TestSynthesizeOrdering(TestObjdiffProject):
         units = objdiff_project._synthesize_target_objects(cfg, tmp_path / "target")
         assert len(units) == 1
         assert Path(units[0]["target_path"]).read_bytes()[:2] == b"\x4c\x01"
+
+
+class TestMultiArchAndElfObjects:
+    @pytest.mark.parametrize(
+        ("arch", "expected_machine"),
+        [
+            ("x86_32", 0x014C),
+            ("x86_64", 0x8664),
+            ("arm32", 0x01C0),
+            ("mips32", 0x0166),
+            ("ppc32", 0x01F0),
+        ],
+    )
+    def test_synthesize_coff_machine_follows_arch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arch: str, expected_machine: int
+    ) -> None:
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            reversed_dir=tmp_path / "src",
+            root=tmp_path,
+            target_name="T",
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            module="T",
+            arch=arch,
+            format="pe",
+        )
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        src_file = cfg.reversed_dir / "a.c"
+        src_file.write_text("int a(void){return 0;}\n", encoding="utf-8")
+        monkeypatch.setattr(
+            objdiff_project,
+            "iter_source_bindings",
+            lambda sources, target=None, metadata_dir=None, project_root=None: [
+                (src_file, [_fake_ann(0x1000, 4, "a", "a")])
+            ],
+        )
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.extract_raw_bytes",
+            lambda p, va, size: b"\x00\x00\x00\x00",
+        )
+        units = objdiff_project._synthesize_target_objects(cfg, tmp_path / "target")
+        assert len(units) == 1
+        machine = struct.unpack_from("<H", Path(units[0]["target_path"]).read_bytes(), 0)[0]
+        assert machine == expected_machine
+
+    @pytest.mark.parametrize(
+        ("arch", "pointer_size", "endian"),
+        [
+            ("mips32", 4, "big"),
+            ("ppc32", 4, "big"),
+            ("x86_64", 8, "little"),
+        ],
+    )
+    def test_write_elf_object_roundtrip_via_lief(
+        self, tmp_path: Path, arch: str, pointer_size: int, endian: str
+    ) -> None:
+        import lief
+
+        path = tmp_path / f"{arch}.o"
+        objdiff_project.write_elf_object(
+            path,
+            [("fn_a", 0, b"\x01\x02\x03\x04"), ("fn_b", 8, b"\x05\x06\x07\x08")],
+            arch=arch,
+            pointer_size=pointer_size,
+            endian=endian,
+        )
+        elf = lief.ELF.parse(str(path))
+        assert elf is not None
+        assert elf.header.file_type == lief.ELF.Header.FILE_TYPE.REL
+        assert elf.header.identity_data.name == ("MSB" if endian == "big" else "LSB")
+        assert elf.header.identity_class.name == ("ELF64" if pointer_size == 8 else "ELF32")
+        syms = {s.name: (s.value, s.size) for s in elf.symbols if s.name}
+        assert syms["fn_a"] == (0, 4)
+        assert syms["fn_b"] == (8, 4)
+
+    def test_synthesize_elf_target_emits_elf_object(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import lief
+
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "game.elf",
+            reversed_dir=tmp_path / "src",
+            root=tmp_path,
+            target_name="T",
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            module="T",
+            arch="mips32",
+            format="elf",
+            pointer_size=4,
+            endian="big",
+        )
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        src_file = cfg.reversed_dir / "a.c"
+        src_file.write_text("int a(void){return 0;}\n", encoding="utf-8")
+        monkeypatch.setattr(
+            objdiff_project,
+            "iter_source_bindings",
+            lambda sources, target=None, metadata_dir=None, project_root=None: [
+                (src_file, [_fake_ann(0x80001000, 8, "my_fn", "my_fn")])
+            ],
+        )
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.extract_raw_bytes",
+            lambda p, va, size: bytes.fromhex("03e00008 00000000"),
+        )
+        units = objdiff_project._synthesize_target_objects(cfg, tmp_path / "target")
+        assert len(units) == 1
+        target = Path(units[0]["target_path"])
+        assert target.read_bytes()[:4] == b"\x7fELF"
+        elf = lief.ELF.parse(str(target))
+        assert elf is not None
+        assert elf.header.machine_type == lief.ELF.ARCH.MIPS
+        assert any(s.name == "my_fn" and s.size == 8 for s in elf.symbols)

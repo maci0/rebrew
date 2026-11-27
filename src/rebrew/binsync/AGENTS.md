@@ -17,7 +17,7 @@ declib BinSync state I/O: the artifact layer a `rebrew binsync` push/pull moves 
 | `git.py` | Sandboxed git invocations against that envelope |
 | `cli.py` | `rebrew binsync` umbrella: `push` / `pull` / `summary` (defined here) plus `init` / `diff` / `overlay` mounted as subcommands |
 
-Externals (the only top-level packages this one may import): `c_parser`, `catalog`, `cli`, `config`, `cross_import`, `data.scan`, `formats.binary_loader`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `metadata.storage`, `naming`, `source.discovery`, `source.rename_ops`, `struct_parser`, `types`, `utils`, `verify.hash`, `workspace.names`. `declib` is imported only here, behind the `[binsync]` extra.
+Externals (the only packages this one may import): `c_syntax.parser`, `c_syntax.struct_parser`, `c_syntax.types`, `catalog`, `cli`, `config`, `cross_import`, `data.scan`, `formats.binary_loader`, `metadata.bindings`, `metadata.data`, `metadata.document`, `metadata.functions`, `metadata.storage`, `naming`, `source.discovery`, `source.rename_ops`, `utils`, `verify.hash`, `workspace.names`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 

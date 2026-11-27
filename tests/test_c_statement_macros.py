@@ -1,6 +1,6 @@
 """A body the grammar cannot parse must not consume the definitions after it."""
 
-from rebrew.c_parser import function_definition_spans, function_signatures
+from rebrew.c_syntax.parser import function_definition_spans, function_signatures
 from rebrew.metadata.source_provenance import function_definition_hashes
 from rebrew.source.binding import has_unique_source_definition
 

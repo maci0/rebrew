@@ -200,7 +200,7 @@ def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
             log.warning("no callee edges for unreadable source %s: %s", c_path, exc)
             return []
 
-    from rebrew.c_parser import find_extern_function_names
+    from rebrew.c_syntax.parser import find_extern_function_names
 
     return [name for name in find_extern_function_names(text) if name not in _NOISE_CALLEES]
 
@@ -212,7 +212,7 @@ def binary_call_edges(info: Any, ranges: list[tuple[int, int, str]]) -> list[tup
     one range to a target inside another becomes an edge (deduplicated).
     Lookup is a binary search over the sorted range starts.
     """
-    from rebrew.analysis import scan_references
+    from rebrew.binary.analysis import scan_references
 
     ordered = sorted(ranges, key=lambda r: r[0])
     starts = [lo for lo, _, _ in ordered]
@@ -303,7 +303,7 @@ def build_graph(
         except OSError as exc:
             log.warning("skipping unreadable source %s: %s", cfile, exc)
             continue
-        from rebrew.c_parser import find_c_function_definitions, find_variable_roles
+        from rebrew.c_syntax.parser import find_c_function_definitions, find_variable_roles
 
         lines_by_name = dict(find_c_function_definitions(text))
         externs = _extract_callees(cfile, text)

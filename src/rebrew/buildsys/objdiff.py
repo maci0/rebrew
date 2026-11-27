@@ -53,13 +53,196 @@ app = typer.Typer(
     epilog=_EPILOG,
 )
 
-# COFF constants (i386, little-endian).
+# COFF constants (little-endian).
 _IMAGE_FILE_MACHINE_I386 = 0x014C
+_COFF_MACHINE_BY_ARCH: dict[str, int] = {
+    "x86_32": 0x014C,
+    "x86_64": 0x8664,
+    "arm32": 0x01C0,
+    "mips32": 0x0166,
+    "ppc32": 0x01F0,
+}
+_ELF_MACHINE_BY_ARCH: dict[str, int] = {
+    "x86_32": 3,
+    "x86_64": 62,
+    "arm32": 40,
+    "arm64": 183,
+    "mips32": 8,
+    "mips64": 8,
+    "ppc32": 20,
+    "ppc64": 21,
+    "sh2": 42,
+    "xtensa": 94,
+}
 _IMAGE_SCN_CNT_CODE = 0x00000020
 _IMAGE_SCN_MEM_EXECUTE = 0x20000000
 _IMAGE_SCN_MEM_READ = 0x40000000
 _IMAGE_SYM_CLASS_EXTERNAL = 2
 _SECTION_CHARS = _IMAGE_SCN_CNT_CODE | _IMAGE_SCN_MEM_EXECUTE | _IMAGE_SCN_MEM_READ
+
+
+def _pack_placed_functions(
+    functions: list[tuple[str, int, bytes]],
+) -> tuple[bytes, list[tuple[str, int, int]]]:
+    """Lay out ``(symbol, offset, bytes)`` into one contiguous ``.text`` body."""
+    body = b""
+    symbols: list[tuple[str, int, int]] = []
+    for name, offset, blob in functions:
+        pad = offset - len(body)
+        if pad > 0:
+            body += b"\x00" * pad
+        elif pad < 0:
+            raise ValueError(
+                f"overlapping placement for {name!r} at offset {offset} "
+                f"(section already {len(body)} bytes)"
+            )
+        body += blob
+        symbols.append((name, offset, len(blob)))
+    return body, symbols
+
+
+def write_elf_object(
+    path: Path,
+    functions: list[tuple[str, int, bytes]],
+    *,
+    arch: str = "x86_32",
+    pointer_size: int = 4,
+    endian: str = "little",
+) -> None:
+    """Write a minimal relocatable ELF (``ET_REL``) object with one ``.text`` section.
+
+    Respects *arch* (``e_machine``), *pointer_size* (4 -> ELF32, 8 -> ELF64),
+    and *endian* (``"little"`` or ``"big"``). Emits ``.text``, ``.symtab``,
+    ``.strtab``, and ``.shstrtab`` with one global ``STT_FUNC`` symbol per entry.
+    """
+    body, symbols = _pack_placed_functions(functions)
+    is_64 = pointer_size == 8
+    endian_prefix = ">" if endian == "big" else "<"
+    machine = _ELF_MACHINE_BY_ARCH.get(arch.lower(), 3)
+
+    strtab = bytearray(b"\x00")
+    sym_name_offsets: list[int] = []
+    for name, _offset, _size in symbols:
+        try:
+            raw = name.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"symbol name {name!r} is not valid Unicode") from exc
+        sym_name_offsets.append(len(strtab))
+        strtab.extend(raw + b"\x00")
+
+    shstrtab = b"\x00.text\x00.symtab\x00.strtab\x00.shstrtab\x00"
+    shname_text = 1
+    shname_symtab = shstrtab.index(b".symtab\x00")
+    shname_strtab = shstrtab.index(b".strtab\x00")
+    shname_shstrtab = shstrtab.index(b".shstrtab\x00")
+
+    sym_entry_size = 24 if is_64 else 16
+    symtab = bytearray(sym_entry_size)  # STN_UNDEF
+    for name_off, (_name, offset, size) in zip(sym_name_offsets, symbols, strict=True):
+        if is_64:
+            symtab.extend(struct.pack(f"{endian_prefix}IBBHQQ", name_off, 0x12, 0, 1, offset, size))
+        else:
+            symtab.extend(struct.pack(f"{endian_prefix}IIIBBH", name_off, offset, size, 0x12, 0, 1))
+
+    ehdr_size = 64 if is_64 else 52
+    shdr_size = 64 if is_64 else 40
+    align = 8 if is_64 else 4
+
+    def _align(val: int) -> int:
+        return (val + align - 1) & ~(align - 1)
+
+    text_off = ehdr_size
+    symtab_off = _align(text_off + len(body))
+    strtab_off = symtab_off + len(symtab)
+    shstrtab_off = strtab_off + len(strtab)
+    shoff = _align(shstrtab_off + len(shstrtab))
+
+    ei_class = 2 if is_64 else 1
+    ei_data = 2 if endian == "big" else 1
+    e_ident = b"\x7fELF" + bytes((ei_class, ei_data, 1, 0)) + b"\x00" * 8
+    if is_64:
+        ehdr = struct.pack(
+            f"{endian_prefix}16sHHIQQQIHHHHHH",
+            e_ident,
+            1,  # e_type: ET_REL
+            machine,
+            1,  # e_version
+            0,  # e_entry
+            0,  # e_phoff
+            shoff,
+            0,  # e_flags
+            ehdr_size,
+            0,  # e_phentsize
+            0,  # e_phnum
+            shdr_size,
+            5,  # e_shnum
+            4,  # e_shstrndx
+        )
+    else:
+        ehdr = struct.pack(
+            f"{endian_prefix}16sHHIIIIIHHHHHH",
+            e_ident,
+            1,  # e_type: ET_REL
+            machine,
+            1,  # e_version
+            0,  # e_entry
+            0,  # e_phoff
+            shoff,
+            0,  # e_flags
+            ehdr_size,
+            0,  # e_phentsize
+            0,  # e_phnum
+            shdr_size,
+            5,  # e_shnum
+            4,  # e_shstrndx
+        )
+
+    def _shdr(
+        name: int,
+        sh_type: int,
+        flags: int,
+        offset: int,
+        size: int,
+        *,
+        link: int = 0,
+        info: int = 0,
+        addralign: int = 1,
+        entsize: int = 0,
+    ) -> bytes:
+        fmt = f"{endian_prefix}IIQQQQIIQQ" if is_64 else f"{endian_prefix}IIIIIIIIII"
+        return struct.pack(
+            fmt, name, sh_type, flags, 0, offset, size, link, info, addralign, entsize
+        )
+
+    shdrs = b"".join(
+        [
+            b"\x00" * shdr_size,
+            _shdr(shname_text, 1, 0x6, text_off, len(body), addralign=align),
+            _shdr(
+                shname_symtab,
+                2,
+                0,
+                symtab_off,
+                len(symtab),
+                link=3,
+                info=1,
+                addralign=align,
+                entsize=sym_entry_size,
+            ),
+            _shdr(shname_strtab, 3, 0, strtab_off, len(strtab), addralign=1),
+            _shdr(shname_shstrtab, 3, 0, shstrtab_off, len(shstrtab), addralign=1),
+        ]
+    )
+
+    out = bytearray(ehdr)
+    out.extend(body)
+    out.extend(b"\x00" * (symtab_off - len(out)))
+    out.extend(symtab)
+    out.extend(strtab)
+    out.extend(shstrtab)
+    out.extend(b"\x00" * (shoff - len(out)))
+    out.extend(shdrs)
+    atomic_write_bytes(path, bytes(out))
 
 
 def write_coff_object(
@@ -79,19 +262,8 @@ def write_coff_object(
     rebrew grows a non-x86 target (e.g. ``0x01C0`` ARM — the multi-arch
     path is a parameter, not a fork).
     """
-    body = b""
-    symbols: list[tuple[str, int]] = []  # (name, section offset)
-    for name, offset, blob in functions:
-        pad = offset - len(body)
-        if pad > 0:
-            body += b"\x00" * pad
-        elif pad < 0:
-            raise ValueError(
-                f"overlapping placement for {name!r} at offset {offset} "
-                f"(section already {len(body)} bytes)"
-            )
-        body += blob
-        symbols.append((name, offset))
+    body, placed = _pack_placed_functions(functions)
+    symbols = [(name, offset) for name, offset, _size in placed]
 
     # --- section header ---
     raw_offset = 20 + 40  # file header + one section header
@@ -196,7 +368,31 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
         file_rel = path.relative_to(cfg.reversed_dir).as_posix()
         target_path = out_dir / f"{file_rel}.o"
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        write_coff_object(target_path, placed)
+        target_fmt = (getattr(cfg, "format", "") or getattr(cfg, "binary_format", "") or "").lower()
+        arch = str(getattr(cfg, "arch", "") or "x86_32")
+        if target_fmt == "elf":
+            pointer_size = int(getattr(cfg, "pointer_size", 0) or (8 if arch.endswith("64") else 4))
+            endian = str(getattr(cfg, "endian", "") or "")
+            if not endian:
+                binary_path = getattr(cfg, "target_binary", None)
+                if binary_path is not None and Path(binary_path).is_file():
+                    from rebrew.formats.binary_loader import sniff_image_endian
+
+                    endian = sniff_image_endian(Path(binary_path))
+                if not endian:
+                    from rebrew.config import arch_byte_order
+
+                    endian = arch_byte_order(arch)
+            write_elf_object(
+                target_path,
+                placed,
+                arch=arch,
+                pointer_size=pointer_size,
+                endian=endian,
+            )
+        else:
+            machine = _COFF_MACHINE_BY_ARCH.get(arch.lower(), _IMAGE_FILE_MACHINE_I386)
+            write_coff_object(target_path, placed, machine=machine)
         base_path = Path("build/objdiff/current") / f"{file_rel}.o"
         units.append(
             {

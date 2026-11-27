@@ -620,7 +620,7 @@ def test_real_decompiler_from_snapshot(sample: tuple[WorkerConfig, dict]) -> Non
 
 
 def test_kuna_cast_index_names_preserve_access_type() -> None:
-    from rebrew.name_decomp import apply_known_names
+    from rebrew.c_syntax.name_decomp import apply_known_names
 
     definitions = {"command_s": "typedef struct command_s { char gap[16]; int named; } command_s;"}
     text = "unsigned int named_sample(void *a0)\n{\n  return ((unsigned int *)a0)[4];\n}\n"
@@ -645,8 +645,8 @@ def test_kuna_cast_index_names_preserve_access_type() -> None:
 
 @pytest.mark.skipif(shutil.which("kuna") is None, reason="requires the optional Kuna executable")
 def test_real_kuna_elf_applies_retained_name(tmp_path: Path) -> None:
+    from rebrew.c_syntax.name_decomp import apply_known_names
     from rebrew.decompiler import fetch_decompilation
-    from rebrew.name_decomp import apply_known_names
 
     source = tmp_path / "input.c"
     binary = tmp_path / "input"

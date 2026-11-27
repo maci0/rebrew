@@ -11,7 +11,7 @@ The four managed stores below use `rebrew.metadata.storage.metadata_store(path)`
 Its `MetadataStore` protocol owns persistence, discovery, fingerprints, review
 snapshots and transactions. Domain APIs still own validation, identities,
 provenance and earned verdicts. Call `rebrew.metadata.functions`,
-`rebrew.metadata.data`, `rebrew.metadata.source_provenance`, `rebrew.type_metadata`
+`rebrew.metadata.data`, `rebrew.metadata.source_provenance`, `rebrew.c_syntax.type_metadata`
 or the library API when changing records. A storage handle stays bound to its
 backend; domain write locks select storage again after acquiring the project
 configuration lock.

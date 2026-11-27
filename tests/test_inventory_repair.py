@@ -143,7 +143,7 @@ class TestReviewedAdmission:
 
         cfg, inventory = _project(tmp_path)
         before = inventory.read_bytes(), inventory.stat()
-        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+        with patch("rebrew.binary.inventory_repair.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -178,7 +178,7 @@ class TestReviewedAdmission:
             symbol="_f",
             size=16,
         )
-        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+        with patch("rebrew.binary.inventory_repair.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 ["binary", "repair-extents", "0x401000=8", "--reason", "jump plus fill", "--json"],
@@ -186,7 +186,7 @@ class TestReviewedAdmission:
         assert result.exit_code == 0, result.output
         assert get_entry(cfg.metadata_dir, 0x401000, module="GAME")["size"] == 16
 
-        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+        with patch("rebrew.binary.inventory_repair.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -289,15 +289,15 @@ class TestReviewedInventoryProtection:
     def test_rediscovery_does_not_erase_reviewed_rows(self, tmp_path: Path) -> None:
         import typer
 
-        from rebrew.discover import Discovery, main
+        from rebrew.binary.discover import Discovery, main
 
         cfg, inventory = _project(tmp_path)
         repair_inventory_extents(cfg, {0x401000: 16}, reason="native body evidence")
         before = inventory.read_bytes(), inventory.stat()
         with (
-            patch("rebrew.discover.resolve_binary_arg", return_value=cfg.target_binary),
+            patch("rebrew.binary.discover.resolve_binary_arg", return_value=cfg.target_binary),
             patch(
-                "rebrew.discover.discover_functions",
+                "rebrew.binary.discover.discover_functions",
                 return_value=Discovery(functions=[(0x401000, 40, "f")]),
             ),
             pytest.raises(typer.Exit) as caught,
@@ -476,7 +476,7 @@ class TestMergeCli:
 
         cfg, inventory = _contiguous_project(tmp_path)
         before = inventory.read_bytes(), inventory.stat()
-        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+        with patch("rebrew.binary.inventory_repair.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -502,7 +502,7 @@ class TestMergeCli:
 
         cfg, inventory = _contiguous_project(tmp_path)
         before = inventory.read_bytes(), inventory.stat()
-        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+        with patch("rebrew.binary.inventory_repair.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -582,7 +582,7 @@ class TestReviewedRetirement:
 
         cfg, inventory = _project(tmp_path)
         args = ["binary", "repair-extents", "--retire", "0x401020", "--reason", "proof", "--json"]
-        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+        with patch("rebrew.binary.inventory_repair.require_config", return_value=cfg):
             preview = CliRunner().invoke(app, [*args, "--dry-run"])
             assert preview.exit_code == 0, preview.output
             report = json.loads(preview.stdout)
@@ -648,7 +648,7 @@ class TestSyncRows:
 
         from rebrew.app.main import app
 
-        with patch("rebrew.inventory_repair.require_config", return_value=cfg):
+        with patch("rebrew.binary.inventory_repair.require_config", return_value=cfg):
             return CliRunner().invoke(
                 app, ["binary", "repair-extents", *args, "--reason", "r", "--sync-rows", "--json"]
             )

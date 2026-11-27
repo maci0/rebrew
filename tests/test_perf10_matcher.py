@@ -144,7 +144,7 @@ class TestMatcherSelection:
 
 def _old_score_matrix(sigs_a: list[_Sig], sigs_b: list[_Sig]) -> np.ndarray:
     """The pre-rewrite arithmetic, kept as the bit-exact reference."""
-    from rebrew.binary_similarity import _pair_ratio
+    from rebrew.binary.similarity import _pair_ratio
 
     vocab = sorted(
         {m for s in sigs_a for m in s["histogram"]} | {m for s in sigs_b for m in s["histogram"]}
@@ -180,7 +180,7 @@ def _old_score_matrix(sigs_a: list[_Sig], sigs_b: list[_Sig]) -> np.ndarray:
 
 class TestScoreMatrixParity:
     def test_matches_the_reference_bit_for_bit(self) -> None:
-        from rebrew.binary_similarity import score_matrix
+        from rebrew.binary.similarity import score_matrix
 
         rng = random.Random(3)
         vocab = [f"op{i}" for i in range(40)]
@@ -204,7 +204,7 @@ class TestScoreMatrixParity:
 
     @pytest.mark.parametrize(("na", "nb"), [(0, 3), (3, 0), (1, 1)])
     def test_degenerate_shapes(self, na: int, nb: int) -> None:
-        from rebrew.binary_similarity import score_matrix
+        from rebrew.binary.similarity import score_matrix
 
         sig = {"histogram": {"mov": 2}, "calls": 1, "branches": 0}
         got = score_matrix([sig] * na, [sig] * nb)

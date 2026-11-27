@@ -52,7 +52,7 @@ class TestConventionEnforced:
         an omitted one leaks as a truthy OptionInfo instead of its default."""
         from types import SimpleNamespace
 
-        from rebrew import match
+        from rebrew.matching import cli as match
 
         monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         captured: dict = {}
@@ -70,7 +70,7 @@ class TestConventionEnforced:
             "rebrew.utils.watch_files",
             lambda paths, retest: retest(),  # fire the re-test immediately
         )
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: SimpleNamespace())
+        monkeypatch.setattr("rebrew.matching.cli.require_config", lambda **kw: SimpleNamespace())
 
         # Minimal single-function watch run: the retest closure must carry
         # every CLI param, including the recently-added batch/sweep ones.
@@ -114,7 +114,7 @@ class TestSweepFilterSelectsTheSweep:
     def _dispatch(monkeypatch, argv: list[str]) -> tuple[list[str], list[str]]:
         from types import SimpleNamespace
 
-        from rebrew import match
+        from rebrew.matching import cli as match
 
         calls: list[str] = []
         filters: list[str] = []
@@ -149,7 +149,7 @@ class TestSweepFilterSelectsTheSweep:
     def test_removed_toolchain_alias_is_rejected(self) -> None:
         from typer.testing import CliRunner
 
-        from rebrew import match
+        from rebrew.matching import cli as match
 
         result = CliRunner().invoke(
             match.app, ["toolchains", "--toolchain", "msvc-6.0", "/tmp/f.c"]

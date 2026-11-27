@@ -342,8 +342,8 @@ _KEY_PUNCT_RE = re.compile(r"\s*([(),*\[\]])\s*")
 
 
 def _expanded_type_key(prototype: str, aliases: dict[str, str]) -> str | None:
-    """:func:`rebrew.c_parser.prototype_type_key` with aliases substituted."""
-    from rebrew.c_parser import prototype_type_key
+    """:func:`rebrew.c_syntax.parser.prototype_type_key` with aliases substituted."""
+    from rebrew.c_syntax.parser import prototype_type_key
 
     key = prototype_type_key(prototype)
     if key is None:
@@ -440,7 +440,7 @@ def apply_binsync_func_name(cfg: Any, local: Any, bs_name: str, local_filepath: 
 
 def apply_binsync_prototype(cfg: Any, local: Any, prototype: str, filepath: str) -> bool:
     """Apply a received prototype to the C definition, the canonical signature source."""
-    from rebrew.c_parser import replace_function_prototype
+    from rebrew.c_syntax.parser import replace_function_prototype
     from rebrew.utils import atomic_write_text, read_source_text
 
     path = Path(cfg.reversed_dir) / filepath
@@ -1526,7 +1526,7 @@ def _definition_files(cfg: ProjectConfig) -> list[Path]:
 
 def _declared_type_names(definition: str) -> set[str]:
     """Return top-level typedef or enum/struct tag names in *definition*."""
-    from rebrew.c_parser import find_declarator_name, node_text, parse_c_source
+    from rebrew.c_syntax.parser import find_declarator_name, node_text, parse_c_source
 
     tree, raw = parse_c_source(definition.strip())
     found: set[str] = set()
@@ -1564,12 +1564,12 @@ def _local_type_names(cfg: ProjectConfig, *, files: list[Path] | None = None) ->
 
     *files* is an already-built :func:`_definition_files` list.
     """
-    from rebrew.struct_parser import (
+    from rebrew.c_syntax.struct_parser import (
         extract_enums_from_file,
         extract_structs_from_file,
         extract_type_definitions,
     )
-    from rebrew.types import parse_structs
+    from rebrew.c_syntax.types import parse_structs
 
     names: set[str] = set()
     for path in files if files is not None else _definition_files(cfg):
@@ -1639,7 +1639,7 @@ def _has_preprocessor_line(definition: str) -> bool:
     preceded by comments such as ``/*x*/ #define FOO 1``) and rejects any bare
     leading ``#`` line remaining after comments and literals are masked.
     """
-    from rebrew.c_parser import mask_comments_and_literals, parse_c_source
+    from rebrew.c_syntax.parser import mask_comments_and_literals, parse_c_source
 
     tree, _raw = parse_c_source(definition)
     stack = [tree.root_node]
@@ -1654,8 +1654,8 @@ def _has_preprocessor_line(definition: str) -> bool:
 
 def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -> bool:
     """Whether *definition* is a complete, non-breaking declaration for *name*."""
-    from rebrew.c_parser import parse_c_source
-    from rebrew.types import parse_structs
+    from rebrew.c_syntax.parser import parse_c_source
+    from rebrew.c_syntax.types import parse_structs
 
     # Shared state must not smuggle preprocessor lines into binsync_types.h.
     if _has_preprocessor_line(definition):
@@ -1714,7 +1714,7 @@ def import_type_definitions(
     local_names = _local_type_names(cfg, files=files)
     rewritten = 0
     if update_names:
-        from rebrew.struct_parser import replace_type_definition
+        from rebrew.c_syntax.struct_parser import replace_type_definition
         from rebrew.utils import atomic_write_text, read_source_text
 
         edits: dict[Path, tuple[str, str]] = {}

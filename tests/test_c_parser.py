@@ -4,7 +4,7 @@ from typing import Any, ClassVar
 
 import pytest
 
-from rebrew.c_parser import (
+from rebrew.c_syntax.parser import (
     extract_function_name_and_proto,
     extract_function_name_from_line,
     find_c_function_definitions,
@@ -17,7 +17,7 @@ from rebrew.c_parser import (
 class TestParseMemo:
     def test_second_pass_does_not_reparse(self) -> None:
         """A tree larger than the old 512 cap stays parsed for the second walk."""
-        import rebrew.c_parser as c_parser
+        import rebrew.c_syntax.parser as c_parser
 
         c_parser._tls.parse_memo = None
         calls = 0
@@ -50,7 +50,7 @@ class TestParseMemo:
 
     def test_byte_budget_evicts_oldest_tree(self, monkeypatch: Any) -> None:
         """The count cap alone let 8192 large trees retain the whole heap."""
-        import rebrew.c_parser as c_parser
+        import rebrew.c_syntax.parser as c_parser
 
         monkeypatch.setattr(c_parser, "_PARSE_MEMO_MAX_TOTAL_BYTES", 64)
         c_parser._tls.parse_memo = None
@@ -73,7 +73,7 @@ class TestParseMemo:
 class TestVariableTreeSkip:
     def test_plain_source_does_not_walk_tokens(self) -> None:
         """No asm or calling-convention marker means no token walk."""
-        import rebrew.c_parser as c_parser
+        import rebrew.c_syntax.parser as c_parser
 
         c_parser._tls.variable_tree_memo = None
         calls = 0
@@ -97,7 +97,7 @@ class TestVariableTreeSkip:
 
     def test_conventions_masked_only_as_code_tokens(self) -> None:
         """Strings, comments, macro bodies and longer names keep their text."""
-        import rebrew.c_parser as c_parser
+        import rebrew.c_syntax.parser as c_parser
 
         source = (
             "#define CC __cdecl\n"
@@ -269,32 +269,32 @@ class TestFindExternVariables:
 
 class TestDeclaratorEdgeCases:
     def test_function_pointer_declarator_name(self) -> None:
-        from rebrew.c_parser import extract_function_name_from_line
+        from rebrew.c_syntax.parser import extract_function_name_from_line
 
         name, proto = extract_function_name_from_line("int (*handler)(int a);")
         assert name == "handler"
         assert proto == "int (*handler)(int a)"
 
     def test_pointer_return_function(self) -> None:
-        from rebrew.c_parser import extract_function_name_from_line
+        from rebrew.c_syntax.parser import extract_function_name_from_line
 
         name, proto = extract_function_name_from_line("char *strdup(const char *s);")
         assert name == "strdup"
 
     def test_array_global_declaration(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         vars_found = find_extern_variables("extern unsigned char g_buf[256];")
         assert vars_found and vars_found[0].name == "g_buf"
 
     def test_init_declarator_global(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         vars_found = find_extern_variables("extern int g_count = 0;")
         assert vars_found and vars_found[0].name == "g_count"
 
     def test_multiple_extern_variables_one_line(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         vars_found = find_extern_variables("extern int g_a, g_b;")
         names = {v.name for v in vars_found}
@@ -302,7 +302,7 @@ class TestDeclaratorEdgeCases:
         assert "g_b" in names
 
     def test_cc_prefixed_function(self) -> None:
-        from rebrew.c_parser import extract_function_name_from_line
+        from rebrew.c_syntax.parser import extract_function_name_from_line
 
         name, _ = extract_function_name_from_line("void __cdecl my_func(int x)")
         assert name == "my_func"
@@ -311,7 +311,7 @@ class TestDeclaratorEdgeCases:
         import builtins
         import threading
 
-        from rebrew.c_parser import _get_parser, _language
+        from rebrew.c_syntax.parser import _get_parser, _language
 
         real_import = builtins.__import__
 
@@ -321,37 +321,37 @@ class TestDeclaratorEdgeCases:
             return real_import(name, *a, **k)
 
         monkeypatch.setattr(builtins, "__import__", _fake_import)
-        monkeypatch.setattr("rebrew.c_parser._language", None)
+        monkeypatch.setattr("rebrew.c_syntax.parser._language", None)
         # Drop any thread-local parser so the language-init path is hit.
-        monkeypatch.setattr("rebrew.c_parser._tls", threading.local())
+        monkeypatch.setattr("rebrew.c_syntax.parser._tls", threading.local())
         with pytest.raises(ImportError, match="tree-sitter and tree-sitter-c are required"):
             _get_parser()
         # Restore for other tests in the module.
-        monkeypatch.setattr("rebrew.c_parser._language", _language)
+        monkeypatch.setattr("rebrew.c_syntax.parser._language", _language)
 
 
 class TestExternVariableDeclarators:
     def test_nested_array_dimensions(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         vars_found = find_extern_variables("extern int g_arr[10][5];")
         assert vars_found and vars_found[0].name == "g_arr"
 
     def test_array_of_pointers(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         vars_found = find_extern_variables("extern char *g_ptrs[4];")
         assert vars_found and vars_found[0].name == "g_ptrs"
         assert vars_found[0].type_str == "char *[4]"
 
     def test_function_pointer_is_variable_storage(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         variables = find_extern_variables("extern int (*g_cb)(int);")
         assert [(v.name, v.type_str) for v in variables] == [("g_cb", "int (*)(int)")]
 
     def test_function_declaration_not_variable(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         assert find_extern_variables("extern int f(void);") == []
 
@@ -406,7 +406,7 @@ class TestExternVariableDeclarators:
         ``const`` on the pointer stays off the type, as it does for
         ``int * const p[3]``.
         """
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         row = find_extern_variables("extern char (__cdecl *row)[4];")
         assert [(item.name, item.type_str, item.array_suffix) for item in row] == [
@@ -447,21 +447,21 @@ class TestPointerAndArrayTypes:
         assert variables[0].array_suffix == expected_suffix
 
     def test_pointer_depth_single(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         vars_found = find_extern_variables("extern int *g_p;")
         assert vars_found and vars_found[0].name == "g_p"
         assert vars_found[0].type_str == "int *"
 
     def test_double_pointer(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         vars_found = find_extern_variables("extern char **g_pp;")
         assert vars_found and vars_found[0].name == "g_pp"
         assert vars_found[0].type_str == "char **"
 
     def test_plain_array_suffix(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         vars_found = find_extern_variables("extern char g_s[16];")
         assert vars_found and vars_found[0].name == "g_s"
@@ -505,7 +505,7 @@ class TestDeclaratorCorpus:
 
     @pytest.mark.parametrize("source,expected", _CASES)
     def test_corpus(self, source: str, expected: str | None) -> None:
-        from rebrew.c_parser import extract_function_name_and_proto
+        from rebrew.c_syntax.parser import extract_function_name_and_proto
 
         result = extract_function_name_and_proto(source)
         assert (result[0] if result else None) == expected
@@ -540,7 +540,7 @@ class TestDefinitionsAndDllimport:
     """Definitions carry a global's real type; dllimport must never be reported."""
 
     def test_definitions_only_with_the_flag(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         src = "extern int g_decl;\nint g_def[4] = { 1, 2, 3, 4 };\n"
         assert [v.name for v in find_extern_variables(src)] == ["g_decl"]
@@ -549,7 +549,7 @@ class TestDefinitionsAndDllimport:
         assert next(v for v in both if v.name == "g_def").type_str == "int[4]"
 
     def test_function_locals_are_not_globals(self) -> None:
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         src = "int f(void) {\n    int local = 3;\n    static int slocal = 4;\n    return local + slocal;\n}\n"
         assert find_extern_variables(src, include_definitions=True) == []
@@ -558,7 +558,7 @@ class TestDefinitionsAndDllimport:
         """`strip_cc` deletes the declspec before tree-sitter sees it, so the
         in-tree check could never fire; `extern __declspec(dllimport) int g;`
         was reported despite the documented intent to skip it."""
-        from rebrew.c_parser import find_extern_variables
+        from rebrew.c_syntax.parser import find_extern_variables
 
         for src in (
             "__declspec(dllimport) int g_imp;\n",
@@ -574,7 +574,7 @@ class TestParsePreservesLegacyBytes:
         """Invalid-as-UTF-8 bytes must not be expanded to U+FFFD (3 bytes)
         before parsing — that shifted every later offset and made
         protected_spans miss the string literal after a CP1252 comment."""
-        from rebrew.c_parser import protected_spans
+        from rebrew.c_syntax.parser import protected_spans
 
         # 0xE9 is 'é' in cp1252; not a valid UTF-8 lead byte.
         raw = b'// Caf\xe9\nchar *s = "keep";\n'
@@ -583,7 +583,7 @@ class TestParsePreservesLegacyBytes:
         assert raw[spans[0][0] : spans[0][1]] == b'"keep"'
 
     def test_legacy_bytes_roundtrip_through_proto(self) -> None:
-        from rebrew.c_parser import node_text, parse_c_source
+        from rebrew.c_syntax.parser import node_text, parse_c_source
 
         # Source with cp1252 byte decoded via surrogateescape
         src = b'char *s = "Caf\xe9";\n'.decode("utf-8", errors="surrogateescape")
@@ -660,7 +660,7 @@ class TestTypeFromDeclaration:
 
 class TestVariableInventory:
     def test_function_uses_match_filtered_walks(self) -> None:
-        from rebrew.c_parser import find_c_function_definitions, find_variable_roles
+        from rebrew.c_syntax.parser import find_c_function_definitions, find_variable_roles
 
         source = (
             "extern int shared, first, second;\n"
@@ -691,7 +691,7 @@ class TestVariableInventory:
         assert variables[0].type_str == f"int ({convention} *)(void *, unsigned int, void *)"
         assert variables[0].declaration == declaration
         assert variables[0].line == assembly.count("\n") + 1
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         assert find_variable_roles(assembly + declaration) == (set(), {"callback"}, set())
 
@@ -706,12 +706,12 @@ class TestVariableInventory:
         assert len(variables) == 1
         assert variables[0].name == "callback"
         assert variables[0].type_str == "void (__cdecl *)(int)"
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         assert find_variable_roles("void (*callback)(void);") == ({"callback"}, set(), set())
 
     def test_conditionals_keep_definitions_and_ignore_directive_names(self) -> None:
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         source = "#ifdef global\nint global;\n#else\nint other;\n#endif\n"
         assert {v.name for v in find_extern_variables(source, include_definitions=True)} == {
@@ -731,7 +731,7 @@ class TestVariableInventory:
     def test_msvc_assembly_preserves_following_globals_and_operand_uses(
         self, assembly: str
     ) -> None:
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         source = f"extern int global;\nvoid f(void) {{\n{assembly}\n}}\nint after;\n"
         assert {v.name for v in find_extern_variables(source, include_definitions=True)} == {
@@ -744,13 +744,13 @@ class TestVariableInventory:
         assert uses == {"global"}
 
     def test_compiler_words_in_literals_comments_and_macros_remain_opaque(self) -> None:
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         source = '#define CODE __asm { global }\nchar *text = "__asm { global }";\n/* __asm { global } */\nint after;\n'
         assert find_variable_roles(source) == ({"text", "after"}, set(), set())
 
     def test_nested_local_shadow_does_not_hide_outer_use(self) -> None:
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         source = "int global; void f(void) { { int global; global = 1; } global = 2; }"
         assert find_variable_roles(source) == ({"global"}, set(), {"global"})
@@ -763,7 +763,7 @@ def test_function_returning_function_pointer_is_not_variable_storage() -> None:
 
 def test_find_extern_variables_skips_a_declaration_with_a_parse_error() -> None:
     """Hypothesis found this: error recovery handed back name 'long' and an unbalanced type."""
-    from rebrew.c_parser import find_extern_variables
+    from rebrew.c_syntax.parser import find_extern_variables
 
     source = "extern unsigned long a];\nint __cdecl __declspec(unsigned long, int) { return 0; }"
     assert find_extern_variables(source) == []
@@ -780,7 +780,7 @@ class TestReplaceFunctionPrototype:
         ],
     )
     def test_definition_after_msvc_assembly_retains_every_other_byte(self, assembly: str) -> None:
-        from rebrew.c_parser import replace_function_prototype
+        from rebrew.c_syntax.parser import replace_function_prototype
 
         old = "int __cdecl later(int value)"
         new = "int __cdecl later(void* value)"
@@ -792,7 +792,7 @@ class TestReplaceFunctionPrototype:
         assert replace_function_prototype(source, "later", new) == source.replace(old, new)
 
     def test_selected_definition_keeps_its_assembly_body(self) -> None:
-        from rebrew.c_parser import replace_function_prototype
+        from rebrew.c_syntax.parser import replace_function_prototype
 
         source = "int __cdecl target(int value) { __asm { mov eax, value } return value != 0; }"
         assert replace_function_prototype(
@@ -802,7 +802,7 @@ class TestReplaceFunctionPrototype:
 
 def test_extern_function_names_reuse_the_definition_tree(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without asm, the extern scan parses the text the definition scan already parsed."""
-    import rebrew.c_parser as parser
+    import rebrew.c_syntax.parser as parser
 
     source = "extern int __stdcall reuse_ext(void);\nint __cdecl reuse_def(void) { return 0; }\n"
     parser.find_c_function_definitions(source)
@@ -833,7 +833,7 @@ def test_extern_scan_reports_only_extern_declarations_inside_functions() -> None
 
 def test_msvc_masking_groups_asm_once_per_source(monkeypatch: pytest.MonkeyPatch) -> None:
     """A repeated masking of the same text reuses its asm token walk."""
-    import rebrew.c_parser as parser
+    import rebrew.c_syntax.parser as parser
 
     source = "void mask_once(void) { __asm { mov eax, 1 } }\n"
     original = parser._msvc_asm_token_groups
@@ -852,7 +852,7 @@ def test_msvc_masking_groups_asm_once_per_source(monkeypatch: pytest.MonkeyPatch
 
 def test_function_signatures_walk_each_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """A repeated signature scan reuses its walk; callers own the returned dict."""
-    import rebrew.c_parser as parser
+    import rebrew.c_syntax.parser as parser
 
     source = "int sig_once(int a) { return a; }\n"
     original = parser._function_trees
@@ -870,7 +870,7 @@ def test_function_signatures_walk_each_source_once(monkeypatch: pytest.MonkeyPat
 
 def test_function_trees_mask_each_source_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Scans of the same text share one MSVC masking; another text is masked again."""
-    import rebrew.c_parser as parser
+    import rebrew.c_syntax.parser as parser
 
     source = "int __cdecl trees_once(void) { return 1; }\n"
     original = parser.mask_msvc_syntax
@@ -893,7 +893,7 @@ def test_function_definitions_reuse_one_walk_per_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A repeated scan of the same text skips the parse; callers own their lists."""
-    import rebrew.c_parser as parser
+    import rebrew.c_syntax.parser as parser
 
     source = "int memo_first(void) { return 1; }\nint memo_second(int a) { return a; }\n"
     original = parser._function_trees
@@ -916,7 +916,7 @@ def test_function_definitions_reuse_one_walk_per_source(
 def test_variable_inventory_reuses_walk_but_isolates_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import rebrew.c_parser as parser
+    import rebrew.c_syntax.parser as parser
 
     source = "int cache_inventory_global = 42;\nextern int cache_inventory_external;\n"
     parser._tls.extern_variable_memo = None

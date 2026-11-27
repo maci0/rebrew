@@ -29,11 +29,11 @@ import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 lazy import filecmp
-lazy import json
 lazy import shutil
 lazy from typing import Any
 
 import typer
+lazy import msgspec
 lazy from typer.testing import CliRunner
 
 from rebrew.utils import (
@@ -160,7 +160,7 @@ def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
     capstone / NE / MZ providers plus ``rebrew.discoverers`` plugins) with
     its size refine pass; ``rebrew test --fix-sizes`` converges sizes later.
     """
-    from rebrew.discover import discover_functions
+    from rebrew.binary.discover import discover_functions
 
     return sorted(discover_functions(binary).functions)
 
@@ -447,7 +447,7 @@ def prune_stale_stubs(
 
     A discovery that came back *shorter* than the inventory it would prune
     against is treated as degraded (a provider that timed out or errored
-    contributes zero rows, see ``rebrew.discover._run_providers``), and
+    contributes zero rows, see ``rebrew.binary.discover._run_providers``), and
     nothing is deleted: a short list is indistinguishable from a real
     removal, and the caller has already overwritten the previous inventory.
 
@@ -558,6 +558,14 @@ class _UnreadableInventory:
 _INVENTORY_FILENAME = "function_structure.json"
 
 
+class _InventoryFunctionRow(msgspec.Struct):
+    """Serialized function entry written to ``function_structure.json``."""
+
+    va: int
+    size: int
+    name: str
+
+
 def _read_prior_inventory(src_dir: Path) -> list[Any] | _UnreadableInventory | None:
     """The prior run's function inventory.
 
@@ -569,7 +577,7 @@ def _read_prior_inventory(src_dir: Path) -> list[Any] | _UnreadableInventory | N
     """
     path = src_dir / _INVENTORY_FILENAME
     try:
-        data = json.loads(read_json_text(path))
+        data = msgspec.json.decode(read_json_text(path))
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:
@@ -876,7 +884,12 @@ def main(
     # that would read as "no prior inventory, nothing to protect".
     atomic_write_text(
         src_dir / _INVENTORY_FILENAME,
-        json.dumps([{"va": va, "size": size, "name": name} for va, size, name in funcs], indent=2)
+        msgspec.json.format(
+            msgspec.json.encode(
+                [_InventoryFunctionRow(va=va, size=size, name=name) for va, size, name in funcs]
+            ),
+            indent=2,
+        ).decode("utf-8")
         + "\n",
     )
 

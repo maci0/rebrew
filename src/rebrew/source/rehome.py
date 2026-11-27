@@ -54,7 +54,7 @@ def _defines(path: Path, defined: set[str], name: str, entry: dict[str, Any]) ->
 
 
 def _defined_names(path: Path) -> set[str]:
-    from rebrew.c_parser import find_c_function_definitions
+    from rebrew.c_syntax.parser import find_c_function_definitions
     from rebrew.utils import read_source_text
 
     text, _encoding = read_source_text(path)

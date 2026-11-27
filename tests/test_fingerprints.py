@@ -1,4 +1,4 @@
-"""Tests for rebrew.fingerprints: hashes, imphash, Rich header, entropy, CLI."""
+"""Tests for rebrew.binary.fingerprints: hashes, imphash, Rich header, entropy, CLI."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from hypothesis import strategies as st
 from typer.testing import CliRunner
 
 import rebrew.app.main
-from rebrew.fingerprints import (
+from rebrew.binary.fingerprints import (
     FingerprintError,
     _rich_header_parts_from_dos_stub,
     export_hash,

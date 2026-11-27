@@ -30,7 +30,7 @@ What it delegates to (no second mechanism):
 - Function annotations: :func:`rebrew.skeleton.generate_skeleton` renders a
   pure-C stub. Identity, ``SIZE``, and ``STATUS`` land in
   ``rebrew-functions.toml`` (status is metadata-owned, never inline).
-- Library annotations: :func:`rebrew.identify_library.write_candidates` records
+- Library annotations: :func:`rebrew.library.identify.write_candidates` records
   ``LIBRARY`` rows. The header is a banner, not inline state.
 - Data annotations: the C declaration plus a ``rebrew-data.toml`` row for
   ``size`` and ``section``.
@@ -1364,13 +1364,13 @@ def _plan_library_annotations(
     Splat writes those files for symbols referenced but *not defined* in the
     image: code that lives in a library, which is what a ``LIBRARY``
     row records.  The module is inferred with
-    :func:`rebrew.identify_library.infer_module` (the CRT/zlib name tables,
+    :func:`rebrew.library.identify.infer_module` (the CRT/zlib name tables,
     the same inference ``identify_library``'s import backend uses) and falls
     back to the target's own marker.  The VA has to land inside the image,
     else there is no address to anchor an annotation to and the row is
     reported as skipped.
     """
-    from rebrew.identify_library import infer_module
+    from rebrew.library.identify import infer_module
     from rebrew.naming import sanitize_name
 
     planned: list[SourceBinding] = []
@@ -1453,7 +1453,7 @@ def _locate(cfg_splat: SplatConfig, va: int) -> tuple[str, str] | None:
 
 def _source_declaration(module: str, va: int, declaration: str, *, syntax: Any = None) -> str:
     """Emit a declaration-bound address, or no text for an inventory-only identity."""
-    from rebrew.c_parser import find_c_function_definitions, find_extern_variables
+    from rebrew.c_syntax.parser import find_c_function_definitions, find_extern_variables
     from rebrew.metadata.anchors import add_address_anchor
 
     if not declaration:
@@ -1713,7 +1713,7 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> lis
 
 def _write_libraries(cfg: Any, plan: ImportPlan, planned: list[SourceBinding]) -> list[str]:
     """Record LIBRARY rows through ``identify_library.write_candidates``."""
-    from rebrew.identify_library import LibCandidate, write_candidates
+    from rebrew.library.identify import LibCandidate, write_candidates
     from rebrew.naming import sanitize_name
 
     candidates = [

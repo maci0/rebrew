@@ -623,7 +623,7 @@ def main(
                 meta, pkg_dir, fmt_toml=lambda m: fmt_layout_toml(m, imports, link_options)
             )
         )
-        from rebrew.binary_gate import layout_fingerprint
+        from rebrew.binary.gate import layout_fingerprint
 
         fingerprint = layout_fingerprint(cfg.target_binary)
         if fingerprint:

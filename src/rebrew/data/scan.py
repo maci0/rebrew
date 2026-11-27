@@ -12,7 +12,6 @@ import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any
-lazy import json
 lazy import struct
 lazy import unicodedata
 lazy import warnings
@@ -21,6 +20,8 @@ lazy from collections.abc import Sequence
 lazy from itertools import combinations
 lazy from pathlib import Path
 lazy from types import SimpleNamespace
+
+lazy import msgspec
 
 lazy from rebrew.config import (
     ProjectConfig,
@@ -474,7 +475,7 @@ def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
     files: dict[str, list[int]] = {}
     cache_path = metadata_dir / ".rebrew" / "name-map-cover.json"
     try:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        payload = msgspec.json.decode(cache_path.read_bytes())
     except (OSError, ValueError, TypeError) as exc:
         if cache_path.exists():
             log.warning("Ignoring unreadable name-map cover cache %s: %s", cache_path, exc)
@@ -555,7 +556,7 @@ def _flush_name_cover(cover: dict[str, Any]) -> None:
             # is refused by its stamp check and rebuilt.
             atomic_write_text(
                 cache_path,
-                json.dumps(payload, separators=(",", ":")),
+                msgspec.json.encode(payload).decode("utf-8"),
                 encoding="utf-8",
                 durable=False,
             )
@@ -626,7 +627,7 @@ def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str
     files: dict[str, dict[str, Any]] = {}
     cache_path = metadata_dir / ".rebrew" / "data-scan-roles.json"
     try:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        payload = msgspec.json.decode(cache_path.read_bytes())
     except (OSError, ValueError, TypeError) as exc:
         if cache_path.exists():
             log.warning("Ignoring unreadable data-scan role cache %s: %s", cache_path, exc)
@@ -734,7 +735,7 @@ def _flush_role_cache(cache: dict[str, Any]) -> None:
             # is refused by its stamp check and rebuilt.
             atomic_write_text(
                 cache_path,
-                json.dumps(payload, separators=(",", ":")),
+                msgspec.json.encode(payload).decode("utf-8"),
                 encoding="utf-8",
                 durable=False,
             )
@@ -773,7 +774,7 @@ def _collect_scan_file_facts(
             "fname": rel_display_path(cfile, src_dir),
             "header": is_header,
         }
-    from rebrew.c_parser import (
+    from rebrew.c_syntax.parser import (
         find_c_function_definitions,
         find_extern_variables,
         find_variable_roles,
@@ -1034,7 +1035,7 @@ def scan_globals(
     *record_roles* fills ``defined_in`` and ``referenced_in``. The reloc
     name map only reads names and VAs, so it passes False and skips that walk.
     """
-    from rebrew.c_parser import array_type_shape
+    from rebrew.c_syntax.parser import array_type_shape
     from rebrew.metadata.functions import load_metadata
     from rebrew.source.discovery import iter_sources_and_headers
 

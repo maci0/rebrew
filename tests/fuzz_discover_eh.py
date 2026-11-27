@@ -5,7 +5,7 @@ tests in tests/test_discover.py (Hypothesis drives them in CI; this
 file is the coverage-guided libFuzzer entry point for local/OSSFuzz
 runs).
 
-``rebrew.discover._parse_eh_frame`` walks the ``.eh_frame`` section of
+``rebrew.binary.discover._parse_eh_frame`` walks the ``.eh_frame`` section of
 an ELF the user points the CLI at: CIE/FDE record lengths, ULEB128
 augmentation strings, and pointer encodings are all untrusted bytes.
 Arbitrary bytes -- mutated, truncated, or structured -- must surface
@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import atheris
 
-from rebrew.discover import _parse_eh_frame
+from rebrew.binary.discover import _parse_eh_frame
 
 _SECTION_VA = 0x1100
 _POINTER_SIZES = (4, 8)

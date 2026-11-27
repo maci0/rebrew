@@ -1,6 +1,6 @@
 """PDB compiler, flags, and function-name extraction via ``llvm-pdbutil``.
 
-Pure format parser shared by :mod:`rebrew.pdb_info` (CLI command) and
+Pure format parser shared by :mod:`rebrew.binary.pdb_info` (CLI command) and
 :mod:`rebrew.toolchain_detect` (library detector).  Parsing goes through
 ``llvm-pdbutil``, which supports PDB 7.0+ (VC7+ and modern compilers).
 """

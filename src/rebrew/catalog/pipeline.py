@@ -9,6 +9,7 @@ from __future__ import annotations
 
 lazy from typing import Any
 
+lazy from rebrew.binary.sections import get_text_section_size
 lazy from rebrew.catalog.grid import build_coverage_data
 lazy from rebrew.catalog.loaders import (
     cached_function_list,
@@ -17,7 +18,6 @@ lazy from rebrew.catalog.loaders import (
 )
 lazy from rebrew.catalog.registry import build_function_registry, count_detection_sources
 lazy from rebrew.config import inventory_path_for
-lazy from rebrew.sections import get_text_section_size
 lazy from rebrew.utils import console
 lazy from rebrew.workspace.status import TrustedCoverage
 

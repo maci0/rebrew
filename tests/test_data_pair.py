@@ -10,7 +10,7 @@ from cli_json import cli_payload
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
-from rebrew.cast_rewrite import declare_externs
+from rebrew.c_syntax.cast_rewrite import declare_externs
 from rebrew.config import ProjectConfig
 from rebrew.data.pair import OperandPair, pair_data_operands, plan_pairs
 from rebrew.metadata.data import load_data_metadata, record_data_rows

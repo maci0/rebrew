@@ -7,7 +7,7 @@ lazy from pathlib import Path
 import pytest
 from bin_util import make_elf
 
-from rebrew.coff_reloc import CoffRelocRecord, apply_coff_relocations, smart_reloc_compare
+from rebrew.compare.coff_reloc import CoffRelocRecord, apply_coff_relocations, smart_reloc_compare
 from rebrew.config import arch_pointer_size, load_config
 from rebrew.formats.binary_loader import load_binary
 from rebrew.formats.xtensa import apply_xtensa_relocation, xtensa_symbol_relocations
@@ -472,7 +472,7 @@ class TestXtensaReviewRegressions:
             load_binary(path)
 
     def test_unsupported_inline_c_is_explicit(self) -> None:
-        from rebrew.asm import generate_inline_c
+        from rebrew.binary.asm import generate_inline_c
 
         with pytest.raises(RuntimeError, match="XCC ignores the naked"):
             generate_inline_c(

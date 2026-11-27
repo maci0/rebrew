@@ -10,7 +10,7 @@ from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_MISMATCH, EXIT_OK
-from rebrew.round_trip import _run_round_trip, app
+from rebrew.matching.round_trip import _run_round_trip, app
 
 runner = CliRunner()
 
@@ -60,8 +60,10 @@ class TestSplicePipeline:
         """No matched functions → reasm == original → exit 0."""
         cfg = _make_fake_cfg(tmp_path)
         # Stub enumeration + catalog loading — neither has annotated sources to walk.
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
 
         code = _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=False
@@ -83,11 +85,13 @@ class TestSplicePipeline:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         # _compile_and_extract returns (text, relocs, str_syms, local_labels, failure, detail).
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (b"", [], {}, {}, "compile_drift", "cl.exe failed"),
         )
 
@@ -116,9 +120,9 @@ class TestSplicePipeline:
             for i in range(3)
         ]
         monkeypatch.setattr(
-            "rebrew.round_trip._collect_splice_set", lambda cfg, f: (functions, [], 0)
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: (functions, [], 0)
         )
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         pipe = ProgressPipe()
         seen: list[tuple[int, int] | None] = []
 
@@ -126,7 +130,7 @@ class TestSplicePipeline:
             seen.append(pipe.poll())
             return b"", [], {}, {}, "compile_drift", "cl.exe failed"
 
-        monkeypatch.setattr("rebrew.round_trip._compile_and_extract", compile_fails)
+        monkeypatch.setattr("rebrew.matching.round_trip._compile_and_extract", compile_fails)
         try:
             monkeypatch.setenv(PROGRESS_FD_ENV, str(pipe.write_fd))
             # The writer's interval is not what this test is about: every count is written.
@@ -154,8 +158,10 @@ class TestSplicePipeline:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         seen: dict = {}
 
         def _fake_compile(cfg, fn, work_dir):
@@ -164,7 +170,7 @@ class TestSplicePipeline:
             # real PE) — the cflags capture is what this test asserts.
             return (b"", [], {}, {}, "compile_drift", "skip")
 
-        monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)
+        monkeypatch.setattr("rebrew.matching.round_trip._compile_and_extract", _fake_compile)
 
         _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=False, allow_naked=True
@@ -223,16 +229,17 @@ class TestSplicePipeline:
             cflags=["/O2"],
         )
         monkeypatch.setattr(
-            "rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn_naked, fn_plain], [], 0)
+            "rebrew.matching.round_trip._collect_splice_set",
+            lambda cfg, f: ([fn_naked, fn_plain], [], 0),
         )
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
 
         def _fake_compile(cfg, fn, work_dir):
             return (b"", [], {}, {}, "compile_drift", "skip")
 
-        monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)
+        monkeypatch.setattr("rebrew.matching.round_trip._compile_and_extract", _fake_compile)
         captured: dict = {}
-        monkeypatch.setattr("rebrew.round_trip.json_print", lambda d: captured.update(d))
+        monkeypatch.setattr("rebrew.matching.round_trip.json_print", lambda d: captured.update(d))
 
         _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=True, allow_naked=True
@@ -242,7 +249,7 @@ class TestSplicePipeline:
         assert fenced["vas"] == ["0x10000100"]
 
     def test_source_is_naked_fenced(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _source_is_naked_fenced
+        from rebrew.matching.round_trip import _source_is_naked_fenced
 
         fenced = tmp_path / "fenced.c"
         fenced.write_text(
@@ -277,21 +284,21 @@ class TestSplicePipeline:
             symbol="_proven", va=0x10000102, size=0x400, status="PROVEN", path=Path("p.c")
         )
         monkeypatch.setattr(
-            "rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [proven], 0)
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [proven], 0)
         )
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (original_slice, [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary",
+            "rebrew.matching.round_trip.load_binary",
             lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
-        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+        monkeypatch.setattr("rebrew.matching.round_trip.va_to_file_offset", lambda info, va: 0x100)
         captured: dict = {}
-        monkeypatch.setattr("rebrew.round_trip.json_print", lambda d: captured.update(d))
+        monkeypatch.setattr("rebrew.matching.round_trip.json_print", lambda d: captured.update(d))
 
         _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=True, allow_naked=True
@@ -318,20 +325,22 @@ class TestSplicePipeline:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         # Identical bytes (no relocs) → splice is a byte-level no-op.
         original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (original_slice, [], {}, {}, "", ""),
         )
         # Stub the PE loader so we don't need a real PE to compute file offset.
         from types import SimpleNamespace as SN
 
         fake_info = SN(text_size=0x100, text_va=0x10000100)
-        monkeypatch.setattr("rebrew.round_trip.load_binary", lambda p: fake_info)
-        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+        monkeypatch.setattr("rebrew.matching.round_trip.load_binary", lambda p: fake_info)
+        monkeypatch.setattr("rebrew.matching.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
         out = tmp_path / "fake.reasm"
         code = _run_round_trip(
@@ -356,7 +365,7 @@ class TestSplicePipeline:
         expected_code: int,
     ) -> None:
         """Unresolved symbols are skipped by default; --strict-catalog exits non-zero."""
-        from rebrew.coff_reloc import UnresolvedSymbolError
+        from rebrew.compare.coff_reloc import UnresolvedSymbolError
         from rebrew.matcher.parsers import CoffRelocRecord
 
         cfg = _make_fake_cfg(tmp_path)
@@ -370,10 +379,12 @@ class TestSplicePipeline:
             cflags=["/O2"],
         )
         original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (
                 original_slice,
                 [CoffRelocRecord(offset=1, type=0x6, symbol="_missing")],
@@ -387,9 +398,9 @@ class TestSplicePipeline:
         def _boom(*_a: object, **_k: object) -> bytes:
             raise UnresolvedSymbolError("_missing")
 
-        monkeypatch.setattr("rebrew.round_trip.apply_coff_relocations", _boom)
+        monkeypatch.setattr("rebrew.matching.round_trip.apply_coff_relocations", _boom)
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary",
+            "rebrew.matching.round_trip.load_binary",
             lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
 
@@ -419,21 +430,23 @@ class TestSplicePipeline:
         )
         # Compile returns different bytes than the PE slice at 0x100.
         drifted = b"\xde\xad\xbe\xef\x00"
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (drifted, [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.apply_coff_relocations",
+            "rebrew.matching.round_trip.apply_coff_relocations",
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary",
+            "rebrew.matching.round_trip.load_binary",
             lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
-        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+        monkeypatch.setattr("rebrew.matching.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
         code = _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=False
@@ -443,13 +456,13 @@ class TestSplicePipeline:
 
 class TestStringSymbolHelpers:
     def test_sg_key_normalizes(self) -> None:
-        from rebrew.round_trip import _sg_key
+        from rebrew.matching.round_trip import _sg_key
 
         assert _sg_key("_$SG123") == "$SG123"
         assert _sg_key("$SG456") == "$SG456"
 
     def test_resolve_string_in_rdata(self) -> None:
-        from rebrew.round_trip import _resolve_string_symbols_in_target
+        from rebrew.matching.round_trip import _resolve_string_symbols_in_target
 
         # target: .rdata at file offset 0x10, VA 0x405000, size 0x20
         target = b"\x00" * 0x10 + b"Hello World\x00" + b"\x00" * 10
@@ -458,7 +471,7 @@ class TestStringSymbolHelpers:
         assert found == {"$SG1": 0x405000}
 
     def test_resolve_string_not_found(self) -> None:
-        from rebrew.round_trip import _resolve_string_symbols_in_target
+        from rebrew.matching.round_trip import _resolve_string_symbols_in_target
 
         target = b"\x00" * 64
         sections = {".rdata": SimpleNamespace(va=0x405000, size=0x20, file_offset=0x10)}
@@ -469,7 +482,7 @@ class TestStringSymbolHelpers:
         """A literal that is a strict prefix of the target's copy (e.g. the
         source is missing a trailing ``\\n``) binds to the start of the longer
         target string — the address the reloc actually needs."""
-        from rebrew.round_trip import _resolve_string_symbols_in_target
+        from rebrew.matching.round_trip import _resolve_string_symbols_in_target
 
         target = b"\x00" * 0x10 + b"Hello World\n\x00" + b"\x00" * 10
         sections = {".rdata": SimpleNamespace(va=0x405000, size=0x20, file_offset=0x10)}
@@ -481,7 +494,7 @@ class TestStringSymbolHelpers:
     def test_exact_match_preferred_over_prefix(self) -> None:
         """When both the terminated literal and a longer superset exist, the
         exact (terminated) match wins."""
-        from rebrew.round_trip import _resolve_string_symbols_in_target
+        from rebrew.matching.round_trip import _resolve_string_symbols_in_target
 
         target = b"\x00" * 0x10 + b"Hello World\x00" + b"Hello World long\x00"
         sections = {".rdata": SimpleNamespace(va=0x405000, size=0x40, file_offset=0x10)}
@@ -491,7 +504,7 @@ class TestStringSymbolHelpers:
     def test_prefix_not_present_still_empty(self) -> None:
         """A literal absent from the target entirely (even as a prefix probe)
         still yields no binding."""
-        from rebrew.round_trip import _resolve_string_symbols_in_target
+        from rebrew.matching.round_trip import _resolve_string_symbols_in_target
 
         target = b"\x00" * 0x10 + b"Goodbye World\x00"
         sections = {".rdata": SimpleNamespace(va=0x405000, size=0x20, file_offset=0x10)}
@@ -499,14 +512,14 @@ class TestStringSymbolHelpers:
         assert found == {}
 
     def test_empty_content_skipped(self) -> None:
-        from rebrew.round_trip import _resolve_string_symbols_in_target
+        from rebrew.matching.round_trip import _resolve_string_symbols_in_target
 
         sections = {".rdata": SimpleNamespace(va=0x405000, size=0x20, file_offset=0)}
         found = _resolve_string_symbols_in_target(b"\x00" * 32, {"$SG1": b""}, sections)
         assert found == {}
 
     def test_mismatch_shape(self) -> None:
-        from rebrew.round_trip import _mismatch
+        from rebrew.matching.round_trip import _mismatch
 
         m = _mismatch(
             SimpleNamespace(va=0x1000, name="f", symbol="_f", status="EXACT"), "REASON", "detail"
@@ -518,7 +531,7 @@ class TestStringSymbolHelpers:
         assert m["detail"] == "detail"
 
     def test_extract_string_symbols_empty(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _extract_string_symbols
+        from rebrew.matching.round_trip import _extract_string_symbols
 
         assert _extract_string_symbols(tmp_path / "none.obj", set()) == {}
 
@@ -534,7 +547,7 @@ class TestLoadCatalogs:
         )
 
     def test_exports_and_annotations(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.round_trip import _load_catalogs
+        from rebrew.matching.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -555,7 +568,7 @@ class TestLoadCatalogs:
         assert data == {}  # no rebrew-data.toml
 
     def test_data_names_from_data_metadata(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _load_catalogs
+        from rebrew.matching.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -576,8 +589,8 @@ class TestLoadCatalogs:
         the real function made REL32 calls resolve to the data slot
         (CreateListenSocket: function@0x10009e60 vs data@0x101deb14).
         """
-        from rebrew.coff_reloc import build_symbol_resolver
-        from rebrew.round_trip import _load_catalogs
+        from rebrew.compare.coff_reloc import build_symbol_resolver
+        from rebrew.matching.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -598,7 +611,7 @@ class TestLoadCatalogs:
         assert resolver("_CreateListenSocket") == 0x1000  # the function, not the slot
 
     def test_library_annotation_enters_funcs(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _load_catalogs
+        from rebrew.matching.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -620,7 +633,7 @@ class TestLoadCatalogs:
         the splice resolver looked up `ann.symbol` (e.g. `_foo@8`), so every
         stdcall/static function missed the catalog as `unresolved_symbol`.
         """
-        from rebrew.round_trip import _load_catalogs
+        from rebrew.matching.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -637,7 +650,7 @@ class TestLoadCatalogs:
         """A nameless FUNCTION annotation (hint-only, no body) keys on its
         name instead of vanishing — previously `not ann.name` skipped it, so
         the splice side reported `unresolved_symbol`."""
-        from rebrew.round_trip import _load_catalogs
+        from rebrew.matching.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -659,8 +672,8 @@ class TestLoadCatalogs:
     def test_splice_and_catalog_share_key(self, tmp_path: Path) -> None:
         """`_collect_splice_set` and `_load_catalogs` must agree on the key:
         both resolve through `resolve_symbol` (symbol, then filename stem)."""
+        from rebrew.matching.round_trip import _collect_splice_set, _load_catalogs
         from rebrew.metadata.functions import update_source_status
-        from rebrew.round_trip import _collect_splice_set, _load_catalogs
 
         cfg = SimpleNamespace(
             reversed_dir=tmp_path / "src",
@@ -730,7 +743,7 @@ class TestCollectSpliceSet:
         return path
 
     def test_partitions_by_status(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _collect_splice_set
+        from rebrew.matching.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
         self._write_fn(cfg, "_exact_fn", 0x10001000, "EXACT", size=32)
@@ -746,7 +759,7 @@ class TestCollectSpliceSet:
     def test_lowercase_status_is_canonicalized(self, tmp_path: Path) -> None:
         """A hand-edited lowercase status must still land in the splice set:
         ann.status is canonicalized, the raw store value is not."""
-        from rebrew.round_trip import _collect_splice_set
+        from rebrew.matching.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
         self._write_fn(cfg, "_exact_fn", 0x10001000, "EXACT", size=32)
@@ -766,7 +779,7 @@ class TestCollectSpliceSet:
         """The cflags chain is resolve_cflags: a per-module preset (and the
         MSVC default) must reach the compile, or round-trip compiles different
         bytes than verify/test."""
-        from rebrew.round_trip import _collect_splice_set
+        from rebrew.matching.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
         cfg.cflags_presets = {"SERVER": "/O1"}
@@ -780,8 +793,8 @@ class TestCollectSpliceSet:
     ) -> None:
         """A TOOLCHAIN override must reach compile_to_obj (verify applies it;
         round-trip used to compile every function with the project default)."""
+        from rebrew.matching.round_trip import _collect_splice_set, _compile_and_extract
         from rebrew.metadata.functions import update_field
-        from rebrew.round_trip import _collect_splice_set, _compile_and_extract
 
         cfg = self._cfg(tmp_path)
         path = self._write_fn(cfg, "_exact_fn", 0x10001000, "EXACT", size=32)
@@ -798,14 +811,14 @@ class TestCollectSpliceSet:
             seen["src"] = src
             return None, "stub"
 
-        monkeypatch.setattr("rebrew.round_trip.compile_to_obj", _fake_compile)
+        monkeypatch.setattr("rebrew.matching.round_trip.compile_to_obj", _fake_compile)
         _compile_and_extract(cfg, fn, tmp_path)
         assert seen["toolchain"] == "msvc-5.0"
         assert seen["src"] == path
 
     def test_missing_metadata_defaults_to_stub(self, tmp_path: Path) -> None:
         """No metadata entry → status defaults to STUB → counted as other."""
-        from rebrew.round_trip import _collect_splice_set
+        from rebrew.matching.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
         path = cfg.reversed_dir / "_stub.c"
@@ -821,7 +834,7 @@ class TestCollectSpliceSet:
         assert other == 1
 
     def test_symbol_filter_substring(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _collect_splice_set
+        from rebrew.matching.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
         self._write_fn(cfg, "_alpha", 0x10001000, "EXACT")
@@ -832,8 +845,8 @@ class TestCollectSpliceSet:
 
     def test_cflags_precedence(self, tmp_path: Path) -> None:
         """Metadata cflags > annotation cflags > project-default cflags."""
+        from rebrew.matching.round_trip import _collect_splice_set
         from rebrew.metadata.functions import update_field
-        from rebrew.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
         # (a) metadata cflags only → wins
@@ -851,7 +864,7 @@ class TestCollectSpliceSet:
         assert by_sym["_plain"].cflags == ["/O2", "/Gd"]
 
     def test_fn_fields_from_annotation_and_metadata(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _collect_splice_set
+        from rebrew.matching.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
         self._write_fn(cfg, "_sized", 0x10001000, "EXACT", size=123)
@@ -867,7 +880,7 @@ class TestCollectSpliceSet:
         assert fn.path == cfg.reversed_dir / "_sized.c"
 
     def test_size_zero_when_metadata_missing(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _collect_splice_set
+        from rebrew.matching.round_trip import _collect_splice_set
 
         cfg = self._cfg(tmp_path)
         self._write_fn(cfg, "_nosize", 0x10001000, "EXACT")
@@ -914,7 +927,7 @@ class TestRoundTripGoldenPe:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Real PE parsing/VA→offset/splice; only the compiler is stubbed."""
-        from rebrew.round_trip import _run_round_trip
+        from rebrew.matching.round_trip import _run_round_trip
 
         cfg = self._cfg(tmp_path)
         # Real pipeline: parse_obj_symbol_bytes strips trailing NOP padding, so
@@ -922,7 +935,7 @@ class TestRoundTripGoldenPe:
         # trimmed span (the golden blob has 53 trailing NOPs).
         code = b"\x55\x8b\xec\x83\xec\x08\x8b\x45\x08\xc9\xc3"
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (code, [], {}, {}, "", ""),
         )
         out = tmp_path / "golden.reasm"
@@ -937,12 +950,12 @@ class TestRoundTripGoldenPe:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Drifted compile bytes (reloc-free) → compile_drift mismatch."""
-        from rebrew.round_trip import _run_round_trip
+        from rebrew.matching.round_trip import _run_round_trip
 
         cfg = self._cfg(tmp_path)
         drifted = b"\xde\xad\xbe\xef" + b"\x00" * 60
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (drifted, [], {}, {}, "", ""),
         )
         code_ret = _run_round_trip(
@@ -981,22 +994,24 @@ class TestPaddingInclusiveSize:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         # The compiler emits only the real code — no trailing padding.
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (b"\xc3", [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.apply_coff_relocations",
+            "rebrew.matching.round_trip.apply_coff_relocations",
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary",
+            "rebrew.matching.round_trip.load_binary",
             lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
-        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+        monkeypatch.setattr("rebrew.matching.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
         code = _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=False
@@ -1026,22 +1041,24 @@ class TestPaddingInclusiveSize:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         # Compiled is 2 bytes but the real function is 5 — genuine oversize.
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (b"\x55\x8b", [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.apply_coff_relocations",
+            "rebrew.matching.round_trip.apply_coff_relocations",
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary",
+            "rebrew.matching.round_trip.load_binary",
             lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
-        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+        monkeypatch.setattr("rebrew.matching.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
         code = _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=False
@@ -1073,23 +1090,25 @@ class TestPaddingInclusiveSize:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         # Compiled is 6 bytes but the real function is 5 (prefix-identical,
         # extra tail) — must be flagged, not silently truncated.
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (b"\x55\x8b\xec\x5d\xc3\x90", [], {}, {}, "", ""),
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.apply_coff_relocations",
+            "rebrew.matching.round_trip.apply_coff_relocations",
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary",
+            "rebrew.matching.round_trip.load_binary",
             lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
-        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+        monkeypatch.setattr("rebrew.matching.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
         code = _run_round_trip(
             cfg, output=None, no_write=True, symbol_filter=None, json_output=False
@@ -1099,19 +1118,19 @@ class TestPaddingInclusiveSize:
 
 class TestDriftDetail:
     def test_rel32_target_decoding(self) -> None:
-        from rebrew.round_trip import _rel32_target
+        from rebrew.matching.round_trip import _rel32_target
 
         # call rel32 at fn offset 4: disp bytes 04 00 00 00 → target fn_va + 4 + 4 + 4
         blob = b"\x00" * 4 + b"\x04\x00\x00\x00" + b"\x00" * 4
         assert _rel32_target(blob, 4, 0x10000000) == 0x1000000C
 
     def test_rel32_target_out_of_range(self) -> None:
-        from rebrew.round_trip import _rel32_target
+        from rebrew.matching.round_trip import _rel32_target
 
         assert _rel32_target(b"\x00" * 2, 4, 0x1000) is None
 
     def test_target_name_lookup(self) -> None:
-        from rebrew.round_trip import _target_name
+        from rebrew.matching.round_trip import _target_name
 
         funcs = {0x1000: "foo", 0x2000: "bar"}
         assert _target_name(funcs, 0x1000) == "foo"
@@ -1149,20 +1168,22 @@ class TestDriftDetail:
             # Source encodes call disp 0x10 → target 0x10000105 + 0x10 = 0x10000115
             return (b"\xe8\x10\x00\x00\x00", [reloc], {}, {}, "", "")
 
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
         monkeypatch.setattr(
-            "rebrew.round_trip._load_catalogs", lambda cfg: ({0x10000115: "_callee"}, {})
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
         )
-        monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)
         monkeypatch.setattr(
-            "rebrew.round_trip.apply_coff_relocations",
+            "rebrew.matching.round_trip._load_catalogs", lambda cfg: ({0x10000115: "_callee"}, {})
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._compile_and_extract", _fake_compile)
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip.apply_coff_relocations",
             lambda text, relocs, resolve_va, **kw: text,
         )
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary",
+            "rebrew.matching.round_trip.load_binary",
             lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
-        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+        monkeypatch.setattr("rebrew.matching.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
         captured: dict[str, object] = {}
 
@@ -1176,7 +1197,7 @@ class TestDriftDetail:
                 "detail": detail,
             }
 
-        monkeypatch.setattr("rebrew.round_trip._mismatch", _capture_mismatch)
+        monkeypatch.setattr("rebrew.matching.round_trip._mismatch", _capture_mismatch)
         _run_round_trip(cfg, output=None, no_write=True, symbol_filter=None, json_output=False)
         detail = captured.get("detail")
         assert isinstance(detail, str)
@@ -1189,7 +1210,7 @@ class TestListName:
     def test_lists_function_list_names(self, tmp_path: Path) -> None:
         import json as _json
 
-        from rebrew.round_trip import _list_name
+        from rebrew.matching.round_trip import _list_name
 
         cfg = SimpleNamespace(reversed_dir=tmp_path)
         (tmp_path / "function_structure.json").write_text(
@@ -1201,7 +1222,7 @@ class TestListName:
         assert _list_name(cfg, None) == ""
 
     def test_missing_function_list_returns_empty(self, tmp_path: Path) -> None:
-        from rebrew.round_trip import _list_name
+        from rebrew.matching.round_trip import _list_name
 
         cfg = SimpleNamespace()
         assert _list_name(cfg, 0x1000) == ""
@@ -1213,7 +1234,7 @@ class TestReasonCounts:
 
     def test_reason_counts_aggregate(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
-        from rebrew.coff_reloc import UnresolvedSymbolError
+        from rebrew.compare.coff_reloc import UnresolvedSymbolError
         from rebrew.matcher.parsers import CoffRelocRecord
 
         cfg = _make_fake_cfg(tmp_path)
@@ -1226,11 +1247,13 @@ class TestReasonCounts:
             module="FAKE",
             cflags=["/O2"],
         )
-        monkeypatch.setattr("rebrew.round_trip.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr("rebrew.matching.round_trip.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._compile_and_extract",
             lambda cfg, fn, work_dir: (
                 b"\x90\x90\x90\x90\xc3",
                 [CoffRelocRecord(offset=1, type=0x6, symbol="_missing")],
@@ -1244,9 +1267,9 @@ class TestReasonCounts:
         def _boom(*_a: object, **_k: object) -> bytes:
             raise UnresolvedSymbolError("_missing")
 
-        monkeypatch.setattr("rebrew.round_trip.apply_coff_relocations", _boom)
+        monkeypatch.setattr("rebrew.matching.round_trip.apply_coff_relocations", _boom)
         monkeypatch.setattr(
-            "rebrew.round_trip.load_binary",
+            "rebrew.matching.round_trip.load_binary",
             lambda p: SimpleNamespace(text_size=0x100, text_va=0x10000100),
         )
         result = runner.invoke(app, ["--json", "--dry-run"])
@@ -1264,7 +1287,7 @@ class TestExtractStringSymbolsMangled:
     def test_extracts_c_mangled_string(self, tmp_path: Path) -> None:
         from bin_util import make_coff_obj
 
-        from rebrew.round_trip import _extract_string_symbols
+        from rebrew.matching.round_trip import _extract_string_symbols
 
         # Section data: code first, then the string at offset 0x20.
         code = b"\x90" * 0x20 + b"Sending Broadcast\x00\x00"
@@ -1278,7 +1301,7 @@ class TestExtractStringSymbolsMangled:
     def test_extracts_sg_and_c_mangled(self, tmp_path: Path) -> None:
         from bin_util import make_coff_obj
 
-        from rebrew.round_trip import _extract_string_symbols
+        from rebrew.matching.round_trip import _extract_string_symbols
 
         code = b"\x90" * 0x20 + b"sg-string\x00" + b"\x00" * 4 + b"cc-string\x00\x00"
         sg = "??_C@_0BC@AAAA@sg?9string?$AA@"
@@ -1289,6 +1312,177 @@ class TestExtractStringSymbolsMangled:
         out = _extract_string_symbols(obj_path, {sg, cc})
         assert out == {sg: b"sg-string\x00", cc: b"cc-string\x00"}
 
+    def test_extracts_elf_rodata_and_sdata_strings(self, tmp_path: Path) -> None:
+        """ELF ``.rodata*`` and ``.sdata*`` string constants are extracted by reloc symbol."""
+        import struct
+
+        from rebrew.matching.round_trip import (
+            _extract_string_symbols,
+            _resolve_string_symbols_in_target,
+        )
+
+        rodata = b"hello elf\x00extra"
+        sdata = b"small str\x00"
+        strtab = b"\x00.LC0\x00g_sdata\x00"
+        shstrtab = b"\x00.rodata.str1.1\x00.sdata\x00.symtab\x00.strtab\x00.shstrtab\x00"
+        symtab = bytearray(16)
+        # .LC0 at offset 0 in section 1 (.rodata.str1.1)
+        symtab.extend(struct.pack("<IIIBBH", 1, 0, len(rodata), 0x01, 0, 1))
+        # g_sdata at offset 0 in section 2 (.sdata)
+        symtab.extend(struct.pack("<IIIBBH", 6, 0, len(sdata), 0x11, 0, 2))
+
+        ro_off = 52
+        sd_off = (ro_off + len(rodata) + 3) & ~3
+        sym_off = (sd_off + len(sdata) + 3) & ~3
+        str_off = sym_off + len(symtab)
+        shstr_off = str_off + len(strtab)
+        shoff = (shstr_off + len(shstrtab) + 3) & ~3
+
+        def _no(s: str) -> int:
+            return shstrtab.index(s.encode("ascii") + b"\x00")
+
+        def _sh(
+            name: int,
+            stype: int,
+            flags: int,
+            off: int,
+            size: int,
+            link: int = 0,
+            info: int = 0,
+            entsize: int = 0,
+        ) -> bytes:
+            return struct.pack(
+                "<IIIIIIIIII", name, stype, flags, 0, off, size, link, info, 4, entsize
+            )
+
+        shdrs = b"".join(
+            [
+                b"\x00" * 40,
+                _sh(_no(".rodata.str1.1"), 1, 0x32, ro_off, len(rodata)),
+                _sh(_no(".sdata"), 1, 0x3, sd_off, len(sdata)),
+                _sh(_no(".symtab"), 2, 0, sym_off, len(symtab), link=4, info=2, entsize=16),
+                _sh(_no(".strtab"), 3, 0, str_off, len(strtab)),
+                _sh(_no(".shstrtab"), 3, 0, shstr_off, len(shstrtab)),
+            ]
+        )
+        ehdr = struct.pack(
+            "<16sHHIIIIIHHHHHH",
+            b"\x7fELF\x01\x01\x01" + b"\x00" * 9,
+            1,
+            3,
+            1,
+            0,
+            0,
+            shoff,
+            0,
+            52,
+            0,
+            0,
+            40,
+            6,
+            5,
+        )
+        blob = bytearray(ehdr)
+        blob += b"\x00" * (ro_off - len(blob)) + rodata
+        blob += b"\x00" * (sd_off - len(blob)) + sdata
+        blob += b"\x00" * (sym_off - len(blob)) + symtab
+        blob += b"\x00" * (str_off - len(blob)) + strtab
+        blob += b"\x00" * (shstr_off - len(blob)) + shstrtab
+        blob += b"\x00" * (shoff - len(blob)) + shdrs
+
+        obj_path = tmp_path / "elf_str.o"
+        obj_path.write_bytes(bytes(blob))
+        extracted = _extract_string_symbols(obj_path, {".LC0", "g_sdata"})
+        assert extracted == {".LC0": b"hello elf\x00", "g_sdata": b"small str\x00"}
+
+        target = b"\x00" * 0x20 + b"hello elf\x00" + b"\x00" * 6 + b"small str\x00"
+        sections = {
+            ".rodata": SimpleNamespace(va=0x804A000, size=10, file_offset=0x20),
+            ".sdata": SimpleNamespace(va=0x804B000, size=10, file_offset=0x30),
+        }
+        assert _resolve_string_symbols_in_target(target, extracted, sections) == {
+            ".LC0": 0x804A000,
+            "g_sdata": 0x804B000,
+        }
+
+
+class TestElfRoundTrip:
+    """ELF / PIE targets allow image_base == 0, arch padding, and skip PE header patching."""
+
+    def test_elf_pie_zero_image_base_and_mips_padding_splice(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from bin_util import make_elf
+
+        from rebrew.formats.binary_model import BinaryInfo, SectionInfo
+
+        # MIPS big-endian code: nop; jr $ra; addiu $v0, $zero, 1 + 4 bytes of 0x00 alignment padding.
+        real_code = bytes.fromhex("00000000 03e00008 24020001")
+        padded_code = real_code + b"\x00\x00\x00\x00"
+        elf_bytes = make_elf(
+            padded_code, image_base=0, text_va=0x1000, text_offset=0x1000, machine=8, endian=">"
+        )
+        binary = tmp_path / "pie.elf"
+        binary.write_bytes(elf_bytes)
+        src = tmp_path / "src" / "M"
+        src.mkdir(parents=True)
+        cfg = SimpleNamespace(
+            target_name="M",
+            target_binary=binary,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            module="M",
+            binary_format="elf",
+            arch="mips32",
+            image_base=0,
+            dll_exports={},
+        )
+        fn = SimpleNamespace(
+            symbol="my_mips_fn",
+            va=0x1000,
+            size=len(padded_code),
+            status="EXACT",
+            path=src / "f.c",
+            module="M",
+            cflags=["-O2"],
+        )
+        info = BinaryInfo(
+            path=binary,
+            format="elf",
+            arch="mips32",
+            endian="big",
+            pointer_size=4,
+            image_base=0,
+            text_va=0x1000,
+            text_size=len(padded_code),
+            text_raw_offset=0x1000,
+            sections={
+                ".text": SectionInfo(".text", 0x1000, len(padded_code), 0x1000, len(padded_code))
+            },
+        )
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda c, f: ([fn], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda c: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._compile_and_extract",
+            lambda c, fn_, w: (real_code, [], {}, {}, "", ""),
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip.load_binary", lambda p: info)
+        monkeypatch.setattr("rebrew.matching.round_trip.va_to_file_offset", lambda i, va: 0x1000)
+
+        out = tmp_path / "pie.reasm"
+        code_ret = _run_round_trip(
+            cfg,
+            output=out,
+            no_write=False,
+            symbol_filter=None,
+            json_output=False,
+            fix_headers=True,
+        )
+        assert code_ret == EXIT_OK
+        assert out.read_bytes() == elf_bytes
+
 
 class TestNameEncodedVa:
     """Ghidra auto-names encode their VA in the trailing hex digits
@@ -1296,36 +1490,36 @@ class TestNameEncodedVa:
     fallback when the catalog cannot resolve a symbol by name."""
 
     def test_g_symbol_hex_suffix(self) -> None:
-        from rebrew.round_trip import _name_encoded_va
+        from rebrew.matching.round_trip import _name_encoded_va
 
         assert _name_encoded_va("_g_1003546c") == 0x1003546C
 
     def test_s_symbol_preview_suffix(self) -> None:
-        from rebrew.round_trip import _name_encoded_va
+        from rebrew.matching.round_trip import _name_encoded_va
 
         assert _name_encoded_va("_s_plt_SetPlantMap____Map_is_not_al_1002d9ec") == 0x1002D9EC
 
     def test_eight_digit_suffix(self) -> None:
-        from rebrew.round_trip import _name_encoded_va
+        from rebrew.matching.round_trip import _name_encoded_va
 
         assert _name_encoded_va("_g_myvar_12345678") == 0x12345678
 
     def test_nine_digit_suffix_rejected(self) -> None:
         # 9+ trailing hex digits are not a 32-bit VA — the decoder must not
         # truncate the run to 8 and invent a plausible-but-wrong VA.
-        from rebrew.round_trip import _name_encoded_va
+        from rebrew.matching.round_trip import _name_encoded_va
 
         assert _name_encoded_va("_g_123456789") is None
         assert _name_encoded_va("_g_abcdef0123456789") is None
 
     def test_four_digit_suffix_ignored(self) -> None:
         # "_g_timestamp_0b6c" — 4 hex digits is not a VA-sized suffix.
-        from rebrew.round_trip import _name_encoded_va
+        from rebrew.matching.round_trip import _name_encoded_va
 
         assert _name_encoded_va("_g_timestamp_0b6c") is None
 
     def test_plain_name_ignored(self) -> None:
-        from rebrew.round_trip import _name_encoded_va
+        from rebrew.matching.round_trip import _name_encoded_va
 
         assert _name_encoded_va("_g_counter") is None
         assert _name_encoded_va("main") is None
@@ -1333,7 +1527,7 @@ class TestNameEncodedVa:
     def test_dollar_symbols_rejected(self) -> None:
         # `$SG<N>` (string literal) and `$L<N>` (jump-table label) encode an
         # index, not a VA; a six-digit suffix must not decode to an address.
-        from rebrew.round_trip import _name_encoded_va
+        from rebrew.matching.round_trip import _name_encoded_va
 
         assert _name_encoded_va("$SG123456") is None
         assert _name_encoded_va("$L123456") is None
@@ -1341,12 +1535,12 @@ class TestNameEncodedVa:
 
     def test_below_image_base_floor_ignored(self) -> None:
         # Sub-0x100000 suffixes are not plausible VAs for this binary's layout.
-        from rebrew.round_trip import _name_encoded_va
+        from rebrew.matching.round_trip import _name_encoded_va
 
         assert _name_encoded_va("_g_000355c0") is None
 
     def test_resolver_fallback_only_on_catalog_miss(self) -> None:
-        from rebrew.round_trip import _make_resolver
+        from rebrew.matching.round_trip import _make_resolver
 
         resolve_va = _make_resolver({0x1002000: "_target_fn"}, {"_named_data": 0x1003000})
         # Catalog hit for both function and data symbols.
@@ -1358,7 +1552,7 @@ class TestNameEncodedVa:
         assert resolve_va("_g_counter") is None
 
     def test_local_labels_resolve_after_catalog_miss(self) -> None:
-        from rebrew.round_trip import _make_resolver
+        from rebrew.matching.round_trip import _make_resolver
 
         resolve_va = _make_resolver(
             {0x1002000: "_target_fn"},
@@ -1380,7 +1574,7 @@ class TestLocalLabels:
     def test_maps_same_section_labels(self, tmp_path: Path) -> None:
         from bin_util import make_coff_obj
 
-        from rebrew.round_trip import _extract_local_labels
+        from rebrew.matching.round_trip import _extract_local_labels
 
         code = b"\x90" * 0xB5  # 181 bytes: code + inline jump/dispatch tables
         obj = make_coff_obj(
@@ -1397,7 +1591,7 @@ class TestLocalLabels:
     def test_fn_offset_shifts_mapping(self, tmp_path: Path) -> None:
         from bin_util import make_coff_obj
 
-        from rebrew.round_trip import _extract_local_labels
+        from rebrew.matching.round_trip import _extract_local_labels
 
         # Function starts at section offset 0x20 (other functions precede it
         # in the same .c file), so label VAs are relative to that.
@@ -1418,7 +1612,7 @@ class TestLocalLabels:
         live in .rdata and are excluded by the section filter anyway)."""
         from bin_util import make_coff_obj
 
-        from rebrew.round_trip import _extract_local_labels
+        from rebrew.matching.round_trip import _extract_local_labels
 
         obj = make_coff_obj(
             b"\x90" * 0x20,
@@ -1435,7 +1629,7 @@ class TestLocalLabels:
         form (goto/cleanup blocks) with the same offset semantics as ``$L``."""
         from bin_util import make_coff_obj
 
-        from rebrew.round_trip import _extract_local_labels
+        from rebrew.matching.round_trip import _extract_local_labels
 
         obj = make_coff_obj(
             b"\x90" * 0x40,
@@ -1451,7 +1645,7 @@ class TestLocalLabels:
     def test_missing_fn_symbol_returns_empty(self, tmp_path: Path) -> None:
         from bin_util import make_coff_obj
 
-        from rebrew.round_trip import _extract_local_labels
+        from rebrew.matching.round_trip import _extract_local_labels
 
         obj_path = tmp_path / "x.obj"
         obj_path.write_bytes(make_coff_obj(b"\x90" * 0x10))
@@ -1463,7 +1657,7 @@ class TestLocalLabels:
         layout) must not enter the map."""
         from bin_util import make_coff_obj
 
-        from rebrew.round_trip import _extract_local_labels
+        from rebrew.matching.round_trip import _extract_local_labels
 
         obj = make_coff_obj(
             b"\x90" * 0x80,
@@ -1502,15 +1696,17 @@ class TestFixHeaders:
     def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, json_output: bool) -> Path:
         from bin_util import make_pe
 
-        from rebrew.round_trip import _run_round_trip
+        from rebrew.matching.round_trip import _run_round_trip
 
         binary = tmp_path / "golden.dll"
         binary.write_bytes(make_pe(b"\x55\x8b\xec\xc3", text_va=0x1000, image_base=0x10000000))
         cfg = self._cfg(tmp_path)
         cfg.target_binary = binary
         (cfg.reversed_dir).mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         out = tmp_path / "r.reasm"
         _run_round_trip(
             cfg,
@@ -1576,10 +1772,12 @@ class TestFixHeaders:
         cfg = self._cfg(tmp_path)
         cfg.link = LinkConfig(tsaware=True, linker_version="5.12", timestamp=0x37F6657C)
         (cfg.reversed_dir).mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.matching.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0)
+        )
+        monkeypatch.setattr("rebrew.matching.round_trip._load_catalogs", lambda cfg: ({}, {}))
         out = tmp_path / "r.reasm"
-        from rebrew.round_trip import _run_round_trip
+        from rebrew.matching.round_trip import _run_round_trip
 
         _run_round_trip(
             cfg, output=out, no_write=False, symbol_filter=None, json_output=False, fix_headers=True
@@ -1669,7 +1867,7 @@ class TestRenderRichBarClamping:
 
         from rich.console import Console
 
-        import rebrew.round_trip as round_trip
+        import rebrew.matching.round_trip as round_trip
 
         buf = StringIO()
         monkeypatch.setattr(

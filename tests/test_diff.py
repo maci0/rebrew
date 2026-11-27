@@ -8,8 +8,8 @@ import pytest
 from rich.console import Console
 from source_util import write_source
 
-from rebrew.diff import classify_blockers
-from rebrew.match_sweep import print_structural_similarity
+from rebrew.compare.diff import classify_blockers
+from rebrew.matching.sweep import print_structural_similarity
 
 
 def _row(match: str, t_asm: str, c_asm: str) -> dict:
@@ -64,7 +64,7 @@ class TestClassifyBlockers:
 
 class TestPrintStructuralSimilarity:
     def test_flag_sensitive_wording(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.match_sweep as match_mod
+        import rebrew.matching.sweep as match_mod
 
         buf = StringIO()
         monkeypatch.setattr(
@@ -94,7 +94,7 @@ class TestPrintStructuralSimilarity:
         assert "25.0%" in out
 
     def test_flag_insensitive_wording(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.match_sweep as match_mod
+        import rebrew.matching.sweep as match_mod
 
         buf = StringIO()
         monkeypatch.setattr(
@@ -157,7 +157,9 @@ class TestDiffSourceResolution:
                 metadata_fields={"GAME.0x1000": {"kind": "FUNCTION"}},
                 metadata_dir=tmp_path,
             )
-        monkeypatch.setattr("rebrew.diff.require_config", lambda target=None, json_mode=False: cfg)
+        monkeypatch.setattr(
+            "rebrew.compare.diff.require_config", lambda target=None, json_mode=False: cfg
+        )
         captured: dict[str, object] = {}
 
         def fake_resolve_build_params(*args: object, **kwargs: object) -> object:
@@ -176,10 +178,10 @@ class TestDiffSourceResolution:
                 va_int=0x1000 if resolved else 0,
             )
 
-        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", fake_resolve_build_params)
-        monkeypatch.setattr("rebrew.diff.run_diff", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.matching.sweep.resolve_build_params", fake_resolve_build_params)
+        monkeypatch.setattr("rebrew.compare.diff.run_diff", lambda *a, **k: None)
 
-        from rebrew.diff import app
+        from rebrew.compare.diff import app
 
         result = CliRunner().invoke(app, [source_arg])
         assert result.exit_code == 0
@@ -208,7 +210,7 @@ def test_unresolved_call_row_carries_the_candidate_relocation_symbol() -> None:
     Without it the source call behind an ``XX e8 00 00 00 00`` row is invisible
     to a JSON consumer; ten guild-rebrew rows were blocked on that.
     """
-    from rebrew.diff import _annotate_candidate_relocations
+    from rebrew.compare.diff import _annotate_candidate_relocations
 
     summary = {
         "instructions": [

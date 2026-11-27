@@ -159,6 +159,9 @@ filterwarnings = [
     # ini filter messages are regexes (pytest escapes only -W ones), so the
     # parentheses need escaping to match the literal "(rm_rf)" prefix.
     "ignore:\\(rm_rf\\):pytest.PytestWarning",
+    # uefi_firmware structs declare _pack_ without _layout_ = 'ms', triggering
+    # a Python 3.15 DeprecationWarning inside the third-party package.
+    "ignore:Due to '_pack_', the '.*' Structure will use memory layout compatible with MSVC:DeprecationWarning:uefi_firmware\\..*",
 ]
 
 [tool.slipcover]

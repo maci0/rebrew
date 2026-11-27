@@ -7,7 +7,7 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-lazy from rebrew.c_parser import find_extern_variables
+lazy from rebrew.c_syntax.parser import find_extern_variables
 lazy from rebrew.metadata.anchors import metadata_comments, parse_address_anchors
 lazy from rebrew.metadata.bindings import derive_c_symbol
 lazy from rebrew.metadata.coordinated import coordinated_inputs, coordinated_transaction

@@ -301,7 +301,7 @@ type = "char[32]"
 size = 0x20
 ```
 
-Member offsets come from the shared layout model (`rebrew.types`, 32-bit MSVC
+Member offsets come from the shared layout model (`rebrew.c_syntax.types`, 32-bit MSVC
 alignment), parsed with the full file's `#pragma pack` push/pop context.
 Named embedded structs defined in that file retain their size and alignment.
 Complete layouts also retain their total size, including natural tail padding.

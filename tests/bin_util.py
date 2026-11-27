@@ -386,15 +386,19 @@ def make_elf(
     image_base: int = 0x8048000,
     text_va: int = 0x8049000,
     text_offset: int = 0x1000,
+    machine: int = 3,
+    endian: str = "<",
     needed_libraries: Sequence[str] = (),
     imported_symbols: Sequence[tuple[str, str, str]] = (),
 ) -> bytes:
-    """Build a minimal ELF32 (ET_EXEC, EM_386) with one real ``.text`` section.
+    """Build a minimal ELF32 (ET_EXEC) with one real ``.text`` section.
 
     Layout: ELF header + one PT_LOAD program header + raw code at
     *text_offset* + ``.shstrtab`` + a 3-entry section header table.  LIEF
     parses this into a ``BinaryInfo`` with ``.text`` at *text_va* and
-    ``image_base`` = the PT_LOAD vaddr.
+    ``image_base`` = the PT_LOAD vaddr.  *machine* defaults to EM_386 (3) and
+    *endian* to little (``"<"``); pass ``machine=8, endian=">"`` for big-endian
+    MIPS32.
 
     *needed_libraries* and *imported_symbols* (``(symbol, library, version)``
     triples) add the dynamic tables a real image uses: ``.dynstr``,
@@ -406,7 +410,12 @@ def make_elf(
     code = bytes(code)
     if not imported_symbols and not needed_libraries:
         return _make_plain_elf(
-            code, image_base=image_base, text_va=text_va, text_offset=text_offset
+            code,
+            image_base=image_base,
+            text_va=text_va,
+            text_offset=text_offset,
+            machine=machine,
+            endian=endian,
         )
     return _make_dynamic_elf(
         code,
@@ -418,7 +427,15 @@ def make_elf(
     )
 
 
-def _make_plain_elf(code: bytes, *, image_base: int, text_va: int, text_offset: int) -> bytes:
+def _make_plain_elf(
+    code: bytes,
+    *,
+    image_base: int,
+    text_va: int,
+    text_offset: int,
+    machine: int = 3,
+    endian: str = "<",
+) -> bytes:
     shstrtab = b"\x00.text\x00.shstrtab\x00"
     shstr_off = text_offset + len(code)
     # Pad section data to 4-byte alignment.
@@ -427,12 +444,13 @@ def _make_plain_elf(code: bytes, *, image_base: int, text_va: int, text_offset: 
     shoff = (shoff + 3) & ~3
     filesz = shoff + 3 * 40
 
-    e_ident = b"\x7fELF" + b"\x01\x01\x01" + b"\x00" * 9
+    ei_data = 2 if endian == ">" else 1
+    e_ident = b"\x7fELF" + bytes((1, ei_data, 1)) + b"\x00" * 9
     hdr = struct.pack(
-        "<16sHHIIIIIHHHHHH",
+        f"{endian}16sHHIIIIIHHHHHH",
         e_ident,
         2,  # e_type: ET_EXEC
-        3,  # e_machine: EM_386
+        machine,
         1,  # e_version
         text_va,  # e_entry
         52,  # e_phoff
@@ -446,7 +464,7 @@ def _make_plain_elf(code: bytes, *, image_base: int, text_va: int, text_offset: 
         2,  # e_shstrndx
     )
     phdr = struct.pack(
-        "<IIIIIIII",
+        f"{endian}IIIIIIII",
         1,  # p_type: PT_LOAD
         0,  # p_offset
         image_base,  # p_vaddr
@@ -459,7 +477,17 @@ def _make_plain_elf(code: bytes, *, image_base: int, text_va: int, text_offset: 
 
     def _shdr(name: int, sh_type: int, flags: int, addr: int, offset: int, size: int) -> bytes:
         return struct.pack(
-            "<IIIIIIIIII", name, sh_type, flags, addr, offset, size, 0, 0, 16 if size else 0, 0
+            f"{endian}IIIIIIIIII",
+            name,
+            sh_type,
+            flags,
+            addr,
+            offset,
+            size,
+            0,
+            0,
+            16 if size else 0,
+            0,
         )
 
     shdrs = b"".join(

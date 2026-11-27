@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.analyze import _collect_dispatch, build_dossier, standalone_config
+from rebrew.binary.analyze import _collect_dispatch, build_dossier, standalone_config
 from rebrew.formats.binary_loader import load_binary
 
 

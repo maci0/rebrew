@@ -11,7 +11,7 @@ from hypothesis import strategies as st
 from source_util import write_source
 from typer.testing import CliRunner
 
-from rebrew.struct_recover import (
+from rebrew.c_syntax.struct_recover import (
     NoDecompilationError,
     existing_structs,
     parse_decomp_for_structs,
@@ -128,7 +128,7 @@ class TestParseDecomp:
 
     def test_wchar_pointer_index_is_two(self) -> None:
         """``wchar_t *`` indexes by 2 and is not a struct named ``wchar_t``."""
-        from rebrew.struct_recover import pointer_element_widths
+        from rebrew.c_syntax.struct_recover import pointer_element_widths
 
         assert pointer_element_widths("wchar_t *text;") == {"text": 2}
         ev = parse_decomp_for_structs("wchar_t *text;\ny = text[2];\ntext->field_0;\n")
@@ -138,7 +138,7 @@ class TestParseDecomp:
 
     def test_bool_pointer_index_is_one(self) -> None:
         """``bool *`` indexes by 1. ``bool`` is not a struct name."""
-        from rebrew.struct_recover import pointer_element_widths
+        from rebrew.c_syntax.struct_recover import pointer_element_widths
 
         assert pointer_element_widths("bool *flag;") == {"flag": 1}
         ev = parse_decomp_for_structs("bool *flag;\ny = flag[3];\n")
@@ -151,7 +151,7 @@ class TestParseDecomp:
         The declaration matched the pointer form, so ``rows[1]`` was a
         byte at offset 1. A real ``short *a0`` still indexes by 2.
         """
-        from rebrew.struct_recover import pointer_element_widths
+        from rebrew.c_syntax.struct_recover import pointer_element_widths
 
         assert pointer_element_widths("char *rows[4]; short *a0;") == {"a0": 2}
         ev = parse_decomp_for_structs("void f(char *rows[4]) {\n rows[1] = 0;\n}\n")
@@ -404,7 +404,7 @@ class TestCli:
             source_ext=".c",
             root=tmp_path,
         )
-        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.struct_recover.require_config", lambda **kw: cfg)
 
         def _fake_fetch(backend, binary, va, root):
             return "PlayerInfo *p;\np->field_0 = 1;\np->field_8 = 2;\n", backend
@@ -444,7 +444,7 @@ class TestCli:
             source_ext=".c",
             root=tmp_path,
         )
-        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.struct_recover.require_config", lambda **kw: cfg)
 
         def _fake_fetch(backend, binary, va, root):
             return "int a0;\n*(char *)(a0 + 0x10) = 1;\n", backend
@@ -464,13 +464,13 @@ class TestCli:
 
 class TestTypeWidthSharedModel:
     def test_delegates_arrays_to_shared_model(self) -> None:
-        from rebrew.struct_recover import type_width
+        from rebrew.c_syntax.struct_recover import type_width
 
         assert type_width("char[8]") == 8
         assert type_width("int *") == 4
 
     def test_alias_table_still_covers_decompiler_types(self) -> None:
-        from rebrew.struct_recover import type_width
+        from rebrew.c_syntax.struct_recover import type_width
 
         assert type_width("uint32_t") == 4
         assert type_width("undefined4") == 4
@@ -505,7 +505,7 @@ class TestFailureEnvelope:
             source_ext=".c",
             root=tmp_path,
         )
-        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.struct_recover.require_config", lambda **kw: cfg)
 
         def _fake_fetch(backend, binary, va, root):
             return None, backend
@@ -528,7 +528,7 @@ class TestMemberOffsetCap:
         from types import SimpleNamespace
 
         import rebrew.formats.binary_loader as bl
-        from rebrew import struct_recover as sr
+        from rebrew.c_syntax import struct_recover as sr
 
         monkeypatch.setattr(bl, "load_binary", lambda _p: SimpleNamespace(image_base=0x400000))
         cfg = SimpleNamespace(target_binary=tmp_path / "a.exe")
@@ -538,7 +538,7 @@ class TestMemberOffsetCap:
         from types import SimpleNamespace
 
         import rebrew.formats.binary_loader as bl
-        from rebrew import struct_recover as sr
+        from rebrew.c_syntax import struct_recover as sr
 
         def boom(_p):
             raise OSError("no such binary")
@@ -573,7 +573,7 @@ class TestRecoverProjectStructs:
         import rebrew.app.main as main_mod
 
         cfg = _project_cfg(tmp_path)
-        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.struct_recover.require_config", lambda **kw: cfg)
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
         readable = cfg.reversed_dir / "f.c"
         missing = cfg.reversed_dir / "missing.h"
@@ -596,7 +596,7 @@ class TestRecoverProjectStructs:
         import rebrew.app.main as main_mod
 
         cfg = _project_cfg(tmp_path)
-        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.struct_recover.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.decompiler.fetch_decompilation",
             lambda *a: ("Player *p; p->field_0; *(short *)(p + 2);", "kuna"),
@@ -630,7 +630,7 @@ class TestRecoverProjectStructs:
 
     def test_matches_cli_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _project_cfg(tmp_path)
-        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.struct_recover.require_config", lambda **kw: cfg)
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
 
         payload = recover_project_structs(
@@ -717,7 +717,7 @@ class TestRecoverProjectStructs:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         cfg = _project_cfg(tmp_path)
-        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.c_syntax.struct_recover.require_config", lambda **kw: cfg)
 
         def unexpected(*args: object, **kwargs: object) -> None:
             pytest.fail("conflicting selectors must not decompile")

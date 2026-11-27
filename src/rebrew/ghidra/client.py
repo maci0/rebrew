@@ -10,9 +10,10 @@ import logging
 import re
 from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
 lazy import contextlib
-lazy import json
 lazy import time
 lazy from collections.abc import Mapping
+
+lazy import msgspec
 
 from rebrew.errors import RebrewError
 lazy from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
@@ -195,7 +196,7 @@ def _parse_sse_response(text: str) -> JsonRpcResponse | None:
         stripped = line.lstrip()
         if stripped.startswith("data:"):
             try:
-                decoded = json.loads(stripped[5:].lstrip())
+                decoded = msgspec.json.decode(stripped[5:].lstrip())
             except ValueError:
                 continue
             if not isinstance(decoded, dict):
@@ -335,7 +336,7 @@ def _post_mcp_tool(
         else:
             try:
                 data = JsonRpcResponse.from_dict(resp.json())
-            except ValueError, json.JSONDecodeError, UnicodeDecodeError:
+            except ValueError, UnicodeDecodeError:
                 if not raise_on_http_error:
                     logger.warning(
                         "MCP tool %s request %s returned invalid JSON from %s",
@@ -435,7 +436,7 @@ def fetch_mcp_tool(
         objects = []
         for it in text_items:
             with contextlib.suppress(ValueError):
-                objects.append(json.loads(it.text))
+                objects.append(msgspec.json.decode(it.text))
         if not objects:
             logger.warning(
                 "MCP tool %s request %s returned only invalid JSON text items",
@@ -446,7 +447,7 @@ def fetch_mcp_tool(
     # Single text item
     raw = text_items[0].text
     try:
-        parsed = json.loads(raw)
+        parsed = msgspec.json.decode(raw)
         if isinstance(parsed, list):
             return parsed
         return [parsed]
@@ -488,14 +489,14 @@ def fetch_mcp_tool_raw(
     if len(text_items) == 1:
         raw = text_items[0].text
         try:
-            return json.loads(raw)
+            return msgspec.json.decode(raw)
         except ValueError:
             return raw
     # Multiple text items: parse each as JSON, collect into list
     objects = []
     for it in text_items:
         with contextlib.suppress(ValueError):
-            objects.append(json.loads(it.text))
+            objects.append(msgspec.json.decode(it.text))
     if not objects:
         logger.warning(
             "MCP tool %s request %s returned only invalid JSON text items",

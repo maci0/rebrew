@@ -10,8 +10,8 @@ from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
-from rebrew.analyze import build_dossier
 from rebrew.app.main import app
+from rebrew.binary.analyze import build_dossier
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -80,7 +80,7 @@ def _patch_load_data(
 class TestCollectFunctions:
     def test_ghidra_functions_preferred(self, tmp_path: Path, monkeypatch) -> None:
         """A Ghidra export takes precedence for functions.total."""
-        from rebrew.analyze import _collect_functions
+        from rebrew.binary.analyze import _collect_functions
 
         cfg = SimpleNamespace(
             reversed_dir=tmp_path / "src",
@@ -100,7 +100,7 @@ class TestCollectFunctions:
         self, tmp_path: Path, monkeypatch
     ) -> None:
         """covered is the intersection, so it can never exceed total."""
-        from rebrew.analyze import _collect_functions
+        from rebrew.binary.analyze import _collect_functions
 
         cfg = SimpleNamespace(
             reversed_dir=tmp_path / "src",
@@ -118,7 +118,7 @@ class TestCollectFunctions:
         inventory (regression: an inventory-only project reported total=0)."""
         import json as _json
 
-        from rebrew.analyze import _collect_functions
+        from rebrew.binary.analyze import _collect_functions
 
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "function_structure.json").write_text(
@@ -347,7 +347,7 @@ class TestDispatchTablesShape:
     def test_collect_dispatch_uses_real_fields(self, monkeypatch, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.analyze import _collect_dispatch
+        from rebrew.binary.analyze import _collect_dispatch
         from rebrew.data.scan import DispatchEntry, DispatchTable
 
         tables = [
@@ -380,7 +380,7 @@ class TestDispatchTablesShape:
         """
         from types import SimpleNamespace
 
-        from rebrew.analyze import _collect_dispatch
+        from rebrew.binary.analyze import _collect_dispatch
 
         src = tmp_path / "src"
         src.mkdir()
@@ -414,10 +414,10 @@ class TestLibrarySection:
     """J10: the dossier carries a library-glue view."""
 
     def test_dossier_includes_library(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.analyze import build_dossier
+        from rebrew.binary.analyze import build_dossier
 
         monkeypatch.setattr(
-            "rebrew.identify_library.collect_candidates",
+            "rebrew.library.identify.collect_candidates",
             lambda cfg: [
                 type(
                     "C",
@@ -450,7 +450,7 @@ class TestFarCalls:
     def test_ne_far_call_catalog(self, tmp_path: Path) -> None:
         from bin_util import make_ne
 
-        from rebrew.analyze import _collect_far_calls
+        from rebrew.binary.analyze import _collect_far_calls
 
         # Code: marker + push bp; mov bp,sp; lcall 1:2 twice; pop bp; ret
         code = bytes.fromhex("55 8b ec 9a 02 00 01 00 9a 02 00 01 00 5d c3")
@@ -467,7 +467,7 @@ class TestFarCalls:
         assert out[0]["segment"] == 1
 
     def test_pe_returns_none(self, tmp_path: Path) -> None:
-        from rebrew.analyze import _collect_far_calls
+        from rebrew.binary.analyze import _collect_far_calls
 
         p = tmp_path / "app.exe"
         p.write_bytes(b"MZ" + b"\x00" * 0x40 + b"\x00" * 0x40 + b"PE\x00\x00")

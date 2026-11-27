@@ -1,4 +1,4 @@
-"""Tests for rebrew.instruction_clones: common instruction runs and identical groups."""
+"""Tests for rebrew.compare.instruction_clones: common instruction runs and identical groups."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from cli_json import cli_payload
 from typer.testing import CliRunner
 
 import rebrew.app.main
-import rebrew.similar as similar_mod
-from rebrew.instruction_clones import (
+import rebrew.compare.similar as similar_mod
+from rebrew.compare.instruction_clones import (
     MAX_SUBMATCH_INSTRUCTIONS,
     NormalizedInsn,
     cluster_units,
@@ -82,7 +82,7 @@ class TestFindCommonRuns:
 
 
 def _unit(va: int, code: bytes, name: str = "") -> SimpleNamespace:
-    from rebrew.instruction_clones import FunctionUnit
+    from rebrew.compare.instruction_clones import FunctionUnit
 
     return FunctionUnit(va=va, size=len(code), name=name, instructions=_insns(code))
 

@@ -1,0 +1,533 @@
+"""Binary similarity search — rank functions by structural similarity.
+
+Finds functions in the target binary that are structurally similar to a query
+function: same opcode mix, similar call/branch density.  Useful for
+prioritising which STUBs to tackle next — structurally similar functions are
+likely to share the same optimisation approach (and often the same source).
+
+Pure local analysis: capstone for disassembly, numpy for the histogram cosine.
+No external service.
+"""
+
+from __future__ import annotations
+
+lazy import math
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import (
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    option_default,
+    parse_va,
+    require_config,
+    require_non_negative,
+    require_positive_size,
+)
+from rebrew.compare.instruction_clones import (
+    MIN_RUN_INSTRUCTIONS,
+    cluster_units,
+    find_common_runs,
+    function_unit,
+    load_function_units,
+)
+lazy from rebrew.binary.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
+lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.utils import TerminalTable, untrusted_ident
+
+#: Smallest duplicate group ``rebrew similarity function --cluster`` reports.
+MIN_CLUSTER_SIZE = 2
+
+
+def disasm_signature(
+    code: bytes, va: int, cs_arch: int | str, cs_mode: int | str
+) -> dict[str, Any] | None:
+    """Disassemble *code* and build a structural signature.
+
+    Signature: mnemonic histogram, call/branch counts and the byte length.
+    The length is part of the signature so :func:`similarity_score` can
+    penalise a size difference on its own: without it a 40-byte function
+    whose opcode mix sits inside a 400-byte function scored in the high 90s
+    against it (the source importer then offered that one source for dozens of
+    unrelated destinations).  Returns ``None`` when nothing disassembles
+    (empty or undecodable input).
+    """
+    import capstone
+
+    from rebrew.matcher.scoring import get_cs
+
+    # cfg.capstone_arch/capstone_mode return ints; the defaults are the
+    # constant-name strings.  Accept either form.
+    def _resolve(value: int | str) -> int:
+        return value if isinstance(value, int) else int(getattr(capstone, value))
+
+    md = get_cs(_resolve(cs_arch), _resolve(cs_mode))
+    mnemonics: dict[str, int] = {}
+    calls = 0
+    branches = 0
+    for insn in md.disasm(code, va):
+        mnemonic = insn.mnemonic
+        mnemonics[mnemonic] = mnemonics.get(mnemonic, 0) + 1
+        if mnemonic.startswith("call"):
+            calls += 1
+        elif mnemonic == "jmp" or mnemonic.startswith("j"):
+            branches += 1
+    if not mnemonics:
+        return None
+    return {"histogram": mnemonics, "calls": calls, "branches": branches, "size": len(code)}
+
+
+def _cosine(hist_a: dict[str, int], hist_b: dict[str, int]) -> float:
+    """Cosine similarity between two mnemonic histograms (0.0-1.0)."""
+    from rebrew.binary.similarity import score_matrix
+
+    # Zero both count terms (ratio(0, 1) == 0.0) so score_matrix computes
+    # 60.0 * cosine via the shared vectorised numpy path.
+    scaled = float(
+        score_matrix(
+            [{"histogram": hist_a, "calls": 0, "branches": 0}],
+            [{"histogram": hist_b, "calls": 1, "branches": 1}],
+        )[0, 0]
+    )
+    raw = scaled / 60.0
+    if not math.isfinite(raw):
+        return 0.0
+    return min(1.0, max(0.0, raw))
+
+
+def _ratio(a: int, b: int) -> float:
+    """1.0 when equal (including both zero), min/max otherwise, 0.0 when exactly one side is zero.
+
+    A negative count is not a count: treating it as zero keeps the term
+    in 0-1, where min/max of opposite-signed operands is negative and
+    of two negatives exceeds 1 (e.g. -2/-10 = 5.0).  A non-finite side
+    (NaN/inf from a corrupt signature) reads as zero for the same reason:
+    ``max(NaN, 0)`` is order-dependent and ``min(NaN, b) / max(NaN, b)``
+    is NaN, which then poisoned the score, its ``--min-score`` gate
+    (``NaN >= m`` is always False) and its JSON output (``NaN`` is not
+    valid JSON).
+    """
+    if not math.isfinite(a) or not math.isfinite(b):
+        a = 0 if not math.isfinite(a) else max(a, 0)
+        b = 0 if not math.isfinite(b) else max(b, 0)
+    else:
+        a = max(a, 0)
+        b = max(b, 0)
+    if a == b:
+        return 1.0
+    if a == 0 or b == 0:
+        return 0.0
+    return min(a, b) / max(a, b)
+
+
+def similarity_score(
+    sig_a: dict[str, Any] | None,
+    sig_b: dict[str, Any] | None,
+    size_a: int | None = None,
+    size_b: int | None = None,
+) -> float:
+    """Structural similarity of two signatures as a 0-100 score.
+
+    Weights: 50% mnemonic-histogram cosine, 15% call-count agreement,
+    15% branch-count agreement, 20% size agreement (a 10B thunk must not
+    score ~100 against a 1000B function with the same opcode mix).  An
+    explicit *size_a*/*size_b* wins; otherwise the signature's own ``size``
+    (its byte length) is used, so the gate applies even when the caller has
+    no size to hand.
+
+    The score keeps six decimals: callers gate on it (``--min-score``,
+    ``rebrew source import-related``'s 95.0 default), and rounding to one
+    decimal let a 94.96 through as 95.0.  Display rounds it, not this value.
+    """
+    if sig_a is None or sig_b is None:
+        return 0.0
+    # A negative size is not a byte count; treating it as unknown keeps the
+    # size term off, where a negative would score outside 0-100 (min/max of
+    # two opposite-signed operands is negative).
+    size_a = (
+        max(0, int(sig_a.get("size") or 0))
+        if size_a is None and math.isfinite(sig_a.get("size") or 0)
+        else (0 if size_a is None else max(0, size_a))
+    )
+    size_b = (
+        max(0, int(sig_b.get("size") or 0))
+        if size_b is None and math.isfinite(sig_b.get("size") or 0)
+        else (0 if size_b is None else max(0, size_b))
+    )
+    hist = _cosine(sig_a["histogram"], sig_b["histogram"]) * 100.0
+    calls = _ratio(sig_a["calls"], sig_b["calls"]) * 100.0
+    branches = _ratio(sig_a["branches"], sig_b["branches"]) * 100.0
+    if size_a and size_b:
+        size = _ratio(size_a, size_b) * 100.0
+        return round(0.5 * hist + 0.15 * calls + 0.15 * branches + 0.2 * size, 6)
+    return round(0.6 * hist + 0.2 * calls + 0.2 * branches, 6)
+
+
+def find_similar(
+    cfg: ProjectConfig,
+    query_va: int,
+    size: int | None = None,
+    top: int = 10,
+    min_score: float = 0.0,
+) -> list[dict[str, Any]]:
+    """Rank functions in the target binary by similarity to *query_va*.
+
+    Function set and sizes come from the catalog registry (function list +
+    Ghidra structure JSON); bytes are extracted from the target binary and
+    compared structurally.  Returns the top *top* results (excluding the query
+    itself), each as ``{va, size, name, score}``.
+    """
+    from rebrew.catalog import build_function_registry, cached_function_list
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
+    cs_arch = getattr(cfg, "capstone_arch", DEFAULT_CS_ARCH)
+    cs_mode = getattr(cfg, "capstone_mode", DEFAULT_CS_MODE)
+
+    funcs = cached_function_list(cfg)
+    registry = build_function_registry(
+        funcs,
+        cfg,
+        inventory_path_for(cfg.reversed_dir, cfg),
+        cfg.target_binary,
+    )
+
+    entry = registry.get(query_va)
+    if entry is None:
+        raise ValueError(f"No function found at VA 0x{query_va:08x}")
+    query_size = size or entry["canonical_size"]
+    if not query_size:
+        return []
+    query_bytes = extract_raw_bytes(cfg.target_binary, query_va, query_size)
+    query_sig = disasm_signature(query_bytes, query_va, cs_arch, cs_mode)
+    if query_sig is None:
+        return []
+
+    # One signature per candidate VA: repeated queries against the same
+    # binary re-disassemble unchanged bytes, so memoize within the call.
+    sig_cache: dict[int, dict[str, Any] | None] = {}
+
+    def _cached_sig(va: int, cand_bytes: bytes) -> dict[str, Any] | None:
+        if va not in sig_cache:
+            sig_cache[va] = disasm_signature(cand_bytes, va, cs_arch, cs_mode)
+        return sig_cache[va]
+
+    candidates: list[tuple[int, int, str, dict[str, Any]]] = []
+    for va, cand in registry.items():
+        if va == query_va:
+            continue
+        cand_size = cand["canonical_size"]
+        if not cand_size:
+            continue
+        cand_bytes = extract_raw_bytes(cfg.target_binary, va, cand_size)
+        sig = _cached_sig(va, cand_bytes)
+        if sig is None:
+            continue
+        name = cand.get("list_name") or cand.get("ghidra_name") or ""
+        candidates.append((va, cand_size, name, sig))
+
+    if not candidates:
+        return []
+
+    from rebrew.binary.similarity import score_matrix
+
+    # Compute all candidate histogram cosines in one vectorised matrix call
+    # (calls/branches 0 vs 1 zeros the count terms so score_matrix yields 60 * cos).
+    cos_row = score_matrix(
+        [{"histogram": query_sig["histogram"], "calls": 0, "branches": 0}],
+        [{"histogram": sig["histogram"], "calls": 1, "branches": 1} for _, _, _, sig in candidates],
+    )[0]
+
+    results: list[dict[str, Any]] = []
+    for (va, cand_size, name, sig), cos_scaled in zip(candidates, cos_row, strict=True):
+        raw_cos = float(cos_scaled) / 60.0
+        cos = min(1.0, max(0.0, raw_cos)) if math.isfinite(raw_cos) else 0.0
+        hist = cos * 100.0
+        calls = _ratio(query_sig["calls"], sig["calls"]) * 100.0
+        branches = _ratio(query_sig["branches"], sig["branches"]) * 100.0
+        size_term = _ratio(query_size, cand_size) * 100.0
+        score = round(0.5 * hist + 0.15 * calls + 0.15 * branches + 0.2 * size_term, 6)
+        if score >= min_score:
+            results.append({"va": f"0x{va:08x}", "size": cand_size, "name": name, "score": score})
+
+    results.sort(key=lambda r: r["score"], reverse=True)
+    return results[:top]
+
+
+def submatch_report(
+    cfg: ProjectConfig, left_va: int, right_va: int, min_run: int
+) -> dict[str, Any]:
+    """Common instruction runs between the functions at *left_va* and *right_va*.
+
+    Returns ``{left_va, right_va, min_run, left_instructions,
+    right_instructions, runs}``; ``runs`` is empty when the two functions
+    share no run of at least *min_run* instructions.
+    """
+    left = function_unit(cfg, left_va)
+    if left is None:
+        raise ValueError(f"No function found at VA 0x{left_va:08x}")
+    right = function_unit(cfg, right_va)
+    if right is None:
+        raise ValueError(f"No function found at VA 0x{right_va:08x}")
+
+    runs = find_common_runs(left.instructions, right.instructions, min_run=min_run)
+    return {
+        "left_va": f"0x{left_va:08x}",
+        "right_va": f"0x{right_va:08x}",
+        "left_name": left.name,
+        "right_name": right.name,
+        "left_instructions": len(left.instructions),
+        "right_instructions": len(right.instructions),
+        "min_run": min_run,
+        "runs": [
+            {
+                "left_va": f"0x{run.left_va:08x}",
+                "right_va": f"0x{run.right_va:08x}",
+                "length": run.length,
+                "instructions": run.instructions,
+            }
+            for run in runs
+        ],
+    }
+
+
+def cluster_report(
+    cfg: ProjectConfig, min_size: int, query_va: int | None = None
+) -> dict[str, Any]:
+    """Groups of functions with identical normalized instruction sequences.
+
+    The query function's own group (when *query_va* is given) is marked by
+    ``query_group`` so a caller of ``rebrew similarity function <VA> --cluster`` can see
+    which of the identical functions it asked about.
+    """
+    units, skipped = load_function_units(cfg)
+    clusters = cluster_units(units, min_size=min_size)
+
+    size_by_va = {u.va: u.size for u in units}
+
+    groups: list[dict[str, Any]] = []
+    query_group: int | None = None
+    for index, cluster in enumerate(clusters):
+        if query_va is not None and query_va in cluster.members:
+            query_group = index
+        groups.append(
+            {
+                "size": cluster.size,
+                "signature": cluster.signature,
+                "instructions": cluster.instruction_count,
+                "members": [
+                    {
+                        "va": f"0x{va:08x}",
+                        "name": name,
+                        "size": size_by_va[va],
+                    }
+                    for va, name in zip(cluster.members, cluster.names, strict=True)
+                ],
+            }
+        )
+
+    return {
+        "total_functions": len(units),
+        "skipped": skipped,
+        "min_size": min_size,
+        "duplicate_groups": len(groups),
+        "duplicate_functions": sum(g["size"] for g in groups),
+        "query_group": query_group,
+        "clusters": groups,
+    }
+
+
+app = typer.Typer(
+    help="Find structurally similar functions in the target binary.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew similarity function 0x10001000  # Top 10 structural matches\n\n"
+        "  # Raise the bar\n"
+        "  rebrew similarity function 0x10001000 --limit 5 --min-score 50\n\n"
+        "  # Common instruction runs\n"
+        "  rebrew similarity function 0x10001000 --submatch --other 0x10002000\n\n"
+        "  rebrew similarity function --cluster  # Groups of identical functions\n\n"
+        "  rebrew similarity function 0x10001000 --json  # Machine-readable output\n\n"
+        "[dim]Scores: 0-100 blend of mnemonic histogram (50%), call count (15%), branch count (15%), size agreement (20%). Use it to find which STUBs likely share the same source and optimization approach as a solved function.[/dim]\n\n"
+        "[bold]Similar or identical?[/bold]\n\n"
+        "Ranking similarity is what this command does by default, and what the sibling `resembl` project does across a persisted corpus (MinHash + LSH, fragment queries, cross-project duplicates).  --submatch and --cluster report structure instead, and answer the two questions a resemblance score cannot: --submatch names WHERE inside two functions the common instructions are (offsets + text), --cluster names WHICH functions of one target are identical after normalization.  In-process, exact, one target, no index: for cross-project or near-duplicate work use resembl."
+    ),
+)
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    va: str | None = typer.Argument(
+        None, help="Query function VA in hex (e.g. 0x10001000); omitted with --cluster"
+    ),
+    size: int | None = typer.Option(
+        None, "--size", help="Query function size in bytes (defaults to catalog size)"
+    ),
+    top: int = typer.Option(10, "--limit", help="Number of results to show (0 = none)"),
+    min_score: float = typer.Option(
+        0.0, "--min-score", help="Minimum similarity score (0-100) to include"
+    ),
+    submatch: bool = typer.Option(
+        False,
+        "--submatch",
+        help=(
+            "Report WHERE two functions correspond (common instruction runs, with offsets and "
+            "text) instead of ranking their similarity"
+        ),
+    ),
+    other: str | None = typer.Option(
+        None, "--other", help="Second function VA for --submatch (e.g. 0x10002000)"
+    ),
+    min_run: int = typer.Option(
+        MIN_RUN_INSTRUCTIONS,
+        "--min-run",
+        help="Shortest common instruction run --submatch reports",
+    ),
+    cluster: bool = typer.Option(
+        False,
+        "--cluster",
+        help=(
+            "Group the functions of THIS target whose normalized instruction sequence is "
+            "identical (exact duplicates; cross-project or near-duplicate clustering is the "
+            "resembl project's job)"
+        ),
+    ),
+    min_cluster_size: int = typer.Option(
+        MIN_CLUSTER_SIZE, "--min-cluster-size", help="Smallest group --cluster reports"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Find functions structurally similar to the one at VA."""
+    top = require_non_negative(option_default(top, 10), "--limit", json_mode=json_output)
+    if size is not None:
+        # A negative size reaches `f.read(-N)` (the rest of the file) and the
+        # size-agreement ratio, which then reports a score outside 0-100.
+        size = require_positive_size(size, json_mode=json_output)
+    cfg = require_config(target=target, json_mode=json_output)
+    query_va = parse_va(va, json_mode=json_output) if va is not None else None
+
+    if cluster:
+        try:
+            report = cluster_report(cfg, min_cluster_size, query_va=query_va)
+        except ValueError as e:
+            error_exit(str(e), json_mode=json_output)
+        if json_output:
+            json_print(report)
+            return
+        _print_clusters(report)
+        return
+
+    if query_va is None:
+        error_exit(
+            "Provide a query VA, or use --cluster to group identical functions",
+            json_mode=json_output,
+        )
+
+    if submatch:
+        if other is None:
+            error_exit("--submatch needs --other <VA>", json_mode=json_output)
+        other_va = parse_va(other, json_mode=json_output)
+        try:
+            report = submatch_report(cfg, query_va, other_va, min_run)
+        except ValueError as e:
+            error_exit(str(e), json_mode=json_output)
+        if json_output:
+            json_print(report)
+            return
+        _print_submatch(report)
+        return
+
+    try:
+        results = find_similar(cfg, query_va, size=size, top=top, min_score=min_score)
+    except ValueError as e:
+        error_exit(str(e), json_mode=json_output)
+
+    if json_output:
+        json_print({"query_va": va, "results": results})
+        return
+
+    if not results:
+        console.print("[yellow]No similar functions found.[/yellow]")
+        return
+
+    table = TerminalTable(title=f"Functions similar to {untrusted_ident(va)}", show_header=True)
+    table.add_column("Rank", justify="right")
+    table.add_column("VA")
+    table.add_column("Score", justify="right")
+    table.add_column("Size", justify="right")
+    table.add_column("Name")
+    for i, r in enumerate(results, 1):
+        table.add_row(
+            str(i), r["va"], f"{r['score']:.1f}", str(r["size"]), untrusted_ident(r["name"])
+        )
+    console.print(table)
+
+
+def _print_submatch(report: dict[str, Any]) -> None:
+    """Render a submatch report as a table of common runs."""
+    runs = report["runs"]
+    console.print(
+        f"\n[bold]Common instruction runs[/bold]  "
+        f"{report['left_va']} ({report['left_instructions']} insns) vs "
+        f"{report['right_va']} ({report['right_instructions']} insns), "
+        f"min run {report['min_run']}\n"
+    )
+    if not runs:
+        console.print("[yellow]No common run at or above the minimum length.[/yellow]")
+        return
+    table = TerminalTable(show_header=True, header_style="bold")
+    table.add_column("Left")
+    table.add_column("Right")
+    table.add_column("Insns", justify="right")
+    table.add_column("Matched")
+    for run in runs:
+        preview = " ; ".join(run["instructions"][:3])
+        if run["length"] > 3:
+            preview += " ; ..."
+        table.add_row(run["left_va"], run["right_va"], str(run["length"]), untrusted_ident(preview))
+    console.print(table)
+
+
+def _print_clusters(report: dict[str, Any]) -> None:
+    """Render a duplicate-cluster report, largest group first."""
+    console.print(
+        f"\n[bold]Identical instruction sequences[/bold]  "
+        f"({report['duplicate_functions']} of {report['total_functions']} functions "
+        f"in {report['duplicate_groups']} group(s), min size {report['min_size']})\n"
+    )
+    if report["skipped"]:
+        console.print(f"[yellow]{report['skipped']} function(s) beyond the scan limit[/yellow]")
+    if not report["clusters"]:
+        console.print("[yellow]No duplicate groups found.[/yellow]")
+        return
+    table = TerminalTable(show_header=True, header_style="bold")
+    table.add_column("Group", justify="right")
+    table.add_column("Size", justify="right")
+    table.add_column("Insns", justify="right")
+    table.add_column("Signature", style="dim")
+    table.add_column("Representative")
+    for index, group in enumerate(report["clusters"]):
+        first = group["members"][0]
+        table.add_row(
+            str(index),
+            str(group["size"]),
+            str(group["instructions"]),
+            untrusted_ident(group["signature"]),
+            f"{first['va']} {untrusted_ident(first['name'])}".strip(),
+        )
+    console.print(table)
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

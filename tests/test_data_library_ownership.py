@@ -238,7 +238,7 @@ def test_data_cli_exposes_explicit_library_owners(
 
 
 def test_stock_cache_case_matches_the_stock_lib_cli(tmp_path: Path) -> None:
-    from rebrew.lib_match import stock_lib_cache
+    from rebrew.library.match import stock_lib_cache
 
     cache = stock_lib_cache(tmp_path, "CRT.LIB", "msvc-6.0")
     cache.parent.mkdir(parents=True)
@@ -406,7 +406,7 @@ class TestSourceOwnershipScanCost:
         import json
         from unittest.mock import Mock
 
-        from rebrew.c_parser import find_variable_roles
+        from rebrew.c_syntax.parser import find_variable_roles
 
         source = tmp_path / "globals.c"
         source.write_text("int first; int second; extern int external;\n")
@@ -418,7 +418,7 @@ class TestSourceOwnershipScanCost:
         )
         (tmp_path / "compile_commands.json").write_text(json.dumps([{"file": str(source)}]))
         parse = Mock(wraps=find_variable_roles)
-        monkeypatch.setattr("rebrew.c_parser.find_variable_roles", parse)
+        monkeypatch.setattr("rebrew.c_syntax.parser.find_variable_roles", parse)
         cfg = _cfg(tmp_path, reversed_dir=tmp_path)
         scan = ScanResult(
             globals={name: GlobalEntry(name) for name in ("first", "second", "external")}

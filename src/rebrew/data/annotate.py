@@ -13,7 +13,7 @@ lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 lazy from typing import Any
 
-from rebrew.c_parser import CALLING_CONVENTION, is_pointer_to_array  # noqa: F401
+from rebrew.c_syntax.parser import CALLING_CONVENTION, is_pointer_to_array  # noqa: F401
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.metadata.data import iter_data_symbols, load_data_document
 lazy from rebrew.utils import (
@@ -52,7 +52,7 @@ def annotate_globals(
     with no ``name``: the declaration is what locates them.
     """
 
-    from rebrew.c_parser import find_extern_variables
+    from rebrew.c_syntax.parser import find_extern_variables
     from rebrew.metadata.data import module_visible_to_target, record_data_rows
     from rebrew.metadata.functions import identity_file
     from rebrew.source.discovery import iter_sources
@@ -118,7 +118,7 @@ def _abstract_declarator_insert_pos(
     the abstract declarator chain to the innermost placeholder position.
     Returns ``None`` when the type cannot be parsed cleanly.
     """
-    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+    from rebrew.c_syntax.parser import mask_msvc_syntax, parse_c_source
 
     masked = mask_msvc_syntax(type_str)
     prefix = "void _f("
@@ -450,7 +450,7 @@ def _source_decls_by_va(
     *extra_files* are scanned in addition to *src_dir* (e.g. the stub TU,
     which lives outside the reversed tree but holds real bindings).
     """
-    from rebrew.c_parser import find_extern_variables
+    from rebrew.c_syntax.parser import find_extern_variables
     from rebrew.source.discovery import iter_sources
     from rebrew.utils import read_source_text
 

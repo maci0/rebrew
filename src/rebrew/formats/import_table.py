@@ -5,7 +5,7 @@ an ELF's DT_NEEDED libraries and undefined dynamic symbols — and detects the
 classic MSVC import stubs in ``.text``: ``jmp [iat]`` sequences (``FF 25``,
 an absolute slot VA on PE32 and a RIP-relative displacement on PE32+).
 Library layer under the ``rebrew binary imports list`` command
-(:mod:`rebrew.imports`) and every analysis pass that names imported APIs.
+(:mod:`rebrew.binary.imports`) and every analysis pass that names imported APIs.
 """
 
 from __future__ import annotations
@@ -333,6 +333,8 @@ def find_import_stub_slots(binary_path: Path) -> dict[int, int]:
         info = load_binary(binary_path)
     except OSError, KeyError, ValueError:
         return {}
+    if info.format == "elf":
+        return _find_elf_import_stub_slots(binary_path, info, table)
     text = info.sections.get(".text")
     if text is None or text.file_offset < 0 or text.size <= 0:
         return {}
@@ -378,3 +380,201 @@ def find_import_stub_slots(binary_path: Path) -> dict[int, int]:
                 alone.add(neighbour)
                 pending.append(neighbour)
     return {va: slot for va, slot in stubs.items() if va in alone}
+
+
+def _elf_gp_value(binary_path: Path, info: Any) -> int | None:
+    """Resolve the ELF ``$gp`` base for MIPS stub GOT offsets, if available."""
+    import lief
+
+    try:
+        elf = lief.ELF.parse(str(binary_path))
+    except Exception:
+        return None
+    if elf is None:
+        return None
+    for entry in list(getattr(elf, "dynamic_entries", None) or []):
+        if entry.tag == lief.ELF.DynamicEntry.TAG.MIPS_GP_VALUE:
+            return int(entry.value)
+    got_sec = info.sections.get(".got")
+    if got_sec is not None:
+        return int(got_sec.va) + 0x7FF0
+    return None
+
+
+def _disasm_x86_plt_stubs(
+    info: Any,
+    blob: bytes,
+    sec_va: int,
+    valid_slots: set[int],
+    got_base: int | None,
+) -> dict[int, int]:
+    """Disassemble an x86/x86-64 PLT section and resolve ``jmp``/``bnd jmp`` GOT slots."""
+    import capstone
+    from capstone.x86 import X86_INS_JMP, X86_OP_MEM, X86_REG_EBX, X86_REG_RIP
+
+    from rebrew.formats.binary_loader import capstone_config_for
+
+    if info.arch:
+        cs_arch, cs_mode = capstone_config_for(info)
+    else:
+        cs_arch = capstone.CS_ARCH_X86
+        cs_mode = capstone.CS_MODE_64 if info.pointer_size == 8 else capstone.CS_MODE_32
+    cs = capstone.Cs(cs_arch, cs_mode)
+    cs.detail = True
+    stubs: dict[int, int] = {}
+    endbr_va: int | None = None
+    endbr_end = 0
+    for insn in cs.disasm(blob, sec_va):
+        if insn.mnemonic in ("endbr64", "endbr32"):
+            endbr_va = insn.address
+            endbr_end = insn.address + insn.size
+            continue
+        if (
+            insn.id == X86_INS_JMP
+            and len(insn.operands) == 1
+            and insn.operands[0].type == X86_OP_MEM
+        ):
+            mem = insn.operands[0].mem
+            target: int | None = None
+            if mem.base == X86_REG_RIP:
+                target = (insn.address + insn.size + mem.disp) & 0xFFFFFFFFFFFFFFFF
+            elif mem.base == 0 and mem.index == 0:
+                target = mem.disp & 0xFFFFFFFF
+            elif mem.base == X86_REG_EBX and got_base is not None:
+                target = (got_base + mem.disp) & 0xFFFFFFFF
+            if target is not None and target in valid_slots:
+                stub_va = (
+                    endbr_va if endbr_va is not None and endbr_end == insn.address else insn.address
+                )
+                stubs[stub_va] = target
+        endbr_va = None
+    return stubs
+
+
+def _disasm_mips_plt_stubs(
+    binary_path: Path,
+    info: Any,
+    blob: bytes,
+    sec_va: int,
+    valid_slots: set[int],
+) -> dict[int, int]:
+    """Disassemble a MIPS ``.MIPS.stubs`` / ``.plt`` section for GOT slot targets."""
+    import capstone
+    from capstone.mips import (
+        MIPS_INS_ADDIU,
+        MIPS_INS_JALR,
+        MIPS_INS_JR,
+        MIPS_INS_LUI,
+        MIPS_INS_LW,
+        MIPS_OP_IMM,
+        MIPS_OP_MEM,
+        MIPS_OP_REG,
+        MIPS_REG_GP,
+    )
+
+    from rebrew.formats.binary_loader import capstone_config_for
+
+    cs_arch, cs_mode = capstone_config_for(info)
+    cs = capstone.Cs(cs_arch, cs_mode)
+    cs.detail = True
+    gp_val = _elf_gp_value(binary_path, info)
+    stubs: dict[int, int] = {}
+    hi_regs: dict[int, tuple[int, int]] = {}
+    for insn in cs.disasm(blob, sec_va):
+        if insn.id == MIPS_INS_LUI and len(insn.operands) == 2:
+            dst, imm_op = insn.operands
+            if dst.type == MIPS_OP_REG and imm_op.type == MIPS_OP_IMM:
+                hi_regs[dst.reg] = (insn.address, (imm_op.imm & 0xFFFF) << 16)
+        elif insn.id == MIPS_INS_LW and len(insn.operands) == 2:
+            mem_op = insn.operands[1]
+            if mem_op.type == MIPS_OP_MEM:
+                base = mem_op.mem.base
+                disp = mem_op.mem.disp
+                if base in hi_regs:
+                    lui_va, hi_val = hi_regs[base]
+                    candidate = (hi_val + disp) & 0xFFFFFFFF
+                    if candidate in valid_slots:
+                        stubs[lui_va] = candidate
+                elif base == MIPS_REG_GP and gp_val is not None:
+                    candidate = (gp_val + disp) & 0xFFFFFFFF
+                    if candidate in valid_slots:
+                        stubs[insn.address] = candidate
+        elif insn.id == MIPS_INS_ADDIU and len(insn.operands) == 3:
+            _dst, src, imm_op = insn.operands
+            if src.type == MIPS_OP_REG and imm_op.type == MIPS_OP_IMM and src.reg in hi_regs:
+                lui_va, hi_val = hi_regs[src.reg]
+                candidate = (hi_val + imm_op.imm) & 0xFFFFFFFF
+                if candidate in valid_slots:
+                    stubs[lui_va] = candidate
+        elif insn.id in (MIPS_INS_JR, MIPS_INS_JALR):
+            hi_regs.clear()
+    return stubs
+
+
+def _find_elf_import_stub_slots(
+    binary_path: Path, info: Any, table: dict[int, str]
+) -> dict[int, int]:
+    """Detect ELF PLT/MIPS import stubs ``{stub_va: got_slot_va}``."""
+    valid_slots = {slot for slot, name in table.items() if name}
+    if not valid_slots:
+        return {}
+    got_sec = info.sections.get(".got.plt") or info.sections.get(".got")
+    got_base = got_sec.va if got_sec is not None else None
+    arch = str(getattr(info, "arch", "") or "")
+    stubs: dict[int, int] = {}
+
+    for sec_name in (".plt.sec", ".plt", ".plt.got", ".MIPS.stubs"):
+        sec = info.sections.get(sec_name)
+        if sec is None or sec.file_offset < 0 or sec.raw_size <= 0:
+            continue
+        blob = info.data[sec.file_offset : sec.file_offset + sec.raw_size]
+        if not blob:
+            continue
+        if arch in ("", "x86_32", "x86_64"):
+            stubs.update(_disasm_x86_plt_stubs(info, blob, sec.va, valid_slots, got_base))
+        elif arch.startswith("mips"):
+            stubs.update(_disasm_mips_plt_stubs(binary_path, info, blob, sec.va, valid_slots))
+
+    import lief
+
+    try:
+        elf = lief.ELF.parse(str(binary_path))
+    except Exception:
+        elf = None
+    if elf is None:
+        return stubs
+
+    pltgot = [
+        r
+        for r in (getattr(elf, "pltgot_relocations", None) or [])
+        if getattr(r, "has_symbol", False) and int(r.address) in valid_slots
+    ]
+    if not pltgot:
+        return stubs
+
+    mapped_slots = set(stubs.values())
+    if ".plt.sec" in info.sections:
+        sec = info.sections[".plt.sec"]
+        if sec.file_offset >= 0 and sec.raw_size >= len(pltgot) * 16:
+            for idx, reloc in enumerate(pltgot):
+                slot = int(reloc.address)
+                if slot not in mapped_slots:
+                    stubs.setdefault(sec.va + idx * 16, slot)
+    elif ".plt" in info.sections:
+        sec = info.sections[".plt"]
+        hdr_size, entry_size = (
+            (20, 12) if arch == "arm32" else (32, 16) if arch == "arm64" else (16, 16)
+        )
+        if sec.file_offset >= 0 and sec.raw_size >= hdr_size + len(pltgot) * entry_size:
+            for idx, reloc in enumerate(pltgot):
+                slot = int(reloc.address)
+                if slot not in mapped_slots:
+                    stubs.setdefault(sec.va + hdr_size + idx * entry_size, slot)
+    elif ".MIPS.stubs" in info.sections:
+        sec = info.sections[".MIPS.stubs"]
+        if sec.file_offset >= 0 and sec.raw_size >= len(pltgot) * 16:
+            for idx, reloc in enumerate(pltgot):
+                slot = int(reloc.address)
+                if slot not in mapped_slots:
+                    stubs.setdefault(sec.va + idx * 16, slot)
+    return stubs

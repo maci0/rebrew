@@ -436,7 +436,7 @@ def test_retained_decompme_uses_a_durable_scoped_ledger(tmp_path: Path, monkeypa
 def test_a_variant_search_of_a_renamed_candidate_scans_and_keeps_the_renamed_registry(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
-    from rebrew.coff_reloc import build_name_to_va
+    from rebrew.compare.coff_reloc import build_name_to_va
     from rebrew.config import load_config
 
     monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://127.0.0.1:18953")

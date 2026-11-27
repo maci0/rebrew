@@ -6,7 +6,7 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew import c_parser
+from rebrew.c_syntax import parser as c_parser
 from rebrew.metadata.anchors import parse_address_anchors
 from rebrew.metadata.bindings import SourceBinding, source_bindings
 from rebrew.metadata.data import save_data_metadata

@@ -238,7 +238,7 @@ class TestSourcePurposeWork:
 
 class TestCommentScanWork:
     def test_comment_filter_does_not_walk_python_ast(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.c_parser import comment_nodes
+        from rebrew.c_syntax.parser import comment_nodes
         from rebrew.metadata.anchors import metadata_comments
 
         source = "/* NOTE: global */\nint f(void) { /* NOTE: local */ return 0; }\n"

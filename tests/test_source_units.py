@@ -100,7 +100,7 @@ class TestReachableCodeBounds:
     def test_internal_branch_into_an_instruction_refuses(self, tmp_path: Path) -> None:
         import pytest
 
-        from rebrew.analysis import reachable_code
+        from rebrew.binary.analysis import reachable_code
 
         # Conditional branch reaches the middle of the following push immediate.
         code = b"\x75\x01\x68\x00\x00\x50\x00\xc3"
@@ -110,7 +110,7 @@ class TestReachableCodeBounds:
     def test_truncated_reachable_instruction_refuses(self, tmp_path: Path) -> None:
         import pytest
 
-        from rebrew.analysis import reachable_code
+        from rebrew.binary.analysis import reachable_code
 
         with pytest.raises(ValueError, match="cannot decode"):
             reachable_code(_image(tmp_path, b"\x68\x01"), 0x401000, 2)

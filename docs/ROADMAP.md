@@ -61,31 +61,30 @@ green, **zero change to x86 behavior**.
 > the x86 assumption". It records the broader proposal and remaining work.
 > The list below gives the design rationale and the affected per-arch tables.
 
-1. `config.py`: add `mips32` (CS_ARCH_MIPS + CS_MODE_MIPS32, ptr 4, padding
+1. `config.py`: ~~add `mips32` (CS_ARCH_MIPS + CS_MODE_MIPS32, ptr 4, padding
    `[0x00]`), `mips64`, `ppc32` (CS_ARCH_PPC + CS_MODE_32), `ppc64`, `sh2`
-   presets.
-2. `binary_loader`: extend the three machine→arch maps (ELF: MIPS=8, PPC=20,
-   SH=42; PE: THUMB/ARMNT as available).
-3. `binary_loader.function_extent_from_disasm`: replace the x86 terminator list
-   with a per-arch table driven by the loaded `BinaryInfo` arch:
+   presets~~ *(DONE)*.
+2. `binary_loader`: ~~extend the three machine→arch maps (ELF: MIPS=8, PPC=20,
+   SH=42; PE: THUMB/ARMNT as available)~~ *(DONE)*.
+3. `binary_loader.function_extent_from_disasm`: ~~replace the x86 terminator list
+   with a per-arch table driven by the loaded `BinaryInfo` arch~~ *(DONE)*:
    - x86: `ret/retf/iret/iretd/int3`, `jmp`
    - MIPS: `jr $ra` / `jr $t9` (tail), `j`/`jal` NOT terminators, padding `0x00`
    - PPC: `blr`, `bctr`/`b` (tail), padding `0x60 00 00 00` nop
    - ARM: `bx lr`, `mov pc,lr`
-4. `coff_reloc.py`: refactor the reloc-type constants into a per-arch table
+4. `coff_reloc.py`: ~~refactor the reloc-type constants into a per-arch table
    (COFF-i386 keeps `DIR32/REL32`; add ELF-MIPS `R_MIPS_26/LO16/HI16/REL32`,
-   ELF-PPC `R_PPC_ADDR32/REL24`). The masking *algorithm* (validate → mask) is
-   unchanged; only the type constants + address extraction vary. **Highest-risk
-   change**: keep the existing x86 tests as a regression net.
-5. `discover.py`: arch-aware sweep (terminators/padding from a table; call-target
-   extraction per arch: `jal` for MIPS, `bl` for PPC vs `e8 rel32` for x86).
+   ELF-PPC `R_PPC_ADDR32/REL24`)~~ *(DONE)*. The masking *algorithm* (validate → mask) is
+   unchanged; only the type constants + address extraction vary.
+5. `discover.py`: ~~arch-aware sweep (terminators/padding from a table; call-target
+   extraction per arch: `jal` for MIPS, `bl` for PPC vs `e8 rel32` for x86)~~ *(DONE)*.
 6. `asm.py` (the one `CS_ARCH_X86` hardcode outside the presets path) cleanup.
 7. ~~`doctor.py::_KNOWN_ARCHES` + `catalog/registry.is_jump_table` arch gate~~ *(DONE; `_KNOWN_ARCHES = set(ARCH_PRESETS)`; `is_jump_table` takes `arch`/`endian`, reads pointer-width/byte-order tables, and applies the x86 prefix heuristics only when `arch.startswith("x86")`)*.
-8. Tests: extent walker on synthetic MIPS/PPC bytes; `detect_format_and_arch` on
+8. ~~Tests: extent walker on synthetic MIPS/PPC bytes; `detect_format_and_arch` on
    tiny MIPS/PPC ELF fixtures; reloc masking with MIPS reloc records; the full
-   existing suite stays green.
+   existing suite stays green~~ *(DONE)*.
 
-## Phase 1: MIPS 32-bit first-class target (proof of pipeline): DONE except item 6
+## Phase 1: MIPS 32-bit first-class target (proof of pipeline): DONE
 
 Delivered: *a MIPS ELF binary can be onboarded, annotated, and matched with
 `gcc-*-mipsel`/`-psx` profiles*; the end-to-end milestone that validated the
@@ -93,28 +92,22 @@ arch layer. The single `gcc-mips` name planned here shipped instead as the
 per-version `gcc-<version>-mipsel`/`gcc-<version>-psx` profiles (see the
 header note).
 
-1. Toolchain specs `gcc-<version>-mipsel` / `gcc-<version>-psx` (shipped name;
-   the planned single `gcc-mips` was split per version): native Linux cross
+1. ~~Toolchain specs `gcc-<version>-mipsel` / `gcc-<version>-psx`~~ *(DONE; shipped name;
+   the planned single `gcc-mips` was split per version)*: native Linux cross
    compiler (`mipsel-linux-gnu-gcc` for PS1 / `mips-linux-gnu-gcc` BE for N64;
    per-target endianness in the spec), copying the `gcc-14.2.0`/`mingw-16.2.0`
    image-spec pattern (Dockerfile in the recompile-toolchains checkout,
    wrapper that `rebrew_exec`s the compiler); `bits=32`.
-2. `flag_data.py`: MIPS GCC flag family (minimal posix axes: `-march`, `-mabi`,
-   `-O2` etc.) registered like `GCC_FLAGS`; sweep tiers.
-3. `matcher/parsers.py`: MIPS ELF object + reloc support (R_MIPS_26/JUMP26/
-   LO16/HI16) feeding the Phase-0 reloc table.
+2. ~~`flag_data.py`: MIPS GCC flag family (minimal posix axes: `-march`, `-mabi`,
+   `-O2` etc.) registered like `GCC_FLAGS`; sweep tiers~~ *(DONE)*.
+3. ~~`matcher/parsers.py`: MIPS ELF object + reloc support (R_MIPS_26/JUMP26/
+   LO16/HI16) feeding the Phase-0 reloc table~~ *(DONE)*.
 4. `stack_cmp.py`: minimal MIPS frame analyzer (sp/fp/ra slots) or explicit
    "N/A on this arch" gate; default: gate.
-5. `catalog/registry.py::is_jump_table`: MIPS variant (word-pointer tables).
-6. **End-to-end fixture** (open: no MIPS fixture is checked into `tests/fixtures/`, and `tests/test_multi_arch_p0.py` uses synthetic bytes only): compile a small C sample with a `gcc-*-mipsel`
-   profile into an ELF, `rebrew init` it, run discover → skeleton →
-   `rebrew test`/`verify` → EXACT on a matching function and NEAR_MATCHING on
-   a perturbed one. Checked into `tests/fixtures/` so CI exercises the whole
-   pipeline without a target binary.
-7. Ecosystem integrations: decomp.dev report (arch-agnostic ✓), objdiff target
-   synthesis (`write_coff_object(machine=...)`; `0x0166` MIPS, or emit ELF since
-   objdiff reads ELF natively), `symbol-addrs`, `context`; all already work;
-   only the objdiff machine constant needs a MIPS value.
+5. ~~`catalog/registry.py::is_jump_table`: MIPS variant (word-pointer tables)~~ *(DONE)*.
+6. ~~**End-to-end fixture**~~ *(DONE; `tests/fixtures/mini_mips32.elf` is checked in and exercised end-to-end in `tests/test_multi_arch_p0.py` across detection, discovery, extent walking, byte extraction, and CFG similarity)*.
+7. ~~Ecosystem integrations: decomp.dev report (arch-agnostic ✓), objdiff target
+   synthesis (`write_coff_object(machine=...)` mapped by `cfg.arch` including `0x0166` MIPS, plus native `write_elf_object` emission for `elf` targets), `symbol-addrs`, `context`~~ *(DONE)*.
 
 Caveat (like Zig under `mingw-16.2.0`, [TOOLCHAIN.md](TOOLCHAIN.md)): `gcc-*-mipsel`
 gives **structural** matches; byte-exact matching for console titles needs
@@ -128,7 +121,7 @@ Byte-exact for N64/PS1/GC requires the actual compilers:
    images `rebrew/ido:5.3-linux`/`:7.1-linux`, in the smoke gate)* and **MWCC
    PPC** (GC/Wii) via the recompile-toolchains image pattern: wine/wibo under
    the image, same as MSVC.  IDO uses the decompals/ido-static-recomp
-   native-Linux binaries (no wine).  MWCC remains: the GC/Wii mwcceppc
+   native-Linux binaries (no wine).  MWCC remains open: the GC/Wii mwcceppc
    binaries are proprietary; provenance/licensing research required before
    pinning a distribution source.  Vendored trees in
    `<family>/<version>-<arch>/source`.
@@ -138,22 +131,14 @@ Byte-exact for N64/PS1/GC requires the actual compilers:
    ctx.c`); the m2c `--valid-syntax`/`--stack-structs` workflow is available
    for MIPS/PPC/ARM/SH targets.  PPC is fed to m2c's `ppc-mwcc-c` target
    (`_M2C_TARGETS` in `decompiler.py`).
-3. **FLIRT for console libs**: ~~`gen_flirt_pat` gains ELF archive support~~ *(DONE)*;
-   ``rebrew library signatures`` now dispatches on member magic (COFF ``.lib`` vs ELF
-   ``.a``); ELF objects use exact symbol sizes and MIPS fixups mask the whole
-   instruction word.  Remaining: signature DBs for libultra / PSX libc / DOL
-   runtime and `identify_library` presets (e.g. `n64-libultra`, `psx-libc`).
-4. `imports.py`/`asm --imports`: ELF import reading (`.dynsym`/PLT) for MIPS/PPC;
-   the current import path is PE/IAT-centric.
+3. **FLIRT for console libs**: ~~`gen_flirt_pat` ELF archive support + `identify_library` console SDK presets (`libultra`/`libgultra`, `psyq`/`psx_libc`, `dolphin`)~~ *(DONE; `rebrew library signatures` dispatches on COFF `.lib` vs ELF `.a`, and `identify.py` maps console SDK stems and unambiguous `os*`/`gu*`/`alSyn*`/`ResetGraph`/`SpuInit`/`OSInit`/`GX*`/`PAD*`/`DVD*` prefixes to `LIBULTRA`/`PSYQ`/`PSX_LIBC`/`DOLPHIN`)*. Remaining open: distributable console signature DB packs.
+4. ~~`imports.py` / `import_table.py`: ELF import reading (`.dynsym` + `.gnu.version_r` + GOT/PLT relocations) and `.plt`/`.plt.sec`/`.MIPS.stubs` import-stub resolution~~ *(DONE)*.
 
 ## Phase 3: Broadening + ELF link lane
 
 1. Adopt PPC32, ARM32, SuperH targets as demand arrives (presets, terminators,
    reloc tables, flag axes all parameterized by Phase 0/1; additive only).
-2. **ELF link lane**: `gen_layout`/`round_trip`/`postlink` ELF equivalents
-   (linker script from target ELF, `.data` placement, byte-identity re-link
-   check); only when a rebrew project links a full ELF rather than comparing
-   objects.
+2. **ELF link lane**: ~~`round-trip` ELF object splicing (ELF `.rodata*`/`.data*`/`.sdata*` string symbol extraction, `image_base == 0` ELF/PIE allowance, arch-aware padding, non-PE `--fix-headers` skip) and `objdiff` native ELF target object synthesis (`write_elf_object`)~~ *(DONE)*. Remaining open: full ELF linker-script generation (`gen_layout`) and re-link parity (`postlink`).
 3. Multi-arch fixture matrix in CI (one fixture per arch with a matching +
    non-matching function pair).
 

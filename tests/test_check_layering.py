@@ -276,7 +276,7 @@ class TestLibraryDoesNotImportCommand:
 
         The last two edges (``match_ga`` and ``match_run`` reaching into the
         ``near-diag`` command for the analysis) were removed by moving that
-        analysis into ``rebrew.near_analysis``.  Re-adding a line here is a
+        analysis into ``rebrew.compare.near_analysis``.  Re-adding a line here is a
         regression, not a new exemption, so pin the empty set.
         """
         assert not cl.DEFERRED_LIBRARY_COMMAND_EDGES
