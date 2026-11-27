@@ -42,5 +42,11 @@ Externals (the only packages this one may import): `coff_reloc`, `config`, `erro
   use the same frontend. Unshare requires a pinned image ID and supported
   MSVC/Wine profile; never fall back after setup failure. Every invocation owns
   its private overlay; PID-namespace teardown kills detached Wine descendants.
+  The exception is a run given a `session` under `rebrew build warm-sessions`
+  (`unshare.serve_sessions`): it reuses a sandbox only with runs whose image,
+  session, project root, mounts and environment are all equal (`_SessionKey`);
+  a sandbox runs one tool at a time, is killed when a run passes its timeout,
+  and dies with its channel. A run whose server does not answer falls back to a
+  fresh sandbox, never to Docker.
   Helper and profile content participate in object and verification cache keys.
 - **Source pins are recompile-toolchains'.** `toolchains.json` is that repository's release manifest, vendored byte for byte and pinned by `TOOLCHAINS_MANIFEST_SHA256`; never edit it or keep a second copy of a pin here. Re-pin in recompile-toolchains, then re-vendor the release (docs/TOOLCHAIN.md). Nothing here edits a file in the recompile-toolchains checkout except the host trees `rebrew toolchain vendor` assembles.

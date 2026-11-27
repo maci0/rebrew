@@ -1532,6 +1532,7 @@ def run_toolchain(
     execution_backend: str | None = None,
     project_cwd: str | Path | None = None,
     capture_image: bool = False,
+    session: list[str] | None = None,
 ) -> RunResult:
     """Invoke a toolchain's compiler through its container image (uniform backend).
 
@@ -1571,6 +1572,9 @@ def run_toolchain(
         execution_backend: docker, podman, or experimental unshare. None uses
             the runtime environment. Unsupported setup never falls back.
         capture_image: Read the actual container's image ID before removing it.
+        session: With project_cwd under unshare, the argv that starts state
+            later runs may share; ``rebrew build warm-sessions`` then runs this
+            in a warm sandbox (:func:`rebrew.compiler.unshare.run_unshare`).
 
     Raises:
         ToolchainError: no docker daemon/image for a docker toolchain, or no
@@ -1582,6 +1586,10 @@ def run_toolchain(
     workdir = Path(workdir) if workdir is not None else Path.cwd()
     if project_cwd is not None and execution_backend != "unshare":
         raise ToolchainError("project_cwd requires unshare", kind="validation", name=spec.name)
+    if session is not None and project_cwd is None:
+        raise ToolchainError(
+            "session requires project_cwd under unshare", kind="validation", name=spec.name
+        )
     if execution_backend == "unshare":
         from rebrew.compiler.unshare import UnshareError, run_unshare
 
@@ -1625,7 +1633,8 @@ def run_toolchain(
                 mounts=mounts or [],
                 env=env,
                 timeout=timeout,
-                **({"project_cwd": Path(project_cwd)} if project_cwd is not None else {}),
+                project_cwd=Path(project_cwd) if project_cwd is not None else None,
+                session=session,
             )
         except (UnshareError, ConfigError, OSError) as exc:
             raise ToolchainError(str(exc), kind="invocation", name=spec.name) from exc

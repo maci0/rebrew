@@ -750,6 +750,10 @@ rebrew receives.
 - `REBREW_TOOLCHAIN`: cmake bridge pin for the active profile name.  A value
   no toolchain registers is an error, reported by `rebrew cfg effective`
   before the bridge runs.  Unset or blank keeps `[compiler] profile`.
+- `REBREW_UNSHARE_SESSIONS`: control socket of a running
+  `rebrew build warm-sessions`, set for the command it runs. Unshare CMake
+  bridge runs send their tool runs there; when nothing listens they warn and
+  use a fresh sandbox. Do not set it yourself.
 - `REBREW_COMPILER_RUNNER`: host PE runner path/name the matcher prepends to
   the compile argv.  Written by `msvc_env` from `[compiler] runner`; an ambient
   value is dropped on every compile path, because a shell export would run a

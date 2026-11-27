@@ -3,11 +3,17 @@
 Docker prepares an immutable local image once. Compiler invocations use the
 packaged native namespace helper and a disposable rootless overlay. This is a
 limited MSVC/Wine backend, not a general OCI runtime or a Docker security peer.
+
+Under :func:`serve_sessions` (``rebrew build warm-sessions``), runs that pass a
+``session`` reuse a long-lived sandbox built from identical inputs instead, so
+Wine's session boot is paid once per sandbox rather than once per run.
 """
 
 from __future__ import annotations
 
+import contextlib
 import threading
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 lazy import hashlib
@@ -17,9 +23,14 @@ lazy import os
 lazy import platform
 lazy import shlex
 lazy import shutil
+lazy import socket
 lazy import subprocess
+lazy import sys
 lazy import tarfile
 lazy import tempfile
+lazy import time
+lazy from collections.abc import Iterator
+lazy from dataclasses import asdict
 lazy from typing import Any
 
 from rebrew.errors import RebrewError
@@ -27,6 +38,7 @@ lazy from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir, x
 lazy from rebrew.utils import atomic_write_text, container_runtime, file_lock, run_process_group
 
 __all__ = [
+    "SESSIONS_ENV",
     "UnshareError",
     "backend_identity",
     "forget_image_tag",
@@ -34,6 +46,7 @@ __all__ = [
     "record_image_tag",
     "recorded_image_id",
     "run_unshare",
+    "serve_sessions",
 ]
 
 _PREPARE_LOCK = threading.RLock()
@@ -453,6 +466,19 @@ def prepare_backend() -> Path:
         return _helper(root)
 
 
+def _process_args(info: dict[str, Any], entrypoint: str | None, args: list[str]) -> list[str]:
+    """The argv one run executes: *entrypoint* (default: the image's) then *args*."""
+    command = [entrypoint] if entrypoint else info["Config"].get("Entrypoint")
+    if (
+        not command
+        or len(command) != 1
+        or not isinstance(command[0], str)
+        or not command[0].startswith("/")
+    ):
+        raise UnshareError("experimental image requires one absolute entrypoint")
+    return [*command, *args]
+
+
 def _profile(
     rootfs: Path,
     info: dict[str, Any],
@@ -473,14 +499,7 @@ def _profile(
             raise UnshareError("CMake cwd must be inside the mounted project root")
         cwd = str(resolved_cwd)
     config = info["Config"]
-    command = [entrypoint] if entrypoint else config.get("Entrypoint")
-    if (
-        not command
-        or len(command) != 1
-        or not isinstance(command[0], str)
-        or not command[0].startswith("/")
-    ):
-        raise UnshareError("experimental image requires one absolute entrypoint")
+    process_args = _process_args(info, entrypoint, args)
     environment = dict(item.split("=", 1) for item in config.get("Env", []) if "=" in item)
     environment.update(env)
     environment.setdefault("XDG_CACHE_HOME", "/tmp")
@@ -548,7 +567,7 @@ def _profile(
         "process": {
             "terminal": False,
             "user": {"uid": 1000, "gid": 1000},
-            "args": [*command, *args],
+            "args": process_args,
             "env": [f"{k}={v}" for k, v in environment.items()],
             "cwd": cwd,
             "capabilities": {
@@ -604,6 +623,14 @@ def _profile(
     }
 
 
+def _admitted(image_id: str) -> bool:
+    return (
+        len(image_id) == 71
+        and image_id.startswith("sha256:")
+        and all(c in "0123456789abcdef" for c in image_id[7:])
+    )
+
+
 def run_unshare(
     image_id: str,
     args: list[str],
@@ -614,14 +641,50 @@ def run_unshare(
     env: dict[str, str],
     timeout: int,
     project_cwd: Path | None = None,
+    session: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run one compiler in disposable namespaces; never fall back to Docker."""
-    if (
-        len(image_id) != 71
-        or not image_id.startswith("sha256:")
-        or any(c not in "0123456789abcdef" for c in image_id[7:])
-    ):
+    """Run one compiler in disposable namespaces; never fall back to Docker.
+
+    *session*, with *project_cwd*, is the argv that starts state later runs may
+    share (Wine's persistent ``wineserver -p``). When :data:`SESSIONS_ENV`
+    names a running :func:`serve_sessions`, the run goes to a warm sandbox built
+    from the same image, session, project root, mounts and environment; with no
+    server answering it runs in a fresh sandbox, as without *session*.
+    """
+    if not _admitted(image_id):
         raise UnshareError("experimental runner requires an admitted immutable image id")
+    if session is not None and project_cwd is None:
+        raise UnshareError("a warm session needs a same-path project mount (project_cwd)")
+    address = os.environ.get(SESSIONS_ENV, "")
+    result = None
+    if session is not None and project_cwd is not None and address:
+        key = _SessionKey(
+            image_id,
+            tuple(session),
+            str(workdir.resolve()),
+            tuple((str(Path(source).resolve()), target) for source, target in mounts),
+            tuple(sorted(env.items())),
+        )
+        request = _SessionRequest(key, entrypoint, tuple(args), str(project_cwd.resolve()), timeout)
+        result = _run_in_session(address, request)
+    if result is None:
+        result = _run_fresh(image_id, args, entrypoint, workdir, mounts, env, timeout, project_cwd)
+    if result.returncode == 125 and result.stderr.startswith("rebrew-unshare:"):
+        raise UnshareError(result.stderr.strip() or "experimental namespace setup failed")
+    return result
+
+
+def _run_fresh(
+    image_id: str,
+    args: list[str],
+    entrypoint: str | None,
+    workdir: Path,
+    mounts: list[tuple[str, str]],
+    env: dict[str, str],
+    timeout: int,
+    project_cwd: Path | None,
+) -> subprocess.CompletedProcess[str]:
+    """Run once in a sandbox of its own, removed afterwards."""
     helper = prepare_backend()
     root = _cache_root()
     bundle = writable_temp_dir("rebrew_unshare_")
@@ -639,11 +702,409 @@ def run_unshare(
         )
         path = bundle / "config.json"
         path.write_text(json.dumps(profile) + "\n", encoding="utf-8")
-        result = _command([str(helper), str(path)], timeout=timeout)
-        if result.returncode == 125 and result.stderr.startswith("rebrew-unshare:"):
-            raise UnshareError(result.stderr.strip() or "experimental namespace setup failed")
-        return result
+        return _command([str(helper), str(path)], timeout=timeout)
     except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
         raise UnshareError(f"experimental runner preparation failed: {exc}") from exc
     finally:
         _remove_bundle(bundle)
+
+
+# ---------------------------------------------------------------------------
+# Warm sessions: long-lived sandboxes shared by runs with identical inputs
+# ---------------------------------------------------------------------------
+
+#: Names the control socket of a running :func:`serve_sessions`; the build
+#: command it runs inherits it.
+SESSIONS_ENV = "REBREW_UNSHARE_SESSIONS"
+#: Largest request in bytes, and REQUEST_MAX in unshare_runner.c. It stays
+#: below the default socket send buffer, which bounds one SOCK_SEQPACKET packet.
+_SESSION_REQUEST_MAX = 128 * 1024
+#: Largest server answer in bytes: a JSON status or error message.
+_SESSION_ANSWER_MAX = 64 * 1024
+#: A worker answers each run with its exit status as a native int32.
+_STATUS_BYTES = 4
+#: Statuses from here up are a signal death (128 + signal); that sandbox is not reused.
+_SIGNALLED_STATUS = 128
+#: Seconds past the run's own timeout a client waits for the server to answer.
+_SESSION_ANSWER_GRACE_S = 30
+#: Seconds a stopped sandbox gets to exit after its channel closes.
+_SESSION_STOP_TIMEOUT_S = 10
+#: Characters of a stopped sandbox's log kept in an error message.
+_LOG_TAIL_CHARS = 2000
+
+
+@dataclass(frozen=True)
+class _SessionKey:
+    """Every input a warm sandbox is built from; runs share one only when all are equal."""
+
+    image_id: str
+    session: tuple[str, ...]
+    workdir: str
+    mounts: tuple[tuple[str, str], ...]
+    env: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class _SessionRequest:
+    """One run for a warm sandbox: its key and what may differ per run."""
+
+    key: _SessionKey
+    entrypoint: str | None
+    args: tuple[str, ...]
+    cwd: str
+    timeout: int
+
+
+@contextlib.contextmanager
+def _short_path(address: str) -> Iterator[str]:
+    """*address* spelled through a descriptor of its directory, so a deep cache
+    home stays under the 108-byte AF_UNIX path limit."""
+    path = Path(address)
+    directory = os.open(path.parent, os.O_PATH | os.O_CLOEXEC)
+    try:
+        yield f"/proc/self/fd/{directory}/{path.name}"
+    finally:
+        os.close(directory)
+
+
+def _universal_newlines(data: bytes) -> str:
+    """*data* decoded as ``subprocess.run(text=True, errors="replace")`` decodes it."""
+    return data.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _run_in_session(
+    address: str, request: _SessionRequest
+) -> subprocess.CompletedProcess[str] | None:
+    """Run *request* in a warm sandbox; ``None`` when no server listens at *address*."""
+    log = logging.getLogger(__name__)
+    message = json.dumps(asdict(request)).encode()
+    if len(message) > _SESSION_REQUEST_MAX:
+        log.warning("warm session request is %d bytes; running in a fresh sandbox", len(message))
+        return None
+    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
+        try:
+            with _short_path(address) as path:
+                connection.connect(path)
+        except FileNotFoundError, ConnectionRefusedError:
+            log.warning("%s=%s does not answer; running in a fresh sandbox", SESSIONS_ENV, address)
+            return None
+        connection.settimeout(request.timeout + _SESSION_ANSWER_GRACE_S)
+        with (
+            open(os.memfd_create("rebrew-stdout", os.MFD_CLOEXEC), "w+b") as out,
+            open(os.memfd_create("rebrew-stderr", os.MFD_CLOEXEC), "w+b") as err,
+        ):
+            try:
+                socket.send_fds(connection, [message], [out.fileno(), err.fileno()])
+                answer = connection.recv(_SESSION_ANSWER_MAX)
+            except TimeoutError as exc:
+                raise UnshareError(
+                    f"warm session server {address} gave no answer within "
+                    f"{request.timeout + _SESSION_ANSWER_GRACE_S}s"
+                ) from exc
+            except OSError as exc:
+                raise UnshareError(f"warm session server {address} failed: {exc}") from exc
+            try:
+                reply = json.loads(answer) if answer else {}
+            except ValueError:
+                reply = {}
+            if isinstance(reply, dict) and isinstance(reply.get("error"), str):
+                raise UnshareError(reply["error"])
+            if not isinstance(reply, dict) or type(reply.get("returncode")) is not int:
+                raise UnshareError(f"warm session server {address} closed without an answer")
+            out.seek(0)
+            err.seek(0)
+            stdout, stderr = _universal_newlines(out.read()), _universal_newlines(err.read())
+    return subprocess.CompletedProcess([address], reply["returncode"], stdout, stderr)
+
+
+def _text(value: Any) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"expected a string, got {type(value).__name__}")
+    return value
+
+
+def _pair(value: Any) -> tuple[str, str]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise TypeError("expected a pair of strings")
+    return _text(value[0]), _text(value[1])
+
+
+def _decode_request(message: bytes) -> _SessionRequest:
+    """The request in *message*; the control socket is a trust boundary."""
+    try:
+        raw = json.loads(message)
+        key = raw["key"]
+        request = _SessionRequest(
+            _SessionKey(
+                _text(key["image_id"]),
+                tuple(_text(arg) for arg in key["session"]),
+                _text(key["workdir"]),
+                tuple(_pair(mount) for mount in key["mounts"]),
+                tuple(_pair(item) for item in key["env"]),
+            ),
+            None if raw["entrypoint"] is None else _text(raw["entrypoint"]),
+            tuple(_text(arg) for arg in raw["args"]),
+            _text(raw["cwd"]),
+            raw["timeout"],
+        )
+    except (ValueError, KeyError, TypeError) as exc:
+        raise UnshareError(f"malformed warm session request: {exc}") from exc
+    workdir = Path(request.key.workdir)
+    if (
+        not _admitted(request.key.image_id)
+        or not request.key.session
+        or type(request.timeout) is not int
+        or request.timeout < 1
+        or not workdir.is_absolute()
+    ):
+        raise UnshareError("malformed warm session request")
+    if not Path(request.cwd).resolve().is_relative_to(workdir.resolve()):
+        raise UnshareError("CMake cwd must be inside the mounted project root")
+    return request
+
+
+class _SessionWorker:
+    """One warm sandbox: a serving helper and the private bundle it overlays."""
+
+    def __init__(self, key: _SessionKey) -> None:
+        helper = prepare_backend()
+        root = _cache_root()
+        with _PREPARE_LOCK, file_lock(root / "prepare.lock"):
+            rootfs, self._info = _image(root, key.image_id)
+        self.key = key
+        self._bundle = writable_temp_dir("rebrew_unshare_")
+        try:
+            if any(c in str(self._bundle) for c in ",:\\\n\r"):
+                raise UnshareError(
+                    "experimental runtime path contains an unsupported overlay separator"
+                )
+            for child in ("rootfs", "upper", "overlay-work"):
+                (self._bundle / child).mkdir()
+            workdir = Path(key.workdir)
+            profile = _profile(
+                rootfs,
+                self._info,
+                self._bundle,
+                list(key.session[1:]),
+                key.session[0],
+                workdir,
+                list(key.mounts),
+                dict(key.env),
+                workdir,
+            )
+            config = self._bundle / "config.json"
+            config.write_text(json.dumps(profile) + "\n", encoding="utf-8")
+            self._channel, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            try:
+                with theirs, (self._bundle / "session.log").open("wb") as log:
+                    self._process = subprocess.Popen(
+                        [str(helper), "--serve", str(theirs.fileno()), str(config)],
+                        stdin=subprocess.DEVNULL,
+                        stdout=log,
+                        stderr=log,
+                        pass_fds=(theirs.fileno(),),
+                        start_new_session=True,
+                    )
+            except BaseException:
+                self._channel.close()
+                raise
+        except BaseException:
+            _remove_bundle(self._bundle)
+            raise
+
+    def _log_tail(self) -> str:
+        try:
+            text = (self._bundle / "session.log").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+        return f": {text.strip()[-_LOG_TAIL_CHARS:]}" if text.strip() else ""
+
+    def run(self, request: _SessionRequest, fds: list[int], deadline: float) -> int:
+        """Run *request* with *fds* as its stdout and stderr; return its exit status."""
+        argv = _process_args(self._info, request.entrypoint, list(request.args))
+        message = json.dumps({"args": argv, "cwd": request.cwd}).encode()
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            self._channel.settimeout(remaining)
+            socket.send_fds(self._channel, [message], fds)
+            status = self._channel.recv(_STATUS_BYTES)
+        except TimeoutError as exc:
+            raise UnshareError(
+                f"warm session run timed out after {request.timeout} seconds"
+            ) from exc
+        except OSError as exc:
+            raise UnshareError(f"warm session failed: {exc}{self._log_tail()}") from exc
+        if len(status) != _STATUS_BYTES:
+            raise UnshareError(f"warm session exited{self._log_tail()}")
+        return int.from_bytes(status, sys.byteorder, signed=True)
+
+    def interrupt(self) -> None:
+        """Close the channel: the helper kills its namespace, and a run in flight fails."""
+        with contextlib.suppress(OSError):  # already shut down by an earlier stop
+            self._channel.shutdown(socket.SHUT_RDWR)
+
+    def stop(self) -> None:
+        """End the session, wait for the sandbox to exit and remove its bundle."""
+        self.interrupt()
+        self._channel.close()
+        try:
+            self._process.wait(timeout=_SESSION_STOP_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            self._process.wait()
+        try:
+            _remove_bundle(self._bundle)
+        except OSError as exc:
+            # The stale-sandbox sweep reclaims it; the session itself is gone.
+            logging.getLogger(__name__).warning(
+                "warm session cleanup failed for %s: %s", self._bundle, exc
+            )
+
+
+class _SessionPool:
+    """At most *limit* warm sandboxes, each running one request at a time."""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._idle: list[_SessionWorker] = []  # least recently used first
+        self._busy: set[_SessionWorker] = set()
+        self._starting = 0
+        self._closed = False
+        self._changed = threading.Condition()
+
+    def acquire(self, key: _SessionKey, deadline: float) -> _SessionWorker:
+        """An idle sandbox for *key*, else a new one; at the limit, the least recently used idle one makes room."""
+        evicted: _SessionWorker | None = None
+        with self._changed:
+            while True:
+                if self._closed:
+                    raise UnshareError("warm sessions are shutting down")
+                for worker in reversed(self._idle):
+                    if worker.key == key:
+                        self._idle.remove(worker)
+                        self._busy.add(worker)
+                        return worker
+                if len(self._idle) + len(self._busy) + self._starting < self._limit:
+                    break
+                if self._idle:
+                    evicted = self._idle.pop(0)
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise UnshareError(
+                        f"all {self._limit} warm sessions stayed busy past the run's timeout"
+                    )
+                self._changed.wait(remaining)
+            self._starting += 1
+        started: _SessionWorker | None = None
+        try:
+            if evicted is not None:
+                evicted.stop()
+            started = _SessionWorker(key)
+        except (OSError, ValueError, KeyError, TypeError, tarfile.TarError) as exc:
+            raise UnshareError(f"warm session preparation failed: {exc}") from exc
+        finally:
+            with self._changed:
+                self._starting -= 1
+                if started is not None:
+                    self._busy.add(started)
+                self._changed.notify_all()
+        return started
+
+    def release(self, worker: _SessionWorker, *, reusable: bool) -> None:
+        """Return *worker* after a run; a sandbox that failed or was signalled is stopped."""
+        with self._changed:
+            self._busy.discard(worker)
+            self._changed.notify_all()
+            if reusable and not self._closed:
+                self._idle.append(worker)
+                return
+        worker.stop()
+
+    def close(self) -> None:
+        """Stop every sandbox; runs still in flight end with an error."""
+        with self._changed:
+            self._closed = True
+            idle, self._idle = self._idle, []
+            for worker in self._busy:
+                worker.interrupt()
+        for worker in idle:
+            worker.stop()
+        with self._changed:
+            self._changed.wait_for(
+                lambda: not self._busy and not self._starting, _SESSION_STOP_TIMEOUT_S
+            )
+
+
+def _answer(connection: socket.socket, pool: _SessionPool) -> None:
+    """Run one client's request in a warm sandbox and send its exit status or error."""
+    fds: list[int] = []
+    with connection:
+        try:
+            message, fds, flags, _ = socket.recv_fds(
+                connection, _SESSION_REQUEST_MAX, 2, socket.MSG_CMSG_CLOEXEC
+            )
+            if flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC) or len(fds) != 2:
+                raise UnshareError("malformed warm session request")
+            request = _decode_request(message)
+            deadline = time.monotonic() + request.timeout
+            worker = pool.acquire(request.key, deadline)
+            status = _SIGNALLED_STATUS
+            try:
+                status = worker.run(request, fds, deadline)
+            finally:
+                pool.release(worker, reusable=status < _SIGNALLED_STATUS)
+            answer: dict[str, int | str] = {"returncode": status}
+        except UnshareError as exc:
+            answer = {"error": str(exc)}
+        finally:
+            for fd in fds:
+                os.close(fd)
+        # A client that timed out or was interrupted has gone; nobody is left to tell.
+        with contextlib.suppress(OSError):
+            connection.send(json.dumps(answer).encode())
+
+
+def _accept(listener: socket.socket, pool: _SessionPool) -> None:
+    """Answer each connection on its own thread until *listener* shuts down."""
+    while True:
+        try:
+            connection, _ = listener.accept()
+        except OSError:
+            return  # shut down: the build command has finished
+        threading.Thread(target=_answer, args=(connection, pool), daemon=True).start()
+
+
+def serve_sessions(command: list[str], *, workers: int) -> int:
+    """Run *command* with warm sandboxes for its unshare runs; return its exit status.
+
+    The command inherits :data:`SESSIONS_ENV`. Each run that passes a session
+    goes to an idle sandbox built from the same inputs, or a new one; at most
+    *workers* exist at once, and each runs one request at a time with its own
+    Wine prefix overlay. A run past its timeout kills its sandbox. Every sandbox
+    stops when the command exits, or when this process dies.
+    """
+    directory = writable_temp_dir("rebrew_sessions_")
+    address = str(directory / "control")
+    pool = _SessionPool(workers)
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    try:
+        with _short_path(address) as path:
+            listener.bind(path)
+        listener.listen()
+        threading.Thread(target=_accept, args=(listener, pool), daemon=True).start()
+        child = subprocess.Popen(command, env={**os.environ, SESSIONS_ENV: address})
+        try:
+            return child.wait()
+        except KeyboardInterrupt:
+            # The terminal interrupted the command too; let it finish exiting.
+            child.wait()
+            raise
+    finally:
+        with contextlib.suppress(OSError):  # never bound, or already shut down
+            listener.shutdown(socket.SHUT_RDWR)
+        listener.close()
+        pool.close()
+        remove_temp_dir(directory)

@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
-/* Experimental one-shot Linux runner. Generated OCI profiles only; not a
- * general OCI runtime. */
+/* Experimental Linux runner. Generated OCI profiles only; not a general OCI
+ * runtime. `runner CONFIG` runs the profile's process once. `runner --serve FD
+ * CONFIG` keeps one sandbox: it runs the profile's process as the session
+ * start, then one request at a time from the SOCK_SEQPACKET socket FD (see
+ * serve()). */
 #include <errno.h>
 #include <fcntl.h>
 #include <json-c/json.h>
@@ -18,6 +21,7 @@
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
@@ -526,10 +530,107 @@ static void exec_process(json_object *cfg) {
   execve(argv[0], argv, env);
   fail("execve");
 }
+/* Largest serve request; _SESSION_REQUEST_MAX in unshare.py is the same. */
+#define REQUEST_MAX (128 * 1024)
+static void child_fail(const char *s) {
+  dprintf(2, "rebrew-unshare: %s: %s\n", s, strerror(errno));
+  _exit(125);
+}
+static pid_t start(char **argv, char **env, const char *cwd, int out, int err) {
+  pid_t pid = fork();
+  if (pid < 0)
+    fail("fork");
+  if (pid)
+    return pid;
+  int in = open("/dev/null", O_RDONLY);
+  if (in < 0 || dup2(in, 0) < 0 || dup2(out, 1) < 0 || dup2(err, 2) < 0)
+    _exit(125);
+  if (chdir(cwd))
+    child_fail("process cwd");
+  if (syscall(SYS_close_range, 3u, ~0u, 0))
+    child_fail("close_range");
+  execve(argv[0], argv, env);
+  child_fail("execve");
+  return -1;
+}
+static int finish(pid_t pid) {
+  int status;
+  while (waitpid(pid, &status, 0) < 0)
+    if (errno != EINTR)
+      fail("waitpid");
+  /* This process is the namespace init: reap daemons reparented to it. */
+  while (waitpid(-1, NULL, WNOHANG) > 0)
+    ;
+  return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+}
+/* Run the profile's process once (the session start, which must exit 0), then
+ * serve requests until end of file on channel. A request is the JSON object
+ * {"args": [...], "cwd": "/..."} with two descriptors for stdout and stderr;
+ * it runs with the profile's environment, and the reply is its int32 exit
+ * status (128 + signal number when killed). A malformed request ends the
+ * session with status 125. */
+static void serve(json_object *cfg, int channel) {
+  json_object *p = field(cfg, "process");
+  char **env = strings(field(p, "env")), **session = strings(field(p, "args"));
+  int status = finish(start(session, env, strfield(p, "cwd"), 1, 2));
+  if (status) {
+    fprintf(stderr, "rebrew-unshare: session start exited with status %d\n",
+            status);
+    exit(125);
+  }
+  free(session);
+  static char request[REQUEST_MAX + 1];
+  for (;;) {
+    union {
+      struct cmsghdr header;
+      char space[CMSG_SPACE(2 * sizeof(int))];
+    } control;
+    struct iovec iov = {request, REQUEST_MAX};
+    struct msghdr msg = {.msg_iov = &iov,
+                         .msg_iovlen = 1,
+                         .msg_control = control.space,
+                         .msg_controllen = sizeof(control.space)};
+    ssize_t n = recvmsg(channel, &msg, MSG_CMSG_CLOEXEC);
+    if (n < 0 && errno == EINTR)
+      continue;
+    if (n < 0)
+      fail("session recvmsg");
+    if (n == 0)
+      exit(0);
+    struct cmsghdr *c = CMSG_FIRSTHDR(&msg);
+    if ((msg.msg_flags & (MSG_TRUNC | MSG_CTRUNC)) || !c ||
+        c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS ||
+        c->cmsg_len != CMSG_LEN(2 * sizeof(int)))
+      reject("session request");
+    int fds[2];
+    memcpy(fds, CMSG_DATA(c), sizeof(fds));
+    request[n] = 0;
+    json_object *r =
+        strlen(request) == (size_t)n ? json_tokener_parse(request) : NULL;
+    if (!r)
+      reject("session request");
+    keys(r, "|args||cwd|");
+    char **argv = strings(field(r, "args"));
+    if (!argv[0])
+      reject("empty argv");
+    absolute(argv[0]);
+    const char *cwd = strfield(r, "cwd");
+    absolute(cwd);
+    pid_t pid = start(argv, env, cwd, fds[0], fds[1]);
+    close(fds[0]);
+    close(fds[1]);
+    int32_t result = finish(pid);
+    free(argv);
+    json_object_put(r);
+    if (send(channel, &result, sizeof(result), MSG_NOSIGNAL) !=
+        (ssize_t)sizeof(result))
+      fail("session reply");
+  }
+}
 struct child_context {
   json_object *cfg;
   const char *rootfs, *lower, *upper, *overlay_work;
-  int go_read, go_write, ready_read, ready_write, parentfd;
+  int go_read, go_write, ready_read, ready_write, parentfd, channel;
 };
 static int init_child(void *opaque) {
   struct child_context *c = opaque;
@@ -582,10 +683,37 @@ static int init_child(void *opaque) {
   apply_process(c->cfg);
   write_all(c->ready_write, "R", 1);
   close(c->ready_write);
+  if (c->channel >= 0)
+    serve(c->cfg, c->channel);
   exec_process(c->cfg);
   return 125;
 }
-static int run(json_object *cfg, const char *config_path) {
+/* A serving supervisor has no parent death signal: its caller may be a thread
+ * that exits before the session ends. The channel stands in for it: when the
+ * peer end closes, the namespace init is killed. */
+static int wait_serving(pid_t pid, int channel) {
+  int pidfd = syscall(SYS_pidfd_open, pid, 0);
+  if (pidfd < 0)
+    fail("pidfd_open");
+  struct pollfd fds[2] = {{.fd = pidfd, .events = POLLIN},
+                          {.fd = channel, .events = 0}};
+  for (;;) {
+    if (poll(fds, 2, -1) < 0) {
+      if (errno == EINTR)
+        continue;
+      fail("poll");
+    }
+    if (fds[0].revents)
+      break;
+    if (fds[1].revents & (POLLHUP | POLLERR)) {
+      kill(pid, SIGKILL);
+      break;
+    }
+  }
+  close(pidfd);
+  return wait_child(pid);
+}
+static int run(json_object *cfg, const char *config_path, int channel) {
   char cfg_real[PATH_MAX], lower[PATH_MAX], rootfs[PATH_MAX], upper[PATH_MAX],
       overlay_work[PATH_MAX], candidate[PATH_MAX];
   if (!realpath(config_path, cfg_real))
@@ -620,9 +748,9 @@ static int run(json_object *cfg, const char *config_path) {
   int parentfd = syscall(SYS_pidfd_open, getpid(), 0);
   if (parentfd < 0)
     fail("pidfd_open");
-  struct child_context context = {cfg,          rootfs,  lower, upper,
-                                  overlay_work, go[0],   go[1], ready[0],
-                                  ready[1],     parentfd};
+  struct child_context context = {cfg,          rootfs,   lower,  upper,
+                                  overlay_work, go[0],    go[1],  ready[0],
+                                  ready[1],     parentfd, channel};
   void *stack = malloc(1024 * 1024);
   if (!stack)
     fail("stack allocation");
@@ -652,22 +780,35 @@ static int run(json_object *cfg, const char *config_path) {
   close(ready[0]);
   (void)n;
   (void)byte;
-  int result = wait_child(child_pid);
+  int result =
+      channel >= 0 ? wait_serving(child_pid, channel) : wait_child(child_pid);
   free(stack);
   return result;
 }
 int main(int argc, char **argv) {
-  if (argc != 2) {
-    fprintf(stderr, "usage: rebrew-unshare CONFIG\n");
+  int channel = -1;
+  if (argc == 4 && !strcmp(argv[1], "--serve")) {
+    char *end;
+    errno = 0;
+    long fd = strtol(argv[2], &end, 10);
+    struct stat st;
+    if (errno || end == argv[2] || *end || fd < 3 || fd > INT_MAX ||
+        fstat((int)fd, &st) || !S_ISSOCK(st.st_mode))
+      reject("serve channel");
+    channel = (int)fd;
+  } else if (argc != 2) {
+    fprintf(stderr, "usage: rebrew-unshare [--serve FD] CONFIG\n");
     return 125;
   }
-  /* A killed caller must not leave this supervisor or its PID namespace alive.
-   */
-  pid_t parent = getppid();
-  if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0))
-    fail("supervisor parent death signal");
-  if (parent == 1 || getppid() != parent)
-    return 125;
-  json_object *cfg = load(argv[1]);
-  return run(cfg, argv[1]);
+  if (channel < 0) {
+    /* A killed caller must not leave this supervisor or its PID namespace
+     * alive. */
+    pid_t parent = getppid();
+    if (prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0))
+      fail("supervisor parent death signal");
+    if (parent == 1 || getppid() != parent)
+      return 125;
+  }
+  json_object *cfg = load(argv[argc - 1]);
+  return run(cfg, argv[argc - 1], channel);
 }

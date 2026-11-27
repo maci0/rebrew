@@ -812,12 +812,15 @@ def test_unshare_bridge_keeps_paths_and_tool(
         str(Path(spec.tool_root) / {"cl": "CL.EXE", "link": "LINK.EXE", "lib": "LIB.EXE"}[mode])
         in args
     )
+    # The warm session's wineserver runs under the same clock as the tool.
+    clock = ["/usr/local/bin/rebrew-clock"] if epoch is not None else []
     assert kwargs == {
         "workdir": tmp_path,
         "project_cwd": build,
         "image_id": "sha256:" + "a" * 64,
         "execution_backend": "unshare",
         "timeout": 3600,
+        "session": [*clock, "/usr/bin/wineserver", "-p"],
     }
 
 

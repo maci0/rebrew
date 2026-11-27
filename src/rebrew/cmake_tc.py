@@ -123,6 +123,9 @@ def _cmake_c_compiler_versions() -> dict[str, str]:
 
 
 _WINE = "/usr/bin/wine"  # the rebrew base image installs wine here
+_WINESERVER = "/usr/bin/wineserver"
+#: The images' wrapper that runs a native tool under the SOURCE_DATE_EPOCH clock.
+_CLOCK = "/usr/local/bin/rebrew-clock"
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +511,7 @@ def _docker_run(
         "-w",
         str(Path.cwd()),
         "--entrypoint",
-        "/usr/local/bin/rebrew-clock" if epoch is not None else _WINE,
+        _CLOCK if epoch is not None else _WINE,
         spec.image,
     ]
     if epoch is not None:
@@ -538,14 +541,19 @@ def _docker_run(
 def _unshare_run(
     spec: ToolchainSpec, mode: str, args: list[str], *, image_id: str | None = None
 ) -> int:
-    """Run CMake tools in a private image overlay, retaining host project paths."""
+    """Run CMake tools in a private image overlay, retaining host project paths.
+
+    Under ``rebrew build warm-sessions`` the overlay is a warm sandbox whose
+    persistent wineserver was started under the same clock.
+    """
     from rebrew.compiler.toolchain import run_toolchain, unshare_image_id
 
     root = walk_up_to_root(Path.cwd())
     assert root is not None  # driver_main validated the project root
     assert spec.image is not None and spec.tool_root is not None
     epoch = source_date_epoch()
-    entrypoint = "/usr/local/bin/rebrew-clock" if epoch is not None else _WINE
+    clock = [_CLOCK] if epoch is not None else []
+    entrypoint = _CLOCK if epoch is not None else _WINE
     command = ([_WINE] if epoch is not None else []) + [
         str(Path(spec.tool_root) / _TOOL_EXES[mode])
     ]
@@ -561,6 +569,7 @@ def _unshare_run(
             image_id=image_id or unshare_image_id(spec.image),
             execution_backend="unshare",
             timeout=3600,
+            session=[*clock, _WINESERVER, "-p"],
         )
     sys.stdout.write((result.stdout + result.stderr).replace("\r", ""))
     sys.stdout.flush()
@@ -626,6 +635,34 @@ def driver_main(
         # traceback polluting CMake's error output.
         error_exit(f"rebrew build driver {mode.value}: toolchain command timed out (3600s)")
     sys.exit(rc)
+
+
+def warm_sessions_main(
+    command: list[str] = typer.Argument(
+        ..., metavar="COMMAND...", help="Build command to run (place it after --)"
+    ),
+    workers: int | None = typer.Option(
+        None, "--workers", min=1, help="Most warm sandboxes at once (default: CPU count)"
+    ),
+) -> None:
+    """Run a build command with warm Wine sessions for its unshare tool runs."""
+    root = walk_up_to_root(Path.cwd())
+    if root is None:
+        error_exit("rebrew build warm-sessions: no rebrew-project.toml found above the cwd")
+    backend = _project_document(root).get("compiler", {}).get("execution_backend", "")
+    if backend != "unshare":
+        error_exit(
+            "rebrew build warm-sessions serves [compiler] execution_backend = "
+            f'"unshare" builds; this project uses {backend or "docker"!r}'
+        )
+    from rebrew.compiler.unshare import UnshareError, serve_sessions
+
+    try:
+        rc = serve_sessions(command, workers=workers or os.cpu_count() or 1)
+    except (UnshareError, OSError) as exc:
+        error_exit(f"rebrew build warm-sessions: {exc}")
+    # A command killed by a signal exits the way a shell reports it.
+    sys.exit(128 - rc if rc < 0 else rc)
 
 
 # ---------------------------------------------------------------------------

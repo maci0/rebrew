@@ -22,6 +22,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew source inline-strings` | Inline string-literal globals from the reference binary: `s_<hint>_<0xADDR>` placeholders and `g_<hex>` externs bound to `storage_kind = "literal"` data rows; `--named` inlines a file's own `char s_x[] = "..."` pool. |
 | `rebrew build sweep-link-flags` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
 | `rebrew build cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew build driver`. |
+| `rebrew build warm-sessions` | Run a build command (`rebrew build warm-sessions -- cmake --build build`) so its unshare `build driver` runs reuse warm Wine sessions instead of booting one each; objects stay byte-identical. |
 | `rebrew build cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
 | `rebrew build cmake-sources` | Write the target's metadata-selected source list as a CMake include. |
 | `rebrew source register` | Register optional ADDRESS anchors above C declarations in canonical stores (functions format 3; data format 2); `--dry-run` previews. Sources and headers are scanned. |

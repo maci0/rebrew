@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 244 surfaces: 210 leaf commands and 34 groups, including the
+The CLI exposes 245 surfaces: 211 leaf commands and 34 groups, including the
 root. Run `rebrew <command> --help` (or `-h`) for the installed command's
 arguments, defaults, and examples. See [CLI migration](CLI_MIGRATION.md) for
 renamed routes and [Getting started](GETTING_STARTED.md) for the first match.
@@ -4381,6 +4381,7 @@ Use `rebrew build <operation> --help` for exact arguments and examples.
 | `rebrew build layout` | Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore). |
 | `rebrew build cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via rebrew. |
 | `rebrew build driver` | Run a CMake tool: rebrew build driver <cl&#124;link&#124;lib> -- <arguments>. |
+| `rebrew build warm-sessions` | Run a build command with warm Wine sessions for its unshare tool runs. |
 | `rebrew build objdiff-driver` | Rebuild an objdiff base object using its source's toolchain and flags. |
 | `rebrew build cmake-flags` | Emit the per-file CFLAGS a CMake build must compile with. |
 | `rebrew build cmake-sources` | Emit the per-target source list a CMake build must compile. |
@@ -4561,6 +4562,26 @@ nondebug flag set. Docker/Podman shared Wine prefixes and LINK/LIB stay uncached
 Source and header content changes invalidate entries even if size and mtime are
 preserved; success is published only while before/after inputs still agree.
 Generated CMake files and their mtimes are not modified by cache reuse.
+
+### `rebrew build warm-sessions`
+
+`rebrew build warm-sessions [OPTIONS] COMMAND...`
+
+Run a build command whose `rebrew build driver` runs reuse warm sandboxes on the
+`unshare` backend: each sandbox boots its Wine session once and then runs one
+tool at a time, instead of every run booting its own. Refused outside a project
+whose `[compiler] execution_backend` is `unshare`. Exits with the command's
+status (128 + signal when a signal killed it). Sharing rules, timeouts and
+teardown: [warm Wine sessions](TOOLCHAIN.md#warm-wine-sessions-for-cmake-builds).
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `COMMAND` | str… | required | Build command to run (place it after --) |
+| `--workers` | int ≥ 1 | CPU count | Most warm sandboxes at once |
+
+```bash
+rebrew build warm-sessions -- cmake --build build --parallel 8
+```
 
 ### `rebrew build objdiff-driver`
 

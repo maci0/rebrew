@@ -216,6 +216,19 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             ),
         ),
         CliComponent(
+            name="warm-sessions",
+            module="rebrew.cmake_tc",
+            attr="warm_sessions_main",
+            help="Run a build command with warm Wine sessions for its unshare tool runs.",
+            panel="",
+            epilog=(
+                "[bold]Examples:[/bold]\n\n"
+                "  rebrew build warm-sessions -- cmake --build build --parallel 8\n\n"
+                "  rebrew build warm-sessions --workers 4 -- make -C build -j4\n\n"
+                "Exits with the command's status. Without this wrapper each tool run boots its own session."
+            ),
+        ),
+        CliComponent(
             name="objdiff-driver",
             module="rebrew.objdiff_project",
             attr="build_main",

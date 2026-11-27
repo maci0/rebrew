@@ -227,6 +227,8 @@ Linked comparison inside verification is currently unsupported and fails explici
 Ordinary CMake builds support CL, LINK and LIB through the same native runner;
 they mount the project at its host path and retain the nested build cwd. Each
 invocation gets a private Wine prefix; no shared Docker-prefix lock is used.
+[Warm sessions](#warm-wine-sessions-for-cmake-builds) let invocations with
+identical inputs reuse one sandbox and its Wine session instead.
 Existing generated CMake toolchain files need no regeneration for this choice.
 
 Install a C compiler (`cc`), `pkg-config`, and json-c development files
@@ -285,10 +287,46 @@ helper are intentional persistent caches under
 
 This is a limited OCI-profile consumer, **not a general OCI runtime**. It does
 not implement Docker's seccomp policy or cgroup resource limits. Use it for
-trusted local projects and toolchain images. It currently starts one compiler
-invocation at a time per job; persistent Wine workers remain a separate
-prototype. Compile and verification caches include the backend/helper identity,
-so measurements from this experiment cannot reuse Docker verdicts.
+trusted local projects and toolchain images. Compile and verification caches
+include the backend/helper identity, so measurements from this experiment
+cannot reuse Docker verdicts.
+
+#### Warm Wine sessions for CMake builds
+
+A fresh sandbox boots a whole Wine session for one tool run: wineserver,
+`wineboot --init`, services, explorer, plugplay and device hosts, which take
+longer than CL itself on a small source. Wrap the build to pay that once per
+sandbox:
+
+```bash
+rebrew build warm-sessions -- cmake --build build --parallel 8
+```
+
+The command runs with `REBREW_UNSHARE_SESSIONS` naming a control socket. Each
+`rebrew build driver cl|link|lib` run it starts goes to a long-lived sandbox
+that first started a persistent `wineserver -p` (under the `SOURCE_DATE_EPOCH`
+clock when that is set, as the tool runs are):
+
+- A run uses a sandbox only when the image ID, session command, project root,
+  read-only mounts and environment (`SOURCE_DATE_EPOCH`, `INCLUDE`, `LIB`
+  included) all equal the ones it was built from; only the argv and cwd differ
+  per run. The run sees the same mounts as in a fresh sandbox, plus what earlier
+  runs of that sandbox left in its private Wine prefix overlay, `/tmp` and
+  `/home/rebrew`.
+- Each sandbox runs one tool at a time, with its own overlay and wineserver.
+  Concurrent runs get separate sandboxes, at most `--workers` (default: CPU
+  count); at the limit the least recently used idle one is stopped to make
+  room, and with all busy a run waits within its timeout.
+- A run past its timeout (3600 s for CMake tools) kills its sandbox and fails.
+  A sandbox whose run died by a signal, or whose helper exited, is discarded.
+  A sandbox that cannot be set up fails the run, without a fallback.
+- Every sandbox stops when the command exits. If the wrapper dies, each helper
+  sees its channel close and kills its namespace, a run in flight included.
+- A run whose `REBREW_UNSHARE_SESSIONS` socket has no listener logs a warning
+  and uses a fresh sandbox. Runs outside the wrapper use fresh sandboxes.
+
+Objects match a fresh-sandbox build byte for byte; MSVC also records the
+object path, so compare objects compiled to the same `/Fo` path.
 
 ## MSVC6 Toolchain (Compile Backend)
 

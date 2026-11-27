@@ -439,6 +439,7 @@ def _build_native_rootfs(directory: Path) -> None:
     source = directory / "probe.c"
     source.write_text(r"""
 #define _GNU_SOURCE
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/capability.h>
@@ -455,6 +456,37 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && !strcmp(argv[1], "fail")) return 7;
     if (argc > 1 && !strcmp(argv[1], "exit125")) { fputs("compiler exit 125\n", stderr); return 125; }
+    /* Warm sessions: "session" leaves a daemon appending to ./heartbeat, as
+     * `wineserver -p` stays; "count" numbers the runs one sandbox has served
+     * (its /tmp lives as long as the sandbox); "pair" first waits until two
+     * runs have arrived in the cwd; "hang" never ends, nor its detached child. */
+    if (argc > 1 && (!strcmp(argv[1], "session") || !strcmp(argv[1], "hang"))) {
+        pid_t child=fork(); if (child < 0) return 40;
+        if (child && !strcmp(argv[1], "session")) return 0;
+        if (!child) setsid();
+        for (;;) {
+            FILE *f=fopen("heartbeat", "a"); if (!f) return 41;
+            fputs("x", f); fclose(f); usleep(20000);
+        }
+    }
+    if (argc > 1 && !strcmp(argv[1], "pair")) {
+        char name[]="arrived-XXXXXX"; int fd=mkstemp(name); if (fd<0) return 42; close(fd);
+        for (int i=0;; ++i) {
+            DIR *d=opendir("."); if (!d) return 43;
+            int seen=0; struct dirent *e;
+            while ((e=readdir(d))) seen += !strncmp(e->d_name, "arrived-", 8);
+            closedir(d);
+            if (seen >= 2) break;
+            if (i > 1000) return 44;
+            usleep(10000);
+        }
+    }
+    if (argc > 1 && (!strcmp(argv[1], "count") || !strcmp(argv[1], "pair"))) {
+        int n=0; FILE *f=fopen("/tmp/count", "r");
+        if (f) { if (fscanf(f, "%d", &n) != 1) n=0; fclose(f); }
+        f=fopen("/tmp/count", "w"); if (!f) return 45; fprintf(f, "%d\n", ++n); fclose(f);
+        printf("%d\n", n); fprintf(stderr, "run %d\r\n", n); return 0;
+    }
     if (getuid() != 1000 || getgid() != 1000 || prctl(PR_GET_NO_NEW_PRIVS,0,0,0,0) != 1) return 10;
     for (int c=0; c<=CAP_LAST_CAP; ++c) if (prctl(PR_CAPBSET_READ,c,0,0,0) != 0) return 11;
     FILE *mounts=fopen("/proc/self/mountinfo", "r"); if(!mounts)return 33;
@@ -975,6 +1007,300 @@ class TestUnshareCMakePaths:
         )
         assert result.returncode == 0, result.stderr
         assert (build / "output").read_text() == "CMAKE"
+
+
+_SESSION = ["/bin/probe", "session"]
+
+#: The build command the warm-session tests run under ``rebrew build
+#: warm-sessions``: probe runs through ``run_unshare``, as ``rebrew build
+#: driver`` makes them, with the results written to a JSON file.
+_SESSION_CLIENT = """
+import json
+import os
+import socket
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+from rebrew.compiler import unshare
+
+project, sdk, out = (Path(arg) for arg in sys.argv[1:4])
+image = "sha256:" + "a" * 64
+
+
+def settles(heartbeat):
+    # Appended every 20 ms while its writer lives.
+    size = heartbeat.stat().st_size
+    for _ in range(100):
+        time.sleep(0.2)
+        if heartbeat.stat().st_size == size:
+            return True
+        size = heartbeat.stat().st_size
+    return False
+
+
+def run(args, mounts=(), timeout=20):
+    try:
+        result = unshare.run_unshare(
+            image, args, entrypoint=None, workdir=project, mounts=list(mounts), env={},
+            timeout=timeout, project_cwd=project / "build", session=["/bin/probe", "session"],
+        )
+    except unshare.UnshareError as exc:
+        return ["error", str(exc)]
+    return [result.returncode, result.stdout, result.stderr]
+
+
+def raw(message, fds):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
+        with unshare._short_path(os.environ[unshare.SESSIONS_ENV]) as path:
+            connection.connect(path)
+        socket.send_fds(connection, [message], fds)
+        return json.loads(connection.recv(65536))
+
+
+runs = {"first": run(["count"])}
+if runs["first"][0] == "error":
+    out.write_text(json.dumps(runs))
+    sys.exit(0)
+if sys.argv[4] == "hold":
+    # A run still in flight when the server dies: its sandbox must end too.
+    threading.Thread(target=run, args=(["hang"], (), 600), daemon=True).start()
+    while not (project / "build" / "heartbeat").exists():
+        time.sleep(0.02)
+    out.write_text(json.dumps(runs))
+    time.sleep(600)
+runs["reused"] = run(["count"])
+runs["other_mounts"] = run(["count"], [(str(sdk), "/sdk/include")])
+runs["failed"] = run(["fail"])
+runs["after_failure"] = run(["count"])
+with ThreadPoolExecutor(2) as pool:
+    runs["parallel"] = sorted(r[1] for r in pool.map(run, [["pair"], ["pair"]]))
+runs["timeout"] = run(["hang"], timeout=1)
+runs["hang_stopped"] = settles(project / "build" / "heartbeat")
+runs["after_timeout"] = run(["count"])[0]
+with open(project / "rebrew-project.toml", "rb") as handle:
+    runs["no_descriptors"] = raw(b"{}", [])
+    runs["not_json"] = raw(b"not json", [handle.fileno(), handle.fileno()])
+out.write_text(json.dumps(runs))
+"""
+
+
+class TestWarmSessions:
+    @staticmethod
+    def _project(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
+    ) -> Path:
+        """An unshare project whose image, the probe filesystem, is already exported."""
+        rootfs = _native_rootfs(tmp_path_factory, tmp_path)
+        cache = _native_cache(tmp_path_factory, tmp_path / "cache")
+        monkeypatch.setenv("XDG_CACHE_HOME", str(cache))
+        image = cache / "rebrew/experimental-unshare/images-v2" / _IMAGE_ID.removeprefix("sha256:")
+        image.mkdir(parents=True)
+        rootfs.rename(image / "rootfs")
+        (image / "image.json").write_text(json.dumps(_info()))
+        project = tmp_path / "project"
+        (project / "build").mkdir(parents=True)
+        (project / "rebrew-project.toml").write_text('[compiler]\nexecution_backend = "unshare"\n')
+        (tmp_path / "client.py").write_text(_SESSION_CLIENT)
+        return project
+
+    @staticmethod
+    def _argv(tmp_path: Path, project: Path, mode: str) -> list[str]:
+        import sys
+
+        return [
+            sys.executable,
+            "-m",
+            "rebrew.app.main",
+            "build",
+            "warm-sessions",
+            "--workers",
+            "2",
+            "--",
+            sys.executable,
+            str(tmp_path / "client.py"),
+            str(project),
+            str(tmp_path / "sdk"),
+            str(tmp_path / "runs.json"),
+            mode,
+        ]
+
+    @staticmethod
+    def _skip_without_namespaces(first: list[Any]) -> None:
+        if first[0] == "error" and any(
+            text in first[1] for text in ("Operation not permitted", "Function not implemented")
+        ):
+            pytest.skip(f"host disables rootless namespace/overlay support: {first[1]}")
+
+    @staticmethod
+    def _growing(heartbeat: Path) -> bool:
+        """True when *heartbeat*'s writer (every 20 ms) is alive."""
+        import time
+
+        size = heartbeat.stat().st_size
+        time.sleep(0.2)
+        return heartbeat.stat().st_size != size
+
+    @staticmethod
+    def _settles(heartbeat: Path) -> bool:
+        """True once *heartbeat* stops growing within the native run timeout."""
+        import time
+
+        deadline = time.monotonic() + _NATIVE_RUN_TIMEOUT
+        size = heartbeat.stat().st_size
+        while time.monotonic() < deadline:
+            time.sleep(0.2)
+            if heartbeat.stat().st_size == size:
+                return True
+            size = heartbeat.stat().st_size
+        return False
+
+    def test_runs_share_a_sandbox_only_with_identical_inputs(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        project = self._project(monkeypatch, tmp_path, tmp_path_factory)
+        (tmp_path / "sdk").mkdir()
+        done = subprocess.run(
+            self._argv(tmp_path, project, "all"),
+            cwd=project,
+            capture_output=True,
+            text=True,
+            timeout=_NATIVE_RUN_TIMEOUT * 6,
+        )
+        assert done.returncode == 0, done.stderr
+        runs = json.loads((tmp_path / "runs.json").read_text())
+        self._skip_without_namespaces(runs["first"])
+        # One sandbox serves runs with the same inputs; its /tmp outlives each run.
+        assert runs["first"] == [0, "1\n", "run 1\n"]
+        assert runs["reused"] == [0, "2\n", "run 2\n"]
+        # Another mount set is another sandbox, and a failed run keeps its sandbox.
+        assert runs["other_mounts"][:2] == [0, "1\n"]
+        assert runs["failed"][0] == 7
+        assert runs["after_failure"][:2] == [0, "3\n"]
+        # Concurrent runs get separate sandboxes; at the limit the idle one makes room.
+        assert runs["parallel"] == ["1\n", "4\n"]
+        # A run past its timeout is reported and its sandbox, detached children included, dies.
+        assert runs["timeout"] == ["error", "warm session run timed out after 1 seconds"]
+        assert runs["hang_stopped"]
+        assert runs["after_timeout"] == 0
+        assert runs["no_descriptors"] == {"error": "malformed warm session request"}
+        assert runs["not_json"]["error"].startswith("malformed warm session request: ")
+        # Every session ends with the command; nothing is left in the cache.
+        assert self._settles(project / "heartbeat")
+        assert list((tmp_path / "cache/rebrew/tmp").iterdir()) == []
+
+    def test_killed_server_ends_its_sandboxes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        import signal
+        import time
+
+        project = self._project(monkeypatch, tmp_path, tmp_path_factory)
+        server = subprocess.Popen(
+            self._argv(tmp_path, project, "hold"),
+            cwd=project,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            deadline = time.monotonic() + _NATIVE_RUN_TIMEOUT
+            while not (tmp_path / "runs.json").exists() and server.poll() is None:
+                assert time.monotonic() < deadline, "the session client never ran"
+                time.sleep(0.02)
+            assert (tmp_path / "runs.json").exists(), server.communicate()[1]
+            runs = json.loads((tmp_path / "runs.json").read_text())
+            self._skip_without_namespaces(runs["first"])
+            assert runs["first"][:2] == [0, "1\n"]
+            # An idle sandbox's session daemon, and a run in flight in another.
+            heartbeats = [project / "heartbeat", project / "build" / "heartbeat"]
+            assert all(self._growing(heartbeat) for heartbeat in heartbeats)
+            server.kill()
+            server.wait(timeout=_NATIVE_RUN_TIMEOUT)
+            assert all(self._settles(heartbeat) for heartbeat in heartbeats)
+        finally:
+            # The client sleeps in the server's session; end it with its server.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(server.pid, signal.SIGKILL)
+            server.wait(timeout=_NATIVE_RUN_TIMEOUT)
+            assert server.stderr is not None
+            server.stderr.close()
+            for leftover in (tmp_path / "cache/rebrew/tmp").iterdir():
+                unshare._remove_bundle(leftover)
+
+    def test_unanswered_server_runs_a_fresh_sandbox(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        calls = _fake_execution(monkeypatch, tmp_path)
+        monkeypatch.setenv(unshare.SESSIONS_ENV, str(tmp_path / "ended" / "control"))
+        result = unshare.run_unshare(
+            _IMAGE_ID,
+            ["f.c"],
+            entrypoint=None,
+            workdir=tmp_path,
+            mounts=[],
+            env={},
+            timeout=5,
+            project_cwd=tmp_path,
+            session=_SESSION,
+        )
+        assert (result.returncode, result.stdout) == (0, "compiled")
+        assert calls[0]["process"]["args"] == ["/bin/probe", "f.c"]
+        assert "does not answer; running in a fresh sandbox" in caplog.text
+
+    def test_session_needs_a_project_mount(self, tmp_path: Path) -> None:
+        with pytest.raises(ToolchainError, match="session requires project_cwd"):
+            run_toolchain(
+                TOOLCHAINS["msvc-6.0-sp5"],
+                [],
+                workdir=tmp_path,
+                image_id=_IMAGE_ID,
+                execution_backend="unshare",
+                session=_SESSION,
+            )
+
+    def test_command_exit_status_is_the_wrappers(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from rebrew.app.main import app
+
+        (tmp_path / "rebrew-project.toml").write_text('[compiler]\nexecution_backend = "unshare"\n')
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(
+            app,
+            [
+                "build",
+                "warm-sessions",
+                "--",
+                "sh",
+                "-c",
+                'test -S "$REBREW_UNSHARE_SESSIONS" && exit 3',
+            ],
+        )
+        assert result.exit_code == 3, result.output
+        scratch = Path(os.environ["XDG_CACHE_HOME"]) / "rebrew" / "tmp"
+        assert list(scratch.glob("rebrew_sessions_*")) == []
+
+    @pytest.mark.parametrize("compiler", ["", 'execution_backend = "docker"\n'])
+    def test_refused_outside_an_unshare_project(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, compiler: str
+    ) -> None:
+        from rebrew.app.main import app
+
+        (tmp_path / "rebrew-project.toml").write_text(f"[compiler]\n{compiler}")
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["build", "warm-sessions", "--", "true"])
+        assert result.exit_code == 2
+        assert 'execution_backend = "unshare"' in result.output
 
 
 @pytest.mark.parametrize("mode", [0o755, 0o555], ids=["writable", "readonly"])
