@@ -406,7 +406,9 @@ class TestReplicationHotPaths:
         content = tomlkit.dumps({"a": {"s": "x"}})
         record = replication._Record({"node:x": 1}, 7, content, False)
         rendered = replication._render_state({"rebrew-functions.toml": record}, "")
-        (tmp_path / "state.toml").write_text(rendered.replace('s = \\"x\\"', 's = \\"y\\"'))
+        tampered = rendered.replace('s = "x"', 's = "y"').replace('s = \\"x\\"', 's = \\"y\\"')
+        assert tampered != rendered
+        (tmp_path / "state.toml").write_text(tampered)
         replication._LOADED.clear()
         with pytest.raises(MetadataStorageError, match="content hash mismatch"):
             replication._load(TomlStore(tmp_path / "state.toml", tmp_path))
@@ -414,7 +416,6 @@ class TestReplicationHotPaths:
     def test_identical_replica_contents_share_hash_but_verify_each_record(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import json
         import tomllib
 
         import rebrew.metadata.replication as replication
@@ -430,38 +431,27 @@ class TestReplicationHotPaths:
         rendered = replication._render_state({key: replica_record}, "")
         replica.write_text(rendered, "test replica")
         seen: list[str] = []
-        decoded: list[str] = []
         raw_hash = replication._content_sha256
-        raw_decode = json.JSONDecoder.raw_decode
 
         def counted(text: str) -> str:
             seen.append(text)
             return raw_hash(text)
 
-        def decode(decoder: json.JSONDecoder, line: str, idx: int = 0) -> tuple[Any, int]:
-            if line.startswith("content = "):
-                decoded.append(line)
-            return raw_decode(decoder, line, idx)
-
         monkeypatch.setattr(replication, "_content_sha256", counted)
-        monkeypatch.setattr(json.JSONDecoder, "raw_decode", decode)
         known, _ = replication._load(journal)
         loaded, _ = replication._load(replica, known)
         assert loaded == {key: replica_record}
         assert loaded[key].content is known[key].content
         assert seen == [content]
-        assert len(decoded) == 1
 
         replica.write_text(rendered.replace('content_sha256 = "', 'content_sha256 = "0'), "test")
         with pytest.raises(MetadataStorageError, match="content hash mismatch"):
             replication._load(replica, known)
         assert seen == [content]
-        assert len(decoded) == 1
 
         # An equivalent escape still decodes, and a change with the old hash fails.
         replica.write_text(rendered.replace("same", r"s\u0061me"), "test")
         assert replication._load(replica, known)[0] == {key: replica_record}
-        assert len(decoded) == 2
 
         replica.write_text(rendered.replace("same", "fake"), "test")
         with pytest.raises(MetadataStorageError, match="content hash mismatch"):
@@ -752,11 +742,13 @@ def test_rendered_state_parser_matches_tomllib() -> None:
         released = rendered.replace("format = 2\n", "format = 1\n", 1)
         assert _parse_rendered(released) == tomllib.loads(released)
     assert _parse_rendered(_render_state({}, "")) == tomllib.loads(_render_state({}, ""))
-    # Any other layout is left to tomllib.
+    # Any valid TOML parses identically to tomllib; malformed TOML returns None for fallback.
     other = {"format": 1, "records": {"rebrew-data.toml": {"clock": {"n": 1}, "updated_at_ns": 1}}}
-    assert _parse_rendered(tomlkit.dumps(other)) is None
-    assert _parse_rendered(text.replace("deleted = false", "deleted=false")) is None
-    for invalid in ('"" "extra"', ' ""', '"" ', '"unterminated'):
+    assert _parse_rendered(tomlkit.dumps(other)) == other
+    assert _parse_rendered(text.replace("deleted = false", "deleted=false")) == tomllib.loads(
+        text.replace("deleted = false", "deleted=false")
+    )
+    for invalid in ('"" "extra"', '"unterminated'):
         assert _parse_rendered(text.replace('content = ""', f"content = {invalid}")) is None
 
 
@@ -902,15 +894,19 @@ class TestRecordWiseDigest:
 
     @pytest.fixture(autouse=True)
     def _record_wise(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from collections import OrderedDict
 
         import rebrew.metadata.replication as replication
         from rebrew.metadata import lazydoc
 
         monkeypatch.setattr(lazydoc, "LAZY_MIN_CHARS", _SMALL_LAZY_MIN_CHARS)
-        monkeypatch.setattr(replication, "_DIGESTS", OrderedDict())
-        monkeypatch.setattr(replication, "_RECORD_JSON", OrderedDict())
-        monkeypatch.setattr(replication, "_RECORD_JSON_CHARS", 0)
+        from cachetools import LRUCache
+
+        monkeypatch.setattr(replication, "_DIGESTS", LRUCache(maxsize=replication._DIGEST_MAX))
+        monkeypatch.setattr(
+            replication,
+            "_RECORD_JSON",
+            LRUCache(maxsize=replication._RECORD_JSON_MAX_CHARS, getsizeof=len),
+        )
 
     def test_a_large_store_keeps_the_stored_digest(self) -> None:
         from rebrew.metadata import lazydoc

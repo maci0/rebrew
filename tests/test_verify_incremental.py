@@ -1993,11 +1993,9 @@ class TestHeadersHashCacheInvalidation:
 
 
 class TestVerifyCacheDump:
-    """The cache rewrite emits scalars directly. The generic walk is the fallback."""
+    """The cache rewrite round-trips through ``rtoml`` and ``tomllib``."""
 
-    def test_scalar_rows_match_without_the_generic_walk(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_scalar_rows_round_trip(self) -> None:
         from rebrew.verify_cache import _dump_toml, _dump_verify_cache, toml_document
 
         document = {
@@ -2019,17 +2017,12 @@ class TestVerifyCacheDump:
             "binary_id": "ef",
         }
         generic = tomllib.loads(_dump_toml(toml_document(document)))
-
-        def refuse(*_args: object, **_kwargs: object) -> None:
-            raise AssertionError("generic emitter")
-
-        monkeypatch.setattr("rebrew.verify_cache._emit_toml_table", refuse)
         flat = tomllib.loads(_dump_verify_cache(document))
         assert flat == generic
         assert flat["entries"]["0x10000000"]["context_hash"] == ""
         assert flat["entries"]["0x10000000"]["match_percent"] == 100.0
 
-    def test_nested_row_uses_the_generic_emitter(self) -> None:
+    def test_nested_row_round_trips(self) -> None:
         from rebrew.verify_cache import _dump_toml, _dump_verify_cache, toml_document
 
         document = {
@@ -2041,11 +2034,9 @@ class TestVerifyCacheDump:
 
 
 class TestVerifyBaselineDump:
-    """The baseline rewrite emits its shape directly. The generic walk is the fallback."""
+    """The baseline rewrite round-trips through ``rtoml`` and ``tomllib``."""
 
-    def test_summary_and_rows_match_without_the_generic_walk(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_summary_and_rows_round_trip(self) -> None:
         from rebrew.verify_cache import _dump_toml, _dump_verify_baseline, toml_document
 
         document = {
@@ -2072,18 +2063,13 @@ class TestVerifyBaselineDump:
             ],
         }
         generic = tomllib.loads(_dump_toml(toml_document(document)))
-
-        def refuse(*_args: object, **_kwargs: object) -> None:
-            raise AssertionError("generic emitter")
-
-        monkeypatch.setattr("rebrew.verify_cache._emit_toml_table", refuse)
         flat = tomllib.loads(_dump_verify_baseline(document))
         assert flat == generic
         assert flat["context_hash"] == ""
         assert flat["results"][0]["match_percent"] == 100.0
         assert flat["size_divergences"] == []
 
-    def test_mixed_result_list_uses_the_generic_emitter(self) -> None:
+    def test_mixed_result_list_round_trips(self) -> None:
         from rebrew.verify_cache import _dump_toml, _dump_verify_baseline, toml_document
 
         document = {"results": [{"status": "EXACT"}, "nope"]}
@@ -3187,7 +3173,7 @@ class TestVerifyCacheLineParse:
         assert row.passed is True
         assert row.mtime_ns == 5
 
-    def test_trailing_comment_uses_tomllib(
+    def test_trailing_comment_loads_without_tomllib(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         cfg = _make_cfg(tmp_path)
@@ -3196,16 +3182,12 @@ class TestVerifyCacheLineParse:
             "version = 2\n", "version = 2 # keep\n", 1
         )
         cache_path.write_text(text, encoding="utf-8")
-        calls = {"n": 0}
-        original = tomllib.loads
 
-        def counting(payload: str, *args: object, **kwargs: object) -> dict[str, Any]:
-            calls["n"] += 1
-            return original(payload, *args, **kwargs)  # type: ignore[arg-type]
+        def refuse(*_args: object, **_kwargs: object) -> None:
+            raise AssertionError("tomllib")
 
-        monkeypatch.setattr("rebrew.verify_cache.tomllib.loads", counting)
+        monkeypatch.setattr("rebrew.verify_cache.tomllib.loads", refuse)
         loaded = load_verify_cache(cache_path, cfg)
-        assert calls["n"] == 1
         assert loaded is not None
         assert loaded.version == 2
         assert loaded.entries["0x00000010"].message == 'say "hi"'

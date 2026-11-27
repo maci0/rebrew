@@ -47,9 +47,10 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+lazy import json
 lazy import shutil
 lazy import subprocess
-lazy from collections.abc import Iterator
+lazy from collections.abc import Iterable, Iterator
 lazy from typing import Any
 
 import typer
@@ -153,25 +154,301 @@ def parse_compile_lines(build_text: str) -> list[tuple[str, str]]:
     return out
 
 
+def _extract_pin(tokens: Iterable[str]) -> tuple[str | None, str]:
+    """Split a flag token list into ``(rebrew_toolchain, remaining_codegen_flags)``."""
+    toks = list(tokens)
+    toolchain = next(
+        (tok.split(":", 1)[1] for tok in toks if tok.startswith("/REBREW_TOOLCHAIN:")),
+        None,
+    )
+    flags = " ".join(t for t in toks if not t.startswith(("/REBREW_TOOLCHAIN", "/F", "/Y", "/Z")))
+    return toolchain, flags
+
+
+def _codegen_flags(tokens: Iterable[str]) -> list[str]:
+    """Return MSVC codegen flag tokens (excluding boilerplate and output/debug prefixes)."""
+    return [
+        token
+        for token in tokens
+        if _FLAG.match(token) and token not in BOILERPLATE and not token.startswith(PREFIX_SKIP)
+    ]
+
+
+def _load_json_file(path: Path) -> Any:
+    """Read and parse one UTF-8 JSON file, raising ``OSError`` or ``ValueError`` on failure."""
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def parse_cmake_file_api(build_dir: Path) -> dict[str, Any] | None:
+    """Parse CMake File API ``codemodel-v2`` replies under ``build_dir/.cmake/api/v1/reply``.
+
+    Returns ``{"source_root": Path | None, "sources": dict[str, set[str]], "order": list[str]}``
+    mapping each compiled source path (as written in the target reply) to the
+    flag tokens recorded in its ``compileGroup``, or ``None`` when no
+    ``codemodel-v2`` reply is present.
+    """
+    reply_dir = build_dir / ".cmake" / "api" / "v1" / "reply"
+    if not reply_dir.is_dir():
+        return None
+    codemodel_path: Path | None = None
+    index_files = sorted(reply_dir.glob("index-*.json"))
+    if index_files:
+        try:
+            index_doc = _load_json_file(index_files[-1])
+        except OSError, ValueError:
+            return None
+        if isinstance(index_doc, dict):
+            for obj in index_doc.get("objects", []):
+                if (
+                    isinstance(obj, dict)
+                    and obj.get("kind") == "codemodel"
+                    and isinstance(obj.get("version"), dict)
+                    and obj["version"].get("major") == 2
+                    and isinstance(obj.get("jsonFile"), str)
+                ):
+                    candidate = reply_dir / obj["jsonFile"]
+                    if candidate.is_file():
+                        codemodel_path = candidate
+                        break
+    if codemodel_path is None:
+        cm_files = sorted(reply_dir.glob("codemodel-v2-*.json"))
+        if not cm_files:
+            return None
+        codemodel_path = cm_files[-1]
+
+    try:
+        codemodel = _load_json_file(codemodel_path)
+    except OSError, ValueError:
+        return None
+    if not isinstance(codemodel, dict):
+        return None
+
+    paths_doc = codemodel.get("paths")
+    source_root = (
+        Path(paths_doc["source"])
+        if isinstance(paths_doc, dict) and isinstance(paths_doc.get("source"), str)
+        else None
+    )
+    sources: dict[str, set[str]] = {}
+    order: list[str] = []
+    configs = codemodel.get("configurations")
+    if not isinstance(configs, list):
+        return None
+    for config in configs[:1]:
+        if not isinstance(config, dict):
+            continue
+        for target_ref in config.get("targets", []):
+            if not isinstance(target_ref, dict) or not isinstance(target_ref.get("jsonFile"), str):
+                continue
+            target_path = reply_dir / target_ref["jsonFile"]
+            if not target_path.is_file():
+                continue
+            try:
+                target_doc = _load_json_file(target_path)
+            except OSError, ValueError:
+                continue
+            if not isinstance(target_doc, dict):
+                continue
+            groups = target_doc.get("compileGroups", [])
+            if not isinstance(groups, list):
+                continue
+            group_tokens: list[set[str]] = []
+            for group in groups:
+                toks: set[str] = set()
+                if isinstance(group, dict):
+                    for frag in group.get("compileCommandFragments", []):
+                        if isinstance(frag, dict) and isinstance(frag.get("fragment"), str):
+                            toks.update(frag["fragment"].split())
+                group_tokens.append(toks)
+            for src in target_doc.get("sources", []):
+                if not isinstance(src, dict):
+                    continue
+                idx = src.get("compileGroupIndex")
+                src_path = src.get("path")
+                if not isinstance(idx, int) or not isinstance(src_path, str):
+                    continue
+                if 0 <= idx < len(group_tokens):
+                    if src_path not in sources:
+                        order.append(src_path)
+                    sources.setdefault(src_path, set()).update(group_tokens[idx])
+    return {"source_root": source_root, "sources": sources, "order": order}
+
+
+def parse_compile_commands(build_dir: Path) -> list[dict[str, Any]] | None:
+    """Parse ``build_dir/compile_commands.json`` into normalized entries.
+
+    Each returned entry has ``file``, ``directory``, ``output`` (possibly ``""``),
+    and ``tokens`` (the split compile command arguments).  Returns ``None`` when
+    ``compile_commands.json`` does not exist.
+    """
+    cc_path = build_dir / "compile_commands.json"
+    if not cc_path.is_file():
+        return None
+    try:
+        raw = _load_json_file(cc_path)
+    except OSError, ValueError:
+        return None
+    if not isinstance(raw, list):
+        return None
+    entries: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict) or not isinstance(item.get("file"), str):
+            continue
+        args = item.get("arguments")
+        if isinstance(args, list) and all(isinstance(a, str) for a in args):
+            tokens = list(args)
+        elif isinstance(item.get("command"), str):
+            tokens = item["command"].split()
+        else:
+            tokens = []
+        entries.append(
+            {
+                "file": item["file"],
+                "directory": item["directory"] if isinstance(item.get("directory"), str) else "",
+                "output": item["output"] if isinstance(item.get("output"), str) else "",
+                "tokens": tokens,
+            }
+        )
+    return entries
+
+
+_NINJA_BUILD_RE = re.compile(r"^build\s+(\S+\.obj):\s+C(?:XX)?_COMPILER__\S+\s+(\S+)")
+_NINJA_FLAGS_RE = re.compile(r"^\s+FLAGS\s*=\s*(.*)$")
+
+
+def _parse_ninja_compile_flags(ninja_text: str) -> list[tuple[str, str, list[str]]]:
+    """Parse ``(obj, source, flag_tokens)`` from CMake-generated ``build.ninja`` compile edges."""
+    out: list[tuple[str, str, list[str]]] = []
+    cur_obj: str | None = None
+    cur_src: str | None = None
+    cur_flags: list[str] = []
+    for line in ninja_text.splitlines():
+        if not line or not line[0].isspace():
+            if cur_obj is not None and cur_src is not None:
+                out.append((cur_obj, cur_src, cur_flags))
+            match = _NINJA_BUILD_RE.match(line)
+            if match:
+                cur_obj, cur_src, cur_flags = match.group(1), match.group(2), []
+            else:
+                cur_obj = cur_src = None
+                cur_flags = []
+        elif cur_obj is not None:
+            fm = _NINJA_FLAGS_RE.match(line)
+            if fm:
+                cur_flags.extend(fm.group(1).split())
+    if cur_obj is not None and cur_src is not None:
+        out.append((cur_obj, cur_src, cur_flags))
+    return out
+
+
+def _match_source_key(
+    source_path: Path, candidates: Iterable[str], root: Path | None
+) -> str | None:
+    """Find the key in *candidates* naming *source_path* (resolved path, then basename)."""
+    resolved = source_path.resolve() if source_path.is_absolute() else None
+    cand_list = list(candidates)
+    for key in cand_list:
+        kp = Path(key)
+        if not kp.is_absolute() and root is not None:
+            kp = root / kp
+        if resolved is not None:
+            try:
+                if kp.resolve() == resolved:
+                    return key
+            except OSError:
+                pass
+        if kp == source_path:
+            return key
+    want = source_path.name
+    for key in cand_list:
+        if Path(key).name == want:
+            return key
+    return None
+
+
+def _check_ninja_objects(build_dir: Path, checked: int) -> dict[str, Any] | None:
+    """Run ``ninja -n`` to verify object/header freshness without executing recipes."""
+    if shutil.which("ninja") is None:
+        return {
+            "status": "not-configured",
+            "checked": checked,
+            "drift": [],
+            "message": "object freshness requires Ninja on PATH",
+        }
+    try:
+        result = run_process_group(
+            ["ninja", "-n"],
+            cwd=build_dir,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
+            timeout=MAKE_QUERY_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "not-configured",
+            "checked": checked,
+            "drift": [],
+            "message": (
+                f"object freshness check timed out after {MAKE_QUERY_TIMEOUT_S:g}s "
+                f"(ninja -n in {build_dir})"
+            ),
+        }
+    except OSError as exc:
+        return {
+            "status": "not-configured",
+            "checked": checked,
+            "drift": [],
+            "message": f"could not run ninja for the object freshness check: {exc}",
+        }
+    if result.returncode != 0:
+        return {
+            "status": "not-configured",
+            "checked": checked,
+            "drift": [],
+            "message": f"object freshness check failed: {result.stderr.strip()}",
+        }
+    if "ninja: no work to do." not in result.stdout:
+        return {
+            "status": "drift",
+            "checked": checked,
+            "drift": [{"obj": str(build_dir), "flag": "STALE OBJECTS"}],
+            "message": "native objects need rebuilding (including header dependencies)",
+        }
+    return None
+
+
 def per_file_pin(source_path: Path, build_dir: Path = DEFAULT_BUILD_DIR) -> tuple[str | None, str]:
     """The toolchain + flags CMake pins for one source file.
 
-    Reads the generated ``flags.make`` ``Custom options`` / ``Custom flags``
-    comments.  ``/REBREW_TOOLCHAIN:...`` is the per-file toolchain pin, the
-    rest is the per-file ``COMPILE_FLAGS`` — exactly what the real link
-    compiles the file with, so ``test``/``verify`` can honour it when the
-    metadata is silent.
+    Prefers CMake File API (``codemodel-v2``) and ``compile_commands.json``
+    when present (supporting Ninja and modern CMake generators), falling back
+    to the generated ``flags.make`` ``Custom options`` / ``Custom flags``
+    comments for legacy Makefile trees.  ``/REBREW_TOOLCHAIN:...`` is the
+    per-file toolchain pin, the rest is the per-file ``COMPILE_FLAGS`` —
+    exactly what the real link compiles the file with, so ``test``/``verify``
+    can honour it when the metadata is silent.
 
     Returns ``(toolchain, flags)`` — both ``None``/``""`` when the file is not
-    pinned (no build tree, or no Custom comment for it).  An unreadable build
+    pinned (no build tree, or no recorded flags for it).  An unreadable build
     tree raises ``OSError`` instead of reporting an absent pin.
-
-    Matches the object record by stem: CMake spells the object
-    ``<dir>.dir/<stem>.obj`` in the ``Custom`` comment and the build tree
-    stores it under the same ``<stem>.obj`` basename.  This is a best-effort
-    surface for a single-file pin; the authoritative whole-tree check is
-    :func:`check`.
     """
+    api = parse_cmake_file_api(build_dir)
+    if api is not None and api["sources"]:
+        key = _match_source_key(source_path, api["sources"], api["source_root"])
+        if key is not None:
+            return _extract_pin(_codegen_flags(api["sources"][key]))
+        return None, ""
+
+    cc = parse_compile_commands(build_dir)
+    if cc is not None:
+        by_file = {entry["file"]: entry["tokens"] for entry in cc}
+        key = _match_source_key(source_path, by_file, build_dir.parent)
+        if key is not None:
+            return _extract_pin(_codegen_flags(by_file[key]))
+        return None, ""
+
     flags_make: Path | None = None
     cm = build_dir / "CMakeFiles"
     try:
@@ -193,14 +470,7 @@ def per_file_pin(source_path: Path, build_dir: Path = DEFAULT_BUILD_DIR) -> tupl
     for obj, tokens in recorded.items():
         if Path(obj).name != want:
             continue
-        toolchain = next(
-            (tok.split(":", 1)[1] for tok in tokens if tok.startswith("/REBREW_TOOLCHAIN:")),
-            None,
-        )
-        flags = " ".join(
-            t for t in tokens if not t.startswith(("/REBREW_TOOLCHAIN", "/F", "/Y", "/Z"))
-        )
-        return toolchain, flags
+        return _extract_pin(tokens)
     return None, ""
 
 
@@ -235,6 +505,180 @@ def _compiler_args(build_dir: Path) -> str:
     return ""
 
 
+def _check_file_api(
+    build_dir: Path,
+    api: dict[str, Any],
+    project_root: Path | None,
+    *,
+    objects: bool,
+) -> dict[str, Any]:
+    """Validate a CMake build tree from its File API ``codemodel-v2`` reply."""
+    root = project_root if project_root is not None else (api["source_root"] or build_dir.parent)
+    sources_map: dict[str, set[str]] = api["sources"]
+    order: list[str] = api["order"]
+    if not order:
+        return {
+            "status": "not-configured",
+            "checked": 0,
+            "drift": [],
+            "message": f"CMake File API codemodel in {build_dir} lists no compiled sources",
+        }
+
+    def _resolves(src: str) -> bool:
+        path = Path(src)
+        return (path if path.is_absolute() else root / path).exists()
+
+    absent = [s for s in order if not _resolves(s)]
+    if absent:
+        first = ", ".join(absent[:4])
+        return {
+            "status": "drift",
+            "checked": 0,
+            "drift": [{"obj": s, "flag": "MISSING SOURCE"} for s in absent],
+            "message": (
+                f"{len(absent)} source(s) in CMake File API no longer exist (first: {first}) -- "
+                f"{build_dir} is stale; re-run the configure step"
+            ),
+        }
+
+    drift: list[dict[str, str]] = []
+    checked = 0
+    build_ninja = build_dir / "build.ninja"
+    cc = parse_compile_commands(build_dir)
+
+    # Cross-check generated compile rules against the authoritative File API record.
+    if build_ninja.is_file():
+        ninja_edges = _parse_ninja_compile_flags(
+            build_ninja.read_text(encoding="utf-8", errors="replace")
+        )
+        for obj, src, flag_tokens in ninja_edges:
+            key = _match_source_key(Path(src), sources_map, root)
+            if key is None:
+                continue
+            checked += 1
+            known = sources_map[key]
+            for token in _codegen_flags(flag_tokens):
+                if token not in known:
+                    drift.append({"obj": obj, "flag": token})
+    elif cc is not None:
+        for entry in cc:
+            src = entry["file"]
+            key = _match_source_key(Path(src), sources_map, root)
+            if key is None:
+                continue
+            checked += 1
+            known = sources_map[key]
+            obj_name = entry["output"] or src
+            for token in _codegen_flags(entry["tokens"]):
+                if token not in known:
+                    drift.append({"obj": obj_name, "flag": token})
+    else:
+        checked = len(order)
+
+    if drift:
+        first = ", ".join(
+            f"{Path(d['obj'].replace(chr(92), '/')).name}:{d['flag']}" for d in drift[:4]
+        )
+        return {
+            "status": "drift",
+            "checked": checked,
+            "drift": drift,
+            "message": f"{len(drift)} unrecorded flag token(s) against CMake File API (first: {first})",
+        }
+    if objects and build_ninja.is_file():
+        stale = _check_ninja_objects(build_dir, checked)
+        if stale is not None:
+            return stale
+    return {
+        "status": "ok",
+        "checked": checked,
+        "drift": [],
+        "message": f"CMake File API agrees with build tree ({checked} object(s) checked)",
+    }
+
+
+def _check_compile_commands(
+    build_dir: Path,
+    entries: list[dict[str, Any]],
+    project_root: Path | None,
+    *,
+    objects: bool,
+) -> dict[str, Any]:
+    """Validate a build tree using ``compile_commands.json`` (and ``build.ninja`` if present)."""
+    if not entries:
+        return {
+            "status": "not-configured",
+            "checked": 0,
+            "drift": [],
+            "message": f"{build_dir / 'compile_commands.json'} contains no compile entries",
+        }
+    root = project_root if project_root is not None else build_dir.parent
+
+    def _resolves(entry: dict[str, Any]) -> bool:
+        path = Path(entry["file"])
+        if path.is_absolute():
+            return path.exists()
+        base = Path(entry["directory"]) if entry["directory"] else root
+        return (base / path).exists() or (root / path).exists()
+
+    absent = [e["file"] for e in entries if not _resolves(e)]
+    if absent:
+        first = ", ".join(absent[:4])
+        return {
+            "status": "drift",
+            "checked": 0,
+            "drift": [{"obj": s, "flag": "MISSING SOURCE"} for s in absent],
+            "message": (
+                f"{len(absent)} source(s) in compile_commands.json no longer exist "
+                f"(first: {first}) -- {build_dir} is stale; re-run the configure step"
+            ),
+        }
+
+    drift: list[dict[str, str]] = []
+    build_ninja = build_dir / "build.ninja"
+    if build_ninja.is_file():
+        by_file = {e["file"]: set(e["tokens"]) for e in entries}
+        checked = 0
+        for obj, src, flag_tokens in _parse_ninja_compile_flags(
+            build_ninja.read_text(encoding="utf-8", errors="replace")
+        ):
+            key = _match_source_key(Path(src), by_file, root)
+            if key is None:
+                continue
+            checked += 1
+            known = by_file[key]
+            for token in _codegen_flags(flag_tokens):
+                if token not in known:
+                    drift.append({"obj": obj, "flag": token})
+        if drift:
+            first = ", ".join(
+                f"{Path(d['obj'].replace(chr(92), '/')).name}:{d['flag']}" for d in drift[:4]
+            )
+            return {
+                "status": "drift",
+                "checked": checked,
+                "drift": drift,
+                "message": f"{len(drift)} unrecorded flag token(s) in build.ninja (first: {first})",
+            }
+        if objects:
+            stale = _check_ninja_objects(build_dir, checked)
+            if stale is not None:
+                return stale
+        return {
+            "status": "ok",
+            "checked": checked or len(entries),
+            "drift": [],
+            "message": f"build.ninja agrees with compile_commands.json ({checked or len(entries)} object(s) checked)",
+        }
+
+    return {
+        "status": "ok",
+        "checked": len(entries),
+        "drift": [],
+        "message": f"compile_commands.json sources verified ({len(entries)} object(s) checked)",
+    }
+
+
 def check(
     build_dir: Path = DEFAULT_BUILD_DIR,
     project_root: Path | None = None,
@@ -243,14 +687,25 @@ def check(
 ) -> dict[str, Any]:
     """Return ``{"status", "checked", "drift", "message"}``.
 
+    Supports CMake File API (``codemodel-v2`` under ``.cmake/api/v1/reply/``)
+    and ``compile_commands.json`` (Ninja and modern CMake generators), falling
+    back cleanly to legacy ``build.make``/``flags.make`` scraping.
+
     ``status`` is one of ``ok``, ``drift`` or ``not-configured``.  The last is a
     distinct state and callers must not read it as success: a mistyped
     ``--build-dir`` yields it, and treating that as clean would reproduce exactly
     the silent-pass failure this command exists to catch.
     """
+    api = parse_cmake_file_api(build_dir)
+    if api is not None:
+        return _check_file_api(build_dir, api, project_root, objects=objects)
+
     bm_dir = build_dir / "CMakeFiles" / "server_dll.dir"
     build_make, flags_make = bm_dir / "build.make", bm_dir / "flags.make"
     if not build_make.exists() or not flags_make.exists():
+        cc = parse_compile_commands(build_dir)
+        if cc is not None:
+            return _check_compile_commands(build_dir, cc, project_root, objects=objects)
         missing = build_make if not build_make.exists() else flags_make
         return {
             "status": "not-configured",
@@ -305,11 +760,7 @@ def check(
                 drift.append({"obj": obj, "flag": "CMAKE_C_COMPILER_ARG1"})
                 continue
             line = head + tail
-        for token in line.split():
-            if not _FLAG.match(token) or token in BOILERPLATE:
-                continue
-            if token.startswith(PREFIX_SKIP):
-                continue
+        for token in _codegen_flags(line.split()):
             if token not in known:
                 drift.append({"obj": obj, "flag": token})
 
@@ -524,6 +975,8 @@ __all__ = [
     "check",
     "main",
     "main_entry",
+    "parse_cmake_file_api",
+    "parse_compile_commands",
     "parse_compile_lines",
     "parse_recorded",
     "parse_sources",

@@ -29,16 +29,11 @@ console output, so ``rebrew.near_analysis`` and the command both import it.
 
 from __future__ import annotations
 
-import re
 lazy from typing import Any
 
 lazy import capstone  # module-level: analyze_frame is a hot path (near-diag calls it per pair)
 
 lazy from rebrew.analysis import capstone_handle
-lazy from rebrew.utils import parse_int_literal
-
-_EBP_SLOT_RE = re.compile(r"\[(?:[er]?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
-_ESP_DELTA_RE = re.compile(r"\[(?:[er]?sp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 
 
 def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
@@ -58,6 +53,20 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
 
     Robust to garbage/undecodable input (empty result, never raises).
     """
+    from capstone.x86 import (
+        X86_OP_IMM,
+        X86_OP_MEM,
+        X86_OP_REG,
+        X86_REG_BP,
+        X86_REG_EBP,
+        X86_REG_ESP,
+        X86_REG_RBP,
+        X86_REG_RSP,
+        X86_REG_SP,
+    )
+
+    sp_regs = {X86_REG_SP, X86_REG_ESP, X86_REG_RSP}
+    bp_regs = {X86_REG_BP, X86_REG_EBP, X86_REG_RBP}
     word = {capstone.CS_MODE_64: 8, capstone.CS_MODE_32: 4}.get(cs_mode, 2)
     # Per-thread handle: near-diag runs analyze_frame from GA/match worker
     # threads, and a shared ``Cs`` races on its libcapstone handle.
@@ -76,7 +85,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
 
     for idx, insn in enumerate(insns):
         mnem = insn.mnemonic
-        op_str = insn.op_str
+        ops = insn.operands
         stack_word = word
         if 0x66 in insn.prefix:
             stack_word = 4 if word == 2 else 2
@@ -89,56 +98,52 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
             esp -= 16 if mnem in ("pusha", "pushaw") else 32
         elif mnem in ("popad", "popa", "popal", "popaw"):
             esp += 16 if mnem in ("popa", "popaw") else 32
-        elif mnem in ("sub", "add") and "sp" in op_str:
-            # Only a register destination adjusts ESP — `sub dword ptr
-            # [esp+4], 0x10` adjusts a stack slot, not the pointer, and
-            # would poison frame_size if the first immediate were subtracted.
-            if insn.operands and insn.operands[0].type == capstone.x86.X86_OP_REG:
-                dst_name = insn.reg_name(insn.operands[0].reg) or ""
-                if "sp" in dst_name:
-                    for op in insn.operands:
-                        if op.type == capstone.x86.X86_OP_IMM:
-                            esp += -op.imm if mnem == "sub" else op.imm
-                            break
-        elif mnem == "lea" and "sp" in op_str:
-            # lea esp, [esp - N] — stack alignment / probing reset.  The
-            # destination must be ESP: `lea eax, [esp - 0x10]` only computes an
-            # address and does NOT move the stack pointer.
-            if (
-                insn.operands
-                and insn.operands[0].type == capstone.x86.X86_OP_REG
-                and "sp" in (insn.reg_name(insn.operands[0].reg) or "")
-            ):
-                m = _ESP_DELTA_RE.search(op_str)
-                if m:
-                    delta = parse_int_literal(m.group(2))
-                    esp += -delta if m.group(1) == "-" else delta
-        elif mnem == "enter":
-            size = insn.operands[0].imm
-            nesting = insn.operands[1].imm & 31
+        elif (
+            mnem in ("sub", "add")
+            and len(ops) >= 2
+            and ops[0].type == X86_OP_REG
+            and ops[0].reg in sp_regs
+        ):
+            if ops[1].type == X86_OP_IMM:
+                esp += -int(ops[1].imm) if mnem == "sub" else int(ops[1].imm)
+        elif (
+            mnem == "lea"
+            and len(ops) >= 2
+            and ops[0].type == X86_OP_REG
+            and ops[0].reg in sp_regs
+            and ops[1].type == X86_OP_MEM
+            and ops[1].mem.base in sp_regs
+        ):
+            esp += int(ops[1].mem.disp)
+        elif mnem == "enter" and len(ops) >= 2:
+            size = int(ops[0].imm)
+            nesting = int(ops[1].imm) & 31
             esp -= stack_word * (nesting + 1) + size
             frame_pointer = True
-        elif mnem == "ret" and op_str:
-            ret_popping = parse_int_literal(op_str)
+        elif mnem == "ret" and ops and ops[0].type == X86_OP_IMM:
+            ret_popping = int(ops[0].imm)
 
         # Frame pointer establishment: push ebp immediately followed by
         # mov ebp, esp (16-bit: push bp / mov bp, sp).
         if (
             not frame_pointer
             and mnem == "push"
-            and "bp" in op_str
+            and ops
+            and ops[0].type == X86_OP_REG
+            and ops[0].reg in bp_regs
             and idx + 1 < len(insns)
             and insns[idx + 1].mnemonic == "mov"
-            and insns[idx + 1].op_str.replace(" ", "").startswith(("ebp,esp", "bp,sp", "rbp,rsp"))
+            and len(insns[idx + 1].operands) >= 2
+            and insns[idx + 1].operands[0].type == X86_OP_REG
+            and insns[idx + 1].operands[0].reg in bp_regs
+            and insns[idx + 1].operands[1].type == X86_OP_REG
+            and insns[idx + 1].operands[1].reg in sp_regs
         ):
             frame_pointer = True
 
-        m = _EBP_SLOT_RE.search(op_str)
-        if m:
-            delta = parse_int_literal(m.group(2))
-            if m.group(1) == "-":
-                delta = -delta
-            slots.add(delta)
+        for op in ops:
+            if op.type == X86_OP_MEM and op.mem.base in bp_regs and op.mem.disp != 0:
+                slots.add(int(op.mem.disp))
 
         min_esp = min(min_esp, esp)
 

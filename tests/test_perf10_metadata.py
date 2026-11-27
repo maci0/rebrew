@@ -235,3 +235,110 @@ class TestBenchmarkWorkloads:
         for row in report["workloads"].values():
             assert len(row["cpu_samples"]) == len(row["wall_samples"]) == 2
             assert row["cache_state"] and row["dimensions"]
+
+
+class TestColdLoadCopyBudget:
+    """Work gates ensuring cold TOML metadata loads clone each record once, never via deepcopy."""
+
+    def test_dropin_cold_load_avoids_deepcopy_and_double_clone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import copy
+        import shutil
+
+        from rebrew.metadata import document
+        from rebrew.metadata.functions import clear_metadata_cache, load_metadata
+
+        root = tmp_path.resolve()
+        _project(root, "toml")
+        (root / "rebrew-functions.toml").write_text(
+            'format = 3\n["GAME.0x00401000"]\nfile = "a.c"\nname = "f0"\nsize = 16\n'
+            'globals = ["g0"]\n',
+            encoding="utf-8",
+        )
+        dropins = root / "rebrew-functions.d"
+        dropins.mkdir()
+        (dropins / "part0.toml").write_text(
+            'format = 3\n["GAME.0x00401020"]\nfile = "b.c"\nname = "f1"\nsize = 32\n'
+            'globals = ["g1"]\n',
+            encoding="utf-8",
+        )
+        clear_metadata_cache()
+        shutil.rmtree(root / ".rebrew", ignore_errors=True)
+
+        deepcopies = 0
+        doc_clones = 0
+        orig_deepcopy = copy.deepcopy
+        orig_doc_clone = document.clone_plain
+
+        def count_deepcopy(x: Any, *args: Any, **kwargs: Any) -> Any:
+            nonlocal deepcopies
+            deepcopies += 1
+            return orig_deepcopy(x, *args, **kwargs)
+
+        def count_doc_clone(x: Any) -> Any:
+            nonlocal doc_clones
+            doc_clones += 1
+            return orig_doc_clone(x)
+
+        monkeypatch.setattr(copy, "deepcopy", count_deepcopy)
+        monkeypatch.setattr(document, "clone_plain", count_doc_clone)
+
+        rows = load_metadata(root, deepcopy=False)
+        assert len(rows) == 2
+        assert deepcopies == 0
+        assert doc_clones == 0
+
+        # Mutating returned rows must not corrupt _PARSED_MEMBERS.
+        rows[("GAME", 0x401000)]["globals"].append("mutated")
+        clear_metadata_cache()
+        shutil.rmtree(root / ".rebrew", ignore_errors=True)
+        fresh = load_metadata(root, deepcopy=False)
+        assert fresh[("GAME", 0x401000)]["globals"] == ["g0"]
+
+    def test_single_file_cold_load_clones_once_and_isolates_parsed_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import shutil
+
+        from rebrew.metadata import document, files
+        from rebrew.metadata.functions import clear_metadata_cache, load_metadata
+
+        root = tmp_path.resolve()
+        _project(root, "toml")
+        (root / "rebrew-functions.toml").write_text(
+            'format = 3\n["GAME.0x00401000"]\nfile = "a.c"\nname = "f0"\nsize = 16\n'
+            'globals = ["g0"]\n',
+            encoding="utf-8",
+        )
+        clear_metadata_cache()
+        shutil.rmtree(root / ".rebrew", ignore_errors=True)
+
+        file_clones = 0
+        doc_clones = 0
+        orig_file_clone = files.clone_plain
+        orig_doc_clone = document.clone_plain
+
+        def count_file_clone(x: Any) -> Any:
+            nonlocal file_clones
+            file_clones += 1
+            return orig_file_clone(x)
+
+        def count_doc_clone(x: Any) -> Any:
+            nonlocal doc_clones
+            doc_clones += 1
+            return orig_doc_clone(x)
+
+        monkeypatch.setattr(files, "clone_plain", count_file_clone)
+        monkeypatch.setattr(document, "clone_plain", count_doc_clone)
+
+        rows = load_metadata(root, deepcopy=False)
+        assert len(rows) == 1
+        assert file_clones == 1
+        assert doc_clones == 0
+
+        rows[("GAME", 0x401000)]["globals"].append("mutated")
+        clear_metadata_cache()
+        shutil.rmtree(root / ".rebrew", ignore_errors=True)
+        fresh = load_metadata(root, deepcopy=False)
+        assert fresh[("GAME", 0x401000)]["globals"] == ["g0"]

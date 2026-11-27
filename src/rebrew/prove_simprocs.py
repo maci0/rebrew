@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
+lazy from collections.abc import Callable
 lazy from typing import Any, Never, override
 
 _WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
@@ -88,31 +89,103 @@ def _build_win32_simprocs() -> dict[str, type]:
     import angr
     from angr import claripy
 
-    class ReturnSymbolicDword(angr.SimProcedure):
-        """Generic: return a fresh unconstrained 32-bit symbolic value."""
+    class _SharedSymbolicReturn(angr.SimProcedure):
+        """Parameterized SimProcedure returning a constrained 32-bit BVS.
+
+        When *shared_returns* is supplied (by :func:`rebrew.prove.prove_equivalence`),
+        both the original and compiled projects reuse one BVS per
+        ``(stub_addr, per_state_call_index)`` so identical Win32 API calls
+        return the same symbolic value instead of generating spurious Z3
+        counterexamples, while distinct calls to the same API still get
+        distinct variables.  Constraints are added to every executing state's
+        solver on both hits and misses.
+        """
+
+        _bvs_prefix: str = "api_retval"
+        _constraint_fn: Callable[[Any, Any], None] | None = None
+        _supports_shared_returns: bool = True
+
+        def __init__(
+            self,
+            *args: Any,
+            shared_returns: dict[tuple[int | None, int], Any] | None = None,
+            **kwargs: Any,
+        ) -> None:
+            super().__init__(*args, **kwargs)
+            self._shared_returns = shared_returns
 
         @override
         def run(self, *args: Any, **kwargs: Any) -> Any:
-            return self.state.solver.BVS("api_retval", 32)  # type: ignore[no-untyped-call]
+            stub_addr = getattr(self, "addr", None)
+            call_idx_key = ("_rebrew_simproc_call", stub_addr)
+            state_globals: Any = self.state.globals
+            idx = int(state_globals.get(call_idx_key, 0))
+            state_globals[call_idx_key] = idx + 1
+            if self._shared_returns is not None:
+                key = (stub_addr, idx)
+                bv = self._shared_returns.get(key)
+                if bv is None:
+                    addr_tag = f"0x{stub_addr:x}" if isinstance(stub_addr, int) else "none"
+                    bv = claripy.BVS(f"{self._bvs_prefix}_{addr_tag}_{idx}", 32)
+                    self._shared_returns[key] = bv
+            else:
+                bv = self.state.solver.BVS(self._bvs_prefix, 32)  # type: ignore[no-untyped-call]
+            if self._constraint_fn is not None:
+                self._constraint_fn(self.state.solver, bv)
+            return bv
 
-    class ReturnSymbolicHandle(angr.SimProcedure):
-        """Return a symbolic HANDLE (non-zero, non-INVALID_HANDLE_VALUE)."""
+    def _make_symbolic_return(
+        name: str,
+        bvs_prefix: str,
+        *,
+        constraint_fn: Callable[[Any, Any], None] | None = None,
+        doc: str = "",
+    ) -> type:
+        return type(
+            name,
+            (_SharedSymbolicReturn,),
+            {
+                "__doc__": doc,
+                "_bvs_prefix": bvs_prefix,
+                "_constraint_fn": staticmethod(constraint_fn)
+                if constraint_fn is not None
+                else None,
+            },
+        )
 
-        @override
-        def run(self, *args: Any, **kwargs: Any) -> Any:
-            h = self.state.solver.BVS("handle", 32)  # type: ignore[no-untyped-call]
-            self.state.solver.add(h != 0)
-            self.state.solver.add(h != 0xFFFFFFFF)
-            return h
+    def _constrain_handle(solver: Any, h: Any) -> None:
+        solver.add(h != 0)
+        solver.add(h != 0xFFFFFFFF)
 
-    class ReturnSymbolicBool(angr.SimProcedure):
-        """Return 0 or 1 (symbolic BOOL)."""
+    def _constrain_bool(solver: Any, b: Any) -> None:
+        solver.add(claripy.ULE(b, 1))
 
-        @override
-        def run(self, *args: Any, **kwargs: Any) -> Any:
-            b = self.state.solver.BVS("bool_ret", 32)  # type: ignore[no-untyped-call]
-            self.state.solver.add(claripy.ULE(b, 1))
-            return b
+    def _constrain_strlen(solver: Any, result: Any) -> None:
+        solver.add(claripy.ULE(result, 0x10000))  # bound to 64K
+
+    ReturnSymbolicDword = _make_symbolic_return(
+        "ReturnSymbolicDword",
+        "api_retval",
+        doc="Generic: return a 32-bit symbolic value.",
+    )
+    ReturnSymbolicHandle = _make_symbolic_return(
+        "ReturnSymbolicHandle",
+        "handle",
+        constraint_fn=_constrain_handle,
+        doc="Return a symbolic HANDLE (non-zero, non-INVALID_HANDLE_VALUE).",
+    )
+    ReturnSymbolicBool = _make_symbolic_return(
+        "ReturnSymbolicBool",
+        "bool_ret",
+        constraint_fn=_constrain_bool,
+        doc="Return 0 or 1 (symbolic BOOL).",
+    )
+    SimStrlen = _make_symbolic_return(
+        "SimStrlen",
+        "strlen_ret",
+        constraint_fn=_constrain_strlen,
+        doc="Model strlen: return symbolic non-negative length.",
+    )
 
     class ReturnVoid(angr.SimProcedure):
         """Void return — no value, no side effects."""
@@ -127,8 +200,7 @@ def _build_win32_simprocs() -> dict[str, type]:
         @override
         def run(self, *args: Any, **kwargs: Any) -> Any:
             ptr = self.state.heap.allocate(256)  # type: ignore[attr-defined]
-            for i in range(256):
-                self.state.memory.store(ptr + i, claripy.BVV(0, 8))  # type: ignore[no-untyped-call]
+            self.state.memory.store(ptr, claripy.BVV(0, 256 * 8))  # type: ignore[no-untyped-call]
             return ptr
 
     class SimMemcpy(angr.SimProcedure):
@@ -164,15 +236,6 @@ def _build_win32_simprocs() -> dict[str, type]:
                 for i in range(length):
                     self.state.memory.store(dst + i, byte_val)  # type: ignore[no-untyped-call]
             return dst
-
-    class SimStrlen(angr.SimProcedure):
-        """Model strlen: return symbolic non-negative length."""
-
-        @override
-        def run(self, s: Any) -> Any:
-            result = self.state.solver.BVS("strlen_ret", 32)  # type: ignore[no-untyped-call]
-            self.state.solver.add(claripy.ULE(result, 0x10000))  # bound to 64K
-            return result
 
     # Registry: map Win32/CRT names to SimProcedure classes
     procs: dict[str, type] = {}

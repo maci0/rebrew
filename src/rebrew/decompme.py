@@ -39,7 +39,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import re
-import threading
 from typing import Any, Literal, Protocol, runtime_checkable
 lazy import hashlib
 lazy import json
@@ -50,6 +49,7 @@ lazy from collections.abc import Callable, Iterator, Mapping
 lazy from pathlib import Path
 
 import typer
+lazy import tenacity
 
 from rebrew.cli import (
     CFLAGS_HELP,
@@ -71,11 +71,11 @@ lazy from rebrew.config import (
     DECOMPME_UPLOADS_SCOPE_ENV,
     validate_http_url,
 )
+lazy from rebrew.metadata.locking import file_transaction
 lazy from rebrew.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import (
     atomic_write_text,
     close_response,
-    file_lock,
     filename_component,
     read_source_text,
     retry_backoff_delay,
@@ -85,16 +85,6 @@ lazy from rebrew.utils import (
 )
 
 log = logging.getLogger(__name__)
-
-#: Serializes in-process check-upload-record for the upload ledger.
-#: ``file_lock`` is cross-process only (flock does not exclude other threads
-#: on their own fd), so a concurrent duplicate in one process needs this
-#: thread lock; the ledger ``.lock`` sidecar covers concurrent processes.
-#: ``record_upload`` re-acquires the same flock, so the outer section must
-#: be reentrant: ``_uploads_transaction`` tracks depth like
-#: ``rebrew.metadata.locking.file_transaction`` and only flocks once.
-_UPLOADS_LOCK = threading.RLock()
-_UPLOADS_LOCK_DEPTH: dict[str, int] = {}
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -467,16 +457,12 @@ def upload_scratch(
         kw["trust_env"] = False
     url = f"{api}/api/scratch"
     attempts = retries + 1
-    last_exc: DecompmeError | None = None
     nap = sleep if sleep is not None else time.sleep
-    for attempt in range(attempts):
-        try:
-            return _post_scratch(post_fn, url, payload, kw)
-        except DecompmeError as exc:
-            last_exc = exc
-            if not exc.retryable or attempt + 1 >= attempts:
-                raise
-            delay = retry_backoff_delay(attempt)
+
+    def _log_retry(rs: tenacity.RetryCallState) -> None:
+        exc = rs.outcome.exception() if rs.outcome is not None else None
+        delay = rs.next_action.sleep if rs.next_action is not None else 0.0
+        if isinstance(exc, DecompmeError):
             # One line per retry, before the sleep: the backoff is otherwise
             # silent, so an upload waiting out a flaky decomp.me looks hung and
             # the log never says which dependency is faulting or how long the
@@ -484,16 +470,25 @@ def upload_scratch(
             log.warning(
                 "decomp.me %s attempt %d/%d failed (%s%s), retrying in %.2fs: %s",
                 api,
-                attempt + 1,
+                rs.attempt_number,
                 attempts,
                 exc.kind,
                 "" if exc.status_code is None else f" {exc.status_code}",
                 delay,
                 retry_log_detail(exc),
             )
-            nap(delay)
-    assert last_exc is not None  # attempts >= 1
-    raise last_exc
+
+    retrying = tenacity.Retrying(
+        stop=tenacity.stop_after_attempt(attempts),
+        retry=tenacity.retry_if_exception(
+            lambda exc: isinstance(exc, DecompmeError) and exc.retryable
+        ),
+        wait=lambda rs: retry_backoff_delay(rs.attempt_number - 1),
+        before_sleep=_log_retry,
+        sleep=nap,
+        reraise=True,
+    )
+    return retrying(_post_scratch, post_fn, url, payload, kw)
 
 
 def scratch_url(slug: str, claim_token: str, api: str = _DEFAULT_API) -> str:
@@ -522,36 +517,16 @@ _UPLOADS_MAX_ENTRIES = 500
 _UPLOADS_FILE_MODE = 0o600
 
 
-def _uploads_lock_path(root: Path) -> Path:
-    """Ledger lock sidecar for the check-upload-record critical section."""
-    return _uploads_path(root).with_suffix(".lock")
-
-
 @contextlib.contextmanager
 def _uploads_transaction(root: Path) -> Iterator[None]:
     """Thread + cross-process lock around check-upload-record.
 
-    Reentrant: ``record_upload`` takes the same flock, so a nested
-    acquisition on the same sidecar must not re-flock (a second fd would
-    deadlock against the first) — depth is tracked per resolved path,
-    like ``rebrew.metadata.locking.file_transaction``.
+    Delegates to :func:`rebrew.metadata.locking.file_transaction`, which
+    provides reentrant thread locking and cross-process flock serialization.
     """
-    lock_path = _uploads_lock_path(root).resolve()
-    key = str(lock_path)
-    with _UPLOADS_LOCK:
-        if _UPLOADS_LOCK_DEPTH.get(key, 0):
-            _UPLOADS_LOCK_DEPTH[key] += 1
-            try:
-                yield
-            finally:
-                _UPLOADS_LOCK_DEPTH[key] -= 1
-            return
-        _UPLOADS_LOCK_DEPTH[key] = 1
-        try:
-            with file_lock(lock_path):
-                yield
-        finally:
-            _UPLOADS_LOCK_DEPTH.pop(key, None)
+    path = _uploads_path(root)
+    with file_transaction(path.parent, path.name):
+        yield
 
 
 def scratch_digest(payload: dict[str, Any], api: str, *, scope: str = "") -> str:

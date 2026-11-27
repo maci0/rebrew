@@ -12,19 +12,15 @@ agree on exports and on resolved imports.
 from __future__ import annotations
 
 from dataclasses import dataclass
-lazy import struct
+lazy import io
 lazy from typing import Any
 
-lazy from rebrew.formats.pe_headers import pe_header, sections_at
+lazy from rebrew.formats.pe_headers import pe_header
 
-#: Cap on import name-table / descriptor slots read from one PE.  A missing
-#: null terminator would otherwise walk past EOF into ``struct.error`` or
-#: spin on a wrapped offset; matches ``pe_symbols._MAX_TABLE_ENTRIES``.
+#: Cap on import name-table / descriptor slots read from one PE.
 _MAX_IMPORT_SLOTS = 65536
 
-#: Cap on export AddressOfFunctions / AddressOfNames entries.  A forged
-#: NumberOfNames/NumberOfFunctions of ``0xFFFFFFFF`` would otherwise hang in
-#: ``range()`` or raise ``struct.error`` past EOF.
+#: Cap on export AddressOfFunctions / AddressOfNames entries.
 _MAX_EXPORT_ENTRIES = 65536
 
 
@@ -55,177 +51,100 @@ class PeImport:
 def parse_pe(
     data: bytes,
 ) -> tuple[list[_Section], list[dict[str, Any]], list[PeImport], dict[str, Any]]:
-    """Return (sections, exports, imports, pe_params) from a PE image."""
-    e, nsec, optsz, opt, image_base = pe_header(data)
-    timestamp = struct.unpack_from("<I", data, e + 8)[0]  # COFF TimeDateStamp
-    checksum = struct.unpack_from("<I", data, opt + 64)[0]
-    size_of_image = struct.unpack_from("<I", data, opt + 56)[0]
-    size_of_init_data = struct.unpack_from("<I", data, opt + 8)[0]
-    base_of_data = struct.unpack_from("<I", data, opt + 24)[0]
-    # remaining optional-header fields (for link-option derivation)
-    machine = struct.unpack_from("<H", data, e + 4)[0]
-    coff_chars = struct.unpack_from("<H", data, e + 4 + 18)[0]
-    section_align = struct.unpack_from("<I", data, opt + 32)[0]
-    file_align = struct.unpack_from("<I", data, opt + 36)[0]
-    subsystem = struct.unpack_from("<H", data, opt + 68)[0]
-    dll_chars = struct.unpack_from("<H", data, opt + 70)[0]
-    stack_reserve = struct.unpack_from("<I", data, opt + 72)[0]
-    stack_commit = struct.unpack_from("<I", data, opt + 76)[0]
-    heap_reserve = struct.unpack_from("<I", data, opt + 80)[0]
-    heap_commit = struct.unpack_from("<I", data, opt + 84)[0]
-    sh = opt + optsz
+    """Return (sections, exports, imports, pe_params) from a PE32 image via LIEF."""
+    import lief
 
-    def rva_to_off(rva: int) -> int | None:
-        for s in sections:
-            span = max(s.vs, s.raw_size)
-            if s.va <= rva < s.va + span:
-                return s.raw_ptr + (rva - s.va)
-        return None
+    # Enforce PE32-only + header-fits-in-file validation consistently with
+    # layout_meta.extract_layout before handing untrusted bytes to LIEF.
+    e, nsec, optsz, _opt, image_base = pe_header(data)
+    header_size = e + 4 + 20 + optsz + nsec * 40
+    if header_size > len(data):
+        raise ValueError("PE section table extends past EOF")
 
+    binary = lief.PE.parse(io.BytesIO(data))
+    if binary is None:
+        raise ValueError("not a PE32 binary")
+
+    hdr = binary.header
+    opt = binary.optional_header
     sections: list[_Section] = [
         _Section(
-            s.name,
-            s.virtual_address,
-            s.virtual_size,
-            s.size_of_raw_data,
-            s.pointer_to_raw_data,
-            s.characteristics,
+            s.name.decode("latin1") if isinstance(s.name, bytes) else str(s.name),
+            int(s.virtual_address),
+            int(s.virtual_size),
+            int(s.sizeof_raw_data),
+            int(s.pointerto_raw_data),
+            int(s.characteristics),
         )
-        for s in sections_at(data, sh, nsec)
+        for s in binary.sections
     ]
 
-    def cstr(off: int | None) -> str | None:
-        if off is None or off >= len(data):
-            return None
-        end = data.find(b"\0", off)
-        if end < 0:
-            # Unterminated — read to EOF.  ``data[off:-1]`` would drop the
-            # last byte (same trap layout_meta already guards against).
-            end = len(data)
-        return data[off:end].decode("latin1", "replace")
-
     # ---- exports ----
-    exp_rva, exp_sz = struct.unpack_from("<II", data, opt + 96)
     exports: list[dict[str, Any]] = []
-    eo = rva_to_off(exp_rva)
-    # IMAGE_EXPORT_DIRECTORY is 40 bytes; require the full header before
-    # reading counts / RVAs, and cap table walks like the import path.
-    if eo is not None and exp_sz and eo + 40 <= len(data):
-        nfuncs = min(struct.unpack_from("<I", data, eo + 20)[0], _MAX_EXPORT_ENTRIES)
-        nnames = min(struct.unpack_from("<I", data, eo + 24)[0], _MAX_EXPORT_ENTRIES)
-        funcs_off = rva_to_off(struct.unpack_from("<I", data, eo + 28)[0])
-        names_off = rva_to_off(struct.unpack_from("<I", data, eo + 32)[0])
-        ords_off = rva_to_off(struct.unpack_from("<I", data, eo + 36)[0])
-        ordinal_base = struct.unpack_from("<I", data, eo + 16)[0]
-        name_by_ord: dict[int, str] = {}
-        for i in range(nnames):
-            if names_off is not None and names_off + 4 * (i + 1) > len(data):
+    exp = binary.get_export()
+    if exp is not None:
+        # Materialize LIEF iterator before any early break to avoid nanobind refleaks.
+        for entry in list(exp.entries):
+            if len(exports) >= _MAX_EXPORT_ENTRIES:
                 break
-            if ords_off is not None and ords_off + 2 * (i + 1) > len(data):
-                break
-            nrva = struct.unpack_from("<I", data, names_off + 4 * i)[0] if names_off else 0
-            ord_idx = struct.unpack_from("<H", data, ords_off + 2 * i)[0] if ords_off else 0
-            nm = cstr(rva_to_off(nrva))
-            if nm:
-                name_by_ord[ordinal_base + ord_idx] = nm
-        for i in range(nfuncs):
-            if funcs_off is not None and funcs_off + 4 * (i + 1) > len(data):
-                break
-            addr = struct.unpack_from("<I", data, funcs_off + 4 * i)[0] if funcs_off else 0
-            if addr == 0:
-                continue  # true null entry: no function at this ordinal
-            if exp_rva <= addr < exp_rva + exp_sz:
-                continue  # forwarder: the RVA points at a forwarder string
-                # inside the export directory, not at code
-            ordinal = ordinal_base + i
+            if entry.is_forwarded or not entry.address:
+                continue
             exports.append(
                 {
-                    "name": name_by_ord.get(ordinal),
-                    "ordinal": ordinal,
-                    "va": image_base + addr,
+                    "name": entry.name or None,
+                    "ordinal": int(entry.ordinal),
+                    "va": image_base + int(entry.address),
                 }
             )
 
     # ---- imports (IAT order, per DLL descriptor) ----
-    imp_rva, _imp_sz = struct.unpack_from("<II", data, opt + 104)
     imports: list[PeImport] = []
     import_slots = 0
-    io = rva_to_off(imp_rva)
-    if io is not None:
-        for i in range(_MAX_IMPORT_SLOTS):
-            ent = io + i * 20
-            if ent + 20 > len(data):
-                break
-            oft_rva, _ts, _fwd, name_rva, iat_rva = struct.unpack_from("<IIIII", data, ent)
-            if oft_rva == 0 and name_rva == 0:
-                break
-            dll = cstr(rva_to_off(name_rva)) or "?"
-            # An unbound descriptor (OFT == 0) carries its names in the IAT
-            # itself, so the IAT array is the lookup table (the same fallback
-            # layout_meta.extract_layout uses).  Reading only the OFT left such
-            # a DLL's imports empty: no /include pragmas in the emitted
-            # crt_imports.c and an empty `imports` list in layout_config_dict.
-            lookup_rva = oft_rva or iat_rva
-            oo = rva_to_off(lookup_rva)
-            if oo is None:
-                continue
-            for j in range(_MAX_IMPORT_SLOTS):
-                slot_off = oo + 4 * j
-                if slot_off + 4 > len(data):
-                    break
-                nm = struct.unpack_from("<I", data, slot_off)[0]
-                if nm == 0:
-                    break
-                import_slots += 1
-                if import_slots > _MAX_IMPORT_SLOTS:
-                    raise ValueError("PE import slot limit exceeded")
-                if nm & 0x80000000:
-                    imports.append(PeImport(dll, None, nm & 0xFFFF))
-                else:
-                    # hint/name: 2-byte hint + NUL-terminated name.  A slot
-                    # whose RVA resolves outside the image names nothing, so
-                    # it is skipped (as layout_meta.extract_layout does)
-                    # rather than appended with neither name nor ordinal.
-                    # ``rva_to_off`` maps a forged section header's RVA to a
-                    # ``raw_ptr`` past EOF, so the hint/name read can fail even
-                    # when the RVA itself resolved; that slot names nothing
-                    # either, and appending it broke the
-                    # exactly-one-of-name/ordinal invariant.
-                    no = rva_to_off(nm)
-                    name = cstr(no + 2) if no is not None else None
-                    if name is not None:
-                        imports.append(PeImport(dll, name, None))
+    for imp in list(binary.imports):
+        raw_dll = imp.name
+        dll = raw_dll.decode("latin1") if isinstance(raw_dll, bytes) else (raw_dll or "?")
+        for imp_entry in list(imp.entries):
+            import_slots += 1
+            if import_slots > _MAX_IMPORT_SLOTS:
+                raise ValueError("PE import slot limit exceeded")
+            if imp_entry.is_ordinal:
+                imports.append(PeImport(dll, None, int(imp_entry.ordinal) & 0xFFFF))
+            elif imp_entry.name:
+                raw_name = imp_entry.name
+                name = raw_name.decode("latin1") if isinstance(raw_name, bytes) else str(raw_name)
+                imports.append(PeImport(dll, name, None))
 
     # ---- PE normalization params ----
-    reloc_rva = struct.unpack_from("<I", data, opt + 96 + 5 * 8)[0]
+    reloc_dir = binary.data_directory(lief.PE.DataDirectory.TYPES.BASE_RELOCATION_TABLE)
+    reloc_rva = int(reloc_dir.rva) if reloc_dir is not None else 0
+    reloc_size = int(reloc_dir.size) if reloc_dir is not None else 0
     reloc_section = next(
         (s for s in sections if s.va <= reloc_rva < s.va + max(s.vs, s.raw_size)), None
     )
+    machine_val = hdr.machine
+    subsystem_val = opt.subsystem
     pe = {
         "image_base": image_base,
         "e_lfanew": e,
-        # full header block from file offset 0: DOS stub + PE sig + COFF +
-        # optional header + section table (ends at e + 0x198)
-        "header_size": e + 4 + 20 + optsz + nsec * 40,
-        "time_date_stamp": timestamp,
-        "checksum": checksum,
-        "size_of_image": size_of_image,
-        "size_of_initialized_data": size_of_init_data,
-        "base_of_data": base_of_data,
+        "header_size": header_size,
+        "time_date_stamp": int(hdr.time_date_stamps),
+        "checksum": int(opt.checksum),
+        "size_of_image": int(opt.sizeof_image),
+        "size_of_initialized_data": int(opt.sizeof_initialized_data),
+        "base_of_data": int(opt.baseof_data),
         "reloc_rva": reloc_rva,
         "reloc_va": image_base + reloc_rva if reloc_section else None,
-        "reloc_size": struct.unpack_from("<I", data, opt + 96 + 5 * 8 + 4)[0],
-        # link-option derivation inputs
-        "machine": machine,
-        "characteristics": coff_chars,
-        "section_alignment": section_align,
-        "file_alignment": file_align,
-        "subsystem": subsystem,
-        "dll_characteristics": dll_chars,
-        "stack_reserve": stack_reserve,
-        "stack_commit": stack_commit,
-        "heap_reserve": heap_reserve,
-        "heap_commit": heap_commit,
+        "reloc_size": reloc_size,
+        "machine": int(getattr(machine_val, "value", machine_val)),
+        "characteristics": int(hdr.characteristics),
+        "section_alignment": int(opt.section_alignment),
+        "file_alignment": int(opt.file_alignment),
+        "subsystem": int(getattr(subsystem_val, "value", subsystem_val)),
+        "dll_characteristics": int(opt.dll_characteristics),
+        "stack_reserve": int(opt.sizeof_stack_reserve),
+        "stack_commit": int(opt.sizeof_stack_commit),
+        "heap_reserve": int(opt.sizeof_heap_reserve),
+        "heap_commit": int(opt.sizeof_heap_commit),
     }
     return sections, exports, imports, pe
 

@@ -1,6 +1,5 @@
 """Parser-backed top-level C source spans and attached comments."""
 
-import re
 from dataclasses import dataclass, field
 lazy import bisect
 lazy from typing import Any
@@ -208,84 +207,19 @@ def _collect_spans(node: Any, raw: bytes, *, inside_pp: bool, acc: list[SourceSp
         return
 
 
-#: MSVC calling-convention keywords.  The C grammar does not know them, so
-#: ``Type* __cdecl f(void) {...}`` with a typedef'd return type parses as an
-#: error and the function is lost; blanking them keeps every byte offset.
-_CALLING_CONVENTION_RE = re.compile(rb"\b__(?:cdecl|stdcall|fastcall|thiscall)\b")
-
-
-_ASM_RE = re.compile(rb"\b__asm\b[ \t]*(\{)?")
-
-
-def _blank(raw: bytearray, start: int, end: int) -> None:
-    """Overwrite raw[start:end] with spaces, keeping newlines so line numbers hold."""
-    for i in range(start, end):
-        if raw[i] not in b"\r\n":
-            raw[i] = 0x20
-
-
-def _blank_spans(out: bytearray, pattern: re.Pattern[bytes]) -> None:
-    """Overwrite each *pattern* match with spaces, keeping the buffer length."""
-    for match in pattern.finditer(out):
-        start, end = match.span()
-        out[start:end] = b" " * (end - start)
-
-
 def mask_for_parse(raw: bytes) -> bytes:
-    """*raw* with the constructs the C grammar cannot parse blanked, same length.
+    """*raw* with MSVC extensions blanked at unchanged byte offsets via ``c_parser``."""
+    from rebrew.c_parser import mask_msvc_syntax
 
-    Calling-convention keywords and ``__asm`` bodies.  ``__asm { ... }`` becomes an
-    empty block and a brace-less ``__asm ...`` runs to the end of its line.
-    """
-    out = bytearray(raw)
-    _blank_spans(out, _CALLING_CONVENTION_RE)
-    _mask_asm(out)
-    return bytes(out)
+    text = raw.decode("utf-8", errors="surrogateescape")
+    return mask_msvc_syntax(text).encode("utf-8", errors="surrogateescape")
 
 
 def mask_buffer_inplace(out: bytearray) -> bytearray:
-    """Blank calling conventions and ``__asm`` bodies in *out*, in place.
-
-    Same result as :func:`mask_for_parse` without copying the translation unit.
-    """
-    _blank_spans(out, _CALLING_CONVENTION_RE)
-    _mask_asm(out)
+    """Blank calling conventions and ``__asm`` bodies in *out*, in place."""
+    masked = mask_for_parse(bytes(out))
+    out[:] = masked
     return out
-
-
-def _mask_asm(out: bytearray) -> None:
-    """Blank ``__asm`` bodies in *out*. An unclosed brace leaves *out* as-is."""
-    pos = 0
-    while (m := _ASM_RE.search(out, pos)) is not None:
-        if m.group(1) is None:
-            end = out.find(b"\n", m.end())
-            end = len(out) if end < 0 else end
-            statement = bytes(out[m.end() : end])
-            if not any(token in statement for token in (b'"', b"'", b"//", b"/*")):
-                suffix = len(statement.rstrip(b" \t\r"))
-                while suffix and statement[suffix - 1] == ord("}"):
-                    suffix -= 1
-                if suffix < len(statement.rstrip(b" \t\r")):
-                    end = m.end() + suffix
-            _blank(out, m.start(), end)
-            out[m.start()] = 0x3B  # `;` keeps the statement well formed
-            pos = end
-            continue
-        depth = 0
-        end = m.end()
-        for i in range(m.end() - 1, len(out)):
-            if out[i] == 0x7B:
-                depth += 1
-            elif out[i] == 0x7D:
-                depth -= 1
-                if depth == 0:
-                    end = i
-                    break
-        else:
-            return
-        _blank(out, m.start(), m.end() - 1)
-        _blank(out, m.end(), end)
-        pos = end + 1
 
 
 def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:

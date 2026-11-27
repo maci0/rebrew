@@ -142,81 +142,44 @@ def c_literal(data: bytes) -> str:
 def _mask_keep_regions(text: str) -> bytearray:
     """Bytearray mask: b'1' = replaceable, b'0' = keep.
 
-    Masks ``/* */`` and ``//`` comments, extern declaration lines, and
-    ``__asm { }`` blocks (asm needs the symbol, not the literal).
+    Uses ``tree-sitter-c`` (:func:`protected_spans` and :func:`msvc_asm_spans`)
+    to protect comments, string/char literals, and MSVC ``__asm``/``_asm``
+    blocks, plus ``extern`` declaration lines.
     """
+    from rebrew.c_parser import msvc_asm_spans, protected_spans
+
+    raw = text.encode("utf-8", errors="surrogateescape")
+    # Map byte offsets from tree-sitter back to str character offsets when
+    # non-ASCII characters are present; ASCII fast path is 1:1.
+    is_ascii = len(raw) == len(text)
+    byte_to_char: list[int] = []
+    if not is_ascii:
+        byte_to_char = [0] * (len(raw) + 1)
+        bpos = 0
+        for ci, ch in enumerate(text):
+            blen = len(ch.encode("utf-8", errors="surrogateescape"))
+            for k in range(blen):
+                byte_to_char[bpos + k] = ci
+            bpos += blen
+        byte_to_char[len(raw)] = len(text)
+
+    mask = bytearray(b"1" * len(text))
+    for start, end in (*protected_spans(raw), *msvc_asm_spans(text)):
+        cs = start if is_ascii else byte_to_char[min(start, len(raw))]
+        ce = end if is_ascii else byte_to_char[min(end, len(raw))]
+        if cs < ce:
+            mask[cs:ce] = b"0" * (ce - cs)
+
     n = len(text)
-    mask = bytearray(b"1" * n)
-    line_start = [0]
-    for idx, ch in enumerate(text):
-        if ch == "\n" and idx + 1 < n:
-            line_start.append(idx + 1)
-    i = 0
-    in_asm = 0
-    while i < n:
-        if in_asm:
-            if text[i] == "{":
-                in_asm += 1
-            elif text[i] == "}":
-                in_asm -= 1
-            mask[i] = 48
-            i += 1
-            continue
-        if text.startswith("__asm", i) and (
-            i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")
-        ):
-            while i < n and text[i] != "{":
-                mask[i] = 48
-                i += 1
-            if i < n:
-                mask[i] = 48
-                in_asm = 1
-                i += 1
-            continue
-        if text[i] in ('"', "'"):
-            # A C string/char literal is not a replaceable token use: rewriting
-            # a token inside it nests quotes and yields invalid C.  Masking the
-            # span also stops a `//` inside a literal from starting a comment
-            # (which silently protected the rest of the line).
-            quote = text[i]
-            mask[i] = 48
-            i += 1
-            while i < n:
-                if text[i] == "\\":
-                    mask[i] = 48
-                    i += 1
-                    if i < n:
-                        mask[i] = 48
-                        i += 1
-                    continue
-                if text[i] == "\n":  # unterminated literal: stop at end of line
-                    break
-                mask[i] = 48
-                i += 1
-                if text[i - 1] == quote:
-                    break
-            continue
-        if text[i] == "/" and i + 1 < n and text[i + 1] == "/":
-            while i < n and text[i] != "\n":
-                mask[i] = 48
-                i += 1
-            continue
-        if text[i] == "/" and i + 1 < n and text[i + 1] == "*":
-            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
-                mask[i] = 48
-                i += 1
-            if i + 1 < n:
-                mask[i] = mask[i + 1] = 48
-                i += 2
-            continue
-        i += 1
-    for ls in line_start:
-        # ``find`` from *ls* is O(line); ``"\\n" in text[ls:]`` copied the
-        # suffix then rescanned it — quadratic on multi-thousand-line TUs.
+    ls = 0
+    while ls < n:
         nl = text.find("\n", ls)
-        line = text[ls:nl] if nl >= 0 else text[ls:n]
-        if line.lstrip().startswith("extern"):
-            mask[ls : ls + len(line)] = b"0" * len(line)
+        end = nl if nl >= 0 else n
+        if text[ls:end].lstrip().startswith("extern"):
+            mask[ls:end] = b"0" * (end - ls)
+        if nl < 0:
+            break
+        ls = nl + 1
     return mask
 
 

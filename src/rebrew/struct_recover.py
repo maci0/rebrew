@@ -76,52 +76,8 @@ lazy from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, 
 # Evidence parsing
 # ---------------------------------------------------------------------------
 
-#: ``p->field_8`` / ``p->field_0x10`` / ``p->field_0008`` (Ghidra/Kuna);
-#: the base pointer is optional — a cast may precede the access
-#: (``((PlayerInfo *)raw)->field_8``), in which case there is no variable.
-FIELD_ACCESS_RE = re.compile(r"(?:(?P<var>[A-Za-z_]\w*)\s*->\s*)?field_0?x?(?P<off>[0-9a-fA-F]+)\b")
-#: ``*(T *)(var + 0xN)`` / ``*(T *)(var + N)`` / ``*(T *)&var + 0xN`` — the
-#: variable is captured so evidence can be attributed precisely, and the
-#: offset accepts hex or decimal (Kuna emits both).
-CAST_DEREF_RE = re.compile(
-    r"\*\s*\(\s*(?P<type>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*"
-    r"(?:&?\s*(?P<var1>[A-Za-z_]\w*)\s*\+\s*(?P<off1>0x[0-9a-fA-F]+|\d+)"
-    r"|\(\s*(?P<var2>[A-Za-z_]\w*)\s*\+\s*(?P<off2>0x[0-9a-fA-F]+|\d+)\s*\))"
-)
-#: One C type specifier in front of ``*``.  ``long`` repeats so
-#: ``long long`` and ``unsigned long long`` stay one type.  A single word
-#: (``int``, ``PlayerInfo``, ``uint32_t``) still matches.
-_DECL_TYPE = r"(?:(?:unsigned|signed|long)\s+)*[A-Za-z_]\w*"
-#: ``(T *)p`` casts — base-type evidence; the variable is captured so
-#: ``(PlayerInfo *)raw`` types later accesses through ``raw``.
-CAST_RE = re.compile(rf"\(\s*(?P<type>{_DECL_TYPE})\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)")
-#: ``T *var`` declarations (incl. params) — base-type evidence.
-#: ``T *var[N]`` is an array of pointers. Matching it as ``T *var`` made
-#: ``rows[1]`` a byte at offset 1.
-DECL_RE = re.compile(rf"\b(?P<type>{_DECL_TYPE})\s*\*\s*(?P<var>[A-Za-z_]\w*)\b(?!\s*\[)")
-#: Array index as Ghidra/Kuna print it: hex ``0x10`` or decimal ``10``.
-#: A leading zero stays decimal (``010`` is ten), the same rule as
-#: :func:`rebrew.utils.parse_int_literal`.  Hex has to come first or
-#: ``\d+`` consumes the leading zero of ``0x10``.
-_ARRAY_INDEX = r"0x[0-9a-fA-F]+|\d+"
-#: ``*(int *)&a0[10]`` / ``*(int *)&a0[0xA]`` — decompilers index pointer
-#: params as arrays; the byte offset is index × element width of the
-#: declared base type.
-ARRAY_DEREF_RE = re.compile(
-    r"\*\s*\(\s*(?P<type>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*&?\s*"
-    rf"(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>{_ARRAY_INDEX})\s*\]"
-)
-#: Bare ``a0[10]`` / ``a0[0x10]`` (no cast) — same evidence, element width
-#: only.  The lookbehind keeps the ``&a0[10]`` cast-deref form from
-#: double-counting.
-ARRAY_IDX_RE = re.compile(rf"(?<![\w&])(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>{_ARRAY_INDEX})\s*\]")
-#: ``((int *)a0)[1]`` / ``((unsigned char *)a0)[0x4c]`` — kuna v1.994 indexes a cast
-#: pointer (``((void **)a1)[2]`` indexes pointers); the byte offset is index × the cast
-#: element type's width.
-CAST_INDEX_RE = re.compile(
-    rf"\(\s*\(\s*(?P<type>{_DECL_TYPE}(?:\s*\*)*)\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)\s*\)"
-    rf"\s*\[\s*(?P<idx>{_ARRAY_INDEX})\s*\]"
-)
+#: Ghidra/Kuna auto-named member suffix (``field_8`` / ``field_0x10`` / ``field_0008``).
+_FIELD_OFFSET_RE = re.compile(r"\Afield_0?x?([0-9a-fA-F]+)\Z")
 
 #: Pseudo-types that never name a recoverable struct.
 PSEUDO_TYPES = frozenset(
@@ -330,6 +286,96 @@ def _member_offset_cap(cfg: Any) -> int:
     return _MAX_MEMBER_OFFSET
 
 
+def _unwrap_parens(node: Any) -> Any:
+    """Strip surrounding ``parenthesized_expression`` nodes."""
+    while node is not None and node.type == "parenthesized_expression":
+        inner = [c for c in node.named_children if c.type != "comment"]
+        if len(inner) != 1:
+            return node
+        node = inner[0]
+    return node
+
+
+def _specifier_type_text(node: Any, data: bytes) -> str:
+    """Normalized base type text from a declaration / parameter / type_descriptor."""
+    from rebrew.c_parser import node_text
+
+    parts: list[str] = []
+    for child in node.named_children:
+        kind = child.type
+        if kind in ("primitive_type", "sized_type_specifier", "type_identifier"):
+            parts.append(" ".join(node_text(child, data).split()))
+        elif kind in ("struct_specifier", "union_specifier", "enum_specifier"):
+            tag = child.child_by_field_name("name")
+            if tag is not None:
+                parts.append(node_text(tag, data))
+    return " ".join(parts)
+
+
+def _pointer_cast_pointee(type_desc: Any, data: bytes) -> tuple[str, int] | None:
+    """Return ``(pointee_type, star_count)`` for a pointer ``type_descriptor``."""
+    base = _specifier_type_text(type_desc, data)
+    if not base:
+        return None
+    decl = type_desc.child_by_field_name("declarator")
+    stars = 0
+    while decl is not None and decl.type == "abstract_pointer_declarator":
+        stars += 1
+        decl = decl.child_by_field_name("declarator")
+    if stars == 0 or decl is not None:
+        return None
+    if stars == 1:
+        return base, 1
+    return f"{base} {'*' * (stars - 1)}", stars
+
+
+def _single_pointer_decl_vars(node: Any, data: bytes) -> list[tuple[str, str]]:
+    """Return ``[(base_type, var_name), ...]`` for plain ``T *var`` declarators."""
+    from rebrew.c_parser import node_text
+
+    base = _specifier_type_text(node, data)
+    if not base:
+        return []
+    out: list[tuple[str, str]] = []
+    for decl in node.children_by_field_name("declarator"):
+        if decl.type == "init_declarator":
+            decl = decl.child_by_field_name("declarator")
+        if decl is None or decl.type != "pointer_declarator":
+            continue
+        inner = decl.child_by_field_name("declarator")
+        if inner is not None and inner.type == "identifier":
+            out.append((base, node_text(inner, data)))
+    return out
+
+
+def _parse_offset_literal(text: str) -> int | None:
+    """Parse a non-negative hex or decimal offset literal safely."""
+    stripped = text.strip()
+    if not stripped or len(stripped) > 20:
+        return None
+    try:
+        value = parse_int_literal(stripped)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+def _pointer_op(node: Any, data: bytes) -> str:
+    """Return the unary operator (``*`` or ``&``) of a ``pointer_expression``."""
+    from rebrew.c_parser import node_text
+
+    op = node.child_by_field_name("operator")
+    return node_text(op, data).strip() if op is not None else ""
+
+
+def _binary_op(node: Any, data: bytes) -> str:
+    """Return the operator text of a ``binary_expression``."""
+    from rebrew.c_parser import node_text
+
+    op = node.child_by_field_name("operator")
+    return node_text(op, data).strip() if op is not None else ""
+
+
 def pointer_element_widths(text: str) -> dict[str, int]:
     """Map pointer variables to their element width when the declared base
     type is a primitive (``short *a0`` → 2, ``char *s`` → 1).
@@ -338,11 +384,19 @@ def pointer_element_widths(text: str) -> dict[str, int]:
     indexes them (``a0[10]``); the byte offset is index × element width.
     ``rebrew.name_decomp`` uses this to rewrite array-index accesses.
     """
+    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+
+    tree, data = parse_c_source(mask_msvc_syntax(text))
     out: dict[str, int] = {}
-    for m in DECL_RE.finditer(text):
-        w = _declared_width(m.group("type"))
-        if w is not None:
-            out[m.group("var")] = w
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type in ("declaration", "parameter_declaration"):
+            for base, var in _single_pointer_decl_vars(node, data):
+                w = _declared_width(base)
+                if w is not None:
+                    out[var] = w
+        stack.extend(reversed(node.named_children))
     return out
 
 
@@ -403,10 +457,9 @@ def parse_decomp_for_structs(
     *cast_index* reads ``((T *)p)[N]`` accesses; :func:`rebrew.name_decomp.apply_known_names`
     turns it off because it applies its own pointer-width gate to that form.
     """
-    from rebrew.compiler.cache import mask_preprocessor_comments
+    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
 
-    # A comment's last word (kuna annotates variables with `// edx`) must not read as a type.
-    text = mask_preprocessor_comments(text)
+    tree, data = parse_c_source(mask_msvc_syntax(text))
     named: dict[str, StructEvidence] = {}
     anonymous: dict[str, StructEvidence] = {}
 
@@ -420,15 +473,32 @@ def parse_decomp_for_structs(
         else:
             var_types[var] = t
 
-    for m in DECL_RE.finditer(text):
-        _set_var_type(m.group("var"), m.group("type"))
-    for m in CAST_RE.finditer(text):
-        _set_var_type(m.group("var"), m.group("type"))
+    nodes: list[Any] = []
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type in ("comment", "string_literal", "char_literal"):
+            continue
+        nodes.append(node)
+        stack.extend(reversed(node.named_children))
+
+    # Pass 1: collect pointer declarations and pointer casts to establish var_types.
+    for node in nodes:
+        if node.type in ("declaration", "parameter_declaration"):
+            for base, var in _single_pointer_decl_vars(node, data):
+                _set_var_type(var, base)
+        elif node.type == "cast_expression":
+            type_desc = node.child_by_field_name("type")
+            val = _unwrap_parens(node.child_by_field_name("value"))
+            if type_desc is not None and val is not None and val.type == "identifier":
+                cast_info = _pointer_cast_pointee(type_desc, data)
+                if cast_info is not None and cast_info[1] == 1:
+                    _set_var_type(node_text(val, data), cast_info[0])
 
     bases_with_pointers = {t for t in var_types.values() if not _is_primitive_type(t)}
 
     def _bump(container: dict[str, StructEvidence], base: str, offset: int, width: int) -> None:
-        if offset >= max_offset:
+        if offset < 0 or offset >= max_offset:
             return
         ent = container.setdefault(base, StructEvidence())
         slots = ent.offsets.setdefault(offset, {})
@@ -449,46 +519,150 @@ def parse_decomp_for_structs(
         for base in bases_with_pointers:
             _bump(named, base, offset, width)
 
-    # Offset evidence from field accesses (offsets are always hex — the
-    # ``field_10`` naming convention is hex; only cast-deref offsets vary).
-    for m in FIELD_ACCESS_RE.finditer(text):
-        _record(m.group("var"), int(m.group("off"), 16), 4)
+    # Track subscript_expression nodes already consumed by ``*(T *)&var[idx]``
+    # so bare ``var[idx]`` does not double-count them.
+    consumed_subscripts: set[tuple[int, int]] = set()
 
-    # Width evidence from explicit casts.
-    for m in CAST_DEREF_RE.finditer(text):
-        width = type_width(m.group("type"))
-        if width is None:
-            continue
-        var = m.group("var1") or m.group("var2")
-        off_str = m.group("off1") or m.group("off2")
-        if var is None or off_str is None:
-            continue
-        _record(var, parse_int_literal(off_str), width)
+    # Pass 2: walk expressions to gather member offset / width evidence.
+    for node in nodes:
+        kind = node.type
 
-    # Array-index accesses (``*(int *)&a0[10]`` / ``v2[10]``) — Kuna types
-    # struct pointers as primitive arrays; byte offset = index × element
-    # width of the declared base type.
-    for m in ARRAY_DEREF_RE.finditer(text):
-        width = type_width(m.group("type"))
-        var = m.group("var")
-        elem = _declared_width(var_types.get(var, ""))
-        index = parse_member_index(m.group("idx"))
-        if width is None or elem is None or index is None:
+        if kind == "field_expression":
+            op = node.child_by_field_name("operator")
+            if op is None or node_text(op, data).strip() != "->":
+                continue
+            fld = node.child_by_field_name("field")
+            if fld is None:
+                continue
+            m = _FIELD_OFFSET_RE.match(node_text(fld, data))
+            if not m:
+                continue
+            off = int(m.group(1), 16)
+            arg = _unwrap_parens(node.child_by_field_name("argument"))
+            field_var: str | None = (
+                node_text(arg, data) if arg is not None and arg.type == "identifier" else None
+            )
+            _record(field_var, off, 4)
+
+        elif kind == "pointer_expression" and _pointer_op(node, data) == "*":
+            cast_node = _unwrap_parens(node.child_by_field_name("argument"))
+            if cast_node is None or cast_node.type != "cast_expression":
+                continue
+            type_desc = cast_node.child_by_field_name("type")
+            if type_desc is None:
+                continue
+            cast_info = _pointer_cast_pointee(type_desc, data)
+            if cast_info is None:
+                continue
+            width = type_width(cast_info[0])
+            if width is None:
+                continue
+            val = _unwrap_parens(cast_node.child_by_field_name("value"))
+            if val is None:
+                continue
+
+            # ``*(T *)(var + N)`` / ``*(T *)(&var + N)``
+            if val.type == "binary_expression" and _binary_op(val, data) == "+":
+                left = _unwrap_parens(val.child_by_field_name("left"))
+                right = _unwrap_parens(val.child_by_field_name("right"))
+                if (
+                    left is not None
+                    and left.type == "pointer_expression"
+                    and _pointer_op(left, data) == "&"
+                ):
+                    left = _unwrap_parens(left.child_by_field_name("argument"))
+                if (
+                    left is not None
+                    and left.type == "identifier"
+                    and right is not None
+                    and right.type == "number_literal"
+                ):
+                    parsed_off = _parse_offset_literal(node_text(right, data))
+                    if parsed_off is not None:
+                        _record(node_text(left, data), parsed_off, width)
+                continue
+
+            # ``*(T *)&var[idx]`` / ``*(T *)var[idx]``
+            sub = val
+            if sub.type == "pointer_expression" and _pointer_op(sub, data) == "&":
+                sub = _unwrap_parens(sub.child_by_field_name("argument"))
+            if sub is not None and sub.type == "subscript_expression":
+                sub_arg = _unwrap_parens(sub.child_by_field_name("argument"))
+                sub_idx = _unwrap_parens(sub.child_by_field_name("index"))
+                if (
+                    sub_arg is not None
+                    and sub_arg.type == "identifier"
+                    and sub_idx is not None
+                    and sub_idx.type == "number_literal"
+                ):
+                    consumed_subscripts.add((int(sub.start_byte), int(sub.end_byte)))
+                    var = node_text(sub_arg, data)
+                    elem = _declared_width(var_types.get(var, ""))
+                    index = parse_member_index(node_text(sub_idx, data))
+                    if elem is not None and index is not None:
+                        _record(var, index * elem, width)
+
+        elif kind == "binary_expression" and _binary_op(node, data) == "+":
+            # ``*(T *)&p + 0x8`` — in C precedence, ``+`` binds outside ``*``.
+            left = _unwrap_parens(node.child_by_field_name("left"))
+            right = _unwrap_parens(node.child_by_field_name("right"))
+            if (
+                left is not None
+                and left.type == "pointer_expression"
+                and _pointer_op(left, data) == "*"
+                and right is not None
+                and right.type == "number_literal"
+            ):
+                cast_node = _unwrap_parens(left.child_by_field_name("argument"))
+                if cast_node is not None and cast_node.type == "cast_expression":
+                    type_desc = cast_node.child_by_field_name("type")
+                    val = _unwrap_parens(cast_node.child_by_field_name("value"))
+                    if (
+                        type_desc is not None
+                        and val is not None
+                        and val.type == "pointer_expression"
+                        and _pointer_op(val, data) == "&"
+                    ):
+                        inner_var = _unwrap_parens(val.child_by_field_name("argument"))
+                        cast_info = _pointer_cast_pointee(type_desc, data)
+                        if (
+                            inner_var is not None
+                            and inner_var.type == "identifier"
+                            and cast_info is not None
+                        ):
+                            width = type_width(cast_info[0])
+                            parsed_off = _parse_offset_literal(node_text(right, data))
+                            if width is not None and parsed_off is not None:
+                                _record(node_text(inner_var, data), parsed_off, width)
+
+    for node in nodes:
+        if node.type != "subscript_expression":
             continue
-        _record(var, index * elem, width)
-    for m in ARRAY_IDX_RE.finditer(text):
-        var = m.group("var")
-        elem = _declared_width(var_types.get(var, ""))
-        index = parse_member_index(m.group("idx"))
-        if elem is None or index is None:
+        if (int(node.start_byte), int(node.end_byte)) in consumed_subscripts:
             continue
-        _record(var, index * elem, elem)
-    for m in CAST_INDEX_RE.finditer(text if cast_index else ""):
-        width = type_width(m.group("type"))
-        index = parse_member_index(m.group("idx"))
-        if width is None or index is None:
+        sub_arg = _unwrap_parens(node.child_by_field_name("argument"))
+        sub_idx = _unwrap_parens(node.child_by_field_name("index"))
+        if sub_arg is None or sub_idx is None or sub_idx.type != "number_literal":
             continue
-        _record(m.group("var"), index * width, width)
+        index = parse_member_index(node_text(sub_idx, data))
+        if index is None:
+            continue
+        # Bare ``var[idx]``
+        if sub_arg.type == "identifier":
+            var = node_text(sub_arg, data)
+            elem = _declared_width(var_types.get(var, ""))
+            if elem is not None:
+                _record(var, index * elem, elem)
+        # Cast-index ``((T *)var)[idx]``
+        elif cast_index and sub_arg.type == "cast_expression":
+            type_desc = sub_arg.child_by_field_name("type")
+            val = _unwrap_parens(sub_arg.child_by_field_name("value"))
+            if type_desc is not None and val is not None and val.type == "identifier":
+                cast_info = _pointer_cast_pointee(type_desc, data)
+                if cast_info is not None:
+                    width = type_width(cast_info[0])
+                    if width is not None:
+                        _record(node_text(val, data), index * width, width)
 
     return ParseResult(named=named, anonymous=anonymous)
 

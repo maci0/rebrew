@@ -1,11 +1,12 @@
 """Shared shift-resistant instruction measurements."""
 
-from difflib import SequenceMatcher
+from difflib import Match, SequenceMatcher
 from types import SimpleNamespace
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from rapidfuzz.distance import LCSseq
 
 from rebrew.alignment import (
     AlignedMatcher,
@@ -79,7 +80,30 @@ class TestArrayWindowSearch:
 
     @settings(max_examples=300, deadline=None)
     @given(_TOKENS, _TOKENS)
-    def test_the_blocks_are_difflibs(self, left: list[int], right: list[int]) -> None:
+    def test_the_blocks_are_optimal_lcs(self, left: list[int], right: list[int]) -> None:
         a, b = [str(t) for t in left], [str(t) for t in right]
-        aligned = AlignedMatcher(a=a, b=b, autojunk=False).get_matching_blocks()
-        assert aligned == SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+        matcher = AlignedMatcher(a=a, b=b, autojunk=False)
+        blocks = matcher.get_matching_blocks()
+        assert blocks[-1] == Match(len(a), len(b), 0)
+        prev_i = prev_j = -1
+        for blk in blocks[:-1]:
+            assert blk.size > 0
+            assert blk.a >= prev_i and blk.b >= prev_j
+            assert not (blk.a == prev_i and blk.b == prev_j)
+            assert a[blk.a : blk.a + blk.size] == b[blk.b : blk.b + blk.size]
+            prev_i = blk.a + blk.size
+            prev_j = blk.b + blk.size
+        matched = sum(blk.size for blk in blocks)
+        assert matched == LCSseq.similarity(a, b)
+        difflib_matched = sum(
+            blk.size for blk in SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+        )
+        assert matched >= difflib_matched
+        reconstructed: list[str] = []
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == "equal":
+                assert a[i1:i2] == b[j1:j2]
+                reconstructed.extend(a[i1:i2])
+            elif tag in ("replace", "insert"):
+                reconstructed.extend(b[j1:j2])
+        assert reconstructed == b

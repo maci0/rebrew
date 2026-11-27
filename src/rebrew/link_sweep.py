@@ -30,7 +30,6 @@ from dataclasses import dataclass
 lazy import re
 lazy import shlex
 lazy import shutil
-lazy import struct
 lazy import subprocess
 lazy import tempfile
 lazy from pathlib import Path
@@ -40,7 +39,6 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-lazy from rebrew.formats.pe_headers import pe_layout
 lazy from rebrew.formats.pe_image import derive_link_options, parse_pe
 lazy from rebrew.utils import TerminalTable, run_process_group, untrusted_ident
 
@@ -59,56 +57,50 @@ app = typer.Typer(
     epilog=_EPILOG,
 )
 
-#: Header fields the sweep compares, in a stable order:
-#: ``(name, struct format, base, offset)`` with base ``file``/``coff``/``opt``.
-_FIELDS: list[tuple[str, str, str, int]] = [
-    ("e_lfanew", "<I", "file", 0x3C),
-    ("Machine", "<H", "coff", 0),
-    ("NumberOfSections", "<H", "coff", 2),
-    ("TimeDateStamp", "<I", "coff", 4),
-    ("Characteristics", "<H", "coff", 18),
-    ("Magic", "<H", "opt", 0),
-    ("SizeOfCode", "<I", "opt", 4),
-    ("SizeOfInitData", "<I", "opt", 8),
-    ("SizeOfUninitData", "<I", "opt", 12),
-    ("AddressOfEntryPoint", "<I", "opt", 16),
-    ("BaseOfCode", "<I", "opt", 20),
-    ("BaseOfData", "<I", "opt", 24),
-    ("ImageBase", "<I", "opt", 28),
-    ("SectionAlignment", "<I", "opt", 32),
-    ("FileAlignment", "<I", "opt", 36),
-    # Packed `major<<8 | minor` from the low bytes of the major u16 and the
-    # minor u16 at opt+42 / opt+50 (``x`` skips the major's always-zero high
-    # byte, which would hide a minor-version delta).
-    ("OSVersion", "<BxB", "opt", 40),
-    ("SubsystemVersion", "<BxB", "opt", 48),
-    ("SizeOfImage", "<I", "opt", 56),
-    ("SizeOfHeaders", "<I", "opt", 60),
-    ("CheckSum", "<I", "opt", 64),
-    ("Subsystem", "<H", "opt", 68),
-    ("DllCharacteristics", "<H", "opt", 70),
-    ("StackReserve", "<I", "opt", 72),
-    ("StackCommit", "<I", "opt", 76),
-    ("HeapReserve", "<I", "opt", 80),
-    ("HeapCommit", "<I", "opt", 84),
-]
-
-
 _OUT_RE = re.compile(r"/out:[^ ]+", re.IGNORECASE)
 _PDB_RE = re.compile(r"/pdb:[^ ]+", re.IGNORECASE)
 
 
 def _read_fields(path: Path) -> dict[str, int]:
-    d = path.read_bytes()
-    layout = pe_layout(d)
-    if layout is None:
+    """Read comparable PE header fields (PE32 and PE32+) via LIEF."""
+    import lief
+
+    pe = lief.PE.parse(str(path))
+    if pe is None:
         raise ValueError(f"not a PE binary: {path}")
-    bases = {"file": 0, "coff": layout.e_lfanew + 4, "opt": layout.optional_header_offset}
-    out: dict[str, int] = {}
-    for name, fmt, base, off in _FIELDS:
-        vals = struct.unpack_from(fmt, d, bases[base] + off)
-        out[name] = vals[0] if len(vals) == 1 else (vals[0] << 8) | vals[1]
-    return out
+    dos = pe.dos_header
+    hdr = pe.header
+    opt = pe.optional_header
+    return {
+        "e_lfanew": int(dos.addressof_new_exeheader),
+        "Machine": int(getattr(hdr.machine, "value", hdr.machine)),
+        "NumberOfSections": int(hdr.numberof_sections),
+        "TimeDateStamp": int(hdr.time_date_stamps),
+        "Characteristics": int(hdr.characteristics),
+        "Magic": int(getattr(opt.magic, "value", opt.magic)),
+        "SizeOfCode": int(opt.sizeof_code),
+        "SizeOfInitData": int(opt.sizeof_initialized_data),
+        "SizeOfUninitData": int(opt.sizeof_uninitialized_data),
+        "AddressOfEntryPoint": int(opt.addressof_entrypoint),
+        "BaseOfCode": int(opt.baseof_code),
+        "BaseOfData": int(getattr(opt, "baseof_data", 0)),
+        "ImageBase": int(opt.imagebase),
+        "SectionAlignment": int(opt.section_alignment),
+        "FileAlignment": int(opt.file_alignment),
+        "OSVersion": ((int(opt.major_operating_system_version) & 0xFF) << 8)
+        | (int(opt.minor_operating_system_version) & 0xFF),
+        "SubsystemVersion": ((int(opt.major_subsystem_version) & 0xFF) << 8)
+        | (int(opt.minor_subsystem_version) & 0xFF),
+        "SizeOfImage": int(opt.sizeof_image),
+        "SizeOfHeaders": int(opt.sizeof_headers),
+        "CheckSum": int(opt.checksum),
+        "Subsystem": int(getattr(opt.subsystem, "value", opt.subsystem)),
+        "DllCharacteristics": int(opt.dll_characteristics),
+        "StackReserve": int(opt.sizeof_stack_reserve),
+        "StackCommit": int(opt.sizeof_stack_commit),
+        "HeapReserve": int(opt.sizeof_heap_reserve),
+        "HeapCommit": int(opt.sizeof_heap_commit),
+    }
 
 
 def _discover_link_cmd() -> tuple[Path, str] | None:

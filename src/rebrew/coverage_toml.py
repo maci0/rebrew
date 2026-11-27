@@ -28,7 +28,6 @@ Two consequences of writing TOML are load-bearing and stated once here:
 import contextlib
 import logging
 import threading
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from functools import lru_cache
 from types import MappingProxyType
@@ -39,6 +38,8 @@ lazy import tomllib
 lazy import unicodedata
 lazy from datetime import UTC, datetime
 lazy from pathlib import Path
+
+from cachetools import LRUCache
 
 from rebrew.errors import RebrewError
 lazy from rebrew.cli import console
@@ -1461,10 +1462,10 @@ def _read_document(path: Path, target: str) -> CoverageSnapshot:
 # stays outside it.
 _CoverageKey = tuple[Path, tuple[tuple[str, int, int, int, int], ...]]
 _ALL_CACHE_LOCK = threading.Lock()
-_ALL_CACHE: OrderedDict[_CoverageKey, dict[str, CoverageSnapshot]] = OrderedDict()
 #: Directories retained at once.  A dashboard process serves one project, and a
 #: batch that walks several still reuses each until the oldest falls out.
 _ALL_CACHE_MAX = 8
+_ALL_CACHE: LRUCache[_CoverageKey, dict[str, CoverageSnapshot]] = LRUCache(maxsize=_ALL_CACHE_MAX)
 #: In-flight directory scans, keyed the same way as ``_ALL_CACHE``.  A miss
 #: parses outside the lock, so without this every request that misses together
 #: re-reads and re-parses the same documents; the dashboard is a
@@ -1556,7 +1557,6 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
         with _ALL_CACHE_LOCK:
             cached = _ALL_CACHE.get(key)
             if cached is not None:
-                _ALL_CACHE.move_to_end(key)
                 return cached
             event = _ALL_INFLIGHT.get(key)
             if event is None:
@@ -1589,12 +1589,8 @@ def load_all_coverage_from(db_directory: Path) -> dict[str, CoverageSnapshot]:
         with _ALL_CACHE_LOCK:
             cached = _ALL_CACHE.get(key)
             if cached is not None:
-                _ALL_CACHE.move_to_end(key)
                 return cached
             _ALL_CACHE[key] = snapshots
-            _ALL_CACHE.move_to_end(key)
-            while len(_ALL_CACHE) > _ALL_CACHE_MAX:
-                _ALL_CACHE.popitem(last=False)
         return snapshots
     finally:
         with _ALL_CACHE_LOCK:

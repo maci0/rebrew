@@ -2200,7 +2200,9 @@ class TestCompilerListing:
 
     @staticmethod
     def _client(monkeypatch: pytest.MonkeyPatch, rows: Any) -> tuple[httpx.Client, list[str]]:
-        monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_cache", {})
+        from rebrew.compiler import recompile_client as rc
+
+        monkeypatch.setattr(rc, "_compilers_cache", rc._new_compilers_cache())
         monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_inflight", {})
         seen: list[str] = []
 
@@ -2296,6 +2298,19 @@ class TestCompilerListing:
             rc.installed_compilers("http://svc", client=http)
         assert raised.value.kind == "protocol"
 
+    def test_compilers_cache_is_bounded_ttl_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.compiler import recompile_client as rc
+
+        rows = [{"id": "msvc-6.0", "execution_status": "admitted"}]
+        http, seen = self._client(monkeypatch, rows)
+        now = [1000.0]
+        monkeypatch.setattr("rebrew.compiler.recompile_client.time.monotonic", lambda: now[0])
+        for i in range(rc._COMPILERS_CACHE_MAX + 2):
+            now[0] += 0.1
+            assert rc.installed_compilers(f"http://svc-{i}", client=http) == {"msvc-6.0"}
+        assert len(rc._compilers_cache) == rc._COMPILERS_CACHE_MAX
+        assert len(seen) == rc._COMPILERS_CACHE_MAX + 2
+
 
 class TestJobCompilerListing:
     """A job asks the jobs owner's mediator which of its compilers recompile has installed."""
@@ -2322,7 +2337,9 @@ class TestJobCompilerListing:
         monkeypatch.setenv("REBREW_JOB_COMPILE_SOCKET", "/run/rebrew-job/owner.sock")
         monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://rebrew-job")
         monkeypatch.setattr(compile_mod, "_JOB_CAPABILITY_FILE", capability)
-        monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_cache", {})
+        from rebrew.compiler import recompile_client as rc
+
+        monkeypatch.setattr(rc, "_compilers_cache", rc._new_compilers_cache())
         monkeypatch.setattr(httpx, "HTTPTransport", lambda **_kwargs: httpx.MockTransport(handle))
         from rebrew.compiler.compile import compile_to_obj
 
@@ -2573,7 +2590,9 @@ class TestCompilerListingFailures:
 
     @staticmethod
     def _service(monkeypatch: pytest.MonkeyPatch, answer: _Resp) -> list[str]:
-        monkeypatch.setattr("rebrew.compiler.recompile_client._compilers_cache", {})
+        from rebrew.compiler import recompile_client as rc
+
+        monkeypatch.setattr(rc, "_compilers_cache", rc._new_compilers_cache())
         monkeypatch.setattr(compile_mod, "_recompile_clients", {})
         monkeypatch.setattr(compile_mod, "_service_gates", {})
         monkeypatch.delenv("REBREW_JOB_COMPILE_SOCKET", raising=False)

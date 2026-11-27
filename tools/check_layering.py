@@ -304,7 +304,12 @@ def _is_declared_external(package: str, target: str) -> bool:
 
 
 def _package_externals(
-    module: str, path: Path, is_package: bool, known: set[str]
+    module: str,
+    path: Path,
+    is_package: bool,
+    known: set[str],
+    *,
+    tree: ast.Module | None = None,
 ) -> list[Violation]:
     """Imports that leave *module*'s subpackage for something it did not declare.
 
@@ -316,7 +321,8 @@ def _package_externals(
     package = _owning_package(module)
     if package is None or package not in PACKAGE_EXTERNALS:
         return []
-    tree = ast.parse(path.read_bytes(), filename=str(path))
+    if tree is None:
+        tree = ast.parse(path.read_bytes(), filename=str(path))
     violations: list[Violation] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -395,7 +401,13 @@ DEFERRED_LIBRARY_COMMAND_EDGES: frozenset[tuple[str, str]] = frozenset()
 
 
 def _library_imports_command(
-    module: str, path: Path, is_package: bool, known: set[str], commands: set[str]
+    module: str,
+    path: Path,
+    is_package: bool,
+    known: set[str],
+    commands: set[str],
+    *,
+    tree: ast.Module | None = None,
 ) -> list[Violation]:
     """Imports from a module with no command of its own into one that has one.
 
@@ -407,7 +419,8 @@ def _library_imports_command(
     """
     if module in commands:
         return []
-    tree = ast.parse(path.read_bytes(), filename=str(path))
+    if tree is None:
+        tree = ast.parse(path.read_bytes(), filename=str(path))
     violations: list[Violation] = []
     for node in _all_runtime_imports(tree):
         if not isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -427,10 +440,11 @@ def check_layering(root: str) -> list[Violation]:
     *root* is the package directory, e.g. ``"src/rebrew"``.
     """
     root = os.path.normpath(root)
-    known = {name for name, _, _ in _walk_modules(root)}
+    modules = list(_walk_modules(root))
+    known = {name for name, _, _ in modules}
     commands = set()
     trees: dict[str, ast.Module] = {}
-    for module, path, _ in _walk_modules(root):
+    for module, path, _ in modules:
         try:
             tree = ast.parse(path.read_bytes(), filename=str(path))
         except SyntaxError:
@@ -440,7 +454,7 @@ def check_layering(root: str) -> list[Violation]:
             commands.add(module)
 
     violations: list[Violation] = []
-    for module, path, is_package in _walk_modules(root):
+    for module, path, is_package in modules:
         parsed = trees.get(module)
         if parsed is None:
             continue
@@ -455,8 +469,10 @@ def check_layering(root: str) -> list[Violation]:
                     violations.append(
                         Violation(module, "composition-layer import", target, node.lineno)
                     )
-        violations.extend(_package_externals(module, path, is_package, known))
-        violations.extend(_library_imports_command(module, path, is_package, known, commands))
+        violations.extend(_package_externals(module, path, is_package, known, tree=parsed))
+        violations.extend(
+            _library_imports_command(module, path, is_package, known, commands, tree=parsed)
+        )
     return sorted(violations, key=lambda v: (v.module, v.line, v.target))
 
 

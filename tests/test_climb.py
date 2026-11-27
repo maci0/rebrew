@@ -236,9 +236,11 @@ class TestScoreAligned:
 
 
 class TestAlignedMatcher:
-    """The climb aligner returns difflib's blocks and reads fewer token positions."""
+    """The climb aligner returns optimal LCS blocks and reconstructs right from left."""
 
-    def test_blocks_and_opcodes_match_difflib(self) -> None:
+    def test_blocks_and_opcodes_are_optimal_lcs(self) -> None:
+        from rapidfuzz.distance import LCSseq
+
         from rebrew.alignment import AlignedMatcher
 
         streams: list[tuple[list[str], list[str]]] = [
@@ -263,8 +265,19 @@ class TestAlignedMatcher:
         for left, right in streams:
             got = AlignedMatcher(a=left, b=right, autojunk=False)
             ref = difflib.SequenceMatcher(a=left, b=right, autojunk=False)
-            assert list(got.get_matching_blocks()) == list(ref.get_matching_blocks())
-            assert got.get_opcodes() == ref.get_opcodes()
+            blocks = list(got.get_matching_blocks())
+            assert blocks[-1] == difflib.Match(len(left), len(right), 0)
+            matched = sum(b.size for b in blocks)
+            assert matched == LCSseq.similarity(left, right)
+            assert matched >= sum(b.size for b in ref.get_matching_blocks())
+            rebuilt: list[str] = []
+            for tag, i1, i2, j1, j2 in got.get_opcodes():
+                if tag == "equal":
+                    assert left[i1:i2] == right[j1:j2]
+                    rebuilt.extend(left[i1:i2])
+                elif tag in ("replace", "insert"):
+                    rebuilt.extend(right[j1:j2])
+            assert rebuilt == right
 
 
 class TestSwap:

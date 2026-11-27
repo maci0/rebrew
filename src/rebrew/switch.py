@@ -35,7 +35,12 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-lazy from rebrew.jump_table import BOUND_WINDOW, MAX_TABLE_ENTRIES, dispatch_operand, index_bound
+lazy from rebrew.jump_table import (
+    BOUND_WINDOW,
+    MAX_TABLE_ENTRIES,
+    dispatch_operand_insn,
+    index_bound,
+)
 lazy from rebrew.utils import TerminalTable, parse_int_literal, untrusted_ident
 
 #: TerminalTable rows shown in the human table before collapsing the rest.
@@ -93,7 +98,7 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
         cs_mode, entry_width = capstone.CS_MODE_32, 4
     # ``--all`` calls this once per function; a fresh ``Cs`` per function
     # costs more than decoding the 512-byte window it scans.
-    insns = list(capstone_handle(capstone.CS_ARCH_X86, cs_mode).disasm(raw, va))
+    insns = list(capstone_handle(capstone.CS_ARCH_X86, cs_mode, detail=True).disasm(raw, va))
     if not insns:
         return []
 
@@ -101,7 +106,7 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
     for idx, insn in enumerate(insns):
         if insn.mnemonic != "jmp":
             continue
-        operand = dispatch_operand(insn.op_str, entry_width)
+        operand = dispatch_operand_insn(insn, entry_width)
         if operand is None:
             continue
         index_reg, table_va = operand

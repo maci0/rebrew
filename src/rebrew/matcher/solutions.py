@@ -19,7 +19,6 @@ import contextlib
 import functools
 import logging
 import threading
-from collections import OrderedDict
 from dataclasses import dataclass, field
 lazy import dataclasses
 lazy import hashlib
@@ -31,6 +30,7 @@ lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 lazy from typing import Any
 
+from rebrew.utils import BoundedLRU
 lazy from rebrew.utils import atomic_write_bytes, file_lock, parse_int_literal
 
 log = logging.getLogger(__name__)
@@ -332,8 +332,9 @@ _SOURCE_SHA_CACHE_MAX = 128
 #: Bounded cache for :func:`_normalize_cflags`; one entry per distinct
 #: cflags string in the solution DB plus the caller's own.
 _NORMALIZED_CFLAGS_CACHE = 256
-_SOURCE_SHA_CACHE: OrderedDict[tuple[str, int, int, int, int], str] = OrderedDict()
-_SOURCE_SHA_LOCK = threading.Lock()
+_SOURCE_SHA_CACHE: BoundedLRU[tuple[str, int, int, int, int], str] = BoundedLRU(
+    _SOURCE_SHA_CACHE_MAX
+)
 
 
 def _source_sha(path: Path) -> str:
@@ -348,20 +349,15 @@ def _source_sha(path: Path) -> str:
     except OSError:
         return ""
     key = (str(path), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
-    with _SOURCE_SHA_LOCK:
-        hit = _SOURCE_SHA_CACHE.get(key)
-        if hit is not None:
-            _SOURCE_SHA_CACHE.move_to_end(key)
-            return hit
+    hit = _SOURCE_SHA_CACHE.get(key)
+    if hit is not None:
+        return hit
     try:
         with path.open("rb") as fh:
             digest = hashlib.file_digest(fh, "sha256").hexdigest()
     except OSError:
         return ""
-    with _SOURCE_SHA_LOCK:
-        if key not in _SOURCE_SHA_CACHE and len(_SOURCE_SHA_CACHE) >= _SOURCE_SHA_CACHE_MAX:
-            _SOURCE_SHA_CACHE.popitem(last=False)
-        _SOURCE_SHA_CACHE[key] = digest
+    _SOURCE_SHA_CACHE.put(key, digest)
     return digest
 
 

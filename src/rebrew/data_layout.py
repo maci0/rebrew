@@ -24,17 +24,18 @@ from __future__ import annotations
 import functools
 import logging
 import re
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from threading import Lock
+lazy import io
 lazy import math
 lazy import struct
-lazy import subprocess
 lazy from collections.abc import Iterator, Sequence
 lazy from pathlib import Path
 lazy from typing import Any
 
-from rebrew.c_parser import CALLING_CONVENTION
+from rebrew.c_parser import CALLING_CONVENTION  # noqa: F401
 lazy from rebrew.formats.binary_loader import load_binary
+lazy from rebrew.formats.coff import load_coff
 lazy from rebrew.metadata.data import iter_data_symbols, load_data_document
 lazy from rebrew.sources import files_with_ext
 lazy from rebrew.utils import atomic_write_text as atomic_write_text
@@ -45,7 +46,6 @@ lazy from rebrew.utils import (
     parse_c_integer_literal,
     preset_module_key,
     read_source_text,
-    run_process_group,
     split_source_lines,
 )
 lazy from rebrew.workspace.config import config_path
@@ -86,70 +86,10 @@ _EXTERN_WORD_RE = re.compile(r"\bextern\b\s*")
 _EXTERN_AT_START_RE = re.compile(r"extern\b")
 _INIT_RE = re.compile(r"=\s*(\{[^;]*\}|[^;]+);?$")
 _ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
-_DLEAD_PAD_RE = re.compile(r"^([ \t]*)unsigned char\s+(_dlead_\w+)\s*\[\s*(\d+)\s*\]")
 _NON_WORD_RE = re.compile(r"\W")
 _C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|__int64")
-_OBJ_SECTION_RE = re.compile(r"^\s+(\d+)\s+(\S+)\s+([0-9a-fA-F]+)\s", re.M)
-# Brackets may be hex, an expression, several dimensions, or one nested
-# pair. A decimal-only ``[4]`` missed ``g[0x10]``. Stopping at the first
-# ``]`` missed ``g[sizeof(wchar_t[3])]``.
-# The name may sit inside ``(*name[N])[M]``. A word after whitespace
-# missed that definition, so the symbol was not owned and a move left
-# the original line in place. ``const`` or ``volatile`` may sit between
-# the star and the name. ``(__cdecl *name[N])`` keeps the calling
-# convention off the name.
-_DEF_BRACKETS = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])"
-_DEF_QUALIFIER = r"(?:(?:const|volatile)\b\s*)*"
-# ``(*name[N])(params)`` is still that definition. One nested pair covers
-# a function-pointer parameter. The list is not the object's size.
-_DEF_PARAMS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
-_DEF_LINE_RE = re.compile(
-    r"^[ \t]*"
-    r"(?:[\w\s\*]*\(\s*"
-    + CALLING_CONVENTION
-    + r"\**\s*"
-    + _DEF_QUALIFIER
-    + r"([A-Za-z_]\w*)|[\w\s\*]*?\s*\**\s*"
-    + _DEF_QUALIFIER
-    + r"([A-Za-z_]\w*))"
-    r"\s*(?:" + _DEF_BRACKETS + r"\s*)*"
-    r"\s*\)?\s*"
-    r"(?:" + _DEF_BRACKETS + r"\s*)*"
-    r"\s*" + _DEF_PARAMS + r"\s*="
-)
-#: Global name out of a generated definition line, e.g. ``"int g_table[4] = "``.
 _PAD_INSERT_RE = re.compile(r"(\n)(?=\s*(?:extern|static|__declspec|(?://|/\*) ADDRESS:))")
 
-
-@functools.lru_cache(maxsize=256)
-def _def_patterns(name: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
-    # ``(*name)[N] = {`` and ``(*name[N]) = {`` are still that definition.
-    # A bare word left ``char (*g_row)[4] = {0};`` in place, and
-    # ``int (*table[4]) = {0};`` and ``int *table[4] = {0};`` too.
-    # ``(*name[N])[M] = {`` has another bracket run after the closing
-    # parenthesis. Those brackets are the pointee, not the object's size.
-    # ``(* const name[N])`` keeps the qualifier off the name.
-    # ``(__cdecl *name[N])`` keeps the calling convention off the name.
-    # A scalar ``= 0`` is still that definition. Requiring ``{`` left
-    # ``void (*cb)(int) = 0`` in place when the symbol moved.
-    brackets = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])"
-    pat = re.compile(
-        r"^[ \t]*([\w\s\*]+)(?:\s+|\(\s*"
-        + CALLING_CONVENTION
-        + r"\**\s*"
-        + _DEF_QUALIFIER
-        + r"|\*+\s*"
-        + _DEF_QUALIFIER
-        + ")"
-        + re.escape(name)
-        + rf"(?:\s*\))?((?:{brackets})*)(?:\s*\)\s*{brackets}+)*\s*\)?\s*{_DEF_PARAMS}\s*="
-    )
-    pat2 = re.compile(r"^[ \t]*([\w\s\*]+\s*\*?)\s+" + re.escape(name) + r"\s*=\s*[^;]+;\s*$")
-    return pat, pat2
-
-
-#: Wall-clock cap for one objdump invocation.
-_OBJDUMP_TIMEOUT_S = 60
 
 #: How many offending paths a fix_ownership error or rollback-failure message
 #: names before it stops listing; a tree-wide permission problem would
@@ -157,78 +97,6 @@ _OBJDUMP_TIMEOUT_S = 60
 _UNREADABLE_REPORT_LIMIT = 10
 
 _logger = logging.getLogger(__name__)
-
-#: Bounded ``(path, mtime_ns, size, ino, ctime_ns, flag) -> stdout`` memo.
-#: Every accessor over a linked object spawns objdump, and callers
-#: (``text_audit``, ``verify_placement``) walk the whole link order, so a
-#: 200-TU project pays hundreds of processes per run.  Keyed by stat
-#: fingerprint so a rebuilt object is never served stale; change time catches
-#: an in-place rewrite that restores the old mtime.
-#:
-#: The bound is on retained stdout CHARACTERS, not entries: one ``objdump -t``
-#: over a large object runs to megabytes, so an entry cap made the real limit
-#: the heap.  Same discipline as ``verify_hash._SOURCE_MEMO``.
-_OBJDUMP_CACHE_MAX_CHARS = 32 * 1024 * 1024
-_OBJDUMP_CACHE: OrderedDict[tuple[str, int, int, int, int, str], str] = OrderedDict()
-_OBJDUMP_CACHE_CHARS = 0
-_OBJDUMP_CACHE_LOCK = Lock()
-
-
-def _run_objdump(obj: Path, flag: str) -> str:
-    """Run ``objdump <flag> <obj>`` and return stdout.
-
-    Raises with the command and stderr when objdump is missing, fails, or
-    times out — an unchecked run would silently yield zero sizes and an
-    empty symbol set, turning every downstream audit row into garbage.
-    """
-    key: tuple[str, int, int, int, int, str] | None = None
-    try:
-        st = obj.stat()
-        key = (str(obj), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns, flag)
-    except OSError:
-        key = None
-    if key is not None:
-        with _OBJDUMP_CACHE_LOCK:
-            hit = _OBJDUMP_CACHE.get(key)
-            if hit is not None:
-                _OBJDUMP_CACHE.move_to_end(key)
-                return hit
-    out = _run_objdump_uncached(obj, flag)
-    if key is not None:
-        global _OBJDUMP_CACHE_CHARS
-        with _OBJDUMP_CACHE_LOCK:
-            stale = _OBJDUMP_CACHE.pop(key, None)
-            if stale is not None:
-                _OBJDUMP_CACHE_CHARS -= len(stale)
-            _OBJDUMP_CACHE[key] = out
-            _OBJDUMP_CACHE.move_to_end(key)
-            _OBJDUMP_CACHE_CHARS += len(out)
-            # Keep at least the newest entry: an objdump larger than the
-            # budget would otherwise be evicted the moment it is stored.
-            while _OBJDUMP_CACHE_CHARS > _OBJDUMP_CACHE_MAX_CHARS and len(_OBJDUMP_CACHE) > 1:
-                _OBJDUMP_CACHE_CHARS -= len(_OBJDUMP_CACHE.popitem(last=False)[1])
-    return out
-
-
-def _run_objdump_uncached(obj: Path, flag: str) -> str:
-    try:
-        r: subprocess.CompletedProcess[str] = run_process_group(
-            ["objdump", flag, str(obj)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_OBJDUMP_TIMEOUT_S,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"objdump not found on PATH (needed for {obj})") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"objdump {flag} timed out after {_OBJDUMP_TIMEOUT_S}s: {obj}") from exc
-    if r.returncode != 0:
-        raise RuntimeError(
-            f"objdump {flag} failed on {obj} (rc={r.returncode}): {r.stderr.strip()}"
-        )
-    return r.stdout
 
 
 def link_objects(root: Path, target: str | None = None) -> list[Path]:
@@ -305,19 +173,81 @@ def link_objects_in(build_dir: Path, target: str | None = None) -> list[Path]:
     return objects
 
 
-def _obj_section_sizes(obj: Path) -> tuple[dict[int, str], dict[str, int]]:
-    """``(section index → name, {section name: size})`` from ``objdump -h``."""
-    h = _run_objdump(obj, "-h")
-    secs = _OBJ_SECTION_RE.findall(h)
-    secname = {int(a): b for a, b, _ in secs}
-    sizes: dict[str, int] = {}
-    for _a, b, c in secs:
-        sizes[b] = sizes.get(b, 0) + int(c, 16)
-    return secname, sizes
+def _parse_obj_sections_and_symbols(
+    obj: Path,
+) -> tuple[dict[int, str], dict[str, int], tuple[tuple[int, int, str], ...]]:
+    """Parse section sizes and symbol table from a COFF or ELF object via LIEF."""
+    try:
+        raw = obj.read_bytes()
+    except OSError as exc:
+        raise RuntimeError(f"cannot read object file {obj}: {exc}") from exc
+
+    if raw[:4] == b"\x7fELF":
+        import lief
+
+        elf = lief.ELF.parse(io.BytesIO(raw))
+        if elf is None:
+            raise RuntimeError(f"failed to parse ELF object {obj}")
+        secname: dict[int, str] = {}
+        sizes: dict[str, int] = {}
+        for idx, sec in enumerate(elf.sections):
+            name = str(sec.name)
+            secname[idx] = name
+            if name:
+                sizes[name] = sizes.get(name, 0) + int(sec.size)
+        rows = tuple(
+            (int(sym.shndx) + 1, int(sym.value), str(sym.name))
+            for sym in elf.symbols
+            if sym.name and sym.shndx > 0
+        )
+        return secname, sizes, rows
+
+    loaded = load_coff(raw)
+    if loaded is None:
+        raise RuntimeError(f"failed to parse COFF object {obj}")
+    coff, symbols, names = loaded
+    secname = {}
+    sizes = {}
+    for idx, coff_sec in enumerate(coff.sections):
+        name = str(coff_sec.name).rstrip("\x00")
+        secname[idx] = name
+        # COFF .bss carries its size in SizeOfRawData with PointerToRawData == 0.
+        sec_size = max(int(coff_sec.sizeof_raw_data), int(coff_sec.virtual_size))
+        sizes[name] = sizes.get(name, 0) + sec_size
+    rows = tuple(
+        (int(sym.section_idx), int(sym.value), sym_name)
+        for sym, sym_name in zip(symbols, names, strict=True)
+        if sym.section_idx > 0 and sym_name
+    )
+    return secname, sizes, rows
 
 
-_OBJ_SEC_RE = re.compile(r"\[ *\d+\]\(sec +(-?\d+)\)")
-_OBJ_VALUE_RE = re.compile(r"\s(?:0x)?([0-9a-fA-F]+)\s+(\S+)\s*$")
+_OBJ_TABLE_CACHE: dict[
+    tuple[str, int, int, int, int],
+    tuple[dict[int, str], dict[str, int], tuple[tuple[int, int, str], ...]],
+] = {}
+_OBJ_TABLE_LOCK = Lock()
+
+
+def _obj_table(
+    obj: Path,
+) -> tuple[dict[int, str], dict[str, int], tuple[tuple[int, int, str], ...]]:
+    """Stat-cached ``(secname, sizes, symbol_rows)`` parsed once via LIEF."""
+    try:
+        st = obj.stat()
+        key = (str(obj), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
+    except OSError:
+        return _parse_obj_sections_and_symbols(obj)
+    with _OBJ_TABLE_LOCK:
+        hit = _OBJ_TABLE_CACHE.get(key)
+        if hit is not None:
+            return hit
+    parsed = _parse_obj_sections_and_symbols(obj)
+    with _OBJ_TABLE_LOCK:
+        if len(_OBJ_TABLE_CACHE) >= 1024:
+            _OBJ_TABLE_CACHE.clear()
+        _OBJ_TABLE_CACHE[key] = parsed
+    return parsed
 
 
 def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
@@ -335,67 +265,16 @@ def obj_section_symbols(obj: Path, *sections: str) -> tuple[dict[str, int], dict
     """
     from rebrew.rename_ops import c_name_from_symbol
 
-    secname, sizes = _obj_section_sizes(obj)
+    secname, sizes, rows = _obj_table(obj)
     buckets: dict[str, set[str]] = {s: set() for s in sections}
-    table_secname, rows = _obj_symbol_table(obj)
     for sec_idx, _value, raw_sym in rows:
-        # Section and fastcall-shaped locals stay out. ``lstrip`` then
-        # stored both ``__g_foo`` and ``_g_foo`` as ``g_foo``.
         bare = raw_sym.lstrip("_")
         if not bare or bare.startswith((".", "@")):
             continue
-        sname = table_secname.get(sec_idx - 1)
+        sname = secname.get(sec_idx - 1)
         if sname in buckets:
             buckets[sname].add(c_name_from_symbol(raw_sym))
     return {s: sizes.get(s, 0) for s in sections}, buckets
-
-
-_OBJ_SYMBOL_TABLE: dict[
-    tuple[str, int, int, int, int], tuple[dict[int, str], tuple[tuple[int, int, str], ...]]
-] = {}
-_OBJ_SYMBOL_TABLE_LOCK = Lock()
-
-
-def _obj_symbol_table(obj: Path) -> tuple[dict[int, str], tuple[tuple[int, int, str], ...]]:
-    """One parse per object, reused by the per-section inventory readers.
-
-    ``_run_objdump`` already caches the objdump stdout by stat fingerprint,
-    but every accessor re-split that text and re-ran the two symbol regexes
-    per line.  A 200-TU project pays thousands of lines of regex work per run
-    for tables that never change.  Keyed exactly like ``_run_objdump`` so a
-    rebuilt object reseeds and a caller-grown copy (the returned dict/tuple
-    must not be mutated) filters from a shared tuple.
-    """
-    try:
-        st = obj.stat()
-        key = (str(obj), st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
-    except OSError:
-        return _obj_symbol_table_uncached(obj)
-    with _OBJ_SYMBOL_TABLE_LOCK:
-        hit = _OBJ_SYMBOL_TABLE.get(key)
-        if hit is not None:
-            return hit
-    table = _obj_symbol_table_uncached(obj)
-    if len(_OBJ_SYMBOL_TABLE) >= 1024:
-        _OBJ_SYMBOL_TABLE.clear()
-    _OBJ_SYMBOL_TABLE[key] = table
-    return table
-
-
-def _obj_symbol_table_uncached(
-    obj: Path,
-) -> tuple[dict[int, str], tuple[tuple[int, int, str], ...]]:
-    secname, _sizes = _obj_section_sizes(obj)
-    rows: list[tuple[int, int, str]] = []
-    for line in _run_objdump(obj, "-t").splitlines():
-        m = _OBJ_SEC_RE.match(line)
-        if not m:
-            continue
-        vm = _OBJ_VALUE_RE.search(line[m.end() :])
-        if not vm:
-            continue
-        rows.append((int(m.group(1)), int(vm.group(1), 16), vm.group(2)))
-    return secname, tuple(rows)
 
 
 def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
@@ -406,12 +285,14 @@ def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     """
     from rebrew.rename_ops import c_name_from_symbol
 
-    secname, sizes = _obj_section_sizes(obj)
+    secname, sizes, rows = _obj_table(obj)
     dsize = sizes.get(".data", 0)
     syms: dict[str, int] = {}
-    table_secname, rows = _obj_symbol_table(obj)
     for sec_idx, value, raw_sym in rows:
-        if table_secname.get(sec_idx - 1) == ".data":
+        bare = raw_sym.lstrip("_")
+        if not bare or bare.startswith((".", "@")):
+            continue
+        if secname.get(sec_idx - 1) == ".data":
             syms[c_name_from_symbol(raw_sym)] = value
     return dsize, syms
 
@@ -426,11 +307,13 @@ def obj_text_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     """
     from rebrew.rename_ops import c_name_from_symbol
 
-    secname, sizes = _obj_section_sizes(obj)
+    secname, sizes, rows = _obj_table(obj)
     syms: dict[str, int] = {}
-    table_secname, rows = _obj_symbol_table(obj)
     for sec_idx, value, raw_sym in rows:
-        if table_secname.get(sec_idx - 1) == ".text":
+        bare = raw_sym.lstrip("_")
+        if not bare or bare.startswith((".", "@")):
+            continue
+        if secname.get(sec_idx - 1) == ".text":
             syms[c_name_from_symbol(raw_sym)] = value
     return sizes.get(".text", 0), syms
 
@@ -532,10 +415,8 @@ def data_byte_order(bin_path: Path) -> str:
 # Ownership + source edits
 # ---------------------------------------------------------------------------
 
-#: Whole C words.  ``\bname\b`` for a ``\w+`` name counts these tokens, so one
-#: pass answers every later owner query.  ``$`` and other non-word symbols
-#: stay on the alternation scan below.
-_WORD_RE = re.compile(r"\b\w+\b")
+#: Word-only identifier test for :func:`owner_of` fast lookup.
+#: ``$`` and other non-word symbols stay on the alternation scan below.
 _WORD_NAME_RE = re.compile(r"\w+\Z")
 #: Bounded cache for the multi-name alternation fallback in ``owner_of``;
 #: the same name set is queried once per ownership pass.
@@ -577,18 +458,29 @@ def _read_sources_or_fail(files: list[Path]) -> list[tuple[Path, str]]:
 
 
 def reference_counts(files: list[Path]) -> list[tuple[Path, dict[str, int]]]:
-    """Whole-word counts for each readable file, in *files* order.
+    """AST identifier reference counts for each readable file, in *files* order.
 
     ``fill_data`` and ``own_data_globals`` ask for an owner once per symbol.
-    Counting once answers every later ``\\bname\\b`` query for identifier
-    names without compiling a pattern or scanning the TU again.
+    Counting ``tree-sitter-c`` ``identifier`` nodes once answers every later
+    owner query while ignoring comments and string literals.
     """
+    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+
     indexed: list[tuple[Path, dict[str, int]]] = []
     for f, text in _read_sources_or_fail(files):
+        tree, data = parse_c_source(mask_msvc_syntax(text))
         counts: dict[str, int] = {}
-        for match in _WORD_RE.finditer(text):
-            word = match.group(0)
-            counts[word] = counts.get(word, 0) + 1
+        stack = [tree.root_node]
+        while stack:
+            node = stack.pop()
+            kind = node.type
+            if kind in ("comment", "string_literal", "char_literal"):
+                continue
+            if kind == "identifier":
+                word = node_text(node, data)
+                counts[word] = counts.get(word, 0) + 1
+            else:
+                stack.extend(node.named_children)
         if counts:
             indexed.append((f, counts))
     return indexed
@@ -646,73 +538,181 @@ def hex_list(data: bytes) -> str:
     return "{\n" + "\n".join(out) + "\n}"
 
 
-def _replace_matching_line(
-    lines: list[str],
-    pattern: re.Pattern[str],
-    def_line: str,
-    path: Path,
-    encoding: str,
-    dry_run: bool,
-    original: str,
-) -> bool:
-    """Replace the first line matching *pattern* with indented *def_line*.
+_FILE_SCOPE_CONTAINERS = frozenset(
+    {"translation_unit", "preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif"}
+)
 
-    Returns True when a match was found (whether or not the text changed).
-    *original* is the pre-edit text, kept for its trailing-newline state.
+
+def _byte_to_char(text: str, raw: bytes, byte_offset: int) -> int:
+    """Convert a UTF-8/surrogateescape byte offset in *raw* to a character index in *text*."""
+    if len(raw) == len(text):
+        return byte_offset
+    return len(raw[:byte_offset].decode("utf-8", errors="surrogateescape"))
+
+
+def _line_indent_start(text: str, char_start: int) -> int:
+    """Walk back from *char_start* over leading spaces/tabs on the same line."""
+    pos = char_start
+    while pos > 0 and text[pos - 1] in (" ", "\t"):
+        pos -= 1
+    return pos
+
+
+def _iter_file_scope_decls(text: str) -> Iterator[tuple[Any, bytes]]:
+    """Yield ``(declaration_node, raw_bytes)`` for every file-scope declaration in *text*."""
+    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+
+    masked = mask_msvc_syntax(text)
+    tree, _masked_bytes = parse_c_source(masked)
+    raw = text.encode("utf-8", errors="surrogateescape")
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        kind = node.type
+        if kind == "declaration" and not node.has_error:
+            yield node, raw
+            continue
+        if kind in _FILE_SCOPE_CONTAINERS:
+            stack.extend(reversed(node.named_children))
+
+
+def _array_bracket_text(node: Any, raw: bytes) -> str:
+    """Return the ``[...]`` slice of an ``array_declarator`` node."""
+    start: int | None = None
+    end: int | None = None
+    for child in node.children:
+        if child.type == "[" and start is None:
+            start = int(child.start_byte)
+        elif child.type == "]" and start is not None:
+            end = int(child.end_byte)
+    if start is None or end is None:
+        return ""
+    return raw[start:end].decode("utf-8", errors="surrogateescape")
+
+
+def _analyze_var_declarator(declarator: Any, raw: bytes) -> tuple[str, bool, str, str] | None:
+    """Analyze a non-function variable declarator.
+
+    Returns ``(name, is_pointer_to_array, own_brackets, pointer_prefix)`` or
+    ``None`` when *declarator* is a plain function prototype or has no name.
+
+    - ``is_pointer_to_array`` is True for ``(*name)[N]`` / ``(**name)[N]`` where
+      the brackets sit outside the parentheses on the pointee.
+    - ``own_brackets`` is the object's own dimension suffix (e.g. ``[0x10]``,
+      ``[2][4]``, ``[2]`` for ``(*table[2])[3]``).
+    - ``pointer_prefix`` is the raw pointer/convention/qualifier slice before
+      the identifier when the declarator wraps a pointer around an array
+      (e.g. ``*``, ``** const``, ``__cdecl *``).
     """
-    for i, ln in enumerate(lines):
-        m = pattern.match(ln)
-        if m:
-            new_ln = m.group(1) + def_line
-            if new_ln != ln:
-                lines[i] = new_ln
-                if not dry_run:
-                    atomic_write_text(path, join_source_lines(original, lines), encoding=encoding)
-            return True
-    return False
+    from rebrew.c_parser import declares_function, node_text
 
+    if declarator.type == "init_declarator":
+        declarator = declarator.child_by_field_name("declarator")
+    if declarator is None or declares_function(declarator):
+        return None
 
-@functools.lru_cache(maxsize=512)
-def _name_line_re(name: str, *, is_array: bool, extern: bool) -> re.Pattern[str]:
-    """Line matcher for a declaration of *name*; cached per symbol name.
+    # Check if there is a parenthesized_declarator in the declarator chain.
+    outer_array_count = 0
+    found_paren: Any = None
+    probe = declarator
+    while probe is not None:
+        if probe.type == "parenthesized_declarator":
+            found_paren = probe
+            break
+        if probe.type == "array_declarator":
+            outer_array_count += 1
+            probe = probe.child_by_field_name("declarator")
+        elif probe.type in ("function_declarator", "pointer_declarator"):
+            probe = probe.child_by_field_name("declarator")
+        else:
+            break
 
-    ``insert_definition`` runs once per data symbol and ``re.escape(name)``
-    defeats the module-level pattern cache, so without this cache every symbol
-    recompiles its regex.
-    """
-    # One or more brackets, including one nested pair. Without this, a
-    # declaration such as ``extern T g[0x10];`` or
-    # ``extern T g[sizeof(wchar_t[3])];`` does not match and the insert appends
-    # a second definition. ``(*name)[N]``, ``(*name[N])``, ``(name[N])``, and
-    # ``*name[N]`` put the name next to a star or inside parentheses; the
-    # matcher accepts each of those shapes.
-    # ``(*name[N])[M]`` has another bracket run after the closing parenthesis.
-    brackets = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])"
-    suffix = (
-        rf"(?:\s*\))?\s*{brackets}+(?:\s*\)\s*{brackets}+)*\s*\)?\s*;\s*$"
-        if is_array
-        else r"\s*;\s*$"
+    inner_target = declarator
+    if found_paren is not None:
+        inner_children = [c for c in found_paren.named_children if c.type != "comment"]
+        if len(inner_children) != 1:
+            return None
+        inner_target = inner_children[0]
+
+    has_ptr = False
+    cur = inner_target
+    while cur is not None and cur.type == "pointer_declarator":
+        has_ptr = True
+        cur = cur.child_by_field_name("declarator")
+
+    bracket_parts: list[str] = []
+    while cur is not None and cur.type == "array_declarator":
+        bracket_parts.append(_array_bracket_text(cur, raw))
+        cur = cur.child_by_field_name("declarator")
+
+    if cur is None or cur.type != "identifier":
+        return None
+
+    name = node_text(cur, raw)
+    bracket_parts.reverse()
+    own_brackets = "".join(bracket_parts)
+
+    is_ptr_to_array = (
+        found_paren is not None and has_ptr and not own_brackets and outer_array_count > 0
     )
-    prefix = r"^(\s*)extern\s+" if extern else r"^(\s*)(?!extern\b)"
-    return re.compile(
-        prefix + r"([A-Za-z_][\w\s]*\**)" + r"(?:\s+|\(\s*\**\s*|\*+\s*)" + re.escape(name) + suffix
+
+    pointer_prefix = ""
+    if has_ptr and own_brackets:
+        # Raw text from inside '(' (or start of pointer_declarator) up to the identifier.
+        if found_paren is not None:
+            open_byte = int(found_paren.start_byte)
+            # Skip '(' itself.
+            if open_byte < len(raw) and raw[open_byte : open_byte + 1] == b"(":
+                open_byte += 1
+            prefix_raw = raw[open_byte : int(cur.start_byte)].decode(
+                "utf-8", errors="surrogateescape"
+            )
+        else:
+            prefix_raw = raw[int(inner_target.start_byte) : int(cur.start_byte)].decode(
+                "utf-8", errors="surrogateescape"
+            )
+        pointer_prefix = _WS_RE.sub(" ", prefix_raw).strip()
+
+    return name, is_ptr_to_array, own_brackets, pointer_prefix
+
+
+def _decl_has_extern(decl_node: Any, raw: bytes) -> bool:
+    from rebrew.c_parser import node_text
+
+    return any(
+        c.type == "storage_class_specifier" and node_text(c, raw) == "extern"
+        for c in decl_node.named_children
     )
 
 
-@functools.lru_cache(maxsize=512)
-def _declared_base_re(name: str) -> re.Pattern[str]:
-    """Declaration matcher for *name*; cached per symbol.
-
-    ``insert_definition`` runs once per data symbol and ``re.escape(name)``
-    defeats the module-level pattern cache, so without this cache every
-    ownership pass recompiles the same pattern.
-    """
-    return re.compile(
-        r"^[ \t]*(?:extern[ \t]+|static[ \t]+)?([A-Za-z_][\w \t]*?)[ \t]*\**\s*\b"
-        + re.escape(name)
-        + r"\b\s*(?:\[[^\]]*\])*\s*(?:=[^;]*)?;",
-        re.MULTILINE,
-    )
+def _find_matching_decl_span(
+    text: str, name: str, *, is_array: bool, extern: bool
+) -> tuple[int, int] | None:
+    """Find ``(start_char, end_char)`` of a file-scope non-initialized decl of *name*."""
+    if name not in text:
+        return None
+    for decl_node, raw in _iter_file_scope_decls(text):
+        if _decl_has_extern(decl_node, raw) != extern:
+            continue
+        declarators = decl_node.children_by_field_name("declarator")
+        if len(declarators) != 1:
+            continue
+        child = declarators[0]
+        if child.type == "init_declarator":
+            continue
+        analyzed = _analyze_var_declarator(child, raw)
+        if analyzed is None:
+            continue
+        var_name, is_ptr_to_arr, own_brackets, _ptr_prefix = analyzed
+        if var_name != name:
+            continue
+        has_brackets = bool(own_brackets) or is_ptr_to_arr
+        if has_brackets != is_array:
+            continue
+        start = _line_indent_start(text, _byte_to_char(text, raw, int(decl_node.start_byte)))
+        end = _byte_to_char(text, raw, int(decl_node.end_byte))
+        return start, end
+    return None
 
 
 def _declared_base_types(text: str, name: str) -> set[str]:
@@ -722,15 +722,33 @@ def _declared_base_types(text: str, name: str) -> set[str]:
     emitting a second type for it: two definitions of one name with different
     types collide (C2371) in the rebuilt TU.
     """
+    from rebrew.c_parser import node_text
+
     if name not in text:
         return set()
     found: set[str] = set()
-    pattern = _declared_base_re(name)
-    for match in pattern.finditer(text):
-        base = _WS_RE.sub(" ", match.group(1)).strip()
-        base = base.replace("extern", "").replace("static", "").strip()
-        if base:
-            found.add(base)
+    for decl_node, raw in _iter_file_scope_decls(text):
+        for child in decl_node.children_by_field_name("declarator"):
+            analyzed = _analyze_var_declarator(child, raw)
+            if analyzed is None or analyzed[0] != name:
+                continue
+            type_parts = [
+                node_text(c, raw)
+                for c in decl_node.named_children
+                if c.type
+                in (
+                    "type_qualifier",
+                    "primitive_type",
+                    "sized_type_specifier",
+                    "type_identifier",
+                    "struct_specifier",
+                    "enum_specifier",
+                    "union_specifier",
+                )
+            ]
+            base = _WS_RE.sub(" ", " ".join(type_parts)).strip()
+            if base:
+                found.add(base)
     return found
 
 
@@ -747,7 +765,7 @@ def insert_definition(
 ) -> bool:
     """Define ``ctype name = init;`` / ``ctype name[size] = init;`` in *f*.
 
-    Replaces an existing matching ``extern`` line in place (keeping its
+    Replaces an existing matching ``extern`` declaration in place (keeping its
     indentation); replaces an existing definition of *name* in place so a
     re-run does not append a duplicate; appends only when the TU has neither.
     With ``is_array=False`` a scalar ``TYPE name = value;`` is emitted.
@@ -759,14 +777,20 @@ def insert_definition(
     text, encoding = read_source_text(f)
     if dry_run and name not in text:
         return True
-    lines = split_source_lines(text)
-    extern_re = _name_line_re(name, is_array=is_array, extern=True)
     suffix = (array_suffix or f"[{size}]") if is_array else ""
     def_line = f"{ctype} {name}{suffix}"
     if init_text:
         def_line += f" = {init_text}"
     def_line += ";"
-    if _replace_matching_line(lines, extern_re, def_line, f, encoding, dry_run, text):
+
+    extern_span = _find_matching_decl_span(text, name, is_array=is_array, extern=True)
+    if extern_span is not None:
+        start, end = extern_span
+        indent_m = _INDENT_RE.match(text[start:])
+        indent = indent_m.group(0) if indent_m else ""
+        replacement = indent + def_line
+        if text[start:end] != replacement and not dry_run:
+            atomic_write_text(f, text[:start] + replacement + text[end:], encoding=encoding)
         return True
 
     # Idempotent re-run: an existing definition (with initializer) must be
@@ -786,10 +810,17 @@ def insert_definition(
 
     # No-init pads / tentative defs (``unsigned char _dpad_N[K];``) are not
     # matched by ``_find_definition`` (it requires ``=``) — replace those too.
-    existing_re = _name_line_re(name, is_array=is_array, extern=False)
-    if _replace_matching_line(lines, existing_re, def_line, f, encoding, dry_run, text):
+    existing_span = _find_matching_decl_span(text, name, is_array=is_array, extern=False)
+    if existing_span is not None:
+        start, end = existing_span
+        indent_m = _INDENT_RE.match(text[start:])
+        indent = indent_m.group(0) if indent_m else ""
+        replacement = indent + def_line
+        if text[start:end] != replacement and not dry_run:
+            atomic_write_text(f, text[:start] + replacement + text[end:], encoding=encoding)
         return True
 
+    lines = split_source_lines(text)
     lines.append(def_line)
     if not dry_run:
         atomic_write_text(f, join_source_lines(text, lines), encoding=encoding)
@@ -1499,154 +1530,80 @@ def _obj_to_source(obj: Path, root: Path, src_dir: Path) -> Path | None:
     return None
 
 
-def _iter_line_spans(text: str) -> Iterator[tuple[int, str]]:
-    """Yield ``(start_offset, line)`` for every ``\\n``-delimited line of *text*.
-
-    Offsets come from real newline positions, so CRLF files get byte-exact
-    spans (``split("\\n")`` + ``len(line) + 1`` accounting drifts one byte per
-    preceding CRLF line and misplaces every spliced edit after it).
-    """
-    pos = 0
-    while True:
-        nl = text.find("\n", pos)
-        if nl < 0:
-            yield pos, text[pos:]
-            return
-        yield pos, text[pos:nl]
-        pos = nl + 1
-
-
-def _skip_string_literal(text: str, i: int, n: int) -> int:
-    """Index just past the quote literal starting at *i* (or *n* if unterminated).
-
-    A brace inside a string/char literal is not a brace in the source;
-    without this, ``char s[] = "}";`` drives depth negative and the scan
-    runs to EOF, swallowing the next definition.
-    """
-    quote = text[i]
-    i += 1
-    while i < n:
-        if text[i] == "\\":
-            i += 2
-            continue
-        if text[i] == quote:
-            return i + 1
-        i += 1
-    return n
+def _defined_globals_in_text(text: str) -> list[str]:
+    """Names of initialized file-scope variable definitions in *text*."""
+    found: list[str] = []
+    for decl_node, raw in _iter_file_scope_decls(text):
+        for child in decl_node.children_by_field_name("declarator"):
+            if child.type != "init_declarator":
+                continue
+            analyzed = _analyze_var_declarator(child, raw)
+            if analyzed is not None:
+                found.append(analyzed[0])
+    return found
 
 
 def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
-    """(start, end, type, size_suffix) of *name*'s definition in *text*, or None."""
-    # Fast reject: a definition line must contain the symbol as a name. When
-    # it does not occur anywhere in the translation unit the answer is
-    # definitely None without scanning every line against two regexes.
+    """(start, end, type, size_suffix) of *name*'s initialized definition in *text*, or None."""
     if name not in text:
         return None
-    pat, pat2 = _def_patterns(name)
-    start = None
-    typ = ""
-    sz = ""
-    for pos, ln in _iter_line_spans(text):
-        m = pat.match(ln)
-        if m:
-            start, typ, sz = pos, m.group(1).strip(), m.group(2) or ""
-            break
-    if start is None:
-        for pos, ln in _iter_line_spans(text):
-            m = pat2.match(ln)
-            if m and m.group(1).strip():
-                start, typ, sz = pos, m.group(1).strip(), ""
-                break
-    if start is None:
-        return None
-    depth = 0
-    i = start
-    n = len(text)
-    while i < n:
-        c = text[i]
-        if c in "\"'":
-            i = _skip_string_literal(text, i, n)
+    for decl_node, raw in _iter_file_scope_decls(text):
+        declarators = decl_node.children_by_field_name("declarator")
+        if len(declarators) != 1:
             continue
-        if c == "{":
-            depth += 1
-        elif c == "}":
-            if depth > 0:
-                depth -= 1
-        elif c == ";" and depth == 0:
-            return start, i + 1, typ, sz
-        i += 1
-    return start, len(text), typ, sz
+        child = declarators[0]
+        if child.type != "init_declarator":
+            continue
+        analyzed = _analyze_var_declarator(child, raw)
+        if analyzed is None or analyzed[0] != name:
+            continue
+        _var_name, _is_ptr_to_arr, own_brackets, _ptr_prefix = analyzed
+        decl_inner = child.child_by_field_name("declarator")
+        type_end = int(decl_inner.start_byte) if decl_inner is not None else int(child.start_byte)
+        typ = _WS_RE.sub(
+            " ",
+            raw[int(decl_node.start_byte) : type_end].decode("utf-8", errors="surrogateescape"),
+        ).strip()
+        start = _line_indent_start(text, _byte_to_char(text, raw, int(decl_node.start_byte)))
+        end = _byte_to_char(text, raw, int(decl_node.end_byte))
+        return start, end, typ, own_brackets
+    return None
 
 
 def _definition_to_extern(span: str) -> str:
     """The ``extern`` left behind when a definition moves to another file.
 
-    The declarator is the text before the initializer. Rebuilding
-    ``extern {type} {name}{brackets}`` from the type word and the first
-    bracket run turned ``int (*table[2])[3] = {0};`` into
-    ``extern int table[2];``.
+    Uses ``tree-sitter-c`` to slice the declarator before the initializer
+    (``init_declarator``), keeping complex declarators such as
+    ``int (*table[2])[3] = {0};`` intact.
     """
+    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+
     body = span.strip()
-    if body.endswith(";"):
-        body = body[:-1].rstrip()
-    depth = 0
-    cut = len(body)
-    for index, ch in enumerate(body):
-        if ch in "([{":
-            depth += 1
-        elif ch in ")]}" and depth:
-            depth -= 1
-        elif ch == "=" and depth == 0:
-            cut = index
-            break
-    body = body[:cut].rstrip()
-    if _EXTERN_AT_START_RE.match(body) is None:
-        body = f"extern {body}"
-    return f"{body};"
-
-
-@functools.lru_cache(maxsize=512)
-def _decl_re(name: str) -> re.Pattern[str]:
-    """Declaration matcher for *name*; cached per symbol name.
-
-    ``_decl_info`` runs once per data symbol and once per moved extern, and
-    ``re.escape(name)`` defeats the module-level pattern cache, so an uncached
-    pattern recompiled a fresh regex per symbol.
-    """
-    # ``(*name)[N]`` is one pointer. The brackets are the pointee, so they
-    # are not an element count. ``(*name[N])``, ``(name[N])``, and
-    # ``*name[N]`` are arrays: the brackets are the element count, and a
-    # star stays on the type. ``(*name[N])[M]`` has another pointee bound
-    # after the closing parenthesis; that bound is not the element count.
-    # ``const`` or ``volatile`` may sit between the star and the name.
-    # ``(__cdecl *name[N])`` keeps the calling convention on the pointer.
-    # ``(*name[N])(params)`` is still an array of pointers. The parameter
-    # list is not an element count. A bare ``name[N]`` still is.
-    brackets = r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])*)"
-    qualifier = r"(?:\s*(?:const|volatile)\b)*"
-    pointer = (
-        r"^[ \t]*([\w\s\*]+?)\(\s*"
-        + CALLING_CONVENTION
-        + r"\*+"
-        + qualifier
-        + r"\s*"
-        + re.escape(name)
-        + r"\s*\)(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*(?:=|;)"
-    )
-    paren = (
-        r"^[ \t]*([\w\s]+?)\(\s*("
-        + CALLING_CONVENTION
-        + r"\**"
-        + qualifier
-        + r")\s*"
-        + re.escape(name)
-        + r"\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\s*\)\s*"
-        + _DEF_PARAMS
-        + r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*(?:=|;)"
-    )
-    glued = r"^[ \t]*([\w\s]+?)\s*(\*+)\s*" + re.escape(name) + brackets + r"\s*(?:=|;)"
-    bare = r"^[ \t]*([\w\s\*]+?)\s+" + re.escape(name) + brackets + r"\s*(?:=|;)"
-    return re.compile(f"{pointer}|{paren}|{glued}|{bare}", re.M)
+    if not body:
+        return "extern ;"
+    probe = body if body.endswith(";") else body + ";"
+    masked = mask_msvc_syntax(probe)
+    tree, _masked_bytes = parse_c_source(masked)
+    raw = probe.encode("utf-8", errors="surrogateescape")
+    decl_node = next((c for c in tree.root_node.named_children if c.type == "declaration"), None)
+    if decl_node is not None and not decl_node.has_error:
+        declarators = decl_node.children_by_field_name("declarator")
+        if len(declarators) == 1 and declarators[0].type == "init_declarator":
+            inner = declarators[0].child_by_field_name("declarator")
+            if inner is not None:
+                head = (
+                    raw[int(decl_node.start_byte) : int(inner.end_byte)]
+                    .decode("utf-8", errors="surrogateescape")
+                    .rstrip()
+                )
+                if not _decl_has_extern(decl_node, raw):
+                    head = f"extern {head}"
+                return f"{head};"
+    head = body[:-1].rstrip() if body.endswith(";") else body
+    if _EXTERN_AT_START_RE.match(head) is None:
+        head = f"extern {head}"
+    return f"{head};"
 
 
 def _declared_element_count(suffix: str) -> int | None:
@@ -1674,24 +1631,29 @@ def _decl_info(text: str, name: str) -> tuple[str, int | None] | None:
     """(type, array size or None) of *name*'s existing declaration, or None."""
     if name not in text:
         return None
-    m = _decl_re(name).search(text)
-    if not m:
-        return None
-    # Group 1 is the pointer-to-array form. Its brackets are the pointee.
-    if m.group(1) is not None:
-        return m.group(1).strip(), None
-    # Groups 2-4 are ``(*name[N])`` / ``(name[N])``. Groups 5-7 glue the
-    # star to the name. Groups 8-9 are a bare name.
-    if m.group(2) is not None:
-        base = m.group(2).strip()
-        stars = m.group(3) or ""
-        typ = f"{base} {stars}".strip() if stars else base
-        return typ, _declared_element_count(m.group(4) or "")
-    if m.group(5) is not None:
-        base = m.group(5).strip()
-        stars = m.group(6) or ""
-        return f"{base} {stars}".strip(), _declared_element_count(m.group(7) or "")
-    return m.group(8).strip(), _declared_element_count(m.group(9) or "")
+    for decl_node, raw in _iter_file_scope_decls(text):
+        for child in decl_node.children_by_field_name("declarator"):
+            analyzed = _analyze_var_declarator(child, raw)
+            if analyzed is None or analyzed[0] != name:
+                continue
+            _var_name, is_ptr_to_arr, own_brackets, ptr_prefix = analyzed
+            decl_inner = (
+                child.child_by_field_name("declarator")
+                if child.type == "init_declarator"
+                else child
+            )
+            type_end = (
+                int(decl_inner.start_byte) if decl_inner is not None else int(child.start_byte)
+            )
+            base = _WS_RE.sub(
+                " ",
+                raw[int(decl_node.start_byte) : type_end].decode("utf-8", errors="surrogateescape"),
+            ).strip()
+            if is_ptr_to_arr:
+                return base, None
+            typ = f"{base} {ptr_prefix}".strip() if ptr_prefix else base
+            return typ, _declared_element_count(own_brackets)
+    return None
 
 
 def _merged_definition_line(dtyp: str, dsize: int | None, name: str, def_line: str) -> str:
@@ -1758,10 +1720,8 @@ def fix_ownership(
     # writes nothing.
     source_text = dict(_read_sources_or_fail(files))
     for f, text in source_text.items():
-        for ln in split_source_lines(text):
-            m = _DEF_LINE_RE.match(ln.strip())
-            defined = (m.group(1) or m.group(2)) if m else None
-            if defined and defined in toml and defined not in owner:
+        for defined in _defined_globals_in_text(text):
+            if defined in toml and defined not in owner:
                 owner[defined] = f
     original_owner = dict(owner)
 
@@ -1929,33 +1889,28 @@ def _find_dlead_pad(text: str) -> tuple[int, int, str, int, str] | None:
     the entire declaration up to and including the terminating semicolon (and
     any immediate trailing newline).  Returns ``None`` when absent.
     """
-    for pos, ln in _iter_line_spans(text):
-        m = _DLEAD_PAD_RE.match(ln)
-        if m:
-            indent = m.group(1)
-            pad_name = m.group(2)
-            size = int(m.group(3))
-            start = pos
-            depth = 0
-            i = pos
-            n = len(text)
-            while i < n:
-                c = text[i]
-                if c in "\"'":
-                    i = _skip_string_literal(text, i, n)
-                    continue
-                if c == "{":
-                    depth += 1
-                elif c == "}":
-                    if depth > 0:
-                        depth -= 1
-                elif c == ";" and depth == 0:
-                    end = i + 1
-                    if end < n and text[end] == "\n":
-                        end += 1
-                    return start, end, pad_name, size, indent
-                i += 1
-            return start, n, pad_name, size, indent
+    if "_dlead_" not in text:
+        return None
+    for decl_node, raw in _iter_file_scope_decls(text):
+        declarators = decl_node.children_by_field_name("declarator")
+        if len(declarators) != 1:
+            continue
+        analyzed = _analyze_var_declarator(declarators[0], raw)
+        if analyzed is None:
+            continue
+        pad_name, is_ptr_to_arr, own_brackets, _ptr_prefix = analyzed
+        if not pad_name.startswith("_dlead_") or is_ptr_to_arr or not own_brackets:
+            continue
+        count = _declared_element_count(own_brackets)
+        if count is None:
+            continue
+        decl_char_start = _byte_to_char(text, raw, int(decl_node.start_byte))
+        start = _line_indent_start(text, decl_char_start)
+        indent = text[start:decl_char_start]
+        end = _byte_to_char(text, raw, int(decl_node.end_byte))
+        if end < len(text) and text[end] == "\n":
+            end += 1
+        return start, end, pad_name, count, indent
     return None
 
 

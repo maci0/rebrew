@@ -321,9 +321,13 @@ def load_metadata_doc(
 
         store.read(description, validate=validate)
         result = parsed[0] if parsed else {}
-        # Both readers parse fresh rows from text. Other backends may retain
-        # the document that they pass to the validator.
-        if type(store) not in (RoutedStore, SqliteStore):
+        # RoutedStore and SqliteStore parse fresh rows from text; a concrete
+        # store class declaring detaches_validated_rows=True (TomlStore) clones
+        # each member before calling validate on the final view. Check the
+        # concrete class dict so a subclass overriding read() stays protected.
+        if type(store) not in (RoutedStore, SqliteStore) and not type(store).__dict__.get(
+            "detaches_validated_rows", False
+        ):
             result = clone_plain(result)
         _write_doc_cache(path, current_fp, known_fields, result)
     with _METADATA_DOC_CACHE_LOCK:

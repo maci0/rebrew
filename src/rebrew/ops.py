@@ -46,12 +46,11 @@ import contextlib
 import logging
 import threading  # module statement: the call scan lock is made at load
 from contextvars import ContextVar  # module statement: definition-time use
-from dataclasses import MISSING, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import override  # decorator and base class: definition-time use
 lazy import base64
-lazy import binascii
 lazy import dataclasses
 lazy import errno
 lazy import functools
@@ -81,6 +80,7 @@ lazy from urllib.parse import urlsplit
 
 import typer
 lazy import httpx
+lazy import msgspec
 
 from rebrew.errors import RebrewError
 lazy from rebrew import __version__, telemetry
@@ -1725,77 +1725,83 @@ def has_lone_surrogate(value: str) -> bool:
     return False
 
 
-def _decode(value: Any, hint: Any, where: str) -> Any:
-    """Check one JSON value against the field type *hint*; bytes arrive base64."""
-    origin = typing.get_origin(hint)
-    if hint is bool:
-        if type(value) is not bool:
-            raise _invalid(f"{where} must be a boolean")
-        return value
-    if hint is int:
-        if type(value) is not int or not _INT64_MIN <= value <= _INT64_MAX:
+_MSGSPEC_MISSING_RE = re.compile(r"^Object missing required field `([^`]+)`(?: - at `\$([^`]*)`)?$")
+
+#: Per-request-dataclass known field names and nested dataclass fields.
+_REQUEST_SCHEMA: dict[type, tuple[frozenset[str], dict[str, tuple[type, bool]]]] = {}
+
+
+def _request_schema(cls: type) -> tuple[frozenset[str], dict[str, tuple[type, bool]]]:
+    """Cached ``(known_field_names, nested_dataclass_fields)`` for *cls*.
+
+    Each nested entry maps a field name to ``(dataclass_type, is_list)`` so
+    unknown-field rejection recurses into nested dataclasses without re-walking
+    primitive hints. Two threads racing a first parse store equal entries.
+    """
+    found = _REQUEST_SCHEMA.get(cls)
+    if found is not None:
+        return found
+    hints = typing.get_type_hints(cls)
+    known = frozenset(spec.name for spec in fields(cls))
+    nested: dict[str, tuple[type, bool]] = {}
+    for name, hint in hints.items():
+        if typing.get_origin(hint) is types.UnionType:
+            args = [arg for arg in typing.get_args(hint) if arg is not type(None)]
+            if len(args) == 1:
+                hint = args[0]
+        if typing.get_origin(hint) is list:
+            (item,) = typing.get_args(hint)
+            if dataclasses.is_dataclass(item) and isinstance(item, type):
+                nested[name] = (item, True)
+        elif dataclasses.is_dataclass(hint) and isinstance(hint, type):
+            nested[name] = (hint, False)
+    return _REQUEST_SCHEMA.setdefault(cls, (known, nested))
+
+
+def _check_json_value(value: Any, where: str) -> None:
+    """Enforce JSON wire bounds msgspec does not check on Python primitives.
+
+    * 64-bit signed integer range (``_INT64_MIN .. _INT64_MAX``);
+    * no unpaired UTF-16 surrogates in strings or object keys (JSON accepts
+      ``\\uD800`` escapes that would fail downstream ``.encode("utf-8")``);
+    * no raw ``bytes`` values (``bytes`` fields must arrive as base64 strings).
+    """
+    t = type(value)
+    if t is int:
+        if not _INT64_MIN <= value <= _INT64_MAX:
             raise _invalid(f"{where} must be a 64-bit integer")
-        return value
-    if hint is str:
-        if type(value) is not str:
-            raise _invalid(f"{where} must be a string")
-        # JSON accepts a lone surrogate as an escaped ``\\uXXXX``; every
-        # downstream ``.encode("utf-8")`` (project_id bound, candidate byte
-        # bound, sort keys, file writes) then raises UnicodeEncodeError and
-        # surfaces as a 500 instead of a 400. Reject it at the boundary.
-        # Paired surrogates never survive json.loads as separate code
-        # points (they arrive combined), so any surrogate here is lone.
+    elif t is str:
         if has_lone_surrogate(value):
             raise _invalid(f"{where} contains an unpaired surrogate")
-        return value
-    if hint is bytes:
-        if type(value) is not str:
-            raise _invalid(f"{where} must be a base64 string")
-        try:
-            return base64.b64decode(value, validate=True)
-        except binascii.Error, ValueError:
-            raise _invalid(f"{where} is not valid base64") from None
-    if origin is list:
-        if type(value) is not list:
-            raise _invalid(f"{where} must be an array")
-        (item,) = typing.get_args(hint)
-        return [_decode(entry, item, f"{where}[{index}]") for index, entry in enumerate(value)]
-    if origin is types.UnionType:
-        # ``T | None``: JSON null is None, anything else is a T.
-        (inner,) = [arg for arg in typing.get_args(hint) if arg is not type(None)]
-        return None if value is None else _decode(value, inner, where)
-    if origin is tuple:
-        items = typing.get_args(hint)
-        if type(value) is not list or len(value) != len(items):
-            raise _invalid(f"{where} must be an array of {len(items)} items")
-        return tuple(
-            _decode(entry, item, f"{where}[{index}]")
-            for index, (entry, item) in enumerate(zip(value, items, strict=True))
-        )
-    return parse_request(hint, value, where)
+    elif t is bytes:
+        raise _invalid(f"{where} must be a base64 string")
+    elif t is list:
+        for index, entry in enumerate(value):
+            _check_json_value(entry, f"{where}[{index}]")
+    elif t is dict:
+        for key, entry in value.items():
+            if type(key) is str and has_lone_surrogate(key):
+                raise _invalid(f"{where} contains an unpaired surrogate")
+            _check_json_value(entry, f"{where}.{key}")
 
 
-#: Field type hints and fields per request dataclass, one entry per class.
-_REQUEST_FIELDS: dict[type, tuple[dict[str, object], dict[str, dataclasses.Field[object]]]] = {}
-
-
-def _request_fields(
-    cls: type,
-) -> tuple[dict[str, object], dict[str, dataclasses.Field[object]]]:
-    """The field type hints and the fields of the request dataclass *cls*.
-
-    Both are fixed when the class is defined, so they are resolved on its first
-    parse: a nested request type (one per retained file or readset row)
-    resolved its hints once per value. Two threads racing a first parse store
-    equal entries.
-    """
-    found = _REQUEST_FIELDS.get(cls)
-    if found is None:
-        found = _REQUEST_FIELDS.setdefault(
-            cls,
-            (typing.get_type_hints(cls), {spec.name: spec for spec in fields(cls)}),
-        )
-    return found
+def _check_unknown_fields(cls: type, raw: dict[Any, Any], where: str) -> None:
+    """Refuse keys *cls* (or any nested dataclass inside *cls*) does not declare."""
+    known, nested = _request_schema(cls)
+    unknown = sorted(str(k) for k in raw if k not in known)
+    if unknown:
+        raise _invalid(f"{where} has unknown fields: {', '.join(unknown)}")
+    for name, (sub_cls, is_list) in nested.items():
+        if name not in raw:
+            continue
+        val = raw[name]
+        if is_list:
+            if type(val) is list:
+                for index, entry in enumerate(val):
+                    if type(entry) is dict:
+                        _check_unknown_fields(sub_cls, entry, f"{where}.{name}[{index}]")
+        elif type(val) is dict:
+            _check_unknown_fields(sub_cls, val, f"{where}.{name}")
 
 
 def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
@@ -1818,20 +1824,19 @@ def parse_request[T](cls: type[T], raw: Any, where: str = "request") -> T:
             code=COVERAGE_INPUT_UNVERIFIED,
             status=409,
         )
-    hints, known = _request_fields(cls)
-    unknown = sorted(set(raw) - set(known))
-    if unknown:
-        raise _invalid(f"{where} has unknown fields: {', '.join(unknown)}")
-    values: dict[str, Any] = {}
-    for name, spec in known.items():
-        if name in raw:
-            if cls is AnalyseRequest and name == "project_id" and raw[name] == "":
-                raise _invalid(f"{where}.project_id must not be empty")
-            values[name] = _decode(raw[name], hints[name], f"{where}.{name}")
-        elif spec.default is MISSING and spec.default_factory is MISSING:
-            raise _invalid(f"{where} is missing {name}")
+    _check_unknown_fields(cls, raw, where)
+    if cls is AnalyseRequest and raw.get("project_id") == "":
+        raise _invalid(f"{where}.project_id must not be empty")
+    _check_json_value(raw, where)
     try:
-        return cls(**values)
+        return msgspec.convert(raw, cls, strict=True)
+    except msgspec.ValidationError as exc:
+        msg = str(exc)
+        match = _MSGSPEC_MISSING_RE.match(msg)
+        if match is not None:
+            field_name, path = match.group(1), match.group(2) or ""
+            raise _invalid(f"{where}{path} is missing {field_name}") from None
+        raise _invalid(f"{where}: {msg}") from None
     except ValueError as exc:  # a type that checks its own values (Attribution)
         raise _invalid(f"{where}: {exc}") from None
 

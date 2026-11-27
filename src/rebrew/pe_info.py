@@ -460,7 +460,7 @@ def _pe_payload(pe: Any, path: Path, size: int, arch: str) -> dict[str, object]:
     security = _security_flags(pe)
     checklist = _security(pe)
     exports = _exports(pe)
-    directories = pe_directories(path)
+    directories = pe_directories(path, pe=pe)
     known = _directories_known(pe)
     payload: dict[str, object] = {
         **_pe_identity(pe, size, arch),

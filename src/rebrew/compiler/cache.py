@@ -81,6 +81,7 @@ import diskcache
 
 from rebrew.utils import (
     BYTES_PER_MIB,
+    BoundedLRU,
     atomic_write_bytes,
     path_identity,
     path_is_relative_to,
@@ -1834,8 +1835,7 @@ FORCE_INCLUDE_PREFIXES = ("/FI", "-FI", "-include", "--include", "-imacros", "-f
 # same digest, and building it resolves each anchor. A hit re-reads reached
 # headers and checks directory identities before reusing the resolved digest.
 _HEADER_DIGEST_MAX = 256
-_HEADER_DIGEST_LOCK = threading.Lock()
-_HEADER_DIGESTS: OrderedDict[tuple[object, ...], str] = OrderedDict()
+_HEADER_DIGESTS: BoundedLRU[tuple[object, ...], str] = BoundedLRU(_HEADER_DIGEST_MAX)
 
 
 def _path_stat_id(path: str) -> tuple[int, int, int, int]:
@@ -1900,11 +1900,9 @@ def header_dependency_hash(
     if not paths:
         return _NO_DEPS_HASH
     ident = _header_digest_ident(paths, source_dir, tuple(include_dirs))
-    with _HEADER_DIGEST_LOCK:
-        cached = _HEADER_DIGESTS.get(ident)
-        if cached is not None:
-            _HEADER_DIGESTS.move_to_end(ident)
-            return cached
+    cached = _HEADER_DIGESTS.get(ident)
+    if cached is not None:
+        return cached
     h = hashlib.sha256()
     for anchor_idx, rel, content_digest in _header_key_entries(paths, source_dir, include_dirs):
         h.update(
@@ -1916,11 +1914,7 @@ def header_dependency_hash(
     # restore of the old bytes.
     if _header_digest_ident(paths, source_dir, tuple(include_dirs)) != ident:
         return digest
-    with _HEADER_DIGEST_LOCK:
-        _HEADER_DIGESTS[ident] = digest
-        _HEADER_DIGESTS.move_to_end(ident)
-        while len(_HEADER_DIGESTS) > _HEADER_DIGEST_MAX:
-            _HEADER_DIGESTS.popitem(last=False)
+    _HEADER_DIGESTS.put(ident, digest)
     return digest
 
 

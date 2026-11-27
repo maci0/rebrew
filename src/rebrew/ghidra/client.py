@@ -259,17 +259,29 @@ def _response_within_limit(resp: McpResponse, tool_name: str, request_id: int | 
     return True
 
 
-def _call_mcp_tool(
+def _post_mcp_tool(
     client: McpHttpClient,
     endpoint: str,
     tool_name: str,
     arguments: dict[str, Any],
     request_id: int,
     session_id: str,
-) -> McpToolResult | None:
-    """POST a ``tools/call`` request and return the tool result, or None on failure."""
+    *,
+    timeout: float = MCP_REQUEST_TIMEOUT_S,
+    log_request_id: int | str | None = None,
+    raise_on_http_error: bool = False,
+) -> tuple[McpToolResult | None, str]:
+    """POST one ``tools/call`` JSON-RPC request and parse its tool result.
+
+    Returns ``(result, "")`` on success or ``(None, error_message)`` on a
+    protocol, JSON-RPC, or tool error.  When *raise_on_http_error* is True,
+    transport failures and non-2xx HTTP statuses propagate as
+    :class:`httpx.HTTPError` (for :func:`apply_commands_via_mcp`'s abort and
+    retry handling); otherwise they are logged and returned as ``(None, ...)``.
+    """
     import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
 
+    req_label = request_id if log_request_id is None else log_request_id
     payload = {
         "jsonrpc": "2.0",
         "id": request_id,
@@ -280,92 +292,119 @@ def _call_mcp_tool(
     if session_id:
         headers["Mcp-Session-Id"] = session_id
     try:
-        resp = client.post(endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S)
+        resp = client.post(endpoint, json=payload, headers=headers, timeout=timeout)
     except httpx.HTTPError as exc:
+        if raise_on_http_error:
+            raise
         logger.warning(
             "MCP tool %s request %s failed with HTTP error %s from %s",
             tool_name,
-            request_id,
+            req_label,
             exc,
             endpoint,
         )
-        return None
+        return None, str(exc)
     try:
-        if resp.status_code != 200:
+        if raise_on_http_error:
+            resp.raise_for_status()
+        elif resp.status_code != 200:
             logger.warning(
                 "MCP tool %s request %s failed with HTTP %s from %s",
                 tool_name,
-                request_id,
+                req_label,
                 resp.status_code,
                 endpoint,
             )
-            return None
-        if not _response_within_limit(resp, tool_name, request_id):
-            return None
-        ct = resp.headers.get("content-type", "").lower()
-        if "text/event-stream" in ct:
-            data = _parse_sse_response(resp.text)
-        else:
-            text = resp.text.strip()
-            if not text:
+            return None, f"HTTP {resp.status_code}"
+        if not _response_within_limit(resp, tool_name, req_label):
+            return None, "MCP response exceeded the size limit"
+        # Read body once to avoid double-decode on non-UTF8 responses.
+        body = resp.text.strip()
+        if not body:
+            if not raise_on_http_error:
                 logger.warning(
                     "MCP tool %s request %s returned empty body from %s",
                     tool_name,
-                    request_id,
+                    req_label,
                     endpoint,
                 )
-                return None
+            return None, "empty MCP response body"
+        ct = resp.headers.get("content-type", "").lower()
+        if "text/event-stream" in ct:
+            data = _parse_sse_response(body)
+        else:
             try:
                 data = JsonRpcResponse.from_dict(resp.json())
             except ValueError, json.JSONDecodeError, UnicodeDecodeError:
+                if not raise_on_http_error:
+                    logger.warning(
+                        "MCP tool %s request %s returned invalid JSON from %s",
+                        tool_name,
+                        req_label,
+                        endpoint,
+                    )
+                return None, "invalid MCP JSON-RPC response"
+        if not data:
+            if not raise_on_http_error:
                 logger.warning(
-                    "MCP tool %s request %s returned invalid JSON from %s",
+                    "MCP tool %s request %s returned no parseable JSON-RPC response from %s",
                     tool_name,
-                    request_id,
+                    req_label,
                     endpoint,
                 )
-                return None
-        if not data:
-            logger.warning(
-                "MCP tool %s request %s returned no parseable JSON-RPC response from %s",
-                tool_name,
-                request_id,
-                endpoint,
-            )
-            return None
+            return None, "missing MCP JSON-RPC response"
         if data.error is not None:
-            logger.warning(
-                "MCP tool %s request %s returned JSON-RPC error: %s",
-                tool_name,
-                request_id,
-                data.error.message,
-            )
-            return None
-        if not (data.result and "content" in data.result):
-            logger.warning(
-                "MCP tool %s request %s returned result without content from %s",
-                tool_name,
-                request_id,
-                endpoint,
-            )
-            return None
+            if not raise_on_http_error:
+                logger.warning(
+                    "MCP tool %s request %s returned JSON-RPC error: %s",
+                    tool_name,
+                    req_label,
+                    data.error.message,
+                )
+            return None, str(data.error.message)
+        # A JSON-RPC success must carry a tool result with ``content`` to
+        # confirm the call/mutation landed.
+        if not (isinstance(data.result, dict) and "content" in data.result):
+            if not raise_on_http_error:
+                logger.warning(
+                    "MCP tool %s request %s returned result without content from %s",
+                    tool_name,
+                    req_label,
+                    endpoint,
+                )
+            return None, "MCP response carried no tool-result content"
         try:
             res = McpToolResult.from_dict(data.result)
         except ValueError as exc:
-            logger.warning("MCP tool %s returned invalid tool content: %s", tool_name, exc)
-            return None
+            if not raise_on_http_error:
+                logger.warning("MCP tool %s returned invalid tool content: %s", tool_name, exc)
+            return None, "invalid MCP tool-result content"
         if res.isError:
             error_text = res.content[0].text if res.content else str(data.result)
-            logger.warning(
-                "MCP tool %s request %s returned tool error: %s",
-                tool_name,
-                request_id,
-                error_text,
-            )
-            return None
-        return res
+            if not raise_on_http_error:
+                logger.warning(
+                    "MCP tool %s request %s returned tool error: %s",
+                    tool_name,
+                    req_label,
+                    error_text,
+                )
+            return None, error_text
+        return res, ""
     finally:
         close_response(resp)
+
+
+def _call_mcp_tool(
+    client: McpHttpClient,
+    endpoint: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    request_id: int,
+    session_id: str,
+) -> McpToolResult | None:
+    """POST a ``tools/call`` request and return the tool result, or None on failure."""
+    res, _err = _post_mcp_tool(client, endpoint, tool_name, arguments, request_id, session_id)
+    return res
 
 
 def fetch_mcp_tool(
@@ -939,55 +978,22 @@ def apply_commands_via_mcp(
             cmd_id: int,
         ) -> tuple[bool, str]:
             """Send a single MCP command. Returns (ok, error_msg)."""
-            payload = {
-                "jsonrpc": "2.0",
-                "id": cmd_id,
-                "method": "tools/call",
-                "params": {"name": cmd["tool"], "arguments": cmd["args"]},
-            }
-            resp = http.post(endpoint, json=payload, headers=headers, timeout=timeout)
-            try:
-                resp.raise_for_status()
-                if not _response_within_limit(resp, str(cmd["tool"]), f"cmd-{cmd_id}"):
-                    return False, "MCP response exceeded the size limit"
-                # Read body once to avoid double-decode on non-UTF8 responses.
-                body = resp.text.strip()
-                if not body:
-                    return False, "empty MCP response body"
-                ct = resp.headers.get("content-type", "").lower()
-                if "text/event-stream" in ct:
-                    data = _parse_sse_response(body)
-                else:
-                    try:
-                        data = JsonRpcResponse.from_dict(resp.json())
-                    except ValueError, json.JSONDecodeError, UnicodeDecodeError:
-                        return False, "invalid MCP JSON-RPC response"
-                if not data:
-                    return False, "missing MCP JSON-RPC response"
-                is_error = data.error is not None
-                error_msg = data.error.message if data.error else ""
-                if not is_error:
-                    # A JSON-RPC success must carry a tool result with ``content``
-                    # to confirm the mutation landed (the ``_call_mcp_tool``
-                    # contract).  Counting a content-less result as applied silently
-                    # drops the op.
-                    if not (isinstance(data.result, dict) and "content" in data.result):
-                        return False, "MCP response carried no tool-result content"
-                    try:
-                        res = McpToolResult.from_dict(data.result)
-                    except ValueError:
-                        return False, "invalid MCP tool-result content"
-                    if res.isError:
-                        is_error = True
-                        content = res.content
-                        error_msg = content[0].text if content else str(data.result)
-                if is_error:
-                    if is_idempotent_success(cmd, error_msg):
-                        return True, ""
-                    return False, str(error_msg)
+            res, error_msg = _post_mcp_tool(
+                http,
+                endpoint,
+                str(cmd["tool"]),
+                cmd["args"],
+                cmd_id,
+                session_id,
+                timeout=timeout,
+                log_request_id=f"cmd-{cmd_id}",
+                raise_on_http_error=True,
+            )
+            if res is not None:
                 return True, ""
-            finally:
-                close_response(resp)
+            if is_idempotent_success(cmd, error_msg):
+                return True, ""
+            return False, error_msg
 
         current_phase = ""
         struct_failures: list[dict[str, Any]] = []

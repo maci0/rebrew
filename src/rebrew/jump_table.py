@@ -77,32 +77,78 @@ def dispatch_operand(op_str: str, entry_width: int) -> tuple[str | None, int] | 
     return None
 
 
+def dispatch_operand_insn(insn: Any, entry_width: int) -> tuple[str | None, int] | None:
+    """``(index register, table VA)`` of a jump-table ``jmp`` via Capstone detail."""
+    from capstone.x86 import X86_OP_MEM, X86_REG_INVALID
+
+    ops = getattr(insn, "operands", None)
+    if not ops or len(ops) != 1 or ops[0].type != X86_OP_MEM:
+        return dispatch_operand(insn.op_str, entry_width)
+    op = ops[0]
+    mem = op.mem
+    if op.size != entry_width or mem.disp <= 0:
+        return None
+    if entry_width in (4, 8):
+        if (
+            mem.base == X86_REG_INVALID
+            and mem.index != X86_REG_INVALID
+            and mem.scale == entry_width
+        ):
+            return str(insn.reg_name(mem.index)), int(mem.disp) & ((1 << (entry_width * 8)) - 1)
+        return None
+    if entry_width == 2 and mem.base != X86_REG_INVALID and mem.index == X86_REG_INVALID:
+        return str(insn.reg_name(mem.base)), int(mem.disp) & 0xFFFF
+    return None
+
+
+def _insn_reg_imm(insn: Any) -> tuple[str, int] | None:
+    """``(reg_name, imm)`` from Capstone detail operands when available."""
+    try:
+        ops = insn.operands
+    except Exception:
+        return None
+    from capstone.x86 import X86_OP_IMM, X86_OP_REG
+
+    if len(ops) == 2 and ops[0].type == X86_OP_REG and ops[1].type == X86_OP_IMM:
+        return str(insn.reg_name(ops[0].reg)), int(ops[1].imm)
+    return None
+
+
+def _insn_reg_reg(insn: Any) -> tuple[str, str] | None:
+    """``(dst_reg, src_reg)`` from Capstone detail operands when available."""
+    try:
+        ops = insn.operands
+    except Exception:
+        return None
+    from capstone.x86 import X86_OP_REG
+
+    if len(ops) == 2 and ops[0].type == X86_OP_REG and ops[1].type == X86_OP_REG:
+        return str(insn.reg_name(ops[0].reg)), str(insn.reg_name(ops[1].reg))
+    return None
+
+
 def index_bound(window: list[Any], index_reg: str | None) -> int | None:
     """Highest switch index the instructions in *window* allow, else ``None``.
 
-    *window* is the up to ``BOUND_WINDOW`` instructions before the dispatch.
-    The bound is the nearest preceding ``cmp reg, N`` with a small immediate
-    (``N - 1`` when ``jb``/``jae`` tests it: the index is below ``N``),
-    where the compared register feeds *index_reg* (MSVC copies the index into
-    the scaled register between the cmp and the jmp, so the check walks back
-    through mov reg-reg copies).  A compare on an unrelated register (an
-    address compare, not a switch bound) is rejected, as is a large
-    immediate.  MSVC's memcpy/memmove byte-tail dispatches bound the index
-    with ``and reg, mask`` instead, so a power-of-two-minus-1 mask on
-    *index_reg* is a bound too.  Nearest-first: an earlier compare on the
-    index register (a range check before the switch) must not override the
-    switch's own bound.
+    Uses Capstone ``detail=True`` operands when populated, falling back to
+    text parsing for ``disasm_lite``/mock instructions.
     """
     copies = _index_source_regs(window, index_reg)
     for k in range(len(window) - 1, -1, -1):
         prev = window[k]
         if prev.mnemonic == "cmp":
-            cm = _CMP_IMM_RE.search(prev.op_str)
-            if cm is None or cm.group(1) not in copies:
-                continue
-            try:
-                value = parse_int_literal(cm.group(2))
-            except ValueError:
+            pair = _insn_reg_imm(prev)
+            if pair is not None:
+                reg, value = pair
+            else:
+                cm = _CMP_IMM_RE.search(prev.op_str)
+                if cm is None:
+                    continue
+                try:
+                    reg, value = cm.group(1), parse_int_literal(cm.group(2))
+                except ValueError:
+                    continue
+            if reg not in copies:
                 continue
             if 0 <= value <= 0xFFFF:
                 below = k + 1 < len(window) and window[k + 1].mnemonic in _BELOW_GUARDS
@@ -110,12 +156,18 @@ def index_bound(window: list[Any], index_reg: str | None) -> int | None:
                     continue
                 return value - 1 if below else value
         elif prev.mnemonic == "and":
-            am = _MASK_RE.match(prev.op_str)
-            if am is None or am.group(1) != index_reg:
-                continue
-            try:
-                value = int(am.group(2), 16)
-            except ValueError:
+            pair = _insn_reg_imm(prev)
+            if pair is not None:
+                reg, value = pair
+            else:
+                am = _MASK_RE.match(prev.op_str)
+                if am is None:
+                    continue
+                try:
+                    reg, value = am.group(1), int(am.group(2), 16)
+                except ValueError:
+                    continue
+            if reg != index_reg:
                 continue
             if _is_index_mask(value):
                 return value
@@ -126,22 +178,21 @@ _MOV_REG_RE = re.compile(r"^([a-z0-9]+),\s*([a-z0-9]+)$")
 
 
 def _index_source_regs(window: list[Any], index_reg: str | None) -> set[str]:
-    """Registers that may hold the switch index at the dispatch.
-
-    Starts from the scaled *index_reg* and walks the window backward
-    through plain ``mov dst, src`` copies, so a bounds ``cmp`` on the
-    pre-copy register (``cmp ecx, N`` … ``mov edx, ecx`` … ``jmp
-    [edx*4+table]``) is accepted while a compare on an unrelated
-    register is not.  ``None`` index (16-bit base form) accepts nothing.
-    """
+    """Registers that may hold the switch index at the dispatch."""
     if not index_reg:
         return set()
     sources = {index_reg}
     for prev in reversed(window):
         if prev.mnemonic != "mov":
             continue
-        m = _MOV_REG_RE.match(prev.op_str)
-        if m is None or m.group(1) not in sources:
-            continue
-        sources.add(m.group(2))
+        pair = _insn_reg_reg(prev)
+        if pair is not None:
+            dst, src = pair
+        else:
+            m = _MOV_REG_RE.match(prev.op_str)
+            if m is None:
+                continue
+            dst, src = m.group(1), m.group(2)
+        if dst in sources:
+            sources.add(src)
     return sources

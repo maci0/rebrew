@@ -40,7 +40,6 @@ from rebrew.cli import (
     require_config,
     select_annotation,
 )
-lazy from rebrew.c_parser import CALLING_CONVENTION
 lazy from rebrew.climb import function_span as climb_function_span
 lazy from rebrew.compiler.compile import compile_and_compare
 lazy from rebrew.compiler.overrides import resolve_compile_overrides
@@ -77,32 +76,32 @@ app = typer.Typer(
 QUALIFIERS: list[tuple[str, str, str]] = [
     ("volatile", r"\A(\s*)(?!(?:.*\bvolatile\b))(?=\S)", r"\1volatile "),
 ]
-_STRING_LITERAL_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
-_IS_DECL_RE = re.compile(
-    r"^(?:volatile\s+|const\s+|static\s+|register\s+)?"
-    r"(?:\w[\w\s\*]*?)"
-    r"(?:\s+\w+"
-    r"|\s*\*+\s*\w+"
-    r"|\(\s*"
-    + CALLING_CONVENTION
-    + r"\*+\s*"
-    + r"(?:(?:const|volatile)\b\s*)*"
-    + r"\w+\s*\)"
-    + r"(?:\((?:[^()]|\([^()]*\))*\))?"
-    + r"|\(\s*"
-    + CALLING_CONVENTION
-    + r"\**\s*"
-    + r"(?:(?:const|volatile)\b\s*)*"
-    + r"\w+\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+\s*\)"
-    + r"(?:\((?:[^()]|\([^()]*\))*\))?"
-    + r")"
-    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
-    r"\s*(?:=[^;]*)?;"
-)
 
 
 def _strip_literals(text: str) -> str:
-    return _STRING_LITERAL_RE.sub('""', text)
+    """Replace string/char literal bodies with empty quotes via tree-sitter-c."""
+    if '"' not in text and "'" not in text:
+        return text
+    from rebrew.c_parser import parse_c_source
+
+    tree, data = parse_c_source(text)
+    spans: list[tuple[int, int, bytes]] = []
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "string_literal":
+            spans.append((int(node.start_byte), int(node.end_byte), b'""'))
+            continue
+        if node.type == "char_literal":
+            spans.append((int(node.start_byte), int(node.end_byte), b"''"))
+            continue
+        stack.extend(node.children)
+    if not spans:
+        return text
+    out = bytearray(data)
+    for s, e, repl in sorted(spans, reverse=True):
+        out[s:e] = repl
+    return bytes(out).decode("utf-8", errors="surrogateescape")
 
 
 def variants(decl: str) -> list[tuple[str, str]]:
@@ -126,25 +125,26 @@ def function_span(lines: list[str], symbol: str) -> tuple[int, int]:
     return lo, last + 1
 
 
-# ``(__cdecl *name)`` keeps the calling convention off the name.
-# ``(* const name)`` keeps the qualifier off the name. ``(*name)(int)``
-# keeps the parameter list off the semicolon.
-_POINTER_NAME_QUALIFIER = r"(?:(?:const|volatile)\b\s*)*"
-_FN_PARAMS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
-
-
 def _is_decl(unit: str) -> bool:
-    s = _strip_literals(unit).strip()
-    words = s.split(maxsplit=1)
-    if words and words[0] in {"return", "goto"}:
+    """True when *unit* parses as a local C variable declaration via tree-sitter-c."""
+    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+
+    stripped = unit.strip()
+    if not stripped or not stripped.endswith(";"):
         return False
-    # Brackets may repeat, and one bound may contain one nested pair.
-    # Stopping at the first ``]`` left ``char g[sizeof(wchar_t[3])];`` and
-    # ``char g[2][4];`` out of the sweep. A parenthesized pointer
-    # (``char (*g)[4]``) is still a declaration; the name is not a bare word.
-    # ``*name[N]`` glues the star to the name, and ``(*name[N])`` /
-    # ``(name[N])`` put the brackets inside the parentheses.
-    return bool(_IS_DECL_RE.match(s))
+    probe = f"void __rebrew_probe(void) {{\n{mask_msvc_syntax(stripped)}\n}}"
+    tree, _ = parse_c_source(probe)
+    root = tree.root_node
+    if root.has_error:
+        return False
+    fn = next((c for c in root.named_children if c.type == "function_definition"), None)
+    if fn is None:
+        return False
+    body = fn.child_by_field_name("body")
+    if body is None:
+        return False
+    stmts = [c for c in body.named_children if c.type != "comment"]
+    return len(stmts) == 1 and stmts[0].type == "declaration"
 
 
 @contextlib.contextmanager

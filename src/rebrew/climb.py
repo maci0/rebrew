@@ -93,50 +93,15 @@ app = typer.Typer(
 
 
 def _code_lines(lines: list[str]) -> list[str]:
-    """Per-line copy of *lines* with comments removed, preserving the line count.
+    """Per-line copy of *lines* with comments and literals blanked via tree-sitter-c."""
+    if not lines:
+        return []
+    from rebrew.c_parser import mask_comments_and_literals
 
-    Tracks multi-line block comments and string/char literals across lines, so a
-    ``{``/``}``/``;`` inside a comment or a literal never affects brace depth.
-    A plain per-line strip corrupts real sources: ``"http://x"`` loses its code
-    after ``//``, and braces inside a decompiler comment block are counted.
-    """
-    out: list[str] = []
-    in_block = False
-    quote: str | None = None
-    for line in lines:
-        buf: list[str] = []
-        i = 0
-        n = len(line)
-        while i < n:
-            ch = line[i]
-            if in_block:
-                end = line.find("*/", i)
-                if end == -1:
-                    break
-                in_block = False
-                i = end + 2
-                continue
-            if quote is not None:
-                if ch == "\\" and i + 1 < n:
-                    i += 2
-                    continue
-                if ch in (quote, "\n"):
-                    buf.append(ch)
-                    quote = None
-                i += 1
-                continue
-            if ch == "/" and i + 1 < n and line[i + 1] == "/":
-                break
-            if ch == "/" and i + 1 < n and line[i + 1] == "*":
-                in_block = True
-                i += 2
-                continue
-            if ch in "\"'":
-                quote = ch
-            buf.append(ch)
-            i += 1
-        out.append("".join(buf))
-    return out
+    has_ends = any(line.endswith(("\n", "\r")) for line in lines)
+    joined = "".join(lines) if has_ends else "\n".join(lines)
+    masked = mask_comments_and_literals(joined)
+    return split_source_lines(masked, keepends=False) if has_ends else masked.split("\n")
 
 
 #: A climb visits one function, so the definition matcher cache never needs to

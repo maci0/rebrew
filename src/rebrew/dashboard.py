@@ -44,7 +44,7 @@ Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
 served client drops its full-line comments (they stay in the source). The
-entry checkpoint measured 12121 B zstd / 12743 B gzip against a 13600 B budget;
+entry checkpoint measured 12116 B zstd / 12737 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
@@ -694,16 +694,15 @@ function resetHistoryPaging() {
 function statusMark(s) {
   return /^[A-Z][A-Z0-9_]*$/.test(s || "") ? "st status-" + s : "";
 }
-function statusText(s) {
-  const text = esc(s || "");
+function statusCell(s) {
   const mark = statusMark(s);
-  return mark ? "<span class='" + mark + "'>" + text + "</span>" : text;
+  return (mark ? "<td class='" + mark + "'>" : "<td>") + esc(s) + "</td>";
 }
 // Rows are positional arrays named by the response's ``cols``.
 const rowHtml = (r) => {
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
     + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] ?? "")
-    + "</td><td>" + statusText(r[4] || "") + "</td><td>" + esc(r[5] || "")
+    + "</td>" + statusCell(r[4] || "") + "<td>" + esc(r[5] || "")
     + "</td><td>" + esc(r[6] || "") + "</td></tr>";
 };
 function renderFunctions(data, options) {
@@ -955,8 +954,8 @@ function renderGlobals(data, options) {
 const historyRowHtml = (r) => {
   // A blank old status is the first recorded change, not a missing value.
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
-    + "</td><td>" + statusText(r[2] || "(first change)") + "</td><td>" + statusText(r[3] || "")
-    + "</td><td>" + esc(formatWhen(r[4])) + "</td></tr>";
+    + "</td>" + statusCell(r[2] || "(first change)") + statusCell(r[3] || "")
+    + "<td>" + esc(formatWhen(r[4])) + "</td></tr>";
 };
 function renderHistory(data, options) {
   const append = !!(options && options.append);
@@ -2496,8 +2495,10 @@ class Dashboard:
         self, target: str, *, limit: int = _DEFAULT_LIMIT, offset: int = 0
     ) -> dict[str, Any]:
         snapshot = self.snapshots().get(target)
-        rows = list(reversed(snapshot.history)) if snapshot is not None else []
-        page = rows[offset : offset + limit]
+        rows = snapshot.history if snapshot is not None else ()
+        # Map the newest-first page to its window in the oldest-first snapshot.
+        start, stop, _ = slice(offset, offset + limit).indices(len(rows))
+        page = rows[len(rows) - stop : len(rows) - start]
         by_va = snapshot.functions_by_va if snapshot is not None else {}
         return {
             "target": target,
@@ -2522,7 +2523,7 @@ class Dashboard:
                     _history_text(row.get("new_status")),
                     _history_text(row.get("changed_at")),
                 ]
-                for row in page
+                for row in reversed(page)
             ],
         }
 

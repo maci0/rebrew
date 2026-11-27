@@ -753,11 +753,33 @@ def cfg_similarity(
             "matched_blocks": 0,
         }
 
-    # Greedy best-match blocks by mnemonic-multiset cosine, weighted by instruction count.
-    sigs_t = [Counter(m) for _, _, m in tb]
-    sigs_c = [Counter(m) for _, _, m in cb]
-    norms_t = [math.sqrt(sum(v * v for v in s.values())) for s in sigs_t]
-    norms_c = [math.sqrt(sum(v * v for v in s.values())) for s in sigs_c]
+    # Greedy best-match blocks by mnemonic-multiset cosine (vectorized via numpy),
+    # weighted by instruction count.
+    import numpy as np
+
+    vocab: dict[str, int] = {}
+    for _, _, mnems in tb:
+        for m in mnems:
+            vocab.setdefault(m, len(vocab))
+    for _, _, mnems in cb:
+        for m in mnems:
+            vocab.setdefault(m, len(vocab))
+    dim = len(vocab)
+    mt = np.zeros((len(tb), dim), dtype=np.float64)
+    for row_i, (_, _, mnems) in enumerate(tb):
+        for m in mnems:
+            mt[row_i, vocab[m]] += 1.0
+    mc = np.zeros((len(cb), dim), dtype=np.float64)
+    for row_i, (_, _, mnems) in enumerate(cb):
+        for m in mnems:
+            mc[row_i, vocab[m]] += 1.0
+    nt = np.linalg.norm(mt, axis=1)
+    nc = np.linalg.norm(mc, axis=1)
+    denom = np.outer(nt, nc)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sim_mat = np.where(denom > 0.0, (mt @ mc.T) / denom, 0.0)
+    sim_mat = np.clip(np.nan_to_num(sim_mat, nan=0.0, posinf=0.0, neginf=0.0), 0.0, 1.0)
+
     sizes_t = [s for _, s, _ in tb]
     total_weights = sum(sizes_t)
     matched_c: set[int] = set()
@@ -766,10 +788,11 @@ def cfg_similarity(
     # Order target blocks by size (largest first) for a stable greedy.
     for ti in sorted(range(len(tb)), key=lambda i: -sizes_t[i]):
         best_c, best_score = -1, 0.0
+        row = sim_mat[ti]
         for ci in range(len(cb)):
             if ci in matched_c:
                 continue
-            s = _cosine_scaled(sigs_t[ti], sigs_c[ci], norms_t[ti], norms_c[ci])
+            s = float(row[ci])
             if s > best_score:
                 best_score, best_c = s, ci
         if best_c >= 0 and best_score > 0.0:

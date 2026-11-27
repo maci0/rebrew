@@ -62,10 +62,13 @@ from rebrew.cli import (
     require_config,
     require_source_arg,
 )
+lazy from rebrew.analysis import capstone_handle
+lazy from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
 lazy from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
 lazy from rebrew.compiler.compile import compile_to_obj
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.formats.binary_loader import extract_raw_bytes
+lazy from rebrew.formats.import_table import parse_import_table
 lazy from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 lazy from rebrew.metadata.bindings import (
     find_source_binding_by_symbol,
@@ -329,49 +332,60 @@ def _apply_arg_constraints(
 # Prototype parsing
 # ---------------------------------------------------------------------------
 
-# Matches prototypes like:
-#   int __cdecl func(int, char*)
-#   void __thiscall CClass::Method(int a, float b)
-#   int func(void)
-# ``WINAPI`` and ``__vectorcall`` are conventions too. Leaving them in
-# the return type made ``void WINAPI foo(void)`` look like it returns a
-# value, so the prover compared EAX.
-_PROTO_RE = re.compile(
-    r"^\s*(?P<ret>\w[\w\s\*]*?)\s+"
-    r"(?:(?P<cc>__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
-    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\s+)?"
-    r"(?:[\w:]+)\s*"  # function name (may include class::)
-    r"\((?P<args>[^)]*)\)"
+# Calling conventions and MSVC qualifiers recognised in C prototypes.
+# ``mask_msvc_syntax`` blanks these out before tree-sitter parses the C
+# declaration, so we extract the function's own convention from the slice
+# preceding the function's parameter list.
+_CC_TOKEN_RE = re.compile(
+    r"\b(__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
+    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\b"
 )
 
-
-_SPECIFIER_RE = re.compile(
-    r"^(?:static|extern|inline|register|auto|const|volatile)\s+", re.IGNORECASE
-)
+#: Return type tokens treated as 64-bit (EDX:EAX pair on x86-32).
+_64BIT_RETURN_TOKENS = ("long long", "__int64", "int64_t", "uint64_t", "long double")
 
 #: ``arg<N>`` constraint key.
 _ARG_KEY_RE = re.compile(r"arg(\d+)$")
 
 
-def _strip_type_specifiers(type_text: str) -> str:
-    """Drop leading storage-class/function specifiers from a return type.
+def _extract_func_declarator(declarator: Any) -> tuple[Any | None, bool]:
+    """Walk *declarator* to find the function's own ``function_declarator``.
 
-    ``ann.prototype`` is the raw declaration line, so a leading ``static``
-    survives into the regex's return-type group (``static void f(void)`` →
-    ``"static void"``); comparing that against ``"void"`` made a static void
-    function look like it returns a value, and the prover then compared the
-    undefined EAX at exit (a spurious counterexample).
+    Returns ``(func_declarator, is_pointer_return)``.  Handles pointer returns
+    (``void *foo(void)``) and functions returning function pointers
+    (``int (*ret_fn(int a))(int, int)``).
     """
-    out = type_text.strip()
-    while True:
-        m = _SPECIFIER_RE.match(out)
-        if m is None:
-            return out
-        out = out[m.end() :].strip()
+    is_pointer_return = False
+    func_decl: Any = None
+    cur = declarator
+    while cur is not None:
+        if cur.type == "pointer_declarator":
+            is_pointer_return = True
+            cur = cur.child_by_field_name("declarator")
+        elif cur.type == "parenthesized_declarator":
+            cur = cur.named_children[0] if cur.named_children else None
+        elif cur.type == "function_declarator":
+            func_decl = cur
+            inner = cur.child_by_field_name("declarator")
+            if inner is not None and inner.type in {
+                "parenthesized_declarator",
+                "pointer_declarator",
+            }:
+                cur = inner
+            else:
+                break
+        else:
+            break
+    return func_decl, is_pointer_return
 
 
 def _parse_prototype(proto: str) -> tuple[str, int, int, bool]:
     """Parse a C prototype string into (calling_convention, arg_count, return_width_bits, is_void).
+
+    Uses ``tree-sitter-c`` via :func:`rebrew.c_parser.parse_c_source` on the
+    MSVC-masked prototype so nested function-pointer parameters such as
+    ``int (*cb)(int, int)`` count as a single parameter rather than splitting
+    on inner commas.
 
     Returns ("cdecl", 0, 32, False) as default if parsing fails.
 
@@ -380,29 +394,70 @@ def _parse_prototype(proto: str) -> tuple[str, int, int, bool]:
     ``long double`` — conservative), 32 otherwise.  ``is_void`` is True when
     the return type is ``void`` — a void function leaves EAX (and EDX)
     undefined at exit, so those registers must not be compared.  Leading
-    storage-class specifiers (``static``, ``extern``, ``inline``) are dropped
-    before that comparison.
+    storage-class specifiers (``static``, ``extern``, ``inline``) are
+    separated by the C grammar from the return type node.
     """
-    m = _PROTO_RE.match(proto.strip())
-    if not m:
+    stripped = proto.strip()
+    if not stripped:
         return "cdecl", 0, 32, False
 
-    cc = (m.group("cc") or "__cdecl").lstrip("_").lower()
-    args_str = m.group("args").strip()
-    ret_type = _strip_type_specifiers(m.group("ret") or "")
+    src = stripped if stripped.endswith((";", "}")) else f"{stripped};"
+    masked = mask_msvc_syntax(src)
+    tree, masked_bytes = parse_c_source(masked)
 
-    is_void = ret_type.lower() == "void"
+    stmt: Any = None
+    for child in tree.root_node.named_children:
+        if child.type in {"declaration", "function_definition"}:
+            stmt = child
+            break
+    if stmt is None:
+        return "cdecl", 0, 32, False
 
-    # Detect 64-bit return types
-    _64BIT_RETURN_TOKENS = ("long long", "__int64", "int64_t", "uint64_t", "long double")
-    return_width = 64 if any(tok in ret_type.lower() for tok in _64BIT_RETURN_TOKENS) else 32
+    func_decl, is_pointer_return = _extract_func_declarator(stmt.child_by_field_name("declarator"))
+    if func_decl is None:
+        return "cdecl", 0, 32, False
 
-    if not args_str or args_str.lower() == "void":
+    param_list = func_decl.child_by_field_name("parameters")
+    if param_list is None:
+        return "cdecl", 0, 32, False
+
+    # Extract calling convention from original source bytes before the
+    # function's own parameter list (ignoring any convention inside a
+    # function-pointer parameter).  mask_msvc_syntax preserves byte offsets.
+    orig_bytes = src.encode("utf-8", errors="surrogateescape")
+    header_prefix = orig_bytes[: param_list.start_byte].decode("utf-8", errors="surrogateescape")
+    cc_matches = _CC_TOKEN_RE.findall(header_prefix)
+    cc = (cc_matches[-1] if cc_matches else "__cdecl").lstrip("_").lower()
+
+    type_node = stmt.child_by_field_name("type")
+    ret_type = node_text(type_node, masked_bytes).strip() if type_node is not None else ""
+    ret_lower = " ".join(ret_type.lower().split())
+
+    is_void = (not is_pointer_return) and (ret_lower == "void")
+    return_width = (
+        64
+        if (not is_pointer_return) and any(tok in ret_lower for tok in _64BIT_RETURN_TOKENS)
+        else 32
+    )
+
+    params = [
+        p
+        for p in param_list.named_children
+        if p.type in {"parameter_declaration", "variadic_parameter"}
+    ]
+    if not params:
         return cc, 0, return_width, is_void
+    if len(params) == 1 and params[0].type == "parameter_declaration":
+        p0 = params[0]
+        p0_type = p0.child_by_field_name("type")
+        if (
+            p0.child_by_field_name("declarator") is None
+            and p0_type is not None
+            and node_text(p0_type, masked_bytes).strip().lower() == "void"
+        ):
+            return cc, 0, return_width, is_void
 
-    # Count args by splitting on commas (handles pointer types with *)
-    args = [a.strip() for a in args_str.split(",") if a.strip()]
-    return cc, len(args), return_width, is_void
+    return cc, len(params), return_width, is_void
 
 
 # ---------------------------------------------------------------------------
@@ -624,19 +679,20 @@ def _find_call_sites(blob: bytes) -> list[int]:
     so only genuine ``call`` opcodes are considered; failures degrade to no
     patching rather than risking a corrupted displacement write.
     """
-    import struct as _struct
-
     try:
-        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
+        from capstone import CS_ARCH_X86, CS_MODE_32
+        from capstone.x86 import X86_INS_CALL, X86_OP_IMM
     except ImportError:
         return []
-    md = Cs(CS_ARCH_X86, CS_MODE_32)
+    md = capstone_handle(CS_ARCH_X86, CS_MODE_32, detail=True)
     sites: list[int] = []
     for insn in md.disasm(blob, 0):
-        if insn.mnemonic != "call" or not insn.bytes or insn.bytes[0] != 0xE8:
+        if insn.id != X86_INS_CALL or len(insn.operands) != 1:
             continue
-        disp = _struct.unpack("<i", blob[insn.address + 1 : insn.address + 5])[0]
-        target = (insn.address + 5 + disp) & 0xFFFFFFFF
+        op = insn.operands[0]
+        if op.type != X86_OP_IMM or not insn.bytes or insn.bytes[0] != 0xE8:
+            continue
+        target = op.imm & 0xFFFFFFFF
         if not (0 <= target < len(blob)):
             sites.append(insn.address)
     return sites
@@ -772,19 +828,15 @@ def prove_equivalence(
     iat_api_names: dict[int, str] = {}  # stub_addr -> API name
     if binary_path is not None:
         try:
-            import lief
-
-            pe = lief.PE.parse(str(binary_path))
-            if pe is not None:
-                for entry in pe.imports:
-                    for fn in entry.entries:
-                        iat_va = fn.iat_address + pe.optional_header.imagebase
-                        stub_addr = (STUB_BASE + len(iat_stub_map_orig) * 4) & 0xFFFFFFFF
-                        iat_stub_map_orig[iat_va] = stub_addr
-                        if fn.name:
-                            iat_api_names[stub_addr] = str(fn.name)
+            for iat_va, api_name in parse_import_table(binary_path).items():
+                if not iat_va:
+                    continue
+                stub_addr = (STUB_BASE + len(iat_stub_map_orig) * 4) & 0xFFFFFFFF
+                iat_stub_map_orig[iat_va] = stub_addr
+                if api_name:
+                    iat_api_names[stub_addr] = api_name
         except Exception:
-            log.debug("LIEF import scan failed (best-effort)", exc_info=True)
+            log.debug("Import table scan failed (best-effort)", exc_info=True)
 
     # --stub-thunks: additionally stub every absolute address the compiled blob
     # references via DIR32 relocs that LIEF did NOT list as an import.  A
@@ -816,51 +868,45 @@ def prove_equivalence(
 
     sym_args = [claripy.BVS(f"arg_{i}", 32) for i in range(arg_count)]
 
+    cc_mod = angr.calling_conventions
+    cc_map: dict[str, type] = {
+        "cdecl": cc_mod.SimCCCdecl,
+        "stdcall": cc_mod.SimCCStdcall,
+        "winapi": cc_mod.SimCCStdcall,
+        "callback": cc_mod.SimCCStdcall,
+        "apientry": cc_mod.SimCCStdcall,
+        "thiscall": cc_mod.SimCCMicrosoftThiscall,
+        "fastcall": cc_mod.SimCCMicrosoftFastcall,
+    }
+    cc_cls = cc_map.get(cc, cc_mod.SimCCCdecl)
+    arg_proto = angr.sim_type.SimTypeFunction(
+        [angr.sim_type.SimTypeInt(signed=False)] * len(sym_args),
+        angr.sim_type.SimTypeInt(signed=False),
+    )
+
     def _setup_state(proj: angr.Project) -> angr.SimState[Any, Any]:
         """Create an initial state with symbolic arguments placed per calling convention.
 
-        Initialises ESP to a fake stack, pushes a concrete return address so
-        ``ret`` pops a known value instead of unconstrained memory.  Enables
-        zero-fill for uninitialized memory and registers to prevent symbolic
-        pollution from globals, statics, and scratch registers.
+        Uses angr's ``call_state`` with the matching x86 ``SimCC`` class to
+        initialise the stack frame, push ``RETURN_SENTINEL``, and place
+        register/stack arguments.  Enables zero-fill for uninitialized memory
+        and registers to prevent symbolic pollution from globals, statics, and
+        scratch registers.
         """
-        state: angr.SimState[Any, Any] = proj.factory.blank_state(  # type: ignore[no-untyped-call]
-            addr=0,
+        STACK_TOP = 0x7FFF0000
+        state: angr.SimState[Any, Any] = proj.factory.call_state(  # type: ignore[no-untyped-call]
+            0,
+            *sym_args,
+            cc=cc_cls(proj.arch),
+            prototype=arg_proto,
+            ret_addr=RETURN_SENTINEL,
+            stack_base=STACK_TOP,
             add_options={
                 angr.options.ZERO_FILL_UNCONSTRAINED_MEMORY,
                 angr.options.ZERO_FILL_UNCONSTRAINED_REGISTERS,
             },
         )
-        # Fake stack frame: [ret_addr] [arg0] ... at ESP.
-        STACK_TOP = 0x7FFF0000
-        state.regs.esp = STACK_TOP
-        state.regs.ebp = STACK_TOP
-
-        # Push return address — 'ret' will pop this, ending execution cleanly
-        state.memory.store(STACK_TOP, claripy.BVV(RETURN_SENTINEL, 32), endness="Iend_LE")  # type: ignore[no-untyped-call]
-
-        # Arguments sit above the return address on the stack
-        ARG_OFFSET = 4  # first arg at ESP+4 (after ret addr)
-
-        if cc == "thiscall" and sym_args:
-            # ECX = this pointer (first arg)
-            state.regs.ecx = sym_args[0]
-            # Remaining args on stack (right-to-left)
-            for i, arg in enumerate(sym_args[1:]):
-                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")  # type: ignore[no-untyped-call]
-        elif cc == "fastcall":
-            # ECX = arg0, EDX = arg1, rest on stack
-            if len(sym_args) >= 1:
-                state.regs.ecx = sym_args[0]
-            if len(sym_args) >= 2:
-                state.regs.edx = sym_args[1]
-            for i, arg in enumerate(sym_args[2:]):
-                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")  # type: ignore[no-untyped-call]
-        else:
-            # cdecl / stdcall — all args on stack
-            for i, arg in enumerate(sym_args):
-                state.memory.store(STACK_TOP + ARG_OFFSET + (i * 4), arg, endness="Iend_LE")  # type: ignore[no-untyped-call]
-
+        state.regs.ebp = state.regs.esp
         return state
 
     def _make_project(blob: bytes) -> angr.Project:
@@ -1044,14 +1090,21 @@ def prove_equivalence(
 
     # Hook all stub addresses on both blobs.  Prefer specific Win32
     # SimProcedures (constrained return values) over generic ReturnUnconstrained
-    # to reduce path explosion from API calls.
+    # to reduce path explosion from API calls.  Share one symbolic return table
+    # across both projects so identical Win32 calls return the same BVS instead
+    # of producing false counterexamples.
+    shared_api_returns: dict[tuple[int | None, int], Any] = {}
     win32_procs = get_win32_simprocs()
     for stub_addr in stub_hooks:
         api_name = iat_api_names.get(stub_addr, "")
         if api_name and api_name in win32_procs:
             simproc_cls = win32_procs[api_name]
-            ret_proc_orig = simproc_cls()
-            ret_proc_comp = simproc_cls()
+            if getattr(simproc_cls, "_supports_shared_returns", False):
+                ret_proc_orig = simproc_cls(shared_returns=shared_api_returns)
+                ret_proc_comp = simproc_cls(shared_returns=shared_api_returns)
+            else:
+                ret_proc_orig = simproc_cls()
+                ret_proc_comp = simproc_cls()
         else:
             # Use shared-return stub so both projects see equal returns
             ret_proc_orig = SharedReturnStub()

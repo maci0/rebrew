@@ -476,14 +476,14 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
         if target_sym is None:
             return None
 
-        section_number = getattr(target_sym, "section_number", None)
+        section_idx = getattr(target_sym, "section_idx", None)
         sym_value = target_sym.value
-        if section_number is None:
+        if section_idx is None:
             return None
         next_offset = None
         for sym in pe.symbols:
             if (
-                getattr(sym, "section_number", None) == section_number
+                getattr(sym, "section_idx", None) == section_idx
                 and sym.value > sym_value
                 and (next_offset is None or sym.value < next_offset)
             ):

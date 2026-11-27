@@ -33,7 +33,6 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-lazy from rebrew.c_parser import CALLING_CONVENTION
 lazy from rebrew.config import ProjectConfig
 lazy from rebrew.metadata.anchors import add_address_anchor, parse_address_anchors
 lazy from rebrew.metadata.bindings import (
@@ -101,11 +100,6 @@ _TYPEDEF_RE = re.compile(r"^\s*typedef\s+")
 _PRAGMA_INTRINSIC_RE = re.compile(r"^\s*#\s*pragma\s+intrinsic\s*\(")
 _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/")
 _LINE_COMMENT_RE = re.compile(r"//.*")
-_EXTERN_NAME_PAREN_RE = re.compile(
-    r"\(\s*" + CALLING_CONVENTION + r"\*+\s*(?:(?:const|volatile)\b\s*)*(\w+)"
-)
-_EXTERN_NAME_BRACKET_RE = re.compile(r"(\w+)\s*[\[\(]")
-_EXTERN_NAME_TAIL_RE = re.compile(r"(\w+)\s*$")
 _ARG_NAME_RE = re.compile(r"\b[a-z_]\w*(?=\s*[,)])")
 _INTRINSIC_ARGS_RE = re.compile(r"intrinsic\s*\(([^)]+)\)")
 _EXTERN_PREFIX_RE = re.compile(r"^\s*extern\s+")
@@ -121,20 +115,23 @@ def _extern_key(decl: str) -> str:
 
 
 def _extract_extern_name(decl: str) -> str | None:
-    """The symbol name from an extern declaration."""
-    d = decl.strip().rstrip(";").strip()
-    d = _BLOCK_COMMENT_RE.sub("", d).strip()
-    # ``int (*fp)(void)``, ``int (* const rows[2])[4]``, ``char (__cdecl *row)[4]``.
-    # The convention and qualifier are not the symbol. Tested before the plain
-    # declarator rule or the base type matches instead of the symbol.
-    m = _EXTERN_NAME_PAREN_RE.search(d)
-    if m:
-        return m.group(1)
-    m = _EXTERN_NAME_BRACKET_RE.search(d)
-    if m:
-        return m.group(1)
-    m = _EXTERN_NAME_TAIL_RE.search(d)
-    return m.group(1) if m else None
+    """The symbol name from an extern declaration via tree-sitter-c."""
+    from rebrew.c_parser import find_declarator_identifier, mask_msvc_syntax, parse_c_source
+
+    text = decl.strip()
+    if not text:
+        return None
+    if not text.endswith(";"):
+        text += ";"
+    tree, raw = parse_c_source(mask_msvc_syntax(text))
+    for child in tree.root_node.named_children:
+        if child.type == "declaration":
+            declarator = child.child_by_field_name("declarator")
+            if declarator is not None:
+                name = find_declarator_identifier(declarator, raw)
+                if name:
+                    return name
+    return None
 
 
 def _extern_specificity(decl: str) -> int:

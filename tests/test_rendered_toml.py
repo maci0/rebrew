@@ -15,7 +15,6 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from rebrew.metadata import rendered_toml
-from rebrew.metadata.rendered_toml import _Fallback, _parse
 
 
 def _same(got: Any, expected: Any, where: str = "$") -> None:
@@ -78,13 +77,12 @@ kind = "FUNCTION"
 
 
 def test_the_rendered_layout_is_read_on_the_fast_path_and_matches() -> None:
-    _same(_parse(_RENDERED), tomllib.loads(_RENDERED))
     _same(rendered_toml.loads(_RENDERED), tomllib.loads(_RENDERED))
 
 
 def test_repeated_field_keys_are_local_to_their_table() -> None:
     text = '[a]\nsize = 1\nname = "f"\n[b]\n"name" = "g"\n"size" = 2\n'
-    _same(_parse(text), tomllib.loads(text))
+    _same(rendered_toml.loads(text), tomllib.loads(text))
     _agrees(text + "size = 3\n")
 
 
@@ -124,8 +122,6 @@ def test_a_value_outside_the_fast_forms_still_matches(text: str) -> None:
     ],
 )
 def test_text_outside_the_layout_is_read_by_tomllib(text: str) -> None:
-    with pytest.raises(_Fallback):
-        _parse(text)
     _agrees(text)
 
 
@@ -172,7 +168,7 @@ def test_a_document_rendered_by_tomlkit_reads_the_same(doc: dict[str, Any]) -> N
 def test_repeated_values_in_adjacent_tables_read_the_same(value: _Value, other: _Scalar) -> None:  # type: ignore[misc]
     fields = {"value": value, "other": other}
     text = tomlkit.dumps({"GAME.0x1000": {**fields, "verification": fields}, "GAME.0x2000": fields})
-    parsed = _parse(text)
+    parsed = rendered_toml.loads(text)
     _same(parsed, tomllib.loads(text))
     if isinstance(value, list):
         parsed["GAME.0x1000"]["value"].clear()

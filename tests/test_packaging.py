@@ -952,11 +952,18 @@ class TestCycloneDxSbom:
             "capstone",
             "click",
             "diskcache",
+            "cachetools",
             "httpx",
+            "jinja2",
             "lief",
+            "markupsafe",
+            "msgspec",
             "numpy",
             "pyyaml",
+            "rapidfuzz",
             "rich",
+            "rtoml",
+            "tenacity",
             "tomlkit",
             "tree-sitter",
             "tree-sitter-c",
@@ -979,7 +986,6 @@ class TestCycloneDxSbom:
             "pyghidra",
             "m2c",
             "resembl",
-            "rapidfuzz",
         ):
             assert name in by_scope["optional"], name
         assert not by_scope["required"] & by_scope["optional"]

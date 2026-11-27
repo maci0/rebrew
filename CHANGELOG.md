@@ -2,6 +2,9 @@
 
 ### Changed
 
+- **Breaking:** Moved `PdbInfo` (with fields `backend`, `error`, `frontend`, `toolchain`) from `rebrew.pdb_info` to `rebrew.formats.pdb` (`rebrew.pdb_info.PdbInfo` remains re-exported at runtime), and removed incidental module-scope re-exports no longer imported after LIEF/tree-sitter/Capstone/stdlib refactors: `data_layout.run_process_group` (import from `rebrew.utils`), `decompme.file_lock` (import from `rebrew.utils`), `fixup.CALLING_CONVENTION`, `lint.CALLING_CONVENTION`, `merge.CALLING_CONVENTION`, `qual_sweep.CALLING_CONVENTION` (import from `rebrew.c_parser`), `formats.import_table.PE32_PLUS_MAGIC`, `formats.import_table.pe_layout`, `formats.pe_image.sections_at`, `formats.pe_symbols.pe_layout`, `layout_meta.sections_at`, `link_sweep.pe_layout` (import from `rebrew.formats.pe_headers`), `formats.pe_symbols.parse_imports` (import from `rebrew.formats.import_table`), `postlink.decode_binary_name` (import from `rebrew.formats.binary_loader`), `stack_analysis.parse_int_literal` (import from `rebrew.utils`), and `switch.dispatch_operand` (import from `rebrew.jump_table`).
+- Adopt `rtoml`, `jinja2` + `markupsafe`, `msgspec`, `cachetools`, `rapidfuzz`, and `tenacity` as core dependencies, and expand LIEF 1.0, Capstone `detail=True`, `tree-sitter-c`, `numpy`, and `angr` usage across binary parsing, disassembly, C AST analysis, TOML I/O, HTML reporting, HTTP retry policies, bounded LRU/TTL caches, and CMake File API / `compile_commands.json` build checks.
+- Speed up structural comparisons, dashboard history paging and row rendering, single-command CLI startup, metadata document caching, and Go jobs output/trace handling.
 - Update the optional similarity dependency and CI checkout to Resembl 5.4.0.
 
 ## [6.88.0] - 2026-11-27

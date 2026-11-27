@@ -1,5 +1,6 @@
 """Tests for rebrew.matcher.scoring — score_candidate, diff_functions."""
 
+import difflib
 import json
 import random
 from dataclasses import asdict
@@ -534,11 +535,17 @@ class TestStructuralSimilarity:
         assert sim.mnemonic_match_ratio == 1.0
         assert sim.flag_sensitive is False
 
-    def test_structural_diff_detected(self) -> None:
+    def test_structural_diff_detected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # sub esp, 0x10 vs sub esp, 0x20 — structural difference
         target = b"\x55\x8b\xec\x83\xec\x10\xc3"
         cand = b"\x55\x8b\xec\x83\xec\x20\xc3"
+
+        def unexpected_alignment(*args: object) -> None:
+            pytest.fail("identical mnemonic streams were realigned")
+
+        monkeypatch.setattr(difflib.SequenceMatcher, "get_matching_blocks", unexpected_alignment)
         sim = structural_similarity(target, cand)
+        assert sim.mnemonic_match_ratio == 1.0
         assert sim.structural > 0
         assert sim.structural_ratio > 0.0
         assert sim.total_insns >= 4  # push, mov, sub, ret

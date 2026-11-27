@@ -1,0 +1,17 @@
+<h2>{{ heading }}</h2>
+{%- if page_num == 1 -%}
+{{ card_html|safe }}{{ legend_html|safe }}
+{%- if over_text -%}
+<p class='note'>The code account counts {{ over_text.counted }}, more than the {{ over_text.total_text_bytes }}-byte .text section, so it is shown as 100%+. Re-run <code>rebrew coverage export --output snapshots/</code> if the SIZE fields are stale.</p>
+{%- endif -%}
+{%- if ne_cards_html -%}
+<h3>16-bit NE target</h3>{{ ne_cards_html|safe }}
+{%- endif -%}
+{%- if empty_note is not none -%}
+<p class='note'>{{ empty_note }}</p>
+{%- else -%}
+<p>{{ intro }}.</p>{{ pager|safe }}{{ table|safe }}{{ pager_end|safe }}
+{%- endif -%}
+{%- else -%}
+{{ legend_html|safe }}<p>{{ intro }}.</p>{{ pager|safe }}{{ table|safe }}{{ pager_end|safe }}
+{%- endif -%}

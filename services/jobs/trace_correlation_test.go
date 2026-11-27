@@ -109,3 +109,39 @@ func TestJobLogFieldsCarryAdmissionCorrelation(t *testing.T) {
 		t.Fatalf("jobLogFields empty = %q", empty)
 	}
 }
+
+func TestTraceparentValidationZeroAllocs(t *testing.T) {
+	const tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	if got := traceID(tp); got != "4bf92f3577b34da6a3ce929d0e0e4736" {
+		t.Fatalf("traceID = %q", got)
+	}
+	if !validTraceparent(tp) {
+		t.Fatal("expected valid traceparent")
+	}
+	if validTraceparent("00-00000000000000000000000000000000-00f067aa0ba902b7-01") {
+		t.Fatal("all-zero trace id must be rejected")
+	}
+	if validTraceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01") {
+		t.Fatal("all-zero span id must be rejected")
+	}
+	if allocs := testing.AllocsPerRun(100, func() {
+		if traceID(tp) == "" {
+			t.Fatal("unexpected empty traceID")
+		}
+		if !validTraceparent(tp) {
+			t.Fatal("unexpected invalid traceparent")
+		}
+	}); allocs != 0 {
+		t.Fatalf("traceparent parsing allocated %.1f times/op, want 0", allocs)
+	}
+}
+
+func BenchmarkValidTraceparent(b *testing.B) {
+	const tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	b.ReportAllocs()
+	for b.Loop() {
+		if !validTraceparent(tp) {
+			b.Fatal("unexpected invalid")
+		}
+	}
+}

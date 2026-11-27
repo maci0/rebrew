@@ -19,39 +19,131 @@ lazy from rebrew.c_parser import get_ts_parser, parse_c_source
 lazy from rebrew.utils import detect_source_encoding
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
-# Word conventions (``WINAPI``) and the longer ``__`` forms. ``__vectorcall``
-# is not a prefix of the four short names, and ``WINAPI`` has no underscores.
-_CALLING_CONV_RE = re.compile(
-    r"\b(?:__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
-    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\b\s*"
-)
-_DECLSPEC_RE = re.compile(r"__declspec\s*\(\s*\w+\s*\)\s*")
 _MULTI_SPACE_RE = re.compile(r"  +")
-_RBW_RE = re.compile(r"\bRBW_\w+\b\s*")
-_CONST_RE = re.compile(r"\bconst\b\s*")
-_VOLATILE_RE = re.compile(r"\bvolatile\b\s*")
-# ``(*cbs[4])(int)`` is an array of function pointers. The brackets sit
-# between the name and the closing parenthesis, and ``(**cb)(int)`` has
-# a second star, so a pattern that required ``(*name)`` left the
-# parameter in the signature.
-_FUNCPTR_RE = re.compile(
-    r"\w[\w\s\*]*\(\*+\s*(\w+)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])*)\)\s*\([^)]*\)"
-)
+_RBW_RE = re.compile(r"\bRBW_\w+\b")
+_NON_NEWLINE_RE = re.compile(r"[^\r\n]")
+_BANNED_QUALS = frozenset({"const", "volatile"})
+
+
+def _funcptr_param_replacement(param_node: Any, data: bytes) -> str | None:
+    """Return ``void * name[dims]`` when *param_node* declares a function pointer, else None."""
+    from rebrew.c_parser import node_text
+
+    decl = param_node.child_by_field_name("declarator")
+    if decl is None:
+        return None
+
+    fn_decl: Any = None
+    cur: Any = decl
+    while cur is not None:
+        if cur.type in ("function_declarator", "abstract_function_declarator"):
+            fn_decl = cur
+            break
+        if cur.type in (
+            "pointer_declarator",
+            "abstract_pointer_declarator",
+            "array_declarator",
+            "abstract_array_declarator",
+        ):
+            cur = cur.child_by_field_name("declarator")
+        elif cur.type in ("parenthesized_declarator", "abstract_parenthesized_declarator"):
+            inner = [c for c in cur.named_children if c.type != "comment"]
+            cur = inner[0] if inner else None
+        else:
+            break
+
+    if fn_decl is None:
+        return None
+
+    inner_decl = fn_decl.child_by_field_name("declarator")
+    name: str | None = None
+    brackets: list[str] = []
+
+    def _collect(node: Any) -> None:
+        nonlocal name
+        if node is None:
+            return
+        if node.type == "identifier":
+            if name is None:
+                name = node_text(node, data)
+            return
+        if node.type in ("array_declarator", "abstract_array_declarator"):
+            sub = node.child_by_field_name("declarator")
+            _collect(sub)
+            start: int | None = None
+            end: int | None = None
+            for child in node.children:
+                if child.type == "[" and start is None:
+                    start = int(child.start_byte)
+                elif child.type == "]" and start is not None:
+                    end = int(child.end_byte)
+            if start is not None and end is not None:
+                brackets.append(data[start:end].decode("utf-8", errors="surrogateescape"))
+            return
+        if node.type in ("function_declarator", "abstract_function_declarator"):
+            _collect(node.child_by_field_name("declarator"))
+            return
+        for child in node.named_children:
+            if child.type != "comment":
+                _collect(child)
+
+    _collect(inner_decl)
+    if name:
+        return f"void * {name}{''.join(brackets)}"
+    return "void *"
 
 
 def _normalize_signature(sig: str) -> str:
     """Strip syntax that Ghidra's CParser does not accept (MSVC extensions, const/volatile, function pointers)."""
+    from rebrew.c_parser import mask_msvc_syntax, node_text
+
     sig = unicodedata.normalize("NFC", sig)
-    sig = _DECLSPEC_RE.sub("", sig)
-    sig = _CALLING_CONV_RE.sub("", sig)
-    sig = _RBW_RE.sub("", sig)
-    sig = _CONST_RE.sub("", sig)
-    sig = _VOLATILE_RE.sub("", sig)
-    # Inline function-pointer params -> void * (CParser doesn't handle them)
-    sig = _FUNCPTR_RE.sub(r"void * \1\2", sig)
-    sig = _PTR_NOSPACE_RE.sub(r"\1 *", sig)
+    sig = sig.replace("\r", "")
+    # Mask MSVC calling conventions / __declspec and project RBW_* macros with
+    # same-length spaces before parsing so byte offsets and newlines stay aligned
+    # (preserving newlines ensures ``//`` comments do not swallow subsequent code).
+    masked = mask_msvc_syntax(sig)
+    masked = _RBW_RE.sub(lambda m: _NON_NEWLINE_RE.sub(" ", m.group(0)), masked)
+
+    probe = masked.rstrip("; \n\t") + ";"
+    if get_ts_parser() is not None:
+        tree, data = parse_c_source(probe)
+        edits: list[tuple[int, int, str]] = []
+        stack = [tree.root_node]
+        while stack:
+            node = stack.pop()
+            if node.type == "comment":
+                # Drop ``//`` line comments so flattening newlines cannot swallow
+                # the following tokens; preserve ``/* ... */`` block comments.
+                if data[int(node.start_byte) : int(node.start_byte) + 2] == b"//":
+                    edits.append((int(node.start_byte), int(node.end_byte), ""))
+                continue
+            if node.type in ("string_literal", "char_literal"):
+                continue
+            if node.type == "parameter_declaration":
+                replacement = _funcptr_param_replacement(node, data)
+                if replacement is not None:
+                    edits.append((int(node.start_byte), int(node.end_byte), replacement))
+                    continue
+            if node.type == "type_qualifier" and node_text(node, data) in _BANNED_QUALS:
+                edits.append((int(node.start_byte), int(node.end_byte), ""))
+                continue
+            if node.child_count == 0 and node_text(node, data) in _BANNED_QUALS:
+                edits.append((int(node.start_byte), int(node.end_byte), ""))
+                continue
+            stack.extend(node.children)
+
+        if edits:
+            out = bytearray(data)
+            for start, end, repl in sorted(edits, key=lambda item: item[0], reverse=True):
+                out[start:end] = repl.encode("utf-8", errors="surrogateescape")
+            masked = bytes(out).decode("utf-8", errors="surrogateescape")
+        else:
+            masked = probe
+
+    masked = masked.replace("\n", " ")
+    sig = _PTR_NOSPACE_RE.sub(r"\1 *", masked)
     sig = sig.rstrip("; ")
-    sig = sig.replace("\n", " ").replace("\r", "")
     sig = _MULTI_SPACE_RE.sub(" ", sig)
     return sig.strip()
 
@@ -62,6 +154,8 @@ def _parse_source(filepath: Path) -> tuple[bytes, str, Any] | None:
     Returns None when tree-sitter is unavailable or the file cannot be read,
     so every extractor fails the same way instead of one silently yielding.
     """
+    from rebrew.c_parser import mask_msvc_syntax
+
     if get_ts_parser() is None:
         return None
     try:
@@ -69,7 +163,9 @@ def _parse_source(filepath: Path) -> tuple[bytes, str, Any] | None:
     except OSError:
         return None
     encoding = detect_source_encoding(code_bytes)
-    tree, _ = parse_c_source(code_bytes)
+    masked_str = mask_msvc_syntax(code_bytes.decode("utf-8", errors="surrogateescape"))
+    masked_str = _RBW_RE.sub(lambda m: _NON_NEWLINE_RE.sub(" ", m.group(0)), masked_str)
+    tree, _ = parse_c_source(masked_str)
     return code_bytes, encoding, tree.root_node
 
 

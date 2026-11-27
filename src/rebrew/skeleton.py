@@ -611,7 +611,7 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
 
             from rebrew.analysis import capstone_handle
 
-            md = capstone_handle(CS_ARCH_X86, CS_MODE_32)
+            md = capstone_handle(CS_ARCH_X86, CS_MODE_32, detail=True)
             insns = list(md.disasm(raw, va))
             # A ret that is the target of a conditional jump is an early
             # return (if/switch exit), NOT a function end — counting every

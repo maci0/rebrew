@@ -23,7 +23,6 @@ import typer
 lazy from rich.text import Text
 
 from rebrew.c_parser import (
-    CALLING_CONVENTION,
     find_extern_variables,
     find_function_name_in_node,
     function_definition_spans,
@@ -1711,68 +1710,6 @@ def _check_W021_duplicate_globals(
             seen_globals[key] = (str(filepath), binding.va, defines)
 
 
-# Brackets may repeat, and one bound may contain one nested pair.
-# Stopping at the first ``]`` skipped ``g[sizeof(wchar_t[3])] = {0}``
-# and ``g[2][4] = {0}``, so W022 never saw them and W021 never named them.
-# ``*name[N]`` glues the star to the name. ``(*name[N])`` and ``(*name)[N]``
-# put the name inside parentheses. ``(*name[N])[M]`` has another bracket
-# run after the closing parenthesis. ``(__cdecl *name[N])`` keeps the
-# calling convention off the name. ``(* const name[N])`` keeps the
-# qualifier off the name. ``(*name[N])(int)`` keeps the parameter list
-# between the declarator and ``=``.
-_POINTER_NAME_QUALIFIER = r"(?:(?:const|volatile)\b\s*)*"
-_FN_PARAMS = r"(?:\((?:[^()]|\([^()]*\))*\))?"
-_ZERO_INIT_RE = re.compile(
-    r"^\s*(?:extern\s+|static\s+)?(?:unsigned\s+|signed\s+|const\s+)?"
-    r"[A-Za-z_][\w\s\*]*?"
-    r"(?:\s+[A-Za-z_]\w+"
-    r"|\s*\*+\s*[A-Za-z_]\w+"
-    r"|\(\s*"
-    + CALLING_CONVENTION
-    + r"\*+\s*"
-    + _POINTER_NAME_QUALIFIER
-    + r"[A-Za-z_]\w+\s*\)"
-    + _FN_PARAMS
-    + r"|\(\s*"
-    + CALLING_CONVENTION
-    + r"\**\s*"
-    + _POINTER_NAME_QUALIFIER
-    + r"[A-Za-z_]\w+\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+\s*\)"
-    + _FN_PARAMS
-    + r")"
-    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
-    r"\s*=\s*\{?\s*0\s*\}?\s*;"
-)
-
-# ``(int)`` after a function-pointer declarator also looks like a name
-# followed by ``[;=]``. Match ``(*name)`` first, so the parameter type is
-# not the global. ``__cdecl`` and ``const`` stay off that name.
-_GLOBAL_NAME_RE = re.compile(
-    r"(?:"
-    r"\(\s*"
-    + CALLING_CONVENTION
-    + r"\*+\s*"
-    + _POINTER_NAME_QUALIFIER
-    + r"(?P<pointer>[A-Za-z_]\w*)"
-    r"\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*\)"
-    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
-    r"(?:\((?:[^()]|\([^()]*\))*\))?"
-    r"|"
-    r"(?:\(\s*\**\s*)?\b(?P<name>[A-Za-z_]\w*)\s*\)?"
-    r"\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
-    r"\s*\)?\s*"
-    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\]\s*)*"
-    r")"
-    r"\s*[;=]"
-)
-
-
-def _declared_global_name(match: re.Match[str]) -> str:
-    """Return the declarator name from a global-name match."""
-    found = match.group("pointer") or match.group("name")
-    return found if isinstance(found, str) else ""
-
-
 # Event scanning for _strip_c_comments_strings: the characters that can change
 # state, per state.  Ordinary runs between events are copied as bulk slices;
 # the per-character loop this replaced was ~70% of batch-lint CPU.
@@ -1873,34 +1810,38 @@ def _strip_all(lines: list[str]) -> list[str]:
     return out
 
 
+def _is_zero_initializer_node(val_node: Any, raw: bytes) -> bool:
+    """True when an init_declarator value AST node is ``0`` or ``{ 0 }``."""
+    text = raw[val_node.start_byte : val_node.end_byte].decode("utf-8", errors="surrogateescape")
+    compact = "".join(text.split())
+    return compact in ("0", "{0}")
+
+
 def _check_W022_zero_init_bss(
     result: LintResult, code_lines: list[str], data_section_names: frozenset[str] = frozenset()
 ) -> None:
-    """Flag file-scope zero initializers (W022).
+    """Flag file-scope zero initializers (W022) via tree-sitter-c."""
+    from rebrew.c_parser import find_declarator_identifier, mask_msvc_syntax, parse_c_source
 
-    A file-scope ``= {0}`` / ``= 0`` forces the global into ``.data``
-    (initialized) instead of ``.bss`` (uninitialized, virtual-only) — this
-    is exactly the np-rebrew .data bloat (41K of zero-init arrays).  Leave
-    the global uninitialized for .bss.
-
-    Exception: a global whose name, or ``link_symbol`` without its leading
-    underscore, appears in ``rebrew-data.toml`` with
-    ``section = ".data"`` or ``section = ".bss"`` (passed via
-    *data_section_names*). A recorded ``.data`` zero-init is in the original
-    image. A recorded ``.bss`` ``= 0`` is a placement pin: dropping it moves
-    the symbol and rewrites absolute pointers stored in raw ``.data``.
-    Untracked ``= 0`` still warns.
-    """
-    depth = 0
-    for i, cleaned in enumerate(code_lines, start=1):
-        depth += cleaned.count("{") - cleaned.count("}")
-        if depth == 0 and _ZERO_INIT_RE.match(cleaned.strip()):
-            if data_section_names:
-                name_match = _GLOBAL_NAME_RE.search(cleaned)
-                if name_match and _declared_global_name(name_match) in data_section_names:
-                    continue
+    source = "\n".join(code_lines)
+    if "= 0" not in source and "={0}" not in source and "= {" not in source and "=0" not in source:
+        return
+    tree, raw = parse_c_source(mask_msvc_syntax(source))
+    for child in tree.root_node.named_children:
+        if child.type != "declaration":
+            continue
+        for sub in child.named_children:
+            if sub.type != "init_declarator":
+                continue
+            val = sub.child_by_field_name("value")
+            if val is None or not _is_zero_initializer_node(val, raw):
+                continue
+            decl = sub.child_by_field_name("declarator")
+            name = find_declarator_identifier(decl, raw) if decl is not None else ""
+            if data_section_names and name in data_section_names:
+                continue
             result.warning(
-                i,
+                int(child.start_point.row) + 1,
                 "W022",
                 "file-scope zero initializer (= {0} / = 0) puts the global in "
                 ".data, not .bss — leave it uninitialized to keep the PE small",
@@ -1908,39 +1849,12 @@ def _check_W022_zero_init_bss(
 
 
 def _check_W023_default_func_names(result: LintResult, lines: list[str], pedantic: bool) -> None:
-    """Warn about functions with default names (W023) when --pedantic is used.
-
-    A default name is one :func:`rebrew.workspace.names.is_placeholder_name` accepts
-    (fcn, fn, fun, FUN_<addr>, sub_<addr>, fcn_<addr>, ...).
-    """
+    """Warn about functions with default names (W023) when --pedantic is used."""
     if not pedantic:
         return
+    from rebrew.c_parser import find_c_function_definitions
 
-    # Strip comments so a commented-out definition does not warn.
-    code = "\n".join(lines)
-    while True:
-        start = code.find("/*")
-        end = code.find("*/", start + 2)
-        if start == -1 or end == -1:
-            break
-        code = code[:start] + code[end + 2 :]
-    code_lines = []
-    for line in code.splitlines():
-        comment_pos = line.find("//")
-        if comment_pos != -1:
-            line = line[:comment_pos]
-        code_lines.append(line)
-    code = "\n".join(code_lines)
-
-    # Matches are monotonic, so count newlines incrementally — rescanning
-    # the whole prefix per match is quadratic on merged multi-function files.
-    last_pos = 0
-    line_num = 1
-    for match in _FUNC_DEF_STYLE_RE.finditer(code):
-        func_name = match.group(2)
-        line_num += code.count("\n", last_pos, match.start())
-        last_pos = match.start()
-
+    for func_name, line_num in find_c_function_definitions("\n".join(lines)):
         if is_placeholder_name(func_name):
             result.warning(
                 line_num,
@@ -1954,15 +1868,7 @@ _CAMEL_CASE_RE = re.compile(r"[a-z][a-zA-Z0-9]*")
 
 
 def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
-    """Check code style rules from project config (W024-W027).
-
-    Config keys (all optional, from ``rebrew-project.toml [project.lint]``):
-    ``naming_convention`` (snake_case|camelCase|none), ``brace_style``
-    (same_line|new_line|none), ``indent_style`` (spaces|tabs|none),
-    ``max_line_length``.  Read defensively via ``getattr`` so mocks and
-    configs without a ``[project.lint]`` section default to "no rule".
-    Unknown enum values are rejected at config load (fall back to ``none``).
-    """
+    """Check code style rules from project config (W024-W027)."""
     if cfg is None:
         return
     lines = result._lines
@@ -1970,15 +1876,13 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
     # Naming convention (W024): function definitions should follow the rule.
     naming = getattr(cfg, "lint_naming_convention", "none")
     if naming != "none":
-        for i, line in enumerate(lines, start=1):
-            m = _FUNC_DEF_STYLE_RE.search(line)
-            if not m:
-                continue
-            func_name = m.group(2)
+        from rebrew.c_parser import find_c_function_definitions
+
+        for func_name, line_num in find_c_function_definitions("\n".join(lines)):
             if naming == "snake_case" and not _SNAKE_CASE_RE.fullmatch(func_name):
-                result.warning(i, "W024", f"Function '{func_name}' should be snake_case")
+                result.warning(line_num, "W024", f"Function '{func_name}' should be snake_case")
             elif naming == "camelCase" and not _CAMEL_CASE_RE.fullmatch(func_name):
-                result.warning(i, "W024", f"Function '{func_name}' should be camelCase")
+                result.warning(line_num, "W024", f"Function '{func_name}' should be camelCase")
 
     # Brace style (W025).
     brace = getattr(cfg, "lint_brace_style", "none")

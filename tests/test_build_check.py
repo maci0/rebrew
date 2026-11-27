@@ -542,3 +542,238 @@ class TestQueryExecutionRefusals:
         assert payload["status"] == "not-configured"
         filename = "recipes.mk" if included else "build.make"
         assert f"{filename}:2" in payload["message"]
+
+
+def _file_api_tree(
+    tmp_path: Path,
+    *,
+    sources: bool = True,
+    ninja: bool = False,
+    ninja_extra_flag: str = "",
+    compile_commands: bool = False,
+    cc_extra_flag: str = "",
+) -> Path:
+    """Create a CMake File API (codemodel-v2) build tree with optional Ninja / compile_commands."""
+    import json
+
+    build = tmp_path / "build"
+    reply = build / ".cmake" / "api" / "v1" / "reply"
+    reply.mkdir(parents=True)
+    if sources:
+        for src in ("src/a/one.c", "src/b/two.c"):
+            p = tmp_path / src
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("int x;\n", encoding="utf-8")
+
+    (reply / "index-2026-01-01T00-00-00-0000.json").write_text(
+        json.dumps(
+            {
+                "objects": [
+                    {
+                        "kind": "codemodel",
+                        "version": {"major": 2, "minor": 6},
+                        "jsonFile": "codemodel-v2-abc.json",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reply / "codemodel-v2-abc.json").write_text(
+        json.dumps(
+            {
+                "paths": {"source": str(tmp_path), "build": str(build)},
+                "configurations": [
+                    {
+                        "name": "Release",
+                        "targets": [{"name": "server_dll", "jsonFile": "target-server_dll.json"}],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reply / "target-server_dll.json").write_text(
+        json.dumps(
+            {
+                "name": "server_dll",
+                "compileGroups": [
+                    {
+                        "language": "C",
+                        "compileCommandFragments": [
+                            {"fragment": "/O2 /Gd"},
+                            {"fragment": "/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp"},
+                        ],
+                    },
+                    {
+                        "language": "C",
+                        "compileCommandFragments": [{"fragment": "/Ox /Gd"}],
+                    },
+                ],
+                "sources": [
+                    {"path": "src/a/one.c", "compileGroupIndex": 0},
+                    {"path": "src/b/two.c", "compileGroupIndex": 1},
+                    {"path": "include/hdr.h"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    if ninja:
+        extra = f" {ninja_extra_flag}" if ninja_extra_flag else ""
+        (build / "build.ninja").write_text(
+            f"build CMakeFiles/server_dll.dir/src/a/one.c.obj: C_COMPILER__server_dll_Release {tmp_path / 'src/a/one.c'}\n"
+            f"  FLAGS = /nologo /O2 /Gd /REBREW_TOOLCHAIN:msvc-6.0-sp5-pp\n"
+            f"build CMakeFiles/server_dll.dir/src/b/two.c.obj: C_COMPILER__server_dll_Release {tmp_path / 'src/b/two.c'}\n"
+            f"  FLAGS = /nologo /Ox /Gd{extra}\n",
+            encoding="utf-8",
+        )
+    if compile_commands:
+        extra = f" {cc_extra_flag}" if cc_extra_flag else ""
+        (build / "compile_commands.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "directory": str(build),
+                        "command": f"cl /nologo /O2 /Gd /REBREW_TOOLCHAIN:msvc-6.0-sp5-pp /Foone.obj -c {tmp_path / 'src/a/one.c'}",
+                        "file": str(tmp_path / "src/a/one.c"),
+                        "output": "CMakeFiles/server_dll.dir/src/a/one.c.obj",
+                    },
+                    {
+                        "directory": str(build),
+                        "command": f"cl /nologo /Ox /Gd{extra} /Fotwo.obj -c {tmp_path / 'src/b/two.c'}",
+                        "file": str(tmp_path / "src/b/two.c"),
+                        "output": "CMakeFiles/server_dll.dir/src/b/two.c.obj",
+                    },
+                ]
+            ),
+            encoding="utf-8",
+        )
+    return build
+
+
+class TestCMakeFileApiAndCompileCommands:
+    def test_file_api_ninja_clean_and_drift(self, tmp_path: Path) -> None:
+        clean = _file_api_tree(tmp_path / "clean", ninja=True)
+        res = check(clean)
+        assert res["status"] == "ok", res
+        assert res["checked"] == 2
+        assert res["drift"] == []
+
+        drifted = _file_api_tree(tmp_path / "drift", ninja=True, ninja_extra_flag="/Ob1")
+        res2 = check(drifted)
+        assert res2["status"] == "drift"
+        assert [d["flag"] for d in res2["drift"]] == ["/Ob1"]
+
+    def test_file_api_missing_source_is_drift(self, tmp_path: Path) -> None:
+        stale = _file_api_tree(tmp_path, sources=False, ninja=True)
+        res = check(stale)
+        assert res["status"] == "drift"
+        assert "no longer exist" in res["message"]
+        assert any(d["flag"] == "MISSING SOURCE" for d in res["drift"])
+
+    def test_file_api_with_compile_commands_detects_flag_drift(self, tmp_path: Path) -> None:
+        clean = _file_api_tree(tmp_path / "clean", compile_commands=True)
+        assert check(clean)["status"] == "ok"
+
+        drifted = _file_api_tree(tmp_path / "drift", compile_commands=True, cc_extra_flag="/Oa")
+        res = check(drifted)
+        assert res["status"] == "drift"
+        assert [d["flag"] for d in res["drift"]] == ["/Oa"]
+
+    def test_per_file_pin_reads_file_api_and_compile_commands(self, tmp_path: Path) -> None:
+        from rebrew.build_check import per_file_pin
+
+        build = _file_api_tree(tmp_path)
+        tc, flags = per_file_pin(tmp_path / "src/a/one.c", build)
+        assert tc == "msvc-6.0-sp5-pp"
+        assert "/O2" in flags and "/Gd" in flags
+        tc2, flags2 = per_file_pin(tmp_path / "src/b/two.c", build)
+        assert tc2 is None
+        assert "/Ox" in flags2
+
+        # Standalone compile_commands.json (no File API, no flags.make)
+        import json
+
+        cc_dir = tmp_path / "cc_build"
+        cc_dir.mkdir()
+        (cc_dir / "compile_commands.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "directory": str(cc_dir),
+                        "arguments": [
+                            "cl",
+                            "/nologo",
+                            "/O2",
+                            "/REBREW_TOOLCHAIN:msvc-6.0",
+                            "-c",
+                            str(tmp_path / "src/a/one.c"),
+                        ],
+                        "file": str(tmp_path / "src/a/one.c"),
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        tc3, flags3 = per_file_pin(tmp_path / "src/a/one.c", cc_dir)
+        assert tc3 == "msvc-6.0"
+        assert flags3 == "/O2"
+
+    def test_compile_commands_only_with_ninja_checks_drift_and_freshness(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        src = tmp_path / "src/a/one.c"
+        src.parent.mkdir(parents=True)
+        src.write_text("int x;\n", encoding="utf-8")
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "compile_commands.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "directory": str(build),
+                        "command": f"cl /nologo /O2 /Gd -c {src}",
+                        "file": str(src),
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (build / "build.ninja").write_text(
+            f"build CMakeFiles/app.dir/src/a/one.c.obj: C_COMPILER__app_Release {src}\n"
+            "  FLAGS = /nologo /O2 /Gd\n",
+            encoding="utf-8",
+        )
+        assert check(build)["status"] == "ok"
+
+        monkeypatch.setattr(
+            "shutil.which", lambda name: "/usr/bin/ninja" if name == "ninja" else None
+        )
+        monkeypatch.setattr(
+            build_check,
+            "run_process_group",
+            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "ninja: no work to do.\n", ""),
+        )
+        assert check(build, objects=True)["status"] == "ok"
+
+        monkeypatch.setattr(
+            build_check,
+            "run_process_group",
+            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "[1/1] Building C object\n", ""),
+        )
+        stale = check(build, objects=True)
+        assert stale["status"] == "drift"
+        assert stale["drift"] == [{"obj": str(build), "flag": "STALE OBJECTS"}]
+
+        # Hand-edit build.ninja to add an unrecorded flag.
+        (build / "build.ninja").write_text(
+            f"build CMakeFiles/app.dir/src/a/one.c.obj: C_COMPILER__app_Release {src}\n"
+            "  FLAGS = /nologo /O2 /Gd /Ob1\n",
+            encoding="utf-8",
+        )
+        drifted = check(build)
+        assert drifted["status"] == "drift"
+        assert [d["flag"] for d in drifted["drift"]] == ["/Ob1"]

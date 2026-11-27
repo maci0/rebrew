@@ -299,6 +299,32 @@ class TestMultiwordBases:
         assert result.injected == []
         assert "typedef int row;" not in result.source
 
+    def test_typedef_captures_alias_not_base_type(self) -> None:
+        from rebrew.fixup import _existing_identifiers
+
+        ids = _existing_identifiers("typedef int my_t;\n")
+        assert "my_t" in ids
+        assert "int" not in ids
+        result = fixup_source(
+            "typedef int my_t;\nvoid f(void) { my_t x; }\n",
+            compile_errors="unknown type name 'my_t'",
+        )
+        assert result.injected == []
+        assert "typedef int my_t;\n\n" not in result.source
+
+    def test_prototype_captures_function_name(self) -> None:
+        from rebrew.fixup import _existing_identifiers
+
+        ids = _existing_identifiers("int foo(int a);\n")
+        assert "foo" in ids
+        assert "a" not in ids
+        result = fixup_source(
+            "int foo(int a);\nvoid f(void) { foo(1); }\n",
+            compile_errors="implicit declaration of function 'foo'",
+        )
+        assert result.injected == []
+        assert "int foo();" not in result.source
+
     def test_cdecl_pointer_array_is_not_redefined(self) -> None:
         """``int (__cdecl *table[2])[3]`` already names ``table``.
 

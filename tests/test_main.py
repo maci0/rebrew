@@ -227,3 +227,88 @@ class TestSingleCommandEntry:
         got = runner.invoke(single, argv)
         assert expected.exit_code == got.exit_code == 0
         assert got.output == expected.output
+
+
+class TestSingleDomainSubcommandEntry:
+    """Pure-domain invocations mount only the named subcommand, skipping sibling imports."""
+
+    @pytest.mark.parametrize(
+        ("argv", "expected"),
+        [
+            (["build", "driver", "--help"], ("build", "driver")),
+            (["-o", "json", "source", "rename", "--help"], ("source", "rename")),
+            (["-vv", "binary", "pe", "--help"], ("binary", "pe")),
+            (["coverage", "serve", "--help"], ("coverage", "serve")),
+            (["build", "--help"], None),
+            (["source", "not-a-subcommand"], None),
+            (["match", "climb", "--help"], None),  # domain with base app
+            (["test", "--help"], None),  # top-level command, not a domain
+        ],
+    )
+    def test_argv_selects_pure_domain_subcommand(
+        self, argv: list[str], expected: tuple[str, str] | None
+    ) -> None:
+        from rebrew.app.main import _invoked_builtin, _invoked_domain_subcommand
+
+        component = _invoked_builtin(argv)
+        assert component is not None
+        sub = _invoked_domain_subcommand(argv, component)
+        assert ((sub[0], sub[1].name) if sub else None) == expected
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["build", "driver", "--help"],
+            ["source", "rename", "--help"],
+            ["binary", "pe", "--help"],
+            ["coverage", "serve", "--help"],
+        ],
+    )
+    def test_single_domain_subcommand_help_matches_umbrella(self, argv: list[str]) -> None:
+        from rebrew.app.main import (
+            _invoked_builtin,
+            _invoked_domain_subcommand,
+            _single_domain_command_app,
+        )
+
+        component = _invoked_builtin(argv)
+        assert component is not None
+        domain_sub = _invoked_domain_subcommand(argv, component)
+        assert domain_sub is not None
+        single, _fiber = _single_domain_command_app(component, *domain_sub)
+        expected = runner.invoke(app, argv)
+        got = runner.invoke(single, argv)
+        assert expected.exit_code == got.exit_code == 0
+        assert got.output == expected.output
+
+    def test_domain_subcommand_does_not_import_sibling_modules(self) -> None:
+        import json
+        import subprocess
+        import sys
+
+        code = (
+            "import json, sys; "
+            "from rebrew.app import main as m; "
+            "argv = ['build', 'driver', '--help']; "
+            "c = m._invoked_builtin(argv); "
+            "ds = m._invoked_domain_subcommand(argv, c); "
+            "assert c is not None and ds is not None; "
+            "m._single_domain_command_app(c, *ds); "
+            "print(json.dumps(sorted(k for k in sys.modules if k.startswith('rebrew.'))))"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        loaded = set(json.loads(proc.stdout))
+        assert "rebrew.cmake_tc" in loaded
+        for sibling in (
+            "rebrew.delphi_build",
+            "rebrew.round_trip",
+            "rebrew.postlink",
+            "rebrew.link_sweep",
+        ):
+            assert sibling not in loaded, f"unexpected sibling module imported: {sibling}"

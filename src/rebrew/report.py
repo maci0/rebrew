@@ -42,7 +42,6 @@ Usage:
 
 import re
 from typing import Literal, get_args  # module statement: definition-time use
-lazy import html
 lazy import json
 lazy import logging
 lazy import math
@@ -50,6 +49,8 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
+from jinja2 import Environment, PackageLoader, select_autoescape
+lazy from markupsafe import Markup
 
 from rebrew.cli import (
     TargetOption,
@@ -155,119 +156,25 @@ def _status_forced_selectors() -> str:
 
 # Chrome is the shared token set (rebrew.theme, resolved below) and the status
 # marks are status_style.STATUS_HEX, the same ones the coverage dashboard renders.
-_CSS = """
-body { font-family: var(--rb-sans); line-height: var(--rb-leading-body);
-       margin: 0; background: var(--rb-sunken); color: var(--rb-ink); }
-.skip-link { position: absolute; inset-inline-start: -9999px; top: 0; z-index: 100;
-             padding: 0.5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
-             text-decoration: underline; }
-.skip-link:focus-visible { inset-inline-start: 1rem; top: 1rem; }
-header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
-         display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
-header h1 { font-size: var(--rb-size-title); letter-spacing: var(--rb-track-display); margin: 0; }
-header h1 .mark { font-family: var(--rb-mono); color: var(--rb-mark); }
-header nav, footer nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
-header nav a, footer nav a { color: var(--rb-nav); text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
-        display: inline-flex; align-items: center; }
-header nav a:hover, footer nav a:hover { color: var(--rb-surface); }
-header nav a.active, footer nav a.active { color: var(--rb-surface); font-weight: 600; text-decoration-thickness: 2px; }
-:focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
-header nav a:focus-visible, footer nav a:focus-visible { outline-color: var(--rb-accent-soft); }
-footer { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
-         display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; margin-top: 1.5rem; }
-main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
-h2 { font-size: var(--rb-size-heading); letter-spacing: var(--rb-track-display); margin: 1.5rem 0 .5rem; }
-.cards { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0 0 1.5rem; }
-/* Label reads first (dt before dd); column-reverse shows the value on top. */
-.card { background: var(--rb-surface); border: 1px solid var(--rb-line);
-        border-radius: var(--rb-radius);
-        padding: 0.9rem 1.1rem; min-width: 140px;
-        display: flex; flex-direction: column-reverse; }
-.card dd { margin: 0; }
-.card .value { font-size: var(--rb-size-value); font-weight: 700; }
-.card .label { color: var(--rb-muted); font-size: var(--rb-size-caption); letter-spacing: var(--rb-track-label); }
-.table-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
-table { width: 100%; border-collapse: collapse; background: var(--rb-surface);
-        border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
-        overflow: hidden; margin-bottom: 0; }
-th, td { text-align: start; padding: 0.5rem 0.75rem;
-         border-bottom: 1px solid var(--rb-line); font-size: var(--rb-size-cell); }
-th { background: var(--rb-sunken); font-weight: 600; white-space: nowrap; }
-tbody tr:hover { background: var(--rb-hover); }
-caption { caption-side: top; text-align: start; padding: 0.5rem 0.75rem;
-          font-size: var(--rb-size-cell); font-weight: 600; color: var(--rb-muted); }
-.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0;
-                   margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0);
-                   white-space: nowrap; border: 0; }
-tr:last-child td { border-bottom: none; }
-td.mono, code { font-family: var(--rb-mono); }
-td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
-td.file { max-width: 18rem; overflow-wrap: anywhere; }
-td details { max-width: 40rem; overflow-wrap: anywhere; }
-/* The disclosure toggle is the only way to read a full string or every ref, so
-   it is pinned past 24px tall; the 14px cell font left it at the threshold. */
-td summary { cursor: pointer; padding: 0.35rem 0; min-height: 2.75rem; display: flex;
-             align-items: center; }
-/* The status reference sits between the cards and the table, so it takes the
-   card surface rather than the page's. */
-.legend { background: var(--rb-surface); border: 1px solid var(--rb-line);
-          border-radius: var(--rb-radius); padding: 0.6rem 1.1rem; margin: 0 0 1.5rem; }
-.legend > summary { cursor: pointer; font-weight: 600; min-height: 2.75rem;
-                    padding: 0.35rem 0; display: flex; align-items: center; }
-.legend dl { display: grid; grid-template-columns: max-content 1fr;
-             gap: 0.35rem 1.25rem; margin: 0.75rem 0 0.25rem; }
-.legend dt { font-family: var(--rb-mono); font-weight: 600; }
-.legend dd { margin: 0; }
-__STATUS_TEXT_CSS__
-@media (forced-colors: active) {
-__STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
-  header nav a.active, footer nav a.active { text-decoration: underline; }
-  :focus-visible { outline-color: Highlight; }
-  .note { border-color: CanvasText; color: CanvasText; background: Canvas; }
-}
-.note { background: var(--rb-note-bg); border: 1px solid var(--rb-note-ink);
-        border-radius: var(--rb-radius);
-        padding: 0.9rem 1.1rem; color: var(--rb-note-ink); margin-bottom: 1.5rem; }
-.pager { color: var(--rb-muted); font-size: var(--rb-size-note); margin: 0.75rem 0 1rem; }
-/* The copy under the table repeats the one above it, so it stays in the flow.
-   Pinned to the viewport it would carry an opaque background over the rows
-   scrolling behind it, hiding their last line for anyone reading at 200% zoom
-   or under magnification. */
-.pager-end { margin-top: -0.75rem; }
-.pager a { color: var(--rb-accent); text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
-           display: inline-flex; align-items: center; }
-.pager a:hover { color: var(--rb-accent-hi); }
-/* The page the reader is on is a label, not another link to itself. */
-.pager .here { font-weight: 700; padding: 0.35rem 0.35rem; }
-.mermaid-scroll { overflow-x: auto; }
-.mermaid-scroll:focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
-pre.mermaid { background: var(--rb-surface); border: 1px solid var(--rb-line);
-        border-radius: var(--rb-radius); padding: 1rem; margin: 0;
-        font-family: var(--rb-mono);
-        font-size: var(--rb-size-code); line-height: 1.4; }
-@media (max-width: 40rem) {
-  header, main { padding-inline: 1rem; }
-  /* The dashboard's narrow-viewport card rule, so both surfaces reflow alike;
-     one card per row pushed the summary seven rows down before the table. */
-  .card { min-width: 0; flex: 1 1 6rem; padding: .4rem .6rem; }
-}
-@media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
-}
-/* Skip layout/paint for off-screen rows on large result pages. */
-tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
-"""
-_CSS = _CSS.replace("__STATUS_TEXT_CSS__", status_text_css()).replace(
-    "__STATUS_FORCED__", _status_forced_selectors()
+_TEMPLATE_ENV = Environment(
+    loader=PackageLoader("rebrew", "templates/report"),
+    autoescape=select_autoescape(["html", "html.j2", "xml"]),
+    keep_trailing_newline=True,
 )
-_CSS = inline(_CSS)
 
 
-def _nav_link(href: str, label: str, active: bool) -> str:
-    """Render one navigation link (single-quoted attributes)."""
-    cls = " class='active'" if active else ""
-    current = " aria-current='page'" if active else ""
-    return f"<a href='{href}'{cls}{current}>{html.escape(label)}</a>"
+def _render_template(name: str, **context: Any) -> str:
+    """Render one Jinja2 template from ``rebrew/templates/report/``."""
+    return _TEMPLATE_ENV.get_template(name).render(**context)
+
+
+_CSS = inline(
+    _render_template(
+        "report.css.j2",
+        status_text_css=status_text_css(),
+        status_forced=_status_forced_selectors(),
+    )
+)
 
 
 def _paged_href(stem: str, page: int) -> str:
@@ -317,16 +224,24 @@ def _pager_nav(
         return ""
     start = (page - 1) * _TABLE_PAGE_SIZE + 1
     end = min(page * _TABLE_PAGE_SIZE, total_rows)
-    esc_noun = html.escape(noun, quote=True)
-    links: list[str] = []
+    items: list[dict[str, Any]] = []
     if page > 2:
-        links.append(
-            f"<a href='{_paged_href(stem, 1)}' aria-label='First page of {esc_noun}'>First</a>"
+        items.append(
+            {
+                "current": False,
+                "href": _paged_href(stem, 1),
+                "aria_label": f"First page of {noun}",
+                "text": "First",
+            }
         )
     if page > 1:
-        links.append(
-            f"<a href='{_paged_href(stem, page - 1)}' "
-            f"aria-label='Previous page of {esc_noun}'>Previous</a>"
+        items.append(
+            {
+                "current": False,
+                "href": _paged_href(stem, page - 1),
+                "aria_label": f"Previous page of {noun}",
+                "text": "Previous",
+            }
         )
     # Two pages either side.  A wider window turns a long report's pager into
     # a second nav row; First/Last already reach the ends, so those two
@@ -336,31 +251,44 @@ def _pager_nav(
         if (number == 1 and page > 2) or (number == total_pages and page < total_pages - 1):
             continue
         if number == page:
-            links.append(
-                f"<span class='here' aria-current='page'>Page {number} of {total_pages}</span>"
-            )
+            items.append({"current": True, "text": f"Page {number} of {total_pages}"})
             continue
-        links.append(
-            f"<a href='{_paged_href(stem, number)}' "
-            f"aria-label='Page {number} of {total_pages} of {esc_noun}'>{number}</a>"
+        items.append(
+            {
+                "current": False,
+                "href": _paged_href(stem, number),
+                "aria_label": f"Page {number} of {total_pages} of {noun}",
+                "text": str(number),
+            }
         )
     if page < total_pages:
-        links.append(
-            f"<a href='{_paged_href(stem, page + 1)}' aria-label='Next page of {esc_noun}'>Next</a>"
+        items.append(
+            {
+                "current": False,
+                "href": _paged_href(stem, page + 1),
+                "aria_label": f"Next page of {noun}",
+                "text": "Next",
+            }
         )
     if page < total_pages - 1:
-        links.append(
-            f"<a href='{_paged_href(stem, total_pages)}' "
-            f"aria-label='Last page of {esc_noun}'>Last</a>"
+        items.append(
+            {
+                "current": False,
+                "href": _paged_href(stem, total_pages),
+                "aria_label": f"Last page of {noun}",
+                "text": "Last",
+            }
         )
-    shown = f"Showing {start}\u2013{end} of {total_rows} {html.escape(noun)}"
-    if span:
-        shown += f" ({html.escape(span)})"
-    return (
-        f"<div class='{'pager pager-end' if bottom else 'pager'}'"
-        f" aria-label='{html.escape(label, quote=True)}' role='group'>"
-        f"{shown}. "
-        f"{' · '.join(links)}</div>"
+    return _render_template(
+        "pager.html.j2",
+        bottom=bottom,
+        label=label,
+        start=start,
+        end=end,
+        total_rows=total_rows,
+        noun=noun,
+        span=span,
+        items=items,
     )
 
 
@@ -452,38 +380,22 @@ def _prune_stale_report_files(out: Path, written: set[str]) -> None:
             continue
 
 
-def _table_scroll(table_html: str, aria_label: str = "Scrollable table") -> str:
-    """Wrap a table so wide columns scroll instead of forcing page overflow."""
-    return (
-        f"<div class='table-scroll' tabindex='0' role='region' "
-        f"aria-label='{html.escape(aria_label, quote=True)}'>{table_html}</div>"
-    )
-
-
 def _cards(pairs: list[tuple[str, str]]) -> str:
     """Render (label, value) summary cards as a description list."""
-    items = "".join(
-        f"<div class='card'><dt class='label'>{html.escape(label)}</dt>"
-        f"<dd class='value'>{html.escape(value)}</dd></div>"
-        for label, value in pairs
-    )
-    return f"<dl class='cards'>{items}</dl>"
+    return _render_template("cards.html.j2", pairs=pairs)
 
 
 def _data_table(caption: str, headers: list[str], rows_html: str) -> str:
     """Build a captioned data table with column scopes and a scroll region."""
-    ths = "".join(f"<th scope='col'>{html.escape(h)}</th>" for h in headers)
-    table = (
-        "<table>"
-        f"<caption class='visually-hidden'>{html.escape(caption)}</caption>"
-        f"<thead><tr>{ths}</tr></thead>"
-        f"<tbody>{rows_html}</tbody>"
-        "</table>"
+    return _render_template(
+        "data_table.html.j2",
+        caption=caption,
+        headers=headers,
+        rows_html=rows_html,
     )
-    return _table_scroll(table, aria_label=caption)
 
 
-def _no_functions_note(reversed_dir: Path | None) -> str:
+def _no_functions_note(reversed_dir: Path | None) -> Markup:
     """Why the index and the call graph are empty, naming the directory read.
 
     "The project's reversed directory" names a config key, not a place: a
@@ -492,14 +404,14 @@ def _no_functions_note(reversed_dir: Path | None) -> str:
     that settles that.
     """
     if reversed_dir is None:
-        return (
+        return Markup(
             "No reversed functions found. Set <code>reversed_dir</code> in "
             "rebrew-project.toml, then regenerate this report."
         )
-    return (
+    return Markup(
         "No reversed functions found. Add annotated sources under "
-        f"<code>{html.escape(str(reversed_dir))}</code>, then regenerate this report."
-    )
+        "<code>{}</code>, then regenerate this report."
+    ).format(str(reversed_dir))
 
 
 def _status_legend(statuses: set[str]) -> str:
@@ -513,58 +425,24 @@ def _status_legend(statuses: set[str]) -> str:
     rows = status_legend_rows(statuses)
     if not rows:
         return ""
-    items = "".join(
-        f"<dt class='{_STATUS_CLASSES.get(status, 'st')}'>{html.escape(status)}</dt>"
-        f"<dd>{html.escape(meaning)}</dd>"
-        for status, meaning in rows
-    )
     # A table row saved without a STATUS prints the UNKNOWN the classifier
     # gives it, so that token needs its own line beside the stored ones.
     if "UNKNOWN" in statuses and all(status != "UNKNOWN" for status, _ in rows):
-        items += (
-            "<dt class='st status-UNKNOWN'>UNKNOWN</dt>"
-            f"<dd>{html.escape(STATUS_SUMMARIES['UNKNOWN'])}</dd>"
-        )
         rows = [*rows, ("UNKNOWN", STATUS_SUMMARIES["UNKNOWN"])]
-    return (
-        f"<details class='legend'><summary>Status reference "
-        f"({len(rows)})</summary><dl>{items}</dl></details>"
-    )
+    styled_rows = [(status, _STATUS_CLASSES.get(status, "st"), meaning) for status, meaning in rows]
+    return _render_template("status_legend.html.j2", rows=styled_rows)
 
 
 def _page(title: str, target: str, active: str, body: str) -> str:
     """Wrap *body* in the shared page skeleton (inline CSS, no external assets)."""
-    nav = "".join(_nav_link(href, label, href == active) for href, label in _PAGES)
-    return (
-        "<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
-        "<meta charset='utf-8'>\n"
-        # The site has no JS; the CSP keeps any escaping of binary-derived
-        # content (strings, symbol names) inert — nothing may execute or load
-        # off-site.  ``img-src 'self' file:`` covers the linked mark in both
-        # documented serving modes: hosted, where the page and the mark share
-        # an origin, and opened from disk, where a ``file:`` document has an
-        # opaque origin and ``'self'`` matches nothing.  It buys only image
-        # loads, and no page carries unescaped binary-derived text, so nothing
-        # in a report can ask for one.
-        "<meta http-equiv='Content-Security-Policy' "
-        "content=\"default-src 'none'; style-src 'unsafe-inline'; "
-        "img-src 'self' file:; frame-ancestors 'none'; form-action 'none'; base-uri 'none';\">\n"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
-        # The mark is linked, not inlined as a data URI: 443 B of
-        # percent-encoded, near-incompressible payload would otherwise ride in
-        # every page the browser downloads, and a linked file is fetched once
-        # and served from cache for the rest of the walk.  Same trade the
-        # dashboard shell makes, for the same reason.
-        "<link rel='icon' href='favicon.svg' type='image/svg+xml' sizes='16x16' fetchpriority='low'>\n"
-        f"<title>{html.escape(title)} - {html.escape(target)}</title>\n"
-        f"<style>{_CSS}</style>\n"
-        "</head>\n<body>\n"
-        "<a class='skip-link' href='#main'>Skip to content</a>\n"
-        f"<header><h1><span class='mark' aria-hidden='true'>0x</span> {html.escape(target)} - Rebrew report</h1>"
-        f"<nav aria-label='Report pages'>{nav}</nav></header>\n"
-        f"<main id='main' tabindex='-1'>\n{body}\n</main>\n"
-        f"<footer><nav aria-label='Report pages, footer'>{nav}</nav></footer>\n"
-        "</body>\n</html>\n"
+    return _render_template(
+        "base.html.j2",
+        title=title,
+        target=target,
+        active=active,
+        pages=_PAGES,
+        css=_CSS,
+        body=body,
     )
 
 
@@ -746,19 +624,20 @@ def _ne_summary(cfg: ProjectConfig) -> dict[str, Any] | None:
 
 def _function_rows_html(functions: list[dict[str, Any]]) -> str:
     """Render ``<tr>…</tr>`` rows for a slice of the function index table."""
-    return "".join(
-        "<tr>"
-        f"<td class='mono'>{html.escape(fn['name'])}</td>"
-        f"<td class='mono'>0x{fn['va']:08x}</td>"
-        f"<td class='file'>{html.escape(fn['file'])}</td>"
-        f"<td class='{_STATUS_CLASSES.get(fn['status'], 'st')}'>"
-        f"{html.escape(fn['status'])}</td>"
-        f"<td class='mono'>{fn['size']}</td>"
-        f"<td class='mono'>{html.escape(fn['cflags'])}</td>"
-        f"<td class='blocker'>{html.escape(fn['blocker'])}</td>"
-        "</tr>"
+    rows = [
+        {
+            "name": fn["name"],
+            "va_hex": f"0x{fn['va']:08x}",
+            "file": fn["file"],
+            "status_class": _STATUS_CLASSES.get(fn["status"], "st"),
+            "status": fn["status"],
+            "size": fn["size"],
+            "cflags": fn["cflags"],
+            "blocker": fn["blocker"],
+        }
         for fn in functions
-    )
+    ]
+    return _render_template("function_rows.html.j2", functions=rows)
 
 
 def _render_index(
@@ -773,7 +652,7 @@ def _render_index(
     # One percentage. With a known .text size the code-account card is that
     # share and Byte-matched is a count. Without a size, Byte-matched carries
     # the function share and the code-account card says the size was not measured.
-    over_text_html = ""
+    over_text: dict[str, Any] | None = None
     if report.total_text_bytes > 0:
         matched_card = f"{report.matched_functions}/{report.total_functions}"
         # The percentage's numerator is the accounted bytes (matched plus
@@ -787,12 +666,7 @@ def _render_index(
             if report.padding_bytes:
                 counted += f" plus {report.padding_bytes} bytes of alignment fill"
             text_card = "100%+"
-            over_text_html = (
-                f"<p class='note'>The code account counts {counted}, more than the "
-                f"{report.total_text_bytes}-byte .text section, so it "
-                "is shown as 100%+. Re-run <code>rebrew coverage export --output snapshots/</code> if the "
-                "SIZE fields are stale.</p>"
-            )
+            over_text = {"counted": counted, "total_text_bytes": report.total_text_bytes}
         else:
             text_card = f"{report.byte_coverage_pct}%"
     else:
@@ -827,9 +701,9 @@ def _render_index(
     legend_html = _status_legend(shown)
 
     # 16-bit NE targets get their own card set (segments, VMTs).
-    ne_html = ""
+    ne_cards_html: str | None = None
     if ne:
-        ne_cards = _cards(
+        ne_cards_html = _cards(
             [
                 ("Format", "16-bit NE"),
                 (
@@ -840,11 +714,22 @@ def _render_index(
                 ("VMTs", str(ne["vmt_tables"])),
             ]
         )
-        ne_html = f"<h3>16-bit NE target</h3>{ne_cards}"
 
     if not functions:
-        table = f"<p class='note'>{_no_functions_note(reversed_dir)}</p>"
-        body = f"<h2>Function index</h2>{card_html}{legend_html}{over_text_html}{ne_html}{table}"
+        body = _render_template(
+            "index_body.html.j2",
+            heading="Function index",
+            page_num=1,
+            card_html=card_html,
+            legend_html=legend_html,
+            over_text=over_text,
+            ne_cards_html=ne_cards_html,
+            empty_note=_no_functions_note(reversed_dir),
+            intro="",
+            pager="",
+            table="",
+            pager_end="",
+        )
         return [("index.html", _page("Function index", target, "index.html", body))]
 
     total = len(functions)
@@ -852,7 +737,7 @@ def _render_index(
     # The strings and imports pages open with a count; the index carried none,
     # so a single-page table gave a reader no idea how much of the target it
     # was showing.  A multi-page table reads the total off its pager.
-    intro = f"<p>{_count_phrase(total, 'reversed function', 'reversed functions')}.</p>"
+    intro = _count_phrase(total, "reversed function", "reversed functions")
     pages: list[tuple[str, str]] = []
     for page_num in range(1, total_pages + 1):
         start = (page_num - 1) * _TABLE_PAGE_SIZE
@@ -875,21 +760,48 @@ def _render_index(
             bottom=True,
         )
         if page_num == 1:
-            body = (
-                f"<h2>Function index</h2>{card_html}{legend_html}"
-                f"{over_text_html}{ne_html}{intro}{pager}{table}{pager_end}"
-            )
+            heading = "Function index"
             title = "Function index"
         else:
             # Every page of the table prints the same coloured Status column,
             # so every page carries the key that explains it.  A reader who
             # opens index-pN.html from a link or the pager landed without one.
-            body = (
-                f"<h2>Function index (continued)</h2>{legend_html}{intro}{pager}{table}{pager_end}"
-            )
+            heading = "Function index (continued)"
             title = f"Function index ({page_num}/{total_pages})"
+        body = _render_template(
+            "index_body.html.j2",
+            heading=heading,
+            page_num=page_num,
+            card_html=card_html,
+            legend_html=legend_html,
+            over_text=over_text,
+            ne_cards_html=ne_cards_html,
+            empty_note=None,
+            intro=intro,
+            pager=pager,
+            table=table,
+            pager_end=pager_end,
+        )
         pages.append((_paged_href("index", page_num), _page(title, target, "index.html", body)))
     return pages
+
+
+def _note_page(
+    title: str,
+    target: str,
+    active: str,
+    heading: str,
+    note: str | Markup,
+    extra: str = "",
+) -> str:
+    """Render a full page whose body is a heading plus a single explanatory note."""
+    body = _render_template(
+        "note_body.html.j2",
+        heading=heading,
+        note=note,
+        extra=extra,
+    )
+    return _page(title, target, active, body)
 
 
 def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
@@ -900,13 +812,13 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
         return [
             (
                 "strings.html",
-                _page(
+                _note_page(
                     "Strings",
                     target,
                     "strings.html",
-                    "<h2>Strings</h2>"
-                    "<p class='note'>Target binary not found. Check the binary path in "
-                    "rebrew-project.toml, then regenerate this report.</p>",
+                    "Strings",
+                    "Target binary not found. Check the binary path in "
+                    "rebrew-project.toml, then regenerate this report.",
                 ),
             )
         ]
@@ -917,13 +829,13 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
         return [
             (
                 "strings.html",
-                _page(
+                _note_page(
                     "Strings",
                     target,
                     "strings.html",
-                    "<h2>Strings</h2>"
-                    "<p class='note'>Failed to parse the target binary. Confirm the file is a "
-                    "supported PE/ELF/NE binary, then regenerate this report.</p>",
+                    "Strings",
+                    "Failed to parse the target binary. Confirm the file is a "
+                    "supported PE/ELF/NE binary, then regenerate this report.",
                 ),
             )
         ]
@@ -935,17 +847,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
             )
         else:
             note = f"No printable strings (min length 4) found in {', '.join(data_sections)}."
-        return [
-            (
-                "strings.html",
-                _page(
-                    "Strings",
-                    target,
-                    "strings.html",
-                    f"<h2>Strings</h2><p class='note'>{note}</p>",
-                ),
-            )
-        ]
+        return [("strings.html", _note_page("Strings", target, "strings.html", "Strings", note))]
 
     refs: dict[int, list[Xref]] | None
     try:
@@ -960,20 +862,13 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
     # carry theirs: a single-page table renders no pager, so without it the
     # reader has no idea how many strings the page is holding.
     intro = (
-        "<p>"
         f"{_count_phrase(total, 'string', 'strings')} extracted from the binary's "
-        "data sections (min length 4).</p>"
+        "data sections (min length 4)."
     )
     # The Refs and Referenced-from columns read n/a on every page of the
     # table, so the note that says why travels with the table, not with the
     # first page of it: a reader who opens strings-pN.html from a link or the
     # pager would otherwise meet the n/a with no explanation on the page.
-    refs_note = ""
-    if refs is None:
-        refs_note = (
-            "<p class='note'>Code references to these strings could not be scanned; "
-            "the Refs columns read n/a.</p>"
-        )
     for page_num in range(1, total_pages + 1):
         start = (page_num - 1) * _TABLE_PAGE_SIZE
         chunk = strings[start : start + _TABLE_PAGE_SIZE]
@@ -997,19 +892,19 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
             span=span,
             bottom=True,
         )
-        if page_num == 1:
-            body = f"<h2>Strings</h2>{intro}{refs_note}{pager}{table}{pager_end}"
-            title = "Strings"
-        else:
-            body = f"<h2>Strings (continued)</h2>{intro}{refs_note}{pager}{table}{pager_end}"
-            title = f"Strings ({page_num}/{total_pages})"
+        heading = "Strings" if page_num == 1 else "Strings (continued)"
+        title = "Strings" if page_num == 1 else f"Strings ({page_num}/{total_pages})"
+        body = _render_template(
+            "strings_body.html.j2",
+            heading=heading,
+            intro=intro,
+            refs_failed=refs is None,
+            pager=pager,
+            table=table,
+            pager_end=pager_end,
+        )
         pages.append((_paged_href("strings", page_num), _page(title, target, "strings.html", body)))
     return pages
-
-
-def _disclosure(short: str, full: str) -> str:
-    """``<details>`` showing *short*, expanding to *full* (keyboard/AT reachable, unlike ``title``)."""
-    return f"<details><summary>{html.escape(short)}</summary>{html.escape(full)}</details>"
 
 
 def _string_row(s: StringEntry, xrefs: list[Xref] | None) -> str:
@@ -1018,33 +913,32 @@ def _string_row(s: StringEntry, xrefs: list[Xref] | None) -> str:
     *xrefs* is None when the reference scan failed: both cells read ``n/a``
     rather than a count of 0.
     """
+    text_short: str | None = None
     if len(s.text) > _STRING_CELL_CHARS:
-        text = _disclosure(truncate_text(s.text, _STRING_CELL_CHARS) + "\u2026", s.text)
-    else:
-        text = html.escape(s.text)
+        text_short = truncate_text(s.text, _STRING_CELL_CHARS) + "\u2026"
+    refs_short: str | None = None
     if xrefs is None:
-        count = refs = "n/a"
+        count = refs_full = "n/a"
     elif len(xrefs) > _REFS_CELL_COUNT:
         count = str(len(xrefs))
-        all_refs = ", ".join(f"0x{x.from_va:08x}" for x in xrefs)
+        refs_full = ", ".join(f"0x{x.from_va:08x}" for x in xrefs)
         first = ", ".join(f"0x{x.from_va:08x}" for x in xrefs[:_REFS_CELL_COUNT])
-        refs = _disclosure(f"{first} (+{len(xrefs) - _REFS_CELL_COUNT} more)", all_refs)
+        refs_short = f"{first} (+{len(xrefs) - _REFS_CELL_COUNT} more)"
     else:
         count = str(len(xrefs))
-        refs = html.escape(", ".join(f"0x{x.from_va:08x}" for x in xrefs)) or (
-            # Spelled out rather than a dash: the Refs column already reads 0,
-            # and an em dash beside it reads like the n/a the failed scan emits.
-            "none"
-        )
-    return (
-        "<tr>"
-        f"<td class='mono'>0x{s.va:08x}</td>"
-        f"<td>{html.escape(s.section)}</td>"
-        f"<td>{html.escape(s.kind)}</td>"
-        f"<td class='mono'>{text}</td>"
-        f"<td>{count}</td>"
-        f"<td class='mono'>{refs}</td>"
-        "</tr>"
+        # Spelled out rather than a dash: the Refs column already reads 0,
+        # and an em dash beside it reads like the n/a the failed scan emits.
+        refs_full = ", ".join(f"0x{x.from_va:08x}" for x in xrefs) or "none"
+    return _render_template(
+        "string_row.html.j2",
+        va_hex=f"0x{s.va:08x}",
+        section=s.section,
+        kind=s.kind,
+        text_short=text_short,
+        text_full=s.text,
+        count=count,
+        refs_short=refs_short,
+        refs_full=refs_full,
     )
 
 
@@ -1059,7 +953,7 @@ def _paginate_rows(
     caption: str,
     headers: list[str],
     first_heading: str,
-    first_intro: str,
+    first_intro: str | Markup,
     continued_heading: str,
     extra_first: str = "",
     extra_all: str = "",
@@ -1093,49 +987,44 @@ def _paginate_rows(
             span=span,
             bottom=True,
         )
-        if page_num == 1:
-            body = f"{first_heading}{first_intro}{pager}{table}{pager_end}{extra_first}{extra_all}"
-            page_title = title
-        else:
-            body = f"{continued_heading}{first_intro}{pager}{table}{pager_end}{extra_all}"
-            page_title = f"{title} ({page_num}/{total_pages})"
+        heading = first_heading if page_num == 1 else continued_heading
+        page_title = title if page_num == 1 else f"{title} ({page_num}/{total_pages})"
+        body = _render_template(
+            "paginated_body.html.j2",
+            heading=heading,
+            intro=first_intro,
+            pager=pager,
+            table=table,
+            pager_end=pager_end,
+            extra_first=extra_first if page_num == 1 else "",
+            extra_all=extra_all,
+        )
         pages.append((_paged_href(stem, page_num), _page(page_title, target, active, body)))
     return pages
 
 
 def _import_rows_html(imports: list[dict[str, Any]]) -> list[str]:
     """One ``<tr>`` per import, IAT order."""
+    tmpl = _TEMPLATE_ENV.get_template("import_row.html.j2")
     return [
-        "<tr>"
-        f"<td>{html.escape(str(rec['dll']))}</td>"
-        f"<td class='mono'>{html.escape(str(rec['name']))}</td>"
-        f"<td class='mono'>0x{int(rec['iat_va']):08x}</td>"
-        "</tr>"
+        tmpl.render(
+            dll=str(rec["dll"]),
+            name=str(rec["name"]),
+            iat_hex=f"0x{int(rec['iat_va']):08x}",
+        )
         for rec in sorted(imports, key=lambda r: int(r["iat_va"]))
     ]
 
 
 def _stub_rows_html(stubs: dict[int, str]) -> list[str]:
     """One ``<tr>`` per jmp [IAT] stub, VA order."""
-    return [
-        f"<tr><td class='mono'>0x{va:08x}</td><td class='mono'>{html.escape(name)}</td></tr>"
-        for va, name in sorted(stubs.items())
-    ]
+    tmpl = _TEMPLATE_ENV.get_template("stub_row.html.j2")
+    return [tmpl.render(va_hex=f"0x{va:08x}", name=name) for va, name in sorted(stubs.items())]
 
 
 def _imports_note(target: str, message: str) -> list[tuple[str, str]]:
     """Single imports.html explaining why the table is missing."""
-    return [
-        (
-            "imports.html",
-            _page(
-                "Imports",
-                target,
-                "imports.html",
-                f"<h2>Imports</h2><p class='note'>{message}</p>",
-            ),
-        )
-    ]
+    return [("imports.html", _note_page("Imports", target, "imports.html", "Imports", message))]
 
 
 def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
@@ -1191,9 +1080,11 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
             "Import stubs (jmp [IAT])", ["VA", "API"], "".join(stub_rows)
         )
     elif stub_rows:
-        extra_all = (
-            f"<p><a href='import-stubs.html'>Import stubs (jmp [IAT])</a> are listed on their "
-            f"own pages ({_count_phrase(len(stub_rows), 'stub', 'stubs')}).</p>"
+        extra_all = str(
+            Markup(
+                "<p><a href='import-stubs.html'>Import stubs (jmp [IAT])</a> are listed on their "
+                "own pages ({}).</p>"
+            ).format(_count_phrase(len(stub_rows), "stub", "stubs"))
         )
         stub_pages = _paginate_rows(
             stem="import-stubs",
@@ -1204,12 +1095,11 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
             rows_html=stub_rows,
             caption="Import stubs (jmp [IAT])",
             headers=["VA", "API"],
-            first_heading="<h2>Import stubs (jmp [IAT])</h2>",
-            first_intro=(
-                f"<p>{_count_phrase(len(stub_rows), 'jmp [IAT] stub', 'jmp [IAT] stubs')}. "
-                "<a href='imports.html'>Back to imported APIs</a>.</p>"
+            first_heading="Import stubs (jmp [IAT])",
+            first_intro=Markup("{}. <a href='imports.html'>Back to imported APIs</a>.").format(
+                _count_phrase(len(stub_rows), "jmp [IAT] stub", "jmp [IAT] stubs")
             ),
-            continued_heading="<h2>Import stubs (continued)</h2>",
+            continued_heading="Import stubs (continued)",
             extra_all="<p><a href='imports.html'>Back to imported APIs</a>.</p>",
             row_vas=stub_vas,
         )
@@ -1220,12 +1110,15 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
         # ``find_import_stubs`` read the table with different parsers, so
         # ``stub_rows`` can be non-empty exactly when ``import_rows`` is not;
         # dropping it there loses the only list of imports the page had.
-        note = (
-            "<h2>Imports</h2>"
-            "<p class='note'>No import table found in the target binary.</p>"
-            f"{extra_first}{extra_all}"
+        page = _note_page(
+            "Imports",
+            target,
+            "imports.html",
+            "Imports",
+            "No import table found in the target binary.",
+            extra=extra_first + extra_all,
         )
-        return [("imports.html", _page("Imports", target, "imports.html", note)), *stub_pages]
+        return [("imports.html", page), *stub_pages]
 
     pages = _paginate_rows(
         stem="imports",
@@ -1236,9 +1129,9 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
         rows_html=import_rows,
         caption="Imported APIs",
         headers=["DLL", "Function", "IAT slot"],
-        first_heading="<h2>Imports</h2>",
-        first_intro=(f"<p>{_count_phrase(len(import_rows), 'imported API', 'imported APIs')}.</p>"),
-        continued_heading="<h2>Imports (continued)</h2>",
+        first_heading="Imports",
+        first_intro=f"{_count_phrase(len(import_rows), 'imported API', 'imported APIs')}.",
+        continued_heading="Imports (continued)",
         extra_first=extra_first,
         extra_all=extra_all,
         row_vas=import_vas,
@@ -1268,11 +1161,6 @@ def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch
     association and the scroll region are explicit: a screen reader maps
     ``<pre>`` to a generic text block, which swallows the label.
     """
-    pre = (
-        "<div class='mermaid-scroll' tabindex='0' role='region' aria-labelledby='mermaid-heading' "
-        "aria-describedby='mermaid-alt'>"
-        f"<pre class='mermaid'>{html.escape(_mermaid_preview(mermaid) if spilled else mermaid)}</pre></div>"
-    )
     counts = ", ".join(
         (
             _count_phrase(nodes, "node", "nodes"),
@@ -1280,33 +1168,12 @@ def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch
             _count_phrase(dispatch, "dispatch edge", "dispatch edges"),
         )
     )
-    if not spilled:
-        return (
-            "<h2>Call graph</h2>"
-            f"<p>Call graph over reversed functions ({counts}). "
-            "The Mermaid source below can be rendered in a Mermaid-compatible viewer. "
-            "A <a href='adjacency.txt'>plain-text adjacency list</a> is also available "
-            "for reading without Mermaid.</p>"
-            "<h2 id='mermaid-heading'>Mermaid source</h2>"
-            "<p id='mermaid-alt'>This is Mermaid source, not a rendered diagram. "
-            "Use the <a href='adjacency.txt'>adjacency list</a> for a plain-text "
-            "reading of the same call graph.</p>"
-            f"{pre}"
-        )
-    nbytes = len(mermaid.encode("utf-8"))
-    return (
-        "<h2>Call graph</h2>"
-        f"<p>Call graph over reversed functions ({counts}). "
-        f"The full Mermaid source is {nbytes} bytes; this page shows only the opening lines "
-        "to keep the page small, and the rest is <a href='callgraph.mmd'>callgraph.mmd</a>. "
-        "A <a href='adjacency.txt'>plain-text adjacency list</a> is also available "
-        "for reading without Mermaid.</p>"
-        "<h3 id='mermaid-heading'>Mermaid source (opening lines)</h3>"
-        "<p id='mermaid-alt'>This is Mermaid source, not a rendered diagram. "
-        "Use the <a href='adjacency.txt'>adjacency list</a> for a plain-text "
-        "reading of the same call graph.</p>"
-        f"{pre}"
-        "<p><a href='callgraph.mmd'>Full Mermaid source (callgraph.mmd)</a></p>"
+    return _render_template(
+        "graph_body.html.j2",
+        spilled=spilled,
+        counts=counts,
+        nbytes=len(mermaid.encode("utf-8")),
+        mermaid_text=_mermaid_preview(mermaid) if spilled else mermaid,
     )
 
 
@@ -1324,13 +1191,13 @@ def _render_graph(cfg: ProjectConfig, *, trusted: Any = None) -> tuple[str, str 
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
         return (
-            _page(
+            _note_page(
                 "Call graph",
                 target,
                 "graph.html",
-                "<h2>Call graph</h2>"
-                "<p class='note'>No reversed source directory configured. "
-                "Set reversed_dir in rebrew-project.toml, then regenerate this report.</p>",
+                "Call graph",
+                "No reversed source directory configured. "
+                "Set reversed_dir in rebrew-project.toml, then regenerate this report.",
             ),
             None,
             None,
@@ -1359,11 +1226,14 @@ def _render_graph(cfg: ProjectConfig, *, trusted: Any = None) -> tuple[str, str 
                 node["status"] = verdict.status if verdict else "UNKNOWN"
                 node["size"] = sizes.get(va, 0) if va is not None else 0
         if not nodes:
-            note = (
-                f"<h2>Call graph</h2><p class='note'>{_no_functions_note(Path(reversed_dir))}</p>"
-            )
             return (
-                _page("Call graph", target, "graph.html", note),
+                _note_page(
+                    "Call graph",
+                    target,
+                    "graph.html",
+                    "Call graph",
+                    _no_functions_note(Path(reversed_dir)),
+                ),
                 None,
                 None,
             )
@@ -1399,13 +1269,12 @@ def _render_graph(cfg: ProjectConfig, *, trusted: Any = None) -> tuple[str, str 
             f"{exc}) - writing a placeholder graph.html"
         )
         return (
-            _page(
+            _note_page(
                 "Call graph",
                 target,
                 "graph.html",
-                "<h2>Call graph</h2>"
-                "<p class='note'>Call graph generation failed. The other pages of this report are "
-                "complete.</p>",
+                "Call graph",
+                "Call graph generation failed. The other pages of this report are complete.",
             ),
             None,
             None,

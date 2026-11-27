@@ -198,7 +198,9 @@ class TestLinkSweepHelpers:
         d[0:2] = b"MZ"
         struct.pack_into("<I", d, 0x3C, 0x80)
         d[0x80:0x84] = b"PE\x00\x00"
+        struct.pack_into("<H", d, 0x80 + 4 + 16, 0xE0)  # SizeOfOptionalHeader
         opt = 0x80 + 4 + 20
+        struct.pack_into("<H", d, opt + 0, 0x10B)  # PE32 magic
         struct.pack_into("<H", d, opt + 40, 4)  # MajorOperatingSystemVersion
         struct.pack_into("<H", d, opt + 42, 10)  # MinorOperatingSystemVersion
         struct.pack_into("<H", d, opt + 48, 4)  # MajorSubsystemVersion
@@ -354,6 +356,7 @@ def _deep_pe() -> bytes:
     struct.pack_into("<HHIIIHH", data, e + 4, 0x14C, nsec, 0, 0, 0, optsz, 0x0102)
     struct.pack_into("<H", data, opt, 0x10B)
     struct.pack_into("<I", data, opt + 28, 0x400000)  # image base
+    struct.pack_into("<I", data, opt + 92, 16)  # NumberOfRvaAndSizes
     # export directory at .rdata; import directory after the export tables
     struct.pack_into("<II", data, opt + 96, 0x3000, 0x40)
     struct.pack_into("<II", data, opt + 104, 0x3080, 0x28)
@@ -493,7 +496,7 @@ def _assert_parsed(
     assert len(sections) == len(raw) == nsec
     for got, src in zip(sections, raw, strict=True):
         assert isinstance(got, _Section)
-        assert got.name == src.name
+        assert got.name == src.name.split("\x00", 1)[0]
         assert got.va == src.virtual_address
         assert got.vs == src.virtual_size
         assert got.raw_size == src.size_of_raw_data

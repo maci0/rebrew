@@ -1,8 +1,6 @@
 """Discovery and ownership-preserving edits for metadata TOML drop-in directories."""
 
 import contextlib
-import threading
-from collections import OrderedDict
 lazy import copy
 lazy import hashlib
 lazy import os
@@ -14,6 +12,7 @@ lazy import tomlkit
 lazy from tomlkit import TOMLDocument
 lazy from tomlkit.exceptions import InternalParserError, ParseError
 
+from rebrew.utils import BoundedLRU
 lazy from rebrew.metadata import rendered_toml
 lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import file_transaction, project_transaction
@@ -117,7 +116,7 @@ def _set_record(doc: Any, keys: tuple[str, ...], value: Any) -> None:
         source.setdefault("files", {})
     for key in keys[:-1]:
         doc = doc.setdefault(key, tomlkit.table() if isinstance(doc, TOMLDocument) else {})
-    doc[keys[-1]] = copy.deepcopy(value)
+    doc[keys[-1]] = clone_plain(value)
 
 
 def _delete_record(doc: Any, keys: tuple[str, ...]) -> None:
@@ -134,11 +133,10 @@ def _delete_record(doc: Any, keys: tuple[str, ...]) -> None:
             del parent[keys[size - 1]]
 
 
-_PARSED_MEMBERS: OrderedDict[tuple[Path, tuple[int, int, int, int]], dict[str, Any]] = OrderedDict()
-_PARSED_MEMBERS_LOCK = threading.Lock()
-
-
 _PARSED_MEMBERS_MAX = 8
+_PARSED_MEMBERS: BoundedLRU[tuple[Path, tuple[int, int, int, int]], dict[str, Any]] = BoundedLRU(
+    _PARSED_MEMBERS_MAX
+)
 
 
 def _load_member(path: Path) -> dict[str, Any]:
@@ -149,28 +147,11 @@ def _load_member(path: Path) -> dict[str, Any]:
 def _parsed_member(path: Path, fingerprint: tuple[int, int, int, int]) -> dict[str, Any]:
     """Reuse parsed input; callers receive copies and still run every validator."""
     key = (path, fingerprint)
-    with _PARSED_MEMBERS_LOCK:
-        if key in _PARSED_MEMBERS:
-            _PARSED_MEMBERS.move_to_end(key)
-            return _PARSED_MEMBERS[key]
+    cached = _PARSED_MEMBERS.get(key)
+    if cached is not None:
+        return cached
     document = _load_member(path)
-    with _PARSED_MEMBERS_LOCK:
-        # Re-check: a peer may have stored the same fingerprint while this
-        # thread parsed, and a writer may have stored a newer fingerprint.
-        # Keep only the newest fingerprint per path, so an edit that lands
-        # in the same stat tick cannot leave a stale parse as the served
-        # entry, and older fingerprints do not accumulate.
-        existing = _PARSED_MEMBERS.get(key)
-        if existing is not None:
-            _PARSED_MEMBERS.move_to_end(key)
-            return existing
-        for old in [k for k in _PARSED_MEMBERS if k[0] == path]:
-            del _PARSED_MEMBERS[old]
-        _PARSED_MEMBERS[key] = document
-        _PARSED_MEMBERS.move_to_end(key)
-        while len(_PARSED_MEMBERS) > _PARSED_MEMBERS_MAX:
-            _PARSED_MEMBERS.popitem(last=False)
-    return document
+    return _PARSED_MEMBERS.replace_where(key, document, lambda k: k[0] == path)
 
 
 def _load_roundtrip(
@@ -215,12 +196,12 @@ def load_metadata_collection(
         if roundtrip:
             return _load_roundtrip(paths[0], description, validate)
         doc = load(paths[0])
-        if validate is not None:
-            validate(doc)
         # The parsed-member cache must not be handed out: callers (and the
-        # deepcopy in load_metadata_doc) mutate the result. Copy once here
-        # instead of deepcopying per member below.
+        # validator callback in load_metadata_doc) retain or mutate the result.
+        # Clone once before validate so load_metadata_doc skips a second copy.
         plain: dict[str, Any] = clone_plain(doc)
+        if validate is not None:
+            validate(plain)
         return plain
     merged: dict[str, Any] = tomlkit.document() if roundtrip else {}
     owners: dict[tuple[str, ...], Path] = {}
@@ -230,7 +211,7 @@ def load_metadata_collection(
             validate(doc)
         for container in ("definitions", "files", "types"):
             if container in doc and container not in merged:
-                merged[container] = tomlkit.table()
+                merged[container] = tomlkit.table() if roundtrip else {}
         if "source" in doc:
             merged.setdefault("source", {"definitions": {}, "files": {}})
         if "format" in doc:
@@ -360,6 +341,9 @@ class TomlStore:
     """Managed TOML document with optional ownership-preserving drop-ins."""
 
     name = "toml"
+    #: ``read()`` clones every member before calling ``validate`` on the final view,
+    #: so ``load_metadata_doc`` does not need to clone the validated rows a second time.
+    detaches_validated_rows = True
 
     def __init__(self, path: Path, root: Path) -> None:
         self.path = path

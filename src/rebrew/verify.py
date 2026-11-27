@@ -3598,33 +3598,19 @@ def apply_status_updates(
 def _pe_sections_for_merge_check(data: bytes) -> tuple[int, list[tuple[int, int, int]]]:
     """``(image_base, [(section_va, raw_offset, raw_size), ...])`` for a PE image.
 
-    Local and minimal on purpose: this runs once per verify and pulling in the
-    full section reader would make a two-cause warning depend on the layout
-    machinery it is meant to be independent of.
+    Uses :mod:`rebrew.formats.pe_headers` so both PE32 and PE32+ images decode
+    their ``ImageBase`` and section table without importing LIEF on this path.
     """
-    import struct as _struct
+    from rebrew.formats.pe_headers import pe_image_base, pe_layout
 
-    if len(data) < 0x40:
+    layout = pe_layout(data)
+    base = pe_image_base(data)
+    if layout is None or base is None:
         return 0, []
-    try:
-        pe = _struct.unpack_from("<I", data, 0x3C)[0]
-        nsec = _struct.unpack_from("<H", data, pe + 6)[0]
-        optsz = _struct.unpack_from("<H", data, pe + 20)[0]
-        opt = pe + 24
-        base = _struct.unpack_from("<I", data, opt + 28)[0]
-    except _struct.error:
-        return 0, []
-    out: list[tuple[int, int, int]] = []
-    off = opt + optsz
-    for i in range(nsec):
-        s = off + i * 40
-        try:
-            # +12 is VirtualAddress, +16 SizeOfRawData, +20 PointerToRawData
-            va, raw_size, raw_off = _struct.unpack_from("<III", data, s + 12)
-        except _struct.error:
-            break
-        out.append((base + va, raw_off, raw_size))
-    return base, out
+    return base, [
+        (base + sec.virtual_address, sec.pointer_to_raw_data, sec.size_of_raw_data)
+        for sec in layout.sections
+    ]
 
 
 def _looks_like_inventory_merge(binary: bytes, start_off: int, ann_size: int, span: int) -> bool:

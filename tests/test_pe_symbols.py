@@ -98,10 +98,10 @@ def _load_config_pe(
 
     config = bytearray(_LC_LENGTH)
     struct.pack_into("<I", config, _LC_SIZE, _LC_LENGTH)
-    struct.pack_into("<I", config, _LC_SECURITY_COOKIE, rdata_rva + cookie_offset)
-    struct.pack_into("<I", config, _LC_SEH_TABLE, rdata_rva)
+    struct.pack_into("<I", config, _LC_SECURITY_COOKIE, IMAGE_BASE + rdata_rva + cookie_offset)
+    struct.pack_into("<I", config, _LC_SEH_TABLE, IMAGE_BASE + rdata_rva)
     struct.pack_into("<I", config, _LC_SEH_COUNT, len(handlers))
-    struct.pack_into("<I", config, _LC_GUARD_CF_TABLE, rdata_rva + 8)
+    struct.pack_into("<I", config, _LC_GUARD_CF_TABLE, IMAGE_BASE + rdata_rva + 8)
     struct.pack_into("<I", config, _LC_GUARD_CF_COUNT, len(targets))
     struct.pack_into("<I", config, _LC_GUARD_FLAGS, (metadata_bytes << 28) | 0x500)
 
@@ -243,8 +243,9 @@ class TestPeDirectories:
             resolve=lambda _: 0x1000,
             read=lambda *_: struct.pack("<I", rva),
         )
-        # This image double supplies only the parser's read/resolve interface.
-        handlers, notes = _read_safe_seh_entries(image, 0x1000, 1)  # type: ignore[arg-type]
+        config = SimpleNamespace(seh_functions=[rva])
+        # This image double supplies only the parser's resolve/spans interface.
+        handlers, notes = _read_safe_seh_entries(image, config, 0x1000, 1)  # type: ignore[arg-type]
         assert handlers == [IMAGE_BASE + rva]
         assert notes == []
 

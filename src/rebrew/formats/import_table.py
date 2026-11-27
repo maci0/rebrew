@@ -16,8 +16,6 @@ lazy import struct
 lazy from pathlib import Path
 lazy from typing import Any
 
-lazy from rebrew.formats.pe_headers import PE32_PLUS_MAGIC, pe_layout
-
 log = logging.getLogger(__name__)
 
 #: Bytes of an import thunk, ``FF 25`` and its 32-bit operand: the whole stub.
@@ -338,8 +336,7 @@ def find_import_stub_slots(binary_path: Path) -> dict[int, int]:
     text = info.sections.get(".text")
     if text is None or text.file_offset < 0 or text.size <= 0:
         return {}
-    layout = pe_layout(info.data)
-    rip_relative = layout is not None and layout.magic == PE32_PLUS_MAGIC
+    rip_relative = info.pointer_size == 8
     stub_va = text.va
     blob = info.data[text.file_offset : text.file_offset + text.size]
     stubs: dict[int, int] = {}

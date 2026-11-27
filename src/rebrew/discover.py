@@ -571,62 +571,32 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
 
 _PAD = {0xCC, 0x90}
 
-#: Documented multi-byte NOP body lengths by (first, second) opcode bytes.
-#: Only these exact two-byte prefixes count as multi-byte NOP padding —
-#: a bare 0x0F is a real opcode (e.g. part of ``0F 85 jnz``) and must
-#: never be treated as padding.
-_MULTIBYTE_NOP_LEN: dict[tuple[int, int], int] = {
-    (0x0F, 0x1F): 3,  # 0F 1F /0 — 3-byte NOP (ModRM always follows)
-    (0x0F, 0x0D): 3,  # 3DNow! prefetch — same ModRM shape
-    (0x66, 0x90): 2,  # operand-size NOP (66 90)
-    (0x66, 0x0F): 4,  # 66 0F 1F /0 — 4-byte NOP (ModRM always follows)
-}
+_MULTIBYTE_NOP_PREFIXES = frozenset({(0x0F, 0x1F), (0x0F, 0x0D), (0x66, 0x90), (0x66, 0x0F)})
 
 
 def _multibyte_nop_len(raw: bytes | bytearray, i: int) -> int:
-    """Length of the multi-byte NOP at ``raw[i:]``, or 0 when it is not one.
+    """Length of the multi-byte NOP at ``raw[i:]`` via Capstone, or 0.
 
-    ``0F 1F`` / ``66 0F 1F`` require a valid ModRM byte: register-direct
-    (``mod == 0b11``) forms are real instructions (e.g. ``0F 1F C0`` decodes
-    as ``nop eax,eax`` only under 64-bit; under 32-bit it can be something
-    else), and memory forms with SIB/disp bytes consume them.  A missing or
-    out-of-range ModRM means "not a NOP".
+    Rejects register-direct ``mod == 0b11`` encodings (not documented padding).
     """
     n = len(raw)
-    pair = (raw[i], raw[i + 1] if i + 1 < n else -1)
-    base = _MULTIBYTE_NOP_LEN.get((pair[0], pair[1] if isinstance(pair[1], int) else -1))
-    if base is None:
+    if i + 1 >= n or (raw[i], raw[i + 1]) not in _MULTIBYTE_NOP_PREFIXES:
         return 0
-    if pair == (0x66, 0x90):
-        return base
-    # A ModRM byte must exist after the two-byte prefix.
-    if i + 2 >= n:
+    if raw[i] == 0x66 and raw[i + 1] == 0x90:
+        return 2
+    if i + 2 >= n or (raw[i + 2] >> 6) == 0b11:
         return 0
-    modrm = raw[i + 2]
-    mod = modrm >> 6
-    rm = modrm & 7
-    if mod == 0b11:
-        return 0  # register-direct — not documented padding
-    length = base
-    if rm == 0b100:  # SIB byte follows
-        length += 1
-        if i + 3 >= n:
-            return 0
-        sib = raw[i + 3]
-        base_reg = sib & 7
-        if mod == 0b00 and base_reg == 0b101:  # disp32, no base
-            length += 4
-        elif mod == 0b01:  # disp8
-            length += 1
-        elif mod == 0b10:  # disp32
-            length += 4
-    elif mod == 0b00 and rm == 0b101:  # disp32, no base
-        length += 4
-    elif mod == 0b01:  # disp8
-        length += 1
-    elif mod == 0b10:  # disp32
-        length += 4
-    return length if i + length <= n else 0
+    import capstone
+
+    from rebrew.analysis import capstone_handle
+
+    md = capstone_handle(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    chunk = bytes(raw[i : min(n, i + 15)])
+    for insn in md.disasm(chunk, 0, count=1):
+        if insn.mnemonic in ("nop", "prefetchw", "prefetch"):
+            return int(insn.size)
+        return 0
+    return 0
 
 
 def _is_padding(info: Any, va: int, end: int) -> bool:

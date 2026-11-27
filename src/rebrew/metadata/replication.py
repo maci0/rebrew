@@ -4,7 +4,6 @@ import contextlib
 import functools
 import logging
 import threading
-from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 lazy import hashlib
@@ -16,6 +15,9 @@ lazy import uuid
 lazy from collections.abc import Callable, Iterator
 lazy from pathlib import Path
 lazy from typing import Any
+
+from cachetools import LRUCache
+lazy import rtoml
 
 from rebrew.metadata.sqlite import MetadataStorageError, MetadataUnavailableError
 lazy from rebrew.metadata import lazydoc, rendered_toml
@@ -50,15 +52,14 @@ class MetadataConflictError(MetadataStorageError):
 #: costs seconds, and one operation digests the same text several times.
 _DIGEST_MAX = 64
 _DIGEST_LOCK = threading.Lock()
-_DIGESTS: OrderedDict[tuple[str, bool], str] = OrderedDict()
+_DIGESTS: LRUCache[tuple[str, bool], str] = LRUCache(maxsize=_DIGEST_MAX)
 
 #: Normalized JSON of one top-level record by the record's exact text.  A write
 #: changes a few records of a store, so the next digest of it normalizes only
 #: those.  Bounded in characters of JSON, above the largest store's (33 MB for
 #: guild-rebrew's functions store).
-_RECORD_JSON: OrderedDict[str, str] = OrderedDict()
-_RECORD_JSON_CHARS = 0
 _RECORD_JSON_MAX_CHARS = 96 * 1024 * 1024
+_RECORD_JSON: LRUCache[str, str] = LRUCache(maxsize=_RECORD_JSON_MAX_CHARS, getsizeof=len)
 
 
 def _content_sha256(content: str) -> str:
@@ -81,7 +82,6 @@ def _normalized_json(content: str) -> str:
     by the record's text: a dict normalizes to its items sorted by key, so the
     document's JSON is the records' JSON in key order.
     """
-    global _RECORD_JSON_CHARS
     split = lazydoc.split_records(content) if len(content) >= lazydoc.LAZY_MIN_CHARS else None
     if split is None:
         return json.dumps(_normalized(rendered_toml.loads(content)), ensure_ascii=True)
@@ -98,17 +98,11 @@ def _normalized_json(content: str) -> str:
             item = json.dumps([key, _normalized(value)], ensure_ascii=True)
             computed.append((raw, item))
         items.append((key, item))
-    with _DIGEST_LOCK:
-        for (_key, raw, _value), item in zip(records, known, strict=True):
-            if item is not None and raw in _RECORD_JSON:
-                _RECORD_JSON.move_to_end(raw)
-        for raw, item in computed:
-            if raw not in _RECORD_JSON:
-                _RECORD_JSON[raw] = item
-                _RECORD_JSON_CHARS += len(item)
-        while _RECORD_JSON_CHARS > _RECORD_JSON_MAX_CHARS:
-            _evicted, item = _RECORD_JSON.popitem(last=False)
-            _RECORD_JSON_CHARS -= len(item)
+    if computed:
+        with _DIGEST_LOCK:
+            for raw, item in computed:
+                if raw not in _RECORD_JSON and len(item) <= _RECORD_JSON_MAX_CHARS:
+                    _RECORD_JSON[raw] = item
     items.sort(key=lambda pair: pair[0])
     return '["table", [' + ", ".join(item for _key, item in items) + "]]"
 
@@ -119,53 +113,39 @@ def _digest(content: str, deleted: bool = False) -> str:
     with _DIGEST_LOCK:
         cached = _DIGESTS.get(key)
         if cached is not None:
-            _DIGESTS.move_to_end(key)
             return cached
     values = json.dumps(["deleted"], ensure_ascii=True) if deleted else _normalized_json(content)
     digest = hashlib.sha256(values.encode()).hexdigest()
     with _DIGEST_LOCK:
         _DIGESTS[key] = digest
-        while len(_DIGESTS) > _DIGEST_MAX:
-            _DIGESTS.popitem(last=False)
     return digest
 
 
-def _toml_string(value: str) -> str:
-    """A TOML basic string.  JSON escaping is valid TOML except for DEL, which TOML requires escaped."""
-    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
-
-
 def _render_state(records: dict[str, _Record], node: str, body: str | None = None) -> str:
-    """Render a journal or replication-state document without per-character TOML escaping.
+    """Render a journal or replication-state document via ``rtoml``.
 
     *body* is :func:`_render_records` of *records*, when the caller already has it.
     """
-    lines = [f"format = {_STATE_FORMAT}"]
+    header: dict[str, Any] = {"format": _STATE_FORMAT}
     if node:
-        lines.append(f"node = {_toml_string(node)}")
-    lines.append("")
-    lines.append("[records]")
-    return "\n".join(lines) + "\n" + (_render_records(records) if body is None else body)
+        header["node"] = node
+    rendered_body = _render_records(records) if body is None else body
+    return rtoml.dumps(header) + "\n" + rendered_body
 
 
 def _render_records(records: dict[str, _Record]) -> str:
     """The record tables of a journal or state document; a commit writes the same ones to each."""
-    lines: list[str] = []
+    payload: dict[str, Any] = {}
     for key, record in records.items():
-        table = f"records.{_toml_string(key)}"
-        lines += [
-            "",
-            f"[{table}]",
-            f"updated_at_ns = {record.updated_at_ns}",
-            f"content = {_toml_string(record.content)}",
-            f"deleted = {'true' if record.deleted else 'false'}",
-            f"digest = {_toml_string(record.digest)}",
-            f"content_sha256 = {_toml_string(_content_sha256(record.content))}",
-            "",
-            f"[{table}.clock]",
-            *(f"{_toml_string(name)} = {revision}" for name, revision in record.clock.items()),
-        ]
-    return "".join(line + "\n" for line in lines)
+        payload[key] = {
+            "updated_at_ns": record.updated_at_ns,
+            "content": record.content,
+            "deleted": record.deleted,
+            "digest": record.digest,
+            "content_sha256": _content_sha256(record.content),
+            "clock": dict(record.clock),
+        }
+    return rtoml.dumps({"records": payload})
 
 
 def _parse_rendered(
@@ -174,105 +154,17 @@ def _parse_rendered(
     *,
     content_lines: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
-    """Read exactly the layout :func:`_render_state` writes; None for anything else.
+    """Parse a rendered journal or replication-state TOML document via ``rtoml``.
 
-    ``tomllib`` scans a basic string one character at a time in Python, which
-    costs seconds per journal or state document carrying a copy of a large
-    store.  These documents are written only by this module, so their strings
-    are JSON-escaped and can be decoded by ``json``; any other layout (an older
-    journal, a hand edit) is left to ``tomllib``.  6.59.0 wrote this layout
-    under format 1.
+    Returns ``None`` on parse failure so the caller falls back to the store
+    reader and surfaces its standard error contract.
     """
-
-    decoder = json.JSONDecoder()
-
-    def string(line: str, start: int = 0) -> str | None:
-        if not (line.startswith('"', start) and line.endswith('"')):
-            return None
-        try:
-            value, end = decoder.raw_decode(line, start)
-        except ValueError:
-            return None
-        return value if end == len(line) and isinstance(value, str) else None
-
-    def integer(token: str) -> int | None:
-        digits = token[1:] if token.startswith("-") else token
-        return int(token) if digits.isdigit() and digits == str(int(digits)) else None
-
-    lines = text.split("\n")
-    formats = {f"format = {number}": number for number in (1, _STATE_FORMAT)}
-    if not lines or lines[-1] != "" or lines[0] not in formats:
+    del known_records, content_lines
+    try:
+        doc = rtoml.loads(text)
+    except rtoml.TomlParsingError:
         return None
-    position = 1
-    doc: dict[str, Any] = {"format": formats[lines[0]]}
-    if lines[position].startswith("node = "):
-        node = string(lines[position][len("node = ") :])
-        if node is None:
-            return None
-        doc["node"] = node
-        position += 1
-    if lines[position : position + 2] != ["", "[records]"]:
-        return None
-    position += 2
-    records: dict[str, Any] = {}
-    doc["records"] = records
-    end = len(lines) - 1
-    while position < end:
-        block = lines[position : position + 9]
-        if len(block) != 9 or block[0] != "" or block[7] != "":
-            return None
-        header, stamp, content, deleted, digest, content_sha, clock_header = (
-            block[1],
-            block[2],
-            block[3],
-            block[4],
-            block[5],
-            block[6],
-            block[8],
-        )
-        if not (header.startswith("[records.") and header.endswith("]")):
-            return None
-        key = string(header[len("[records.") : -1])
-        if key is None or key in records or clock_header != f"[records.{_toml_string(key)}.clock]":
-            return None
-        known = known_records.get(key) if known_records is not None else None
-        row: dict[str, Any] = {}
-        for line, name in (
-            (stamp, "updated_at_ns"),
-            (content, "content"),
-            (deleted, "deleted"),
-            (digest, "digest"),
-            (content_sha, "content_sha256"),
-        ):
-            prefix = f"{name} = "
-            if not line.startswith(prefix):
-                return None
-            if name == "updated_at_ns":
-                value: Any = integer(line[len(prefix) :])
-            elif name == "deleted":
-                value = {"true": True, "false": False}.get(line[len(prefix) :])
-            elif name == "content" and known is not None and line == known.content_line:
-                value = known.content
-            else:
-                value = string(line, len(prefix))
-            if value is None:
-                return None
-            row[name] = value
-        clock: dict[str, int] = {}
-        position += 9
-        while position < end and lines[position] != "":
-            node_token, separator, revision_token = lines[position].rpartition(" = ")
-            node_name = string(node_token)
-            revision = integer(revision_token)
-            if not separator or node_name is None or revision is None or node_name in clock:
-                return None
-            clock[node_name] = revision
-            position += 1
-        row["clock"] = clock
-        records[key] = row
-        if content_lines is not None:
-            content_lines[key] = content
-    return doc
+    return doc if isinstance(doc, dict) else None
 
 
 @dataclass(frozen=True)
@@ -296,14 +188,16 @@ class _Record:
 #: copy of every replicated document, and one operation loads them repeatedly.
 _LOADED_MAX = 8
 _LOADED_LOCK = threading.Lock()
-_LOADED: OrderedDict[tuple[str, str, Fingerprint], tuple[dict[str, _Record], str]] = OrderedDict()
+_LOADED: LRUCache[tuple[str, str, Fingerprint], tuple[dict[str, _Record], str]] = LRUCache(
+    maxsize=_LOADED_MAX
+)
 
 
 #: Resolved replica views by the fingerprints of every input (journal, each read
 #: backend's document and state).  Resolving one reads and hashes the document.
 _VIEWS_MAX = 32
 _VIEWS_LOCK = threading.Lock()
-_VIEWS: OrderedDict[tuple[object, ...], _Record | None] = OrderedDict()
+_VIEWS: LRUCache[tuple[object, ...], _Record | None] = LRUCache(maxsize=_VIEWS_MAX)
 
 
 def _load(
@@ -316,14 +210,11 @@ def _load(
     with _LOADED_LOCK:
         cached = _LOADED.get(key)
         if cached is not None:
-            _LOADED.move_to_end(key)
             return dict(cached[0]), cached[1]
     records, node = _parse_state(store, known_records)
     if store.fingerprint() == fingerprint:
         with _LOADED_LOCK:
             _LOADED[key] = (records, node)
-            while len(_LOADED) > _LOADED_MAX:
-                _LOADED.popitem(last=False)
     return dict(records), node
 
 
@@ -765,7 +656,6 @@ class RoutedStore:
             if token is not None:
                 with _VIEWS_LOCK:
                     if token in _VIEWS:
-                        _VIEWS.move_to_end(token)
                         return _VIEWS[token]
         local, _ = _load(TomlStore(self.root / JOURNAL_PATH, self.root))
 
@@ -780,8 +670,6 @@ class RoutedStore:
         if token is not None and self._inputs_token() == token:
             with _VIEWS_LOCK:
                 _VIEWS[token] = record
-                while len(_VIEWS) > _VIEWS_MAX:
-                    _VIEWS.popitem(last=False)
         return record
 
     def read(

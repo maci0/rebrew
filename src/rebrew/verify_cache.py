@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import atexit
 import contextlib
-import re
 import threading
 from dataclasses import dataclass, fields
 from functools import lru_cache
@@ -26,6 +25,9 @@ lazy import math
 lazy import os
 lazy import tomllib
 lazy from pathlib import Path
+
+from cachetools import LRUCache
+lazy import rtoml
 
 from rebrew.verify_hash import (
     compiler_config_hash,
@@ -116,6 +118,13 @@ def cache_path_for(cfg: Any, *, for_read: bool = False) -> Path:
 _NULLABLE_FIELDS: frozenset[str] = frozenset({"context_hash"})
 
 
+def _toml_safe_str(value: str) -> str:
+    """Replace lone surrogates with U+FFFD so ``rtoml`` emits valid UTF-8 TOML."""
+    if value.isascii():
+        return value
+    return value.encode("utf-8", "replace").decode("utf-8")
+
+
 def toml_document(payload: Any) -> Any:
     """Return *payload* as a TOML-safe document.
 
@@ -128,249 +137,33 @@ def toml_document(payload: Any) -> Any:
     if isinstance(payload, dict):
         document: dict[str, Any] = {}
         for key, value in payload.items():
+            safe_key = _toml_safe_str(str(key))
             if value is None:
-                if key in _NULLABLE_FIELDS:
-                    document[key] = ""
+                if safe_key in _NULLABLE_FIELDS:
+                    document[safe_key] = ""
                 continue
-            document[key] = toml_document(value)
+            document[safe_key] = toml_document(value)
         return document
     if isinstance(payload, list):
         return [toml_document(item) for item in payload]
+    if isinstance(payload, str):
+        return _toml_safe_str(payload)
     return payload
 
 
-# Bare keys are the TOML subset that needs no quotes.  Anything else (spaces,
-# dots, quotes) is emitted as a basic string so the header still parses.
-_BARE_TOML_KEY = re.compile(r"[A-Za-z0-9_-]+")
-_TOML_STRING_ESCAPE = re.compile(r"[\x00-\x1f\x7f\"\\]")
-
-
-def _toml_string(value: str) -> str:
-    """A TOML basic string for *value*.
-
-    Controls are ``\\u`` escapes.  tomlkit writes some of them as ``\\e``,
-    which the next ``tomllib`` load rejects.  A surrogate is U+FFFD: a raw
-    surrogate cannot be encoded as UTF-8, and ``\\uD800`` is not a Unicode
-    scalar, so ``tomllib`` rejects that escape too.
-    """
-    if value.isascii() and _TOML_STRING_ESCAPE.search(value) is None:
-        return f'"{value}"'
-    out = ['"']
-    for char in value:
-        code = ord(char)
-        if char == "\\":
-            out.append("\\\\")
-        elif char == '"':
-            out.append('\\"')
-        elif char == "\b":
-            out.append("\\b")
-        elif char == "\t":
-            out.append("\\t")
-        elif char == "\n":
-            out.append("\\n")
-        elif char == "\f":
-            out.append("\\f")
-        elif char == "\r":
-            out.append("\\r")
-        elif code < 0x20 or code == 0x7F or 0x80 <= code <= 0x9F or 0xD800 <= code <= 0xDFFF:
-            escaped = 0xFFFD if 0xD800 <= code <= 0xDFFF else code
-            out.append(f"\\u{escaped:04X}")
-        else:
-            out.append(char)
-    out.append('"')
-    return "".join(out)
-
-
-def _toml_key(name: str) -> str:
-    """*name* as a TOML key, quoted when it is not a bare key."""
-    if _BARE_TOML_KEY.fullmatch(name):
-        return name
-    return _toml_string(name)
-
-
-def _toml_float(value: float) -> str:
-    """*value* as a TOML float.
-
-    A whole number keeps a decimal point so ``tomllib`` does not read it
-    back as an int.  Non-finite values use the tokens this interpreter's
-    ``tomllib`` already accepts.
-    """
-    if math.isnan(value):
-        return "nan"
-    if math.isinf(value):
-        return "inf" if value > 0 else "-inf"
-    text = repr(value)
-    if "." not in text and "e" not in text and "E" not in text:
-        text += ".0"
-    return text
-
-
-def _toml_value(value: Any) -> str:
-    """An inline TOML value.  Tables and arrays of tables are not inline."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return _toml_float(value)
-    if isinstance(value, str):
-        return _toml_string(value)
-    if isinstance(value, list):
-        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
-    if isinstance(value, dict):
-        body = ", ".join(
-            f"{_toml_key(str(key))} = {_toml_value(item)}" for key, item in value.items()
-        )
-        return "{" + body + "}"
-    raise TypeError(f"cannot emit {type(value).__name__} as TOML")
-
-
-def _toml_array_of_tables(value: Any) -> bool:
-    """True when *value* is a non-empty list of tables."""
-    return isinstance(value, list) and bool(value) and all(isinstance(item, dict) for item in value)
-
-
-def _emit_toml_table(
-    parts: list[str],
-    table: dict[str, Any],
-    prefix: str,
-    *,
-    array: bool,
-) -> None:
-    """Append *table* as a TOML table.  Scalars first, then nested tables.
-
-    A table that only holds subtables does not get an empty header: the
-    children are dotted (``[entries.0x10000000]``), which is what a reader
-    of the verify cache already expects.  An array element always gets its
-    ``[[name]]`` header so a later subtable attaches to that element.
-    """
-    simples: list[tuple[str, Any]] = []
-    nested: list[tuple[str, Any]] = []
-    for key, value in table.items():
-        rendered = _toml_key(str(key))
-        if isinstance(value, dict) or _toml_array_of_tables(value):
-            nested.append((rendered, value))
-        else:
-            simples.append((rendered, value))
-    if prefix and (array or simples or not nested):
-        opener, closer = ("[[", "]]") if array else ("[", "]")
-        parts.append(f"{opener}{prefix}{closer}\n")
-    for key, value in simples:
-        parts.append(f"{key} = {_toml_value(value)}\n")
-    for key, value in nested:
-        child = f"{prefix}.{key}" if prefix else key
-        if _toml_array_of_tables(value):
-            for item in value:
-                _emit_toml_table(parts, item, child, array=True)
-        else:
-            _emit_toml_table(parts, value, child, array=False)
-
-
 def _dump_toml(document: dict[str, Any]) -> str:
-    """Serialize *document* to TOML text.
-
-    ``tomlkit.dumps`` builds a full document model per call.  An all-hit
-    ``rebrew verify`` rewrites the cache and the baseline every run, and that
-    model dominated the run.  Callers pass the result of :func:`toml_document`
-    so ``None`` handling stays in one place.  The stored fields do not change;
-    a document written by either emitter loads through ``tomllib`` as the
-    same values.
-    """
-    parts: list[str] = []
-    _emit_toml_table(parts, document, "", array=False)
-    return "".join(parts)
+    """Serialize a TOML-safe *document* to TOML text via ``rtoml``."""
+    return rtoml.dumps(document)
 
 
 def _dump_verify_cache(document: dict[str, Any]) -> str:
-    """Emit a verify cache: top-level scalars and one ``[entries.*]`` row each.
-
-    The generic emitter classifies every value and quotes every key. A cache
-    file is scalars plus one table of scalars per function, and that
-    classification is most of the rewrite. An empty map is still ``[entries]``
-    so a reader sees the key. ``None`` follows :func:`toml_document`. Keys are
-    written bare: a cache key is a field name or a ``0x`` VA. A nested value
-    uses the generic emitter.
-    """
-    entries = document.get("entries")
-    if not isinstance(entries, dict):
-        return _dump_toml(toml_document(document))
-    parts: list[str] = []
-
-    def scalar(key: str, value: Any) -> str | None:
-        if value is None:
-            if key not in _NULLABLE_FIELDS:
-                return None
-            value = ""
-        if isinstance(value, (dict, list)):
-            raise TypeError
-        return f"{key} = {_toml_value(value)}\n"
-
-    try:
-        for key, value in document.items():
-            if key == "entries":
-                continue
-            rendered = scalar(str(key), value)
-            if rendered is not None:
-                parts.append(rendered)
-        for name, row in entries.items():
-            if not isinstance(row, dict):
-                raise TypeError
-            parts.append(f"[entries.{name}]\n")
-            for key, value in row.items():
-                rendered = scalar(str(key), value)
-                if rendered is not None:
-                    parts.append(rendered)
-        if not entries:
-            parts.append("[entries]\n")
-    except TypeError:
-        return _dump_toml(toml_document(document))
-    return "".join(parts)
+    """Serialize a verify cache document to TOML text via ``rtoml``."""
+    return rtoml.dumps(toml_document(document))
 
 
 def _dump_verify_baseline(document: dict[str, Any]) -> str:
-    """Emit a verify baseline: scalars, a summary table, and ``[[results]]`` rows.
-
-    The generic emitter classifies every value and quotes every key. A baseline
-    is scalars, empty arrays, one nested summary, and one array of result
-    rows, and that classification is most of the rewrite. ``None`` follows
-    :func:`toml_document`. Keys are written bare: a report key is a field
-    name. A value this shape cannot express uses the generic emitter.
-    """
-    parts: list[str] = []
-
-    def emit(table: dict[str, Any], prefix: str, array: bool) -> None:
-        nested: list[tuple[str, Any, bool]] = []
-        if prefix:
-            opener, closer = ("[[", "]]") if array else ("[", "]")
-            parts.append(f"{opener}{prefix}{closer}\n")
-        for key, value in table.items():
-            name = str(key)
-            if value is None:
-                if name not in _NULLABLE_FIELDS:
-                    continue
-                value = ""
-            if isinstance(value, dict):
-                nested.append((name, value, False))
-                continue
-            if isinstance(value, list) and value and isinstance(value[0], dict):
-                nested.append((name, value, True))
-                continue
-            parts.append(f"{name} = {_toml_value(value)}\n")
-        for name, value, is_array in nested:
-            child = f"{prefix}.{name}" if prefix else name
-            if is_array:
-                for item in value:
-                    if not isinstance(item, dict):
-                        raise TypeError
-                    emit(item, child, True)
-            else:
-                emit(value, child, False)
-
-    try:
-        emit(document, "", False)
-    except TypeError:
-        return _dump_toml(toml_document(document))
-    return "".join(parts)
+    """Serialize a verify baseline document to TOML text via ``rtoml``."""
+    return rtoml.dumps(toml_document(document))
 
 
 def _decode_nulls(document: dict[str, Any]) -> dict[str, Any]:
@@ -406,8 +199,10 @@ def _decode_nulls(document: dict[str, Any]) -> dict[str, Any]:
 #: cannot retain every decoded payload.  Guarded: eviction is a multi-step
 #: mutation on a shared dict; concurrent status/todo/coverage export callers must
 #: not race it.
-_VERIFY_CACHE_MEMO: dict[tuple[str, int, int, int, int], dict[str, Any] | None] = {}
 _VERIFY_CACHE_MEMO_MAX = 8
+_VERIFY_CACHE_MEMO: LRUCache[tuple[str, int, int, int, int], dict[str, Any] | None] = LRUCache(
+    maxsize=_VERIFY_CACHE_MEMO_MAX
+)
 _VERIFY_CACHE_MEMO_LOCK = threading.Lock()
 
 
@@ -472,152 +267,17 @@ def _drop_memo_for(path_key: str) -> None:
         del _VERIFY_CACHE_MEMO[old]
 
 
-#: Sentinel for a token the line parser will not decode.  Distinct from a
-#: real value: a verify-cache scalar is never this object.
-_NOT_A_SCALAR = object()
-_SCALAR_ESCAPES = {
-    "\\": "\\",
-    '"': '"',
-    "b": "\b",
-    "t": "\t",
-    "n": "\n",
-    "f": "\f",
-    "r": "\r",
-}
-
-
-def _unescape_toml_string(body: str) -> str | None:
-    """Decode a basic TOML string body.  ``None`` when an escape is unknown."""
-    if "\\" not in body:
-        return body
-    out: list[str] = []
-    index = 0
-    size = len(body)
-    while index < size:
-        char = body[index]
-        if char != "\\":
-            out.append(char)
-            index += 1
-            continue
-        if index + 1 >= size:
-            return None
-        nxt = body[index + 1]
-        mapped = _SCALAR_ESCAPES.get(nxt)
-        if mapped is not None:
-            out.append(mapped)
-            index += 2
-            continue
-        width = 4 if nxt == "u" else 8 if nxt == "U" else 0
-        if width and index + 2 + width <= size:
-            try:
-                code = int(body[index + 2 : index + 2 + width], 16)
-            except ValueError:
-                return None
-            # tomllib rejects a lone surrogate. Falling back keeps that error.
-            if 0xD800 <= code <= 0xDFFF or code > 0x10FFFF:
-                return None
-            out.append(chr(code))
-            index += 2 + width
-            continue
-        return None
-    return "".join(out)
-
-
-def _simple_toml_scalar(raw: str) -> Any:
-    """One inline scalar, or :data:`_NOT_A_SCALAR` when the token is richer."""
-    if raw == "true":
-        return True
-    if raw == "false":
-        return False
-    if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
-        if raw.startswith('"""'):
-            return _NOT_A_SCALAR
-        value = _unescape_toml_string(raw[1:-1])
-        if value is None:
-            return _NOT_A_SCALAR
-        return value
-    if raw[:1] in {"'", "[", "{"}:
-        return _NOT_A_SCALAR
-    if raw in {"nan", "inf", "-inf", "+inf"}:
-        return float(raw)
-    if any(mark in raw for mark in ".eE"):
-        if any(mark in raw for mark in "xX_#"):
-            return _NOT_A_SCALAR
-        try:
-            return float(raw)
-        except ValueError:
-            return _NOT_A_SCALAR
-    if any(mark in raw for mark in "xX_#"):
-        return _NOT_A_SCALAR
-    body = raw[1:] if raw[:1] in "+-" else raw
-    if not body or (len(body) > 1 and body[0] == "0"):
-        return _NOT_A_SCALAR
-    try:
-        return int(raw, 10)
-    except ValueError:
-        return _NOT_A_SCALAR
-
-
-def _parse_verify_cache_text(text: str) -> dict[str, Any] | None:
-    """Parse a verify cache without :mod:`tomllib`.
-
-    A cache is top-level scalars plus one ``[entries.<va>]`` table of scalars
-    per function.  ``tomllib`` builds a general document for that, and reading
-    it back is most of an all-hit ``rebrew verify``.  Anything this shape
-    cannot express (arrays, quoted keys, multiline strings, a trailing
-    comment) returns ``None`` so the caller uses ``tomllib``.
-    """
-    document: dict[str, Any] = {}
-    current = document
-    entries: dict[str, Any] | None = None
-    for line in text.splitlines():
-        if not line:
-            continue
-        if line[0] in " \t":
-            line = line.strip()
-            if not line:
-                continue
-        if line[0] == "#":
-            continue
-        if line[0] == "[":
-            if line.startswith("[[") or line[-1] != "]" or " " in line or '"' in line:
-                return None
-            parts = line[1:-1].split(".")
-            if len(parts) != 2 or parts[0] != "entries" or not parts[1]:
-                return None
-            if entries is None:
-                entries = {}
-                document["entries"] = entries
-            if parts[1] in entries:
-                return None
-            current = {}
-            entries[parts[1]] = current
-            continue
-        eq = line.find(" = ")
-        if eq <= 0:
-            return None
-        key = line[:eq]
-        if not key or not all(char.isalnum() or char in "_-" for char in key):
-            return None
-        if key in current:
-            return None
-        value = _simple_toml_scalar(line[eq + 3 :])
-        if value is _NOT_A_SCALAR:
-            return None
-        current[key] = value
-    return document
-
-
 def _read_cache_document(cache_path: Path) -> dict[str, Any]:
-    """Parse *cache_path* as a TOML document.
+    """Parse *cache_path* as a TOML document via ``rtoml``.
 
     Raises ``OSError`` or ``ValueError``; the latter covers malformed TOML and
-    non-UTF-8 bytes (``UnicodeDecodeError``).  A verify cache uses the line
-    parser; a document that parser declines is read with ``tomllib``.
+    non-UTF-8 bytes (``UnicodeDecodeError``).  Parse errors fall back to
+    ``tomllib`` so callers receive the standard ``TOMLDecodeError`` contract.
     """
     text = read_toml_text(cache_path)
-    raw = _parse_verify_cache_text(text)
-    if raw is None:
+    try:
+        raw = rtoml.loads(text)
+    except rtoml.TomlParsingError:
         raw = tomllib.loads(text)
     if not isinstance(raw, dict):
         raise ValueError(f"not a TOML table: {type(raw).__name__}")
@@ -746,10 +406,6 @@ def load_verify_cache_raw(cfg: Any, *, isolate: bool = True) -> dict[str, Any] |
         # Drop prior fingerprints for this path before storing — otherwise each
         # verify rewrite orphans a full decoded dict under the old mtime key.
         _drop_memo_for(path_key)
-        # Evict another path's entry when at capacity (FIFO on insertion order).
-        while len(_VERIFY_CACHE_MEMO) >= _VERIFY_CACHE_MEMO_MAX:
-            oldest = next(iter(_VERIFY_CACHE_MEMO))
-            del _VERIFY_CACHE_MEMO[oldest]
         _VERIFY_CACHE_MEMO[key] = raw
     return copy.deepcopy(raw) if isolate and raw is not None else raw
 

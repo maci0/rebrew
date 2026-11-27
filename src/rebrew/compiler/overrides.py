@@ -9,11 +9,10 @@ layer for a pure config decision.
 
 from __future__ import annotations
 
-import threading
-from collections import OrderedDict
 lazy from pathlib import Path
 lazy from typing import Any
 
+from rebrew.utils import BoundedLRU
 lazy from rebrew.config import ProjectConfig
 lazy from rebrew.utils import preset_module_key
 
@@ -151,8 +150,7 @@ def resolve_compile_overrides(
 #: of (config, source dir, toolchain, cflags, module) tuples, so a large
 #: project pays the same walk thousands of times.
 _OVERRIDE_MEMO_MAX = 512
-_override_memo: OrderedDict[tuple[Any, ...], tuple[str | None, str]] = OrderedDict()
-_override_memo_lock = threading.Lock()
+_override_memo: BoundedLRU[tuple[Any, ...], tuple[str | None, str]] = BoundedLRU(_OVERRIDE_MEMO_MAX)
 
 
 def _override_memo_key(
@@ -217,17 +215,11 @@ def resolve_compile_overrides_cached(
         per_function_cflags or "",
         module,
     )
-    with _override_memo_lock:
-        hit = _override_memo.get(key)
-        if hit is not None:
-            _override_memo.move_to_end(key)
-            return hit
+    hit = _override_memo.get(key)
+    if hit is not None:
+        return hit
     resolved = resolve_compile_overrides(
         cfg, source_dir, per_function_toolchain, per_function_cflags, module
     )
-    with _override_memo_lock:
-        _override_memo[key] = resolved
-        _override_memo.move_to_end(key)
-        while len(_override_memo) > _OVERRIDE_MEMO_MAX:
-            _override_memo.popitem(last=False)
+    _override_memo.put(key, resolved)
     return resolved

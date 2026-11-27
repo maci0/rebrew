@@ -1,0 +1,24 @@
+{%- macro nav_links() -%}
+{%- for href, label in pages -%}
+<a href='{{ href }}'{% if href == active %} class='active' aria-current='page'{% endif %}>{{ label }}</a>
+{%- endfor -%}
+{%- endmacro -%}
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8'>
+<meta http-equiv='Content-Security-Policy' content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' file:; frame-ancestors 'none'; form-action 'none'; base-uri 'none';">
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<link rel='icon' href='favicon.svg' type='image/svg+xml' sizes='16x16' fetchpriority='low'>
+<title>{{ title }} - {{ target }}</title>
+<style>{{ css|safe }}</style>
+</head>
+<body>
+<a class='skip-link' href='#main'>Skip to content</a>
+<header><h1><span class='mark' aria-hidden='true'>0x</span> {{ target }} - Rebrew report</h1><nav aria-label='Report pages'>{{ nav_links() }}</nav></header>
+<main id='main' tabindex='-1'>
+{{ body|safe }}
+</main>
+<footer><nav aria-label='Report pages, footer'>{{ nav_links() }}</nav></footer>
+</body>
+</html>

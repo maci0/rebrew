@@ -70,35 +70,13 @@ class FingerprintError(RebrewError, RuntimeError):
     """
 
 
-#: Bytes at offset 0 of every PE image, and the ``PE\\0\\0`` signature the
-#: ``e_lfanew`` field points at.
-_MZ_MAGIC = b"MZ"
-_PE_SIGNATURE = b"PE\0\0"
+def _is_pe_file(path: Path) -> bool:
+    """True when LIEF recognizes *path* as a PE signature (even if truncated)."""
+    import lief
 
-#: Bytes read from the head of a file to look for the two magics above.
-_MAGIC_PROBE_BYTES = 0x40
-
-
-def _pe_signature_present(path: Path) -> bool:
-    """True when *path*'s DOS header points at a ``PE\\0\\0`` signature.
-
-    A DOS-only executable also starts with ``MZ`` but has no PE header, so
-    the ``e_lfanew`` field at offset 0x3C is followed and its target checked
-    before the file counts as an unparseable PE.
-    """
     try:
-        with path.open("rb") as f:
-            head = f.read(_MAGIC_PROBE_BYTES)
-    except OSError:
-        return False
-    if len(head) < 0x40 or head[:2] != _MZ_MAGIC:
-        return False
-    lfanew = int.from_bytes(head[0x3C:0x40], "little")
-    try:
-        with path.open("rb") as f:
-            f.seek(lfanew)
-            return f.read(4) == _PE_SIGNATURE
-    except OSError:
+        return bool(lief.is_pe(str(path)))
+    except Exception:
         return False
 
 
@@ -126,7 +104,7 @@ def _parse_pe_or_raise(path: Path) -> Any:
     imports, no sections" instead of a parse error.
     """
     pe = _parse_pe(path)
-    if pe is None and _pe_signature_present(path):
+    if pe is None and _is_pe_file(path):
         raise FingerprintError(
             f"cannot parse {path} as a PE: the PE header is present but the "
             "format backend rejected the image (truncated or corrupt file?)"
@@ -198,21 +176,11 @@ def imphash_from_pairs(pairs: Iterable[tuple[str, str]]) -> str:
 
 
 def _imphash_from_pe(pe: Any) -> str | None:
-    """Mandiant import hash from an already-parsed LIEF PE, or ``None``."""
-    pairs: list[tuple[str, str]] = []
-    for entry in pe.imports:
-        dll = str(entry.name)
-        for fn in entry.entries:
-            name = str(fn.name)
-            if not name:
-                ordinal = int(fn.ordinal)
-                if ordinal == 0:
-                    continue
-                name = f"ord{ordinal}"
-            pairs.append((dll, name))
-    if not pairs:
-        return None
-    return imphash_from_pairs(pairs)
+    """Mandiant/pefile import hash from an already-parsed LIEF PE, or ``None``."""
+    import lief
+
+    digest = lief.PE.get_imphash(pe, lief.PE.IMPHASH_MODE.PEFILE)
+    return str(digest) if digest else None
 
 
 def imphash(path: str | Path) -> str | None:
@@ -378,6 +346,27 @@ def _shannon_entropy(data: bytes) -> float:
     return entropy
 
 
+def _section_entropies_from_pe(pe: Any) -> list[dict[str, object]]:
+    """Per-section entropy directly from an already-parsed LIEF PE."""
+    from rebrew.formats.binary_loader import decode_binary_name
+
+    image_base = int(pe.optional_header.imagebase)
+    out: list[dict[str, object]] = []
+    for sec in pe.sections:
+        raw_entropy = float(sec.entropy)
+        entropy = round(raw_entropy, 4) if math.isfinite(raw_entropy) else 0.0
+        out.append(
+            {
+                "name": decode_binary_name(sec.name).rstrip("\x00"),
+                "va": image_base + int(sec.virtual_address),
+                "vsize": int(sec.virtual_size),
+                "raw_size": int(sec.sizeof_raw_data),
+                "entropy": entropy,
+            }
+        )
+    return out
+
+
 def section_entropies(path: str | Path) -> list[dict[str, object]]:
     """Per-section ``name`` / ``va`` / ``vsize`` / ``raw_size`` / ``entropy``.
 
@@ -390,17 +379,15 @@ def section_entropies(path: str | Path) -> list[dict[str, object]]:
     p = Path(path)
     if not p.exists():
         return []
+    pe = _parse_pe_or_raise(p)
+    if pe is not None:
+        return _section_entropies_from_pe(pe)
     from rebrew.formats.binary_loader import load_binary
 
     try:
         info = load_binary(p)
         raw = info.data
-    except Exception as exc:
-        if _pe_signature_present(p):
-            raise FingerprintError(
-                f"cannot parse {p} as a PE: the PE header is present but the "
-                f"format backend rejected the image ({exc})"
-            ) from exc
+    except Exception:
         return []
     out: list[dict[str, object]] = []
     for name, section in info.sections.items():
@@ -491,9 +478,20 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
     except OSError, ValueError:
         fmt, arch = None, None
 
-    # Parse the PE once for imphash + export_hash: the two public helpers
-    # each re-parse via LIEF, which re-reads the file from disk.
+    # Parse the PE once for imphash + export_hash + rich_header + section_entropies.
     pe = _parse_pe_or_raise(p)
+    rich_hash: str | None
+    if pe is not None:
+        rh = getattr(pe, "rich_header", None)
+        if rh is not None and rh.entries:
+            rich_hash = rich_header_hash_from_parts(
+                int(rh.key),
+                [((int(e.id) << 16) | int(e.build_id), int(e.count)) for e in rh.entries],
+            )
+        else:
+            rich_hash = None
+    else:
+        rich_hash = rich_header_hash(p)
     bundle: dict[str, object] = {
         **file_hashes(p),
         "format": fmt,
@@ -501,8 +499,8 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
         "size": p.stat().st_size,
         "imphash": None if pe is None else _imphash_from_pe(pe),
         "export_hash": None if pe is None else _export_hash_from_pe(pe),
-        "rich_header_hash": rich_header_hash(p),
-        "section_entropies": section_entropies(p),
+        "rich_header_hash": rich_hash,
+        "section_entropies": section_entropies(p) if pe is None else _section_entropies_from_pe(pe),
     }
     bundle.update(_fuzzy_hashes(p))
     return bundle

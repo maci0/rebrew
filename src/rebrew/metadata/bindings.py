@@ -560,23 +560,75 @@ _STDCALL_TYPE_SIZES: dict[str, int] = {
     "__int64": 8,
     "long long": 8,
     "unsigned long long": 8,
+    "signed long long": 8,
+    "long long int": 8,
+    "unsigned long long int": 8,
+    "signed long long int": 8,
     "LONGLONG": 8,
     "ULONGLONG": 8,
 }
 _STDCALL_DEFAULT_SIZE = 4  # int, char, short, pointers, etc. all push 4 bytes
-_STDCALL_SIZED_TYPE_RE = re.compile(
-    r"\b(?:"
-    + "|".join(re.escape(t) for t in sorted(_STDCALL_TYPE_SIZES, key=len, reverse=True))
-    + r")\b"
+_INDIRECT_DECLARATOR_TYPES = frozenset(
+    {
+        "pointer_declarator",
+        "abstract_pointer_declarator",
+        "array_declarator",
+        "abstract_array_declarator",
+        "function_declarator",
+        "abstract_function_declarator",
+        "parenthesized_declarator",
+        "abstract_parenthesized_declarator",
+    }
 )
+
+
+def _find_outer_param_list(root: Any) -> Any | None:
+    """Return the outermost function_declarator's ``parameter_list`` node, or None."""
+    pending = list(reversed(root.named_children))
+    while pending:
+        node = pending.pop()
+        if node.type == "parameter_list":
+            continue
+        if node.type == "function_declarator":
+            params = node.child_by_field_name("parameters")
+            if params is not None and params.type == "parameter_list":
+                return params
+        pending.extend(reversed(node.named_children))
+    return None
+
+
+def _param_is_indirect(param_node: Any) -> bool:
+    """True when *param_node* is a pointer, reference, array, or function pointer."""
+    decl = param_node.child_by_field_name("declarator")
+    if decl is None:
+        return False
+    return decl.type in _INDIRECT_DECLARATOR_TYPES
+
+
+def _param_base_type(param_node: Any, data: bytes) -> str:
+    """Normalized non-qualifier base type text of a ``parameter_declaration``."""
+    from rebrew.c_parser import node_text
+
+    parts: list[str] = []
+    for child in param_node.named_children:
+        if child.type in (
+            "primitive_type",
+            "sized_type_specifier",
+            "type_identifier",
+            "struct_specifier",
+            "union_specifier",
+            "enum_specifier",
+        ):
+            parts.append(" ".join(node_text(child, data).split()))
+    return " ".join(parts)
 
 
 def _calc_stdcall_param_size(proto: str) -> int | None:
     """Calculate the total parameter stack size for a __stdcall prototype.
 
-    Parses the parameter list from a C prototype string and sums the stack
-    sizes of each parameter.  Returns None if the prototype cannot be parsed
-    (e.g. variadic ``...`` or missing parens).
+    Parses the parameter list from a C prototype string via ``tree-sitter-c``
+    and sums the stack sizes of each parameter.  Returns None if the prototype
+    cannot be parsed (e.g. variadic ``...`` or missing parens).
 
     Examples::
 
@@ -587,71 +639,56 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
         >>> _calc_stdcall_param_size("void __stdcall noargs(void)")
         0
     """
-    # Extract the parameter list between parens.  ``__declspec(...)`` groups
-    # contain parens of their own (``__declspec(naked)``), so a naive
-    # ``find("(")`` grabs the declspec group and counts its content as a
-    # parameter — a ``void __declspec(naked) __stdcall foo(void)`` would
-    # decorate ``_foo@4`` instead of ``_foo@0``.  Strip declspec groups first.
-    cleaned = _DECLSPEC_STRIP_RE.sub("", proto)
-    paren_start = cleaned.find("(")
-    paren_end = cleaned.rfind(")")
-    if paren_start < 0 or paren_end < 0 or paren_end <= paren_start:
-        return None
+    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
 
-    params_str = cleaned[paren_start + 1 : paren_end].strip()
-
-    # No parameters or void
-    if not params_str or params_str == "void":
-        return 0
-
-    # Variadic functions can't be __stdcall-decorated
-    if "..." in params_str:
-        return None
-
-    # Strip template parameter lists before splitting on commas.
-    # Without this, a parameter like ``std::pair<int,int>`` would be
-    # counted as two parameters, doubling the computed stack size and
-    # producing an incorrect decorated name like ``_foo@12`` instead of
-    # ``_foo@4``.  Template args never appear at the top-level comma
-    # boundary — only as nested angle-bracket content.
-    #
-    # Iterative stripping handles arbitrary nesting depth:
-    # e.g. std::map<int, std::pair<A, B>> requires two passes:
-    #   pass 1: removes "<A, B>" → std::map<int, std::pair>
-    #   pass 2: removes "<int, std::pair>" → (empty)
+    # Strip C++ template argument lists (e.g. ``std::pair<int, int>``) so
+    # nested commas inside angle brackets never split a parameter.
+    cleaned = proto.strip()
+    if cleaned.endswith(";"):
+        cleaned = cleaned[:-1].rstrip()
     prev = None
-    while prev != params_str:
-        prev = params_str
-        params_str = _TEMPLATE_STRIP_RE.sub("", params_str)
+    while prev != cleaned:
+        prev = cleaned
+        cleaned = _TEMPLATE_STRIP_RE.sub("", cleaned)
 
-    # Split on top-level commas only: a function-pointer parameter
-    # ``int (*cb)(int, int)`` is one parameter.
-    params: list[str] = []
-    depth = 0
-    start = 0
-    for i, ch in enumerate(params_str):
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-        elif ch == "," and depth == 0:
-            params.append(params_str[start:i])
-            start = i + 1
-    params.append(params_str[start:])
+    # Normalise C++ scope qualifiers (``::``) and reference declarators (``&``)
+    # so the C grammar parses C++ prototypes cleanly (references push 4 bytes
+    # on x86-32 just like pointers).
+    cleaned = cleaned.replace("::", "__").replace("&", "*")
+    masked = mask_msvc_syntax(cleaned)
+    tree, data = parse_c_source(masked + ";")
+    param_list = _find_outer_param_list(tree.root_node)
+    if param_list is None:
+        return None
+
+    param_nodes: list[Any] = []
+    for child in param_list.named_children:
+        if child.type == "comment":
+            continue
+        if child.type == "variadic_parameter":
+            return None
+        if child.type == "parameter_declaration":
+            param_nodes.append(child)
+        elif "..." in node_text(child, data):
+            return None
+
+    if not param_nodes:
+        return 0
+    if len(param_nodes) == 1:
+        only = param_nodes[0]
+        if (
+            only.child_by_field_name("declarator") is None
+            and _param_base_type(only, data) == "void"
+        ):
+            return 0
 
     total = 0
-    for param in params:
-        param = param.strip()
-        if not param:
-            continue
-        matched_size = _STDCALL_DEFAULT_SIZE
-        # Pointers, references, arrays (decay to pointers), and function
-        # pointers push 4 bytes whatever they point to.
-        if not any(c in param for c in "*&[("):
-            sized = _STDCALL_SIZED_TYPE_RE.search(param)
-            if sized:
-                matched_size = _STDCALL_TYPE_SIZES[sized.group(0)]
-        total += matched_size
+    for param in param_nodes:
+        if _param_is_indirect(param):
+            total += _STDCALL_DEFAULT_SIZE
+        else:
+            base_type = _param_base_type(param, data)
+            total += _STDCALL_TYPE_SIZES.get(base_type, _STDCALL_DEFAULT_SIZE)
 
     return total
 

@@ -75,6 +75,7 @@ lazy import tomllib
 lazy import unicodedata
 lazy from collections.abc import Callable, Iterator, Sequence
 
+from cachetools import LRUCache
 from rich.console import Console
 from rich.table import Table
 lazy import httpx
@@ -664,14 +665,97 @@ _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 # instead of scanning the whole LRU.
 _SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[_SourceMemoKey]] = {}
 
+
+class BoundedLRU[K, V]:
+    """Thread-safe bounded LRU cache backed by ``cachetools.LRUCache``.
+
+    Replaces repeated hand-rolled ``OrderedDict`` + ``threading.Lock`` +
+    eviction loops across the codebase.  Optional *getsizeof* bounds retained
+    bytes/chars instead of entry count.
+    """
+
+    def __init__(
+        self,
+        maxsize: int,
+        *,
+        getsizeof: Callable[[V], int] | None = None,
+        reentrant: bool = False,
+    ) -> None:
+        self._cache: LRUCache[K, V] = LRUCache(maxsize=maxsize, getsizeof=getsizeof)
+        self.lock: threading.Lock | threading.RLock = (
+            threading.RLock() if reentrant else threading.Lock()
+        )
+
+    @property
+    def maxsize(self) -> int:
+        return int(self._cache.maxsize)
+
+    @property
+    def currsize(self) -> int:
+        with self.lock:
+            return int(self._cache.currsize)
+
+    def get(self, key: K, default: V | None = None) -> V | None:
+        with self.lock:
+            if key in self._cache:
+                return self._cache[key]
+            return default
+
+    def put(self, key: K, value: V) -> None:
+        with self.lock, contextlib.suppress(ValueError):
+            self._cache[key] = value
+
+    def get_or_put(self, key: K, value: V) -> V:
+        """Store *value* if *key* is absent, else return the existing entry."""
+        with self.lock:
+            if key in self._cache:
+                return self._cache[key]
+            with contextlib.suppress(ValueError):
+                self._cache[key] = value
+            return value
+
+    def replace_where(self, key: K, value: V, predicate: Callable[[K], bool]) -> V:
+        """Return existing *key* if present, else drop matching keys and store *value*."""
+        with self.lock:
+            if key in self._cache:
+                return self._cache[key]
+            for old in [k for k in self._cache if predicate(k)]:
+                self._cache.pop(old, None)
+            with contextlib.suppress(ValueError):
+                self._cache[key] = value
+            return value
+
+    def pop(self, key: K, default: V | None = None) -> V | None:
+        with self.lock:
+            if key in self._cache:
+                return self._cache.pop(key)
+            return default
+
+    def drop_where(self, predicate: Callable[[K], bool]) -> None:
+        with self.lock:
+            for key in [k for k in self._cache if predicate(k)]:
+                self._cache.pop(key, None)
+
+    def clear(self) -> None:
+        with self.lock:
+            self._cache.clear()
+
+    def __len__(self) -> int:
+        with self.lock:
+            return len(self._cache)
+
+    def __contains__(self, key: K) -> bool:
+        with self.lock:
+            return key in self._cache
+
+
 # ``(spelling, mtime_ns, size, ino)`` -> resolved path.  The stat is from
 # ``lstat``, so a content edit or a symlink retarget misses and resolves
 # again.  That changed-final-component case is what header and source
 # identity need.  Sized like the source-text memo: at 2048 a 5.5k-file tree
 # evicted every entry before its next pass and re-resolved each source.
-_RESOLVED_PATHS: OrderedDict[tuple[str, int, int, int], Path] = OrderedDict()
 _RESOLVED_PATHS_MAX = _SOURCE_TEXT_MEMO_MAX
-_RESOLVED_PATHS_LOCK = threading.Lock()
+_RESOLVED_PATHS: BoundedLRU[tuple[str, int, int, int], Path] = BoundedLRU(_RESOLVED_PATHS_MAX)
 
 
 def resolved_path(path: Path) -> Path:
@@ -689,17 +773,11 @@ def resolved_path(path: Path) -> Path:
         return path.resolve()
     spelling = str(path) if path.is_absolute() else f"{Path.cwd()}\0{path}"
     key = (spelling, st.st_mtime_ns, st.st_size, st.st_ino)
-    with _RESOLVED_PATHS_LOCK:
-        hit = _RESOLVED_PATHS.get(key)
-        if hit is not None:
-            _RESOLVED_PATHS.move_to_end(key)
-            return hit
+    hit = _RESOLVED_PATHS.get(key)
+    if hit is not None:
+        return hit
     resolved = path.resolve()
-    with _RESOLVED_PATHS_LOCK:
-        _RESOLVED_PATHS[key] = resolved
-        _RESOLVED_PATHS.move_to_end(key)
-        while len(_RESOLVED_PATHS) > _RESOLVED_PATHS_MAX:
-            _RESOLVED_PATHS.popitem(last=False)
+    _RESOLVED_PATHS.put(key, resolved)
     return resolved
 
 
@@ -1591,7 +1669,12 @@ def atomic_write_bytes(
         # O_EXCL: a name planted in the target directory as a symlink must not
         # be followed, or the write lands on the link's target.
         fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
-        with os.fdopen(fd, "wb") as fh:
+        try:
+            fh = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            raise
+        with fh:
             fh.write(data)
             fh.flush()
         # Durability comes from _atomic_replace's best-effort _fsync_path on

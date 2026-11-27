@@ -49,6 +49,8 @@ def _install_fake_angr(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
         raise AngrUnavailable("fake angr: unexpected call")
 
     class _FakeRegs:
+        esp = 0x7FFF0000
+
         def __setattr__(self, name: str, value: Any) -> None:
             pass
 
@@ -61,16 +63,20 @@ def _install_fake_angr(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
             self.regs = _FakeRegs()
             self.memory = _FakeMemory()
             self.solver = types.SimpleNamespace(add=lambda *a, **k: None)
+            self.globals: dict[Any, Any] = {}
 
     from angr import claripy
 
     fake = types.ModuleType("angr")
-    fake.claripy = claripy
+    fake.claripy = claripy  # type: ignore[attr-defined]
 
     class _FakeProject:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.arch = object()
             self.factory = types.SimpleNamespace(
-                blank_state=lambda *a, **k: _FakeState(), simgr=_unavailable
+                blank_state=lambda *a, **k: _FakeState(),
+                call_state=lambda *a, **k: _FakeState(),
+                simgr=_unavailable,
             )
 
         def hook(self, *args: Any, **kwargs: Any) -> None:
@@ -88,6 +94,16 @@ def _install_fake_angr(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     fake.SIM_PROCEDURES = {"stubs": sim_stubs}  # type: ignore[attr-defined]
     fake.exploration_techniques = types.SimpleNamespace(  # type: ignore[attr-defined]
         LoopSeer=lambda *a, **k: object()
+    )
+    fake.calling_conventions = types.SimpleNamespace(  # type: ignore[attr-defined]
+        SimCCCdecl=lambda arch: object(),
+        SimCCStdcall=lambda arch: object(),
+        SimCCMicrosoftThiscall=lambda arch: object(),
+        SimCCMicrosoftFastcall=lambda arch: object(),
+    )
+    fake.sim_type = types.SimpleNamespace(  # type: ignore[attr-defined]
+        SimTypeFunction=lambda args, ret: object(),
+        SimTypeInt=lambda signed=True: object(),
     )
     fake.options = types.SimpleNamespace(  # type: ignore[attr-defined]
         ZERO_FILL_UNCONSTRAINED_MEMORY=1, ZERO_FILL_UNCONSTRAINED_REGISTERS=2

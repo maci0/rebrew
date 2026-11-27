@@ -722,22 +722,29 @@ class TestCiPins:
         fake = launcher / "vnu"
         fake.write_text('#!/usr/bin/env bash\necho "20.6.30 (old)"\n', encoding="utf-8")
         fake.chmod(0o755)
-        env = {**os.environ, "REBREW_VNU_DIR": str(dest)}
-        helper = str(ROOT / "tools" / "ci_install_vnu.sh")
-        if (
-            shutil.which("curl") is None
-            or shutil.which("tar") is None
-            or shutil.which("java") is None
-        ):
-            pytest.skip("curl, tar and java are required to install the validator")
-        # Network-dependent: a wrong-version install is replaced by a real
-        # download.  Assert only that the stale tree is not accepted, which
-        # holds whether the reinstall succeeds or the download fails.
-        result = subprocess.run([helper], env=env, capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            assert result.stdout.strip() == str(launcher)
-        else:
-            assert "replacing vnu 20.6.30" in result.stderr
+        # A corrupt local response exercises the real checksum refusal after eviction.
+        curl = tmp_path / "curl"
+        curl.write_text(
+            '#!/bin/sh\nset -eu\necho fetch >> "$0.calls"\n'
+            'while [ "$1" != "-o" ]; do shift; done\nprintf corrupt > "$2"\n',
+            encoding="utf-8",
+        )
+        curl.chmod(0o755)
+        for prerequisite in ("tar", "java"):
+            (tmp_path / prerequisite).symlink_to("/bin/false")
+        env = {
+            **os.environ,
+            "REBREW_VNU_DIR": str(dest),
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        }
+        result = subprocess.run(
+            [ROOT / "tools/ci_install_vnu.sh"], env=env, capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 1
+        assert "replacing vnu 20.6.30" in result.stderr
+        assert "vnu archive sha256" in result.stderr
+        assert not dest.exists()
+        assert (tmp_path / "curl.calls").read_text().splitlines() == ["fetch"]
 
     def test_biome_install_helper_pins_and_verifies(self) -> None:
         """The linter binary is verified before it can run the gate.

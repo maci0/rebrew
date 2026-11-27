@@ -40,16 +40,23 @@ dependencies = [
     # step in between.  The cap turns that into a resolver error the tree can
     # re-audit, and tests/test_package_metadata.py keeps one on every
     # requirement added later.
+    "cachetools>=7.3.0,<8",  # bounded LRU/TTL caches (utils.py, compiler/, metadata/, verify_cache.py, coverage_toml.py)
     "capstone>=5.0.9,<6",  # PYSEC-2026-3544 fixed in 5.0.8; lock is 5.0.9
     "click>=8.5.1,<9",  # direct import (init.py shell completion); 8.3.3 fixes CVE-2025-6143/6144
     "diskcache>=5.6.3,<6",  # GHSA-w8v5-vhqr-4h9v unfixed upstream; NoPickleDisk + chmod 0o700 mitigate (compiler/cache.py)
     "httpx>=0.28.1,<1",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
     "idna>=3.20,<4",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
+    "jinja2>=3.1.6,<4",  # HTML report rendering (report.py, templates/report/)
     "lief>=1.0.0,<2",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
-    "numpy>=2.5.4,<3",  # byte and structural scoring (matcher/scoring.py, binary_similarity.py, similar.py)
+    "markupsafe>=3.0.4,<4",  # autoescaped HTML markup helpers (report.py)
+    "msgspec>=0.22.0,<1",  # strict structured op-envelope decoding (ops.py)
+    "numpy>=2.5.4,<3",  # byte and structural scoring (matcher/scoring.py, binary_similarity.py, similar.py, cfg_ged.py)
     "python-flirt @ https://github.com/maci0/lancelot/releases/download/python-flirt-v0.10.2-relumea.1/python_flirt-0.10.2%2Brelumea.1.tar.gz#sha256=5ad7a93c992d33478d97b8ce874fa7d5b92a121a949cd2a7e8f589e1a48fff01",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
     "pyyaml>=6.0.3,<7",  # splat config YAML (splat_config.py; replaces the hand-rolled subset reader)
+    "rapidfuzz>=3.14.6,<4",  # C++ LCS alignment & similarity (alignment.py, matcher/scoring.py)
     "rich>=15.0.0,<16",  # console rendering (Console(stderr=True) convention) and typer's markup backend
+    "rtoml>=0.14.0,<1",  # Rust-backed fast TOML read/write (metadata/rendered_toml.py, metadata/replication.py, verify_cache.py)
+    "tenacity>=9.2.1,<10",  # HTTP retry/backoff policies (compiler/recompile_client.py, decompme.py, llm_seed.py, toolchain_cli.py)
     "tomlkit>=0.15.2,<1",  # round-trip-preserving TOML writes (metadata/functions.py, cfg.py, library.py)
     "tree-sitter>=0.26.1,<1",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
     "tree-sitter-c>=0.24.2,<1",  # C grammar for tree-sitter
@@ -98,7 +105,7 @@ version = { attr = "rebrew.__version__" }
 # (docs/codegen/README.md#machine-readable-corpus-codegen_corpusjson).
 # ``compiler/toolchains.json`` is the vendored recompile-toolchains release
 # manifest the toolchain source pins come from (docs/TOOLCHAIN.md).
-rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "codegen_corpus.json", "rebrew.schema.json", "compiler/*.c", "compiler/toolchains.json", "**/py.typed", "py.typed"]
+rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "codegen_corpus.json", "rebrew.schema.json", "compiler/*.c", "compiler/toolchains.json", "templates/**/*", "**/py.typed", "py.typed"]
 
 # Contributor-only AGENTS.md under subpackages (app/, matcher/, compiler/, formats/, metadata/, catalog/, ghidra/,
 # binsync/, workspace/) must not
@@ -285,7 +292,6 @@ dev = [
 # resembl declares License-Expression: GPL-3.0-only. See NOTICE.
 similarity = [
     "resembl",
-    "rapidfuzz>=3.14.6,<4",  # direct import in matcher/scoring.py code_similarity
 ]
 # m2c decompiler backend (decompiler.py fetch_m2c).  Not on PyPI under this
 # name (the PyPI `m2c` is an unrelated OpenAPI package) — git-only, so it

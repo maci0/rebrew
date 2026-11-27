@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from functools import lru_cache
 from typing import Any
 lazy from pathlib import Path
 
@@ -59,63 +58,15 @@ lazy from rebrew.struct_recover import (
     type_width,
 )
 lazy from rebrew.utils import (
-    join_source_lines,
-    parse_c_integer_literal,
+    join_source_lines,  # noqa: F401
+    parse_c_integer_literal,  # noqa: F401
     parse_int_literal,
-    split_source_lines,
+    split_source_lines,  # noqa: F401
 )
 
 # ---------------------------------------------------------------------------
 # Struct layout parsing
 # ---------------------------------------------------------------------------
-
-#: One field inside a typedef body: ``int flags;`` / ``char gap_0004[0x264260];``
-#: / ``char field_0[0xc];`` / ``unsigned short tbl[2][4];`` / ``int *p;``.
-# Longer bases first.  A single word would take ``long`` as the type and
-# the next word (``long``, ``double``, ``int``) as the field name.
-_FIELD_BASE = r"long\s+long(?:\s+int)?|long\s+double|long\s+int|short\s+int|[A-Za-z_]\w*"
-# ``(*name[N])`` is an array of pointers. ``(*name)[N]`` is one pointer;
-# the brackets after the closing parenthesis are the pointee. A bare
-# ``*name[N]`` stays an array of pointers. The two parenthesis groups
-# have to match, or the line is not a field.
-_FIELD_BRACKETS = r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*"
-_FIELD_LINE_RE = re.compile(
-    rf"^\s*(?P<mod>(?:unsigned|signed|const)\s+)?(?P<base>{_FIELD_BASE})\s*"
-    rf"(?P<open>\(\s*)?(?P<ptr>\*+)?\s*(?P<name>[A-Za-z_]\w*)\s*"
-    rf"(?P<inner>{_FIELD_BRACKETS})\s*(?P<close>\))?\s*(?P<arr>{_FIELD_BRACKETS})\s*;"
-)
-#: Strips ``/* */`` and ``//`` from a single line (for layout scanning only).
-_LINE_COMMENT_RE = re.compile(r"//.*$")
-_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
-
-#: Multi-dimensional array dims: ``[0x10]``, ``[4]``, or ``[sizeof(wchar_t[3])]``.
-#: One nested pair is part of the same bound. A deeper nest stays unknown.
-_DIM_RE = re.compile(r"\[((?:[^\[\]]|\[[^\]]*\])*)\]")
-
-
-def _dim_value(s: str) -> int | None:
-    """Parse a C array dimension (hex ``0x10``, octal ``010``, decimal ``4``).
-
-    A ``u``/``l`` suffix is part of the constant (``0x10u`` is 16).  A
-    complete constant expression (``2 + 2``, ``0x300 * 0x21c``) folds the
-    same way ``estimate_type_size`` does.  Returns ``None`` for a
-    non-constant dimension (``[]`` or a symbolic ``[N]``) or a negative
-    bound, which the caller treats as unsized rather than crashing.
-    """
-    from rebrew.c_parser import array_type_shape
-
-    _base, dimensions = array_type_shape(f"char[{s}]")
-    if len(dimensions) != 1:
-        return None
-    bound = dimensions[0]
-    if isinstance(bound, str):
-        try:
-            bound = parse_c_integer_literal(bound)
-        except ValueError:
-            return None
-    if not isinstance(bound, int) or bound < 0:
-        return None
-    return bound
 
 
 @dataclass
@@ -132,69 +83,37 @@ class FieldLayout:
     complete: bool = True
 
 
-def struct_field_layout(definition: str, pointer_width: int = 4) -> FieldLayout:
-    """Compute ``{offset: (field_name, width)}`` for a typedef struct body.
+def _struct_def_to_layout(struct: Any, pointer_width: int = 4) -> FieldLayout:
+    """Convert a ``rebrew.types.StructDef`` into a ``FieldLayout``."""
+    from rebrew.types import type_size
 
-    Handles the guild/decomp conventions: typed primitives (``int flags``),
-    pointer fields (``int *p`` → *pointer_width* on the target arch),
-    explicit byte arrays (``char gap_0004[0x264260]`` → width 0x264260), and
-    multi-dim arrays (``[2][4]`` → 8 elements).  Bitfields, embedded ``struct``
-    members, or anything else unsized mark the layout ``complete = False`` so
-    it is never matched against evidence.
-    """
-    body = _BLOCK_COMMENT_RE.sub(" ", definition)
     lay = FieldLayout()
-    offset = 0
-    for raw in body.splitlines():
-        line = _LINE_COMMENT_RE.sub("", raw).strip()
-        if not line:
-            continue
-        # ``typedef struct name {`` opener and ``} name;`` closer are not fields.
-        if line.startswith(("typedef struct", "}")):
-            continue
-        m = _FIELD_LINE_RE.match(line)
-        if m is None or bool(m.group("open")) != bool(m.group("close")):
-            lay.complete = False
-            continue
-        base = " ".join(m.group("base").split())
-        width: int | None
-        if m.group("ptr"):
-            width = pointer_width
-        elif base in TYPE_WIDTHS:
-            width = TYPE_WIDTHS[base]
-        else:
-            width = None
-        if width is None:
-            lay.complete = False
-            continue
-        # Brackets inside ``(*name[N])`` are the element count. Brackets
-        # after ``(*name)`` are the pointee, so the field stays one pointer.
-        if m.group("close") and m.group("ptr") and not m.group("inner"):
-            dims = ""
-        elif m.group("close"):
-            dims = m.group("inner") or ""
-        else:
-            dims = (m.group("inner") or "") + (m.group("arr") or "")
-        if dims:
-            count = 1
-            unsized = False
-            for dim in _DIM_RE.findall(dims):
-                dim_value = _dim_value(dim)
-                if dim_value is None:
-                    unsized = True
-                    break
-                count *= dim_value
-            if unsized:
-                # ``char x[]`` / ``[N]``: the field has no computable width, so
-                # every later offset is unknown.  Mark incomplete (never
-                # matched) instead of raising inside the parse.
-                lay.complete = False
-                continue
-            width *= count
-        lay.fields[offset] = (m.group("name"), width)
-        offset += width
-    lay.size = offset
+    lay.complete = struct.complete
+    ordered = sorted(struct.fields, key=lambda f: f[2])
+    for idx, (field_name, spelling, off) in enumerate(ordered):
+        end = ordered[idx + 1][2] if idx + 1 < len(ordered) else struct.size
+        width = type_size(spelling, pointer_width=pointer_width)
+        lay.fields[off] = (field_name, width if width is not None else max(0, end - off))
+    lay.size = struct.size
     return lay
+
+
+def struct_field_layout(definition: str, pointer_width: int = 4) -> FieldLayout:
+    """Compute packed ``{offset: (field_name, width)}`` for a typedef struct body.
+
+    Delegates to :func:`rebrew.types.parse_structs` with ``packed=True``.
+    Handles typed primitives, pointer fields (*pointer_width* bytes),
+    explicit byte arrays, constant-expression bounds, and multi-dim arrays.
+    Bitfields, embedded unknown ``struct`` members, or anything else unsized
+    mark the layout ``complete = False`` so it is never matched against evidence.
+    """
+    from rebrew.types import parse_structs
+
+    parsed = parse_structs(definition, packed=True, pointer_width=pointer_width)
+    struct = next(iter(parsed.values()), None)
+    if struct is None:
+        return FieldLayout(complete=False)
+    return _struct_def_to_layout(struct, pointer_width=pointer_width)
 
 
 # A bound ``int()`` cannot size: hex, a constant expression, or a suffix.
@@ -211,29 +130,19 @@ def struct_definitions_to_layouts(
     """Map struct name → parsed layout for every raw definition.
 
     Parses via the shared :mod:`rebrew.types` model (tree-sitter offsets
-    with MSVC alignment); falls back to the legacy line parser for bodies
-    the shared model cannot size.  A packed decompiler struct whose bounds
-    the old decimal ``int()`` count could not size (``char gap[0x3]``,
-    ``int field_6`` at offset 6) keeps that packed layout: natural alignment
-    would move the field off the offset its name and the decompiler both use.
-    *pointer_width* sizes pointer fields in the legacy fallback.
+    with MSVC alignment); falls back to packed layout for decompiler structs
+    whose bounds use hex/expressions/suffixes where natural alignment would
+    move fields off the offsets their names and the decompiler both use.
     """
-    from rebrew.types import parse_structs, type_size
+    from rebrew.types import parse_structs
 
     layouts: dict[str, FieldLayout] = {}
     for name, definition in definitions.items():
         packed = struct_field_layout(definition, pointer_width=pointer_width)
-        parsed = parse_structs(definition)
+        parsed = parse_structs(definition, pointer_width=pointer_width)
         struct = parsed.get(name) or next(iter(parsed.values()), None)
         if struct is not None and struct.fields:
-            lay = FieldLayout()
-            lay.complete = struct.complete
-            ordered = sorted(struct.fields, key=lambda f: f[2])
-            for idx, (field_name, spelling, off) in enumerate(ordered):
-                end = ordered[idx + 1][2] if idx + 1 < len(ordered) else struct.size
-                width = type_size(spelling) or max(0, end - off)
-                lay.fields[off] = (field_name, width)
-            lay.size = struct.size
+            lay = _struct_def_to_layout(struct, pointer_width=pointer_width)
             disagree = lay.complete and packed.complete and lay.fields != packed.fields
             if disagree and _C_BOUND_RE.search(definition):
                 layouts[name] = packed
@@ -268,16 +177,9 @@ def _match_struct(var_offsets: set[int], layouts: dict[str, FieldLayout]) -> str
 
 
 # ---------------------------------------------------------------------------
-# Rewriting
+# AST helpers + Rewriting
 # ---------------------------------------------------------------------------
 
-#: Access forms, longest first (single pass — the engine consumes each match
-#: so the bare ``var + N`` alternative never re-matches inside a cast form).
-_CAST_INDEX_PATTERN = (
-    r"(?P<xamp>&\s*)?\(\s*\(\s*(?P<xtype>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)"
-    r"\s*(?P<xvar>[A-Za-z_]\w*)\s*\)\s*\[\s*(?P<xidx>0x[0-9a-fA-F]+|\d+)\s*\]"
-)
-_CAST_INDEX_RE = re.compile(_CAST_INDEX_PATTERN)
 _CAST_INDEX_WIDTHS = {
     "char": 1,
     "signed char": 1,
@@ -288,90 +190,214 @@ _CAST_INDEX_WIDTHS = {
     "unsigned int": 4,
 }
 
-_ACCESS_RE = re.compile(
-    _CAST_INDEX_PATTERN
-    # *(T *)(var + N)
-    + r"|\*\s*\(\s*(?P<cast>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*\(\s*(?P<cvar>[A-Za-z_]\w*)\s*\+\s*(?P<coff>0x[0-9a-fA-F]+|\d+)\s*\)"
-    # *(T *)&var[i] / *(T *)var[i]  (decimal or 0x hex; hex before \d+)
-    r"|\*\s*\(\s*(?P<cast2>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*&?\s*(?P<avar>[A-Za-z_]\w*)\s*\[\s*(?P<aidx>0x[0-9a-fA-F]+|\d+)\s*\]"
-    # &var[i] / var[i].  Whitespace before a bare variable stays outside
-    # the match, so ``y = p[i]`` does not collapse to ``y =p->field``.
-    # The ampersand is the address of the element, not part of a load.
-    r"|(?P<bamp>&\s*)?(?P<bvar>[A-Za-z_]\w*)\s*\[\s*(?P<bidx>0x[0-9a-fA-F]+|\d+)\s*\]"
-    # var + N (address arithmetic, e.g. passed to a call)
-    r"|\b(?P<pvar>[A-Za-z_]\w*)\s*\+\s*(?P<poff>0x[0-9a-fA-F]+|\d+)\b"
-)
 
-#: Signature type prefix, first line only: ``int a0`` / ``unsigned int a1``
-#: / ``short *a2`` → replaced wholesale when the variable matched.
-_SIG_TYPE_RE = re.compile(
-    r"\b(?P<mod>(?:unsigned|signed)\s+)?(?P<base>[A-Za-z_]\w*)\s+(?P<ptr>\*)?\s*(?P<var>[A-Za-z_]\w*)\b"
-)
-
-#: ``vN = a0;`` alias assignments (Kuna copies params into locals).
-_ALIAS_RE = re.compile(r"\b(?P<alias>[A-Za-z_]\w*)\s*=\s*(?P<src>[A-Za-z_]\w*)\s*;")
-
-#: ``(T *)var`` casts — pointer evidence for item 15's gate.
-_CAST_PTR_RE = re.compile(r"\(\s*[A-Za-z_]\w*(?:\s+\w+)*?\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)")
-
-#: ``var[i]`` / ``&var[i]`` uses — pointer evidence for item 15's gate.
-_INDEX_USE_RE = re.compile(r"&?\s*(?P<var>[A-Za-z_]\w*)\s*\[\s*(?:0x[0-9a-fA-F]+|\d+)\s*\]")
-
-#: Token scan for the cast-index word-count walk; hoisted so the inner loop
-#: does not recompile the pattern on every call.
-_WORD_TOKEN_RE = re.compile(r"\w+")
+def _unwrap_parens(node: Any) -> Any:
+    while node is not None and node.type == "parenthesized_expression":
+        inner = [c for c in node.named_children if c.type != "comment"]
+        if len(inner) != 1:
+            return node
+        node = inner[0]
+    return node
 
 
-@lru_cache(maxsize=64)
-def _word_count_re(var: str) -> re.Pattern[str]:
-    """Whole-word pattern for *var*; cached because ``re.escape(var)`` defeats
-    the module-level pattern cache and the cast-index loop rescans *text* per var."""
-    return re.compile(rf"\b{re.escape(var)}\b")
+def _node_op(node: Any, data: bytes) -> str:
+    from rebrew.c_parser import node_text
+
+    op = node.child_by_field_name("operator")
+    return node_text(op, data).strip() if op is not None else ""
+
+
+def _specifier_type(node: Any, data: bytes) -> str:
+    from rebrew.c_parser import node_text
+
+    parts: list[str] = []
+    for child in node.named_children:
+        if child.type in ("primitive_type", "sized_type_specifier", "type_identifier"):
+            parts.append(" ".join(node_text(child, data).split()))
+        elif child.type in ("struct_specifier", "union_specifier", "enum_specifier"):
+            tag = child.child_by_field_name("name")
+            if tag is not None:
+                parts.append(node_text(tag, data))
+    return " ".join(parts)
+
+
+def _cast_pointee(type_desc: Any, data: bytes) -> tuple[str, int] | None:
+    base = _specifier_type(type_desc, data)
+    if not base:
+        return None
+    decl = type_desc.child_by_field_name("declarator")
+    stars = 0
+    while decl is not None and decl.type == "abstract_pointer_declarator":
+        stars += 1
+        decl = decl.child_by_field_name("declarator")
+    if stars == 0 or decl is not None:
+        return None
+    return (base, 1) if stars == 1 else (f"{base} {'*' * (stars - 1)}", stars)
+
+
+def _parse_cast_index_subscript(sub_node: Any, data: bytes) -> tuple[str, str, int] | None:
+    """Parse ``((T *)var)[idx]`` into ``(cast_type, var, idx_val)``, or None."""
+    from rebrew.c_parser import node_text
+
+    if sub_node.type != "subscript_expression":
+        return None
+    arg = _unwrap_parens(sub_node.child_by_field_name("argument"))
+    idx_node = _unwrap_parens(sub_node.child_by_field_name("index"))
+    if (
+        arg is None
+        or arg.type != "cast_expression"
+        or idx_node is None
+        or idx_node.type != "number_literal"
+    ):
+        return None
+    type_desc = arg.child_by_field_name("type")
+    val = _unwrap_parens(arg.child_by_field_name("value"))
+    if type_desc is None or val is None or val.type != "identifier":
+        return None
+    cast_info = _cast_pointee(type_desc, data)
+    if cast_info is None or cast_info[1] != 1:
+        return None
+    index = parse_member_index(node_text(idx_node, data))
+    if index is None:
+        return None
+    return cast_info[0], node_text(val, data), index
 
 
 def _pointer_vars(text: str) -> set[str]:
     """Vars with evidence of being a pointer: ``T *var`` decls/params,
     ``(T *)var`` casts, ``*(T *)(var + N)`` / ``*(T *)&var + N`` cast-derefs,
-    ``*(T *)&var[i]`` derefs, or ``var[i]`` index uses.
+    ``*(T *)&var[i]`` derefs, ``var->field``, or ``var[i]`` index uses.
 
     The anonymous rewrite pass only renames these; a plain ``int`` used in
     ``var + N`` arithmetic has no such evidence and a bare ``var + N`` on it
     is integer math, not a member access.
     """
-    from rebrew.compiler.cache import mask_preprocessor_comments
-    from rebrew.struct_recover import (
-        ARRAY_DEREF_RE,
-        ARRAY_IDX_RE,
-        CAST_DEREF_RE,
-        CAST_RE,
-        DECL_RE,
-        FIELD_ACCESS_RE,
-    )
+    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
 
-    # A comment's last word (kuna annotates variables with `// edx`) must not read as a type.
-    text = mask_preprocessor_comments(text)
+    tree, data = parse_c_source(mask_msvc_syntax(text))
     out: set[str] = set()
-    for m in DECL_RE.finditer(text):
-        out.add(m.group("var"))
-    for m in CAST_RE.finditer(text):
-        out.add(m.group("var"))
-    for m in _CAST_PTR_RE.finditer(text):
-        out.add(m.group("var"))
-    for m in CAST_DEREF_RE.finditer(text):
-        var = m.group("var1") or m.group("var2")
-        if var is not None:
-            out.add(var)
-    for m in ARRAY_DEREF_RE.finditer(text):
-        out.add(m.group("var"))
-    for m in ARRAY_IDX_RE.finditer(text):
-        out.add(m.group("var"))
-    for m in FIELD_ACCESS_RE.finditer(text):
-        var = m.group("var")
-        if var is not None:
-            out.add(var)
-    for m in _INDEX_USE_RE.finditer(text):
-        out.add(m.group("var"))
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        kind = node.type
+        if kind in ("comment", "string_literal", "char_literal"):
+            continue
+        if kind in ("declaration", "parameter_declaration"):
+            for decl in node.children_by_field_name("declarator"):
+                if decl.type == "init_declarator":
+                    decl = decl.child_by_field_name("declarator")
+                if decl is not None and decl.type == "pointer_declarator":
+                    inner = decl.child_by_field_name("declarator")
+                    while inner is not None and inner.type == "pointer_declarator":
+                        inner = inner.child_by_field_name("declarator")
+                    if inner is not None and inner.type == "identifier":
+                        out.add(node_text(inner, data))
+        elif kind == "cast_expression":
+            type_desc = node.child_by_field_name("type")
+            if type_desc is not None and _cast_pointee(type_desc, data) is not None:
+                val = _unwrap_parens(node.child_by_field_name("value"))
+                if val is not None:
+                    if val.type == "identifier":
+                        out.add(node_text(val, data))
+                    elif val.type == "pointer_expression" and _node_op(val, data) == "&":
+                        inner = _unwrap_parens(val.child_by_field_name("argument"))
+                        if inner is not None and inner.type == "identifier":
+                            out.add(node_text(inner, data))
+                        elif inner is not None and inner.type == "subscript_expression":
+                            sub_arg = _unwrap_parens(inner.child_by_field_name("argument"))
+                            if sub_arg is not None and sub_arg.type == "identifier":
+                                out.add(node_text(sub_arg, data))
+                    elif val.type == "binary_expression" and _node_op(val, data) == "+":
+                        left = _unwrap_parens(val.child_by_field_name("left"))
+                        right = _unwrap_parens(val.child_by_field_name("right"))
+                        if (
+                            left is not None
+                            and left.type == "pointer_expression"
+                            and _node_op(left, data) == "&"
+                        ):
+                            left = _unwrap_parens(left.child_by_field_name("argument"))
+                        if (
+                            left is not None
+                            and left.type == "identifier"
+                            and right is not None
+                            and right.type == "number_literal"
+                        ):
+                            out.add(node_text(left, data))
+                    elif val.type == "subscript_expression":
+                        sub_arg = _unwrap_parens(val.child_by_field_name("argument"))
+                        if sub_arg is not None and sub_arg.type == "identifier":
+                            out.add(node_text(sub_arg, data))
+        elif kind == "subscript_expression":
+            sub_arg = _unwrap_parens(node.child_by_field_name("argument"))
+            sub_idx = _unwrap_parens(node.child_by_field_name("index"))
+            if (
+                sub_arg is not None
+                and sub_arg.type == "identifier"
+                and sub_idx is not None
+                and sub_idx.type == "number_literal"
+            ):
+                out.add(node_text(sub_arg, data))
+        elif kind == "field_expression" and _node_op(node, data) == "->":
+            arg = _unwrap_parens(node.child_by_field_name("argument"))
+            if arg is not None and arg.type == "identifier":
+                out.add(node_text(arg, data))
+        stack.extend(reversed(node.named_children))
     return out
+
+
+def _first_function_params(
+    root: Any, data: bytes
+) -> tuple[str | None, list[tuple[int, str, str, bool]]]:
+    """Return ``(func_name, [(index, var_name, base_type, is_ptr), ...])`` for the first function."""
+    from rebrew.c_parser import node_text
+
+    fn_node: Any = None
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "function_definition":
+            fn_node = node
+            break
+        stack.extend(reversed(node.named_children))
+    if fn_node is None:
+        return None, []
+
+    decl = fn_node.child_by_field_name("declarator")
+    while decl is not None and decl.type != "function_declarator":
+        if decl.type == "pointer_declarator":
+            decl = decl.child_by_field_name("declarator")
+        elif decl.type == "parenthesized_declarator":
+            inner = [c for c in decl.named_children if c.type != "comment"]
+            decl = inner[0] if inner else None
+        else:
+            decl = None
+    if decl is None:
+        return None, []
+    ident = next((c for c in decl.children if c.type == "identifier"), None)
+    func_name = node_text(ident, data) if ident is not None else None
+    params_node = decl.child_by_field_name("parameters")
+    if params_node is None:
+        return func_name, []
+
+    params: list[tuple[int, str, str, bool]] = []
+    param_decls = [c for c in params_node.children if c.type == "parameter_declaration"]
+    for idx, pdecl in enumerate(param_decls):
+        base = _specifier_type(pdecl, data)
+        p_declarator = pdecl.child_by_field_name("declarator")
+        is_ptr = False
+        if p_declarator is not None and p_declarator.type == "pointer_declarator":
+            is_ptr = True
+            p_declarator = p_declarator.child_by_field_name("declarator")
+        if p_declarator is not None and p_declarator.type == "identifier":
+            params.append((idx, node_text(p_declarator, data), base, is_ptr))
+    return func_name, params
+
+
+def _is_primitive_base(base: str) -> bool:
+    if base in TYPE_WIDTHS or base in PSEUDO_TYPES:
+        return True
+    last = base.rsplit(maxsplit=1)[-1] if base else ""
+    return last in TYPE_WIDTHS or last in PSEUDO_TYPES
 
 
 @dataclass
@@ -389,10 +415,9 @@ def apply_known_names(
 
     *definitions* maps struct name → raw ``typedef struct ...`` text (e.g.
     ``rebrew.struct_recover.existing_structs``).  *pointer_width* is the
-    target's pointer size in bytes (4 for 32-bit, 2 for 16-bit, 8 for 64-bit)
-    — it sizes pointer fields in the legacy line parser.  Returns the
-    rewritten code and the list of ``{var, struct, offsets}`` applications
-    (empty when nothing matched).
+    target's pointer size in bytes (4 for 32-bit, 2 for 16-bit, 8 for 64-bit).
+    Returns the rewritten code and the list of ``{var, struct, offsets}``
+    applications (empty when nothing matched).
 
     A variable is only rewritten when there is evidence it is a pointer:
     a ``T *var`` declaration/param, a ``(T *)var`` cast, or an array-index
@@ -400,6 +425,9 @@ def apply_known_names(
     (``a0 + 0x10`` where ``a0`` is never dereferenced as a pointer) is left
     alone, since a bare ``var + N`` is address arithmetic on an unknown base.
     """
+    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+    from rebrew.types import rewrite_param_type
+
     layouts = struct_definitions_to_layouts(definitions, pointer_width=pointer_width)
     elem_widths = pointer_element_widths(text)
     pointer_vars = _pointer_vars(text)
@@ -408,45 +436,47 @@ def apply_known_names(
     # Only vars with pointer evidence are rewritten: a bare ``int`` loop
     # counter used in ``var + N`` address arithmetic must not be renamed.
     parsed = parse_decomp_for_structs(text, cast_index=False)
+
+    masked = mask_msvc_syntax(text)
+    tree, masked_bytes = parse_c_source(masked)
+    raw_bytes = text.encode("utf-8", errors="surrogateescape")
+
+    func_name, fn_params = _first_function_params(tree.root_node, raw_bytes)
+
     # Only rewrite cast-index parameters when no other use could change meaning
     # after the parameter's type changes from a primitive pointer to a struct.
     if pointer_width in (4, 8):
-        first_line = text.split("\n", 1)[0]
-        params = {
-            m.group("var")
-            for m in _SIG_TYPE_RE.finditer(first_line)
-            if m.group("ptr")
-            and (m.group("base") in TYPE_WIDTHS or m.group("base") in PSEUDO_TYPES)
+        ptr_params = {
+            var for _idx, var, base, is_ptr in fn_params if is_ptr and _is_primitive_base(base)
         }
-        matches = list(_CAST_INDEX_RE.finditer(text))
-        uses_by_var: dict[str, list[Any]] = {}
-        for m in matches:
-            uses_by_var.setdefault(m.group("xvar"), []).append(m)
-        word_counts: dict[str, int] | None = None
-        for var in params:
-            uses = uses_by_var.get(var, [])
-            if word_counts is None:
-                # One token walk answers the \bvar\b count for every param
-                # var; the per-var regex scan was O(params x text).
-                if all(_WORD_TOKEN_RE.fullmatch(v) for v in params):
-                    word_counts = {}
-                    for wm in _WORD_TOKEN_RE.finditer(text):
-                        w = wm.group()
-                        if w in params:
-                            word_counts[w] = word_counts.get(w, 0) + 1
-                else:
-                    word_counts = {}
-                    for v in params:
-                        word_counts[v] = len(list(_word_count_re(v).finditer(text)))
-            if word_counts.get(var, 0) != len(uses) + 1:
-                continue
-            for m in uses:
-                width = _CAST_INDEX_WIDTHS.get(" ".join(m.group("xtype").split()))
-                index = parse_member_index(m.group("xidx"))
-                if width is not None and index is not None and index * width < 0x1000000:
-                    indexed_offsets = parsed.anonymous.setdefault(var, StructEvidence()).offsets
-                    counts = indexed_offsets.setdefault(index * width, {})
-                    counts[width] = counts.get(width, 0) + 1
+        if ptr_params:
+            uses_by_var: dict[str, list[tuple[str, int]]] = {}
+            ident_counts: dict[str, int] = {}
+            stack = [tree.root_node]
+            while stack:
+                node = stack.pop()
+                if node.type in ("comment", "string_literal", "char_literal"):
+                    continue
+                if node.type == "identifier":
+                    ident = node_text(node, raw_bytes)
+                    if ident in ptr_params:
+                        ident_counts[ident] = ident_counts.get(ident, 0) + 1
+                elif node.type == "subscript_expression":
+                    ci = _parse_cast_index_subscript(node, raw_bytes)
+                    if ci is not None and ci[1] in ptr_params:
+                        uses_by_var.setdefault(ci[1], []).append((ci[0], ci[2]))
+                stack.extend(reversed(node.named_children))
+            for var in ptr_params:
+                uses = uses_by_var.get(var, [])
+                if ident_counts.get(var, 0) != len(uses) + 1:
+                    continue
+                for cast_type, index in uses:
+                    width = _CAST_INDEX_WIDTHS.get(" ".join(cast_type.split()))
+                    if width is not None and index * width < 0x1000000:
+                        indexed_offsets = parsed.anonymous.setdefault(var, StructEvidence()).offsets
+                        counts = indexed_offsets.setdefault(index * width, {})
+                        counts[width] = counts.get(width, 0) + 1
+
     var_structs: dict[str, str] = {}
     for var, ev in parsed.anonymous.items():
         if var not in pointer_vars:
@@ -455,15 +485,25 @@ def apply_known_names(
         if struct is not None:
             var_structs[var] = struct
 
-    # ``vN = a0;`` aliases inherit the match (fixpoint for chains).
-    # Scan once into an alias map, then resolve each chain with path
-    # compression: a reversed chain of N aliases cost N full-text rescans
-    # (O(N^2) over the text) under the old fixpoint loop.
+    # ``vN = a0;`` aliases inherit the match (path-compressed chains).
     alias_of: dict[str, str] = {}
-    for m in _ALIAS_RE.finditer(text):
-        alias_of.setdefault(m.group("alias"), m.group("src"))
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type in ("comment", "string_literal", "char_literal"):
+            continue
+        if node.type == "assignment_expression" and _node_op(node, raw_bytes) == "=":
+            left = _unwrap_parens(node.child_by_field_name("left"))
+            right = _unwrap_parens(node.child_by_field_name("right"))
+            if (
+                left is not None
+                and left.type == "identifier"
+                and right is not None
+                and right.type == "identifier"
+            ):
+                alias_of.setdefault(node_text(left, raw_bytes), node_text(right, raw_bytes))
+        stack.extend(reversed(node.named_children))
     for alias in list(alias_of):
-        # Walk to the root, compressing the path so later lookups are O(1).
         path: list[str] = []
         cur = alias
         while cur not in var_structs and cur in alias_of and cur not in path:
@@ -471,8 +511,8 @@ def apply_known_names(
             cur = alias_of[cur]
         src = var_structs.get(cur)
         if src is not None:
-            for node in path:
-                var_structs[node] = src
+            for node_name in path:
+                var_structs[node_name] = src
 
     if not var_structs:
         return NamingResult(code=text, applied=[])
@@ -483,111 +523,234 @@ def apply_known_names(
         offsets = sorted(entry.offsets) if entry is not None else []
         applied.append({"var": var, "struct": struct, "offsets": [f"0x{o:x}" for o in offsets]})
 
-    code = _ACCESS_RE.sub(
-        lambda m: _rewrite_access(
-            m, var_structs, layouts, elem_widths, pointer_vars, pointer_width
-        ),
-        text,
-    )
-    lines = split_source_lines(code)
-    if lines:
-        lines[0] = _SIG_TYPE_RE.sub(lambda m: _rewrite_sig_type(m, var_structs), lines[0], count=0)
-    return NamingResult(code=join_source_lines(code, lines), applied=applied)
+    # Collect non-overlapping AST expression rewrites (outermost wins).
+    edits: list[tuple[int, int, str]] = []
+
+    def _collect_rewrites(node: Any) -> None:
+        if node.type in ("comment", "string_literal", "char_literal"):
+            return
+        replacement = _rewrite_expr_node(
+            node,
+            raw_bytes,
+            var_structs,
+            layouts,
+            elem_widths,
+            pointer_vars,
+            pointer_width,
+        )
+        if replacement is not None:
+            edits.append((int(node.start_byte), int(node.end_byte), replacement))
+            return
+        for child in node.named_children:
+            _collect_rewrites(child)
+
+    _collect_rewrites(tree.root_node)
+
+    out_bytes = bytearray(raw_bytes)
+    for start, end, repl in sorted(edits, key=lambda item: item[0], reverse=True):
+        out_bytes[start:end] = repl.encode("utf-8", errors="surrogateescape")
+    code = bytes(out_bytes).decode("utf-8", errors="surrogateescape")
+
+    # Rewrite matched parameter types in the function signature via types.rewrite_param_type.
+    if func_name is not None:
+        for idx, var, base, _is_ptr in fn_params:
+            struct = var_structs.get(var)
+            if struct is None or not _is_primitive_base(base):
+                continue
+            rewritten = rewrite_param_type(code, func_name, idx, f"{struct} *")
+            if rewritten is not None:
+                code = rewritten
+
+    return NamingResult(code=code, applied=applied)
 
 
-def _rewrite_sig_type(m: re.Match[str], var_structs: dict[str, str]) -> str:
-    var = m.group("var")
-    struct = var_structs.get(var)
-    if struct is None:
-        return m.group(0)
-    base = m.group("base")
-    # Only primitive/pseudo bases are renamed; a named struct param stays.
-    if base not in TYPE_WIDTHS and base not in PSEUDO_TYPES:
-        return m.group(0)
-    return f"{struct} *{var}"
-
-
-def _rewrite_access(
-    m: re.Match[str],
+def _rewrite_expr_node(
+    node: Any,
+    data: bytes,
     var_structs: dict[str, str],
     layouts: dict[str, FieldLayout],
     elem_widths: dict[str, int],
-    pointer_vars: set[str] | None = None,
-    pointer_width: int = 4,
-) -> str:
-    cast: str | None = None  # set only by the cast-deref forms
-    addressed = False  # bare ``&var[i]`` is an address, ``var[i]`` is a load
-    if m.group("xvar") is not None:
-        var, cast = m.group("xvar"), m.group("xtype")
-        width = _CAST_INDEX_WIDTHS.get(" ".join(cast.split()))
-        index = parse_member_index(m.group("xidx"))
-        if pointer_width not in (4, 8) or width is None or index is None:
-            return m.group(0)
-        off = index * width
-        addressed = m.group("xamp") is not None
-        form = "cast_index"
-    elif m.group("cvar") is not None:
-        var, off, cast = m.group("cvar"), parse_int_literal(m.group("coff")), m.group("cast")
-        form = "deref"
-    elif m.group("avar") is not None:
-        var, cast = m.group("avar"), m.group("cast2")
-        elem = elem_widths.get(var)
-        if elem is None:
-            return m.group(0)
-        try:
-            index = parse_int_literal(m.group("aidx"))
-        except ValueError:
-            return m.group(0)
-        off = index * elem
-        form = "deref"
-    elif m.group("bvar") is not None:
-        var = m.group("bvar")
-        elem = elem_widths.get(var)
-        if elem is None:
-            return m.group(0)
-        try:
-            index = parse_int_literal(m.group("bidx"))
-        except ValueError:
-            return m.group(0)
-        off = index * elem
-        addressed = m.group("bamp") is not None
-        form = "bare_index"
-    else:
-        var, off = m.group("pvar"), parse_int_literal(m.group("poff"))
-        # A bare ``var + N`` on a non-pointer is integer arithmetic, not a
-        # member access — never rewrite it.
-        if pointer_vars is not None and var not in pointer_vars:
-            return m.group(0)
-        form = "bare"
+    pointer_vars: set[str],
+    pointer_width: int,
+) -> str | None:
+    """Return the rewritten C expression for *node*, or None to leave unchanged."""
+    from rebrew.c_parser import node_text
 
-    struct = var_structs.get(var)
-    if struct is None:
-        return m.group(0)
-    field = layouts[struct].fields.get(off)
-    if field is None:
-        return m.group(0)
-    name, width = field
+    kind = node.type
 
-    if cast is not None:
-        if form == "cast_index":
-            expr = f"({cast} *)&{var}->{name}"
-            return expr if addressed else f"*({expr})"
-        cast_w = type_width(cast)
-        if cast_w is None:  # named cast type — leave the access untouched
-            return m.group(0)
-        if cast_w == width:
-            return f"{var}->{name}"
-        return f"*({cast} *)&{var}->{name}"
-    if form == "bare_index":
-        elem = elem_widths.get(var) or 1
-        if addressed:
+    # 1. ``&((T *)var)[idx]`` or ``&var[idx]``
+    if kind == "pointer_expression" and _node_op(node, data) == "&":
+        inner = _unwrap_parens(node.child_by_field_name("argument"))
+        if inner is not None and inner.type == "subscript_expression":
+            ci = _parse_cast_index_subscript(inner, data)
+            if ci is not None:
+                cast_type, var, index = ci
+                width = _CAST_INDEX_WIDTHS.get(" ".join(cast_type.split()))
+                struct = var_structs.get(var)
+                if pointer_width in (4, 8) and width is not None and struct is not None:
+                    fld = layouts[struct].fields.get(index * width)
+                    if fld is not None:
+                        return f"({cast_type} *)&{var}->{fld[0]}"
+            sub_arg = _unwrap_parens(inner.child_by_field_name("argument"))
+            sub_idx = _unwrap_parens(inner.child_by_field_name("index"))
+            if (
+                sub_arg is not None
+                and sub_arg.type == "identifier"
+                and sub_idx is not None
+                and sub_idx.type == "number_literal"
+            ):
+                var = node_text(sub_arg, data)
+                struct = var_structs.get(var)
+                elem = elem_widths.get(var)
+                if struct is not None and elem is not None:
+                    try:
+                        index = parse_int_literal(node_text(sub_idx, data))
+                    except ValueError:
+                        return None
+                    fld = layouts[struct].fields.get(index * elem)
+                    if fld is not None:
+                        name, width = fld
+                        if elem == width:
+                            return f"&{var}->{name}"
+                        return f"({_elem_type(elem)} *)&{var}->{name}"
+        return None
+
+    # 2. ``*(T *)(var + N)`` or ``*(T *)&var[i]`` / ``*(T *)var[i]``
+    if kind == "pointer_expression" and _node_op(node, data) == "*":
+        cast_node = _unwrap_parens(node.child_by_field_name("argument"))
+        if cast_node is None or cast_node.type != "cast_expression":
+            return None
+        type_desc = cast_node.child_by_field_name("type")
+        if type_desc is None:
+            return None
+        cast_info = _cast_pointee(type_desc, data)
+        if cast_info is None or cast_info[1] != 1:
+            return None
+        cast_type = cast_info[0]
+        cast_w = type_width(cast_type)
+        if cast_w is None:
+            return None
+        val = _unwrap_parens(cast_node.child_by_field_name("value"))
+        if val is None:
+            return None
+
+        # ``*(T *)(var + N)``
+        if val.type == "binary_expression" and _node_op(val, data) == "+":
+            left = _unwrap_parens(val.child_by_field_name("left"))
+            right = _unwrap_parens(val.child_by_field_name("right"))
+            if (
+                left is not None
+                and left.type == "identifier"
+                and right is not None
+                and right.type == "number_literal"
+            ):
+                var = node_text(left, data)
+                struct = var_structs.get(var)
+                if struct is None:
+                    return None
+                try:
+                    off = parse_int_literal(node_text(right, data))
+                except ValueError:
+                    return None
+                fld = layouts[struct].fields.get(off)
+                if fld is None:
+                    return None
+                name, width = fld
+                return f"{var}->{name}" if cast_w == width else f"*({cast_type} *)&{var}->{name}"
+            return None
+
+        # ``*(T *)&var[i]`` / ``*(T *)var[i]``
+        sub = val
+        if sub.type == "pointer_expression" and _node_op(sub, data) == "&":
+            sub = _unwrap_parens(sub.child_by_field_name("argument"))
+        if sub is not None and sub.type == "subscript_expression":
+            sub_arg = _unwrap_parens(sub.child_by_field_name("argument"))
+            sub_idx = _unwrap_parens(sub.child_by_field_name("index"))
+            if (
+                sub_arg is not None
+                and sub_arg.type == "identifier"
+                and sub_idx is not None
+                and sub_idx.type == "number_literal"
+            ):
+                var = node_text(sub_arg, data)
+                struct = var_structs.get(var)
+                elem = elem_widths.get(var)
+                if struct is None or elem is None:
+                    return None
+                try:
+                    index = parse_int_literal(node_text(sub_idx, data))
+                except ValueError:
+                    return None
+                fld = layouts[struct].fields.get(index * elem)
+                if fld is None:
+                    return None
+                name, width = fld
+                return f"{var}->{name}" if cast_w == width else f"*({cast_type} *)&{var}->{name}"
+        return None
+
+    # 3. ``((T *)var)[idx]`` or bare ``var[idx]``
+    if kind == "subscript_expression":
+        ci = _parse_cast_index_subscript(node, data)
+        if ci is not None:
+            cast_type, var, index = ci
+            width = _CAST_INDEX_WIDTHS.get(" ".join(cast_type.split()))
+            struct = var_structs.get(var)
+            if pointer_width in (4, 8) and width is not None and struct is not None:
+                fld = layouts[struct].fields.get(index * width)
+                if fld is not None:
+                    return f"*(({cast_type} *)&{var}->{fld[0]})"
+            return None
+        sub_arg = _unwrap_parens(node.child_by_field_name("argument"))
+        sub_idx = _unwrap_parens(node.child_by_field_name("index"))
+        if (
+            sub_arg is not None
+            and sub_arg.type == "identifier"
+            and sub_idx is not None
+            and sub_idx.type == "number_literal"
+        ):
+            var = node_text(sub_arg, data)
+            struct = var_structs.get(var)
+            elem = elem_widths.get(var)
+            if struct is None or elem is None:
+                return None
+            try:
+                index = parse_int_literal(node_text(sub_idx, data))
+            except ValueError:
+                return None
+            fld = layouts[struct].fields.get(index * elem)
+            if fld is None:
+                return None
+            name, width = fld
             if elem == width:
-                return f"&{var}->{name}"
-            return f"({_elem_type(elem)} *)&{var}->{name}"
-        if elem == width:
-            return f"{var}->{name}"
-        return f"*({_elem_type(elem)} *)&{var}->{name}"
-    return f"&{var}->{name}"
+                return f"{var}->{name}"
+            return f"*({_elem_type(elem)} *)&{var}->{name}"
+        return None
+
+    # 4. Bare ``var + N`` (address arithmetic on a known pointer var)
+    if kind == "binary_expression" and _node_op(node, data) == "+":
+        left = _unwrap_parens(node.child_by_field_name("left"))
+        right = _unwrap_parens(node.child_by_field_name("right"))
+        if (
+            left is not None
+            and left.type == "identifier"
+            and right is not None
+            and right.type == "number_literal"
+        ):
+            var = node_text(left, data)
+            if var not in pointer_vars:
+                return None
+            struct = var_structs.get(var)
+            if struct is None:
+                return None
+            try:
+                off = parse_int_literal(node_text(right, data))
+            except ValueError:
+                return None
+            fld = layouts[struct].fields.get(off)
+            if fld is None:
+                return None
+            return f"&{var}->{fld[0]}"
+    return None
 
 
 def _elem_type(elem_width: int) -> str:

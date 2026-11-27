@@ -140,7 +140,7 @@ def test_dry_run_absent_name_reads_file_without_compiling_patterns(
     f = tmp_path / "owner.c"
     f.write_text("int other;\n")
     monkeypatch.setattr(
-        data_layout, "_name_line_re", lambda *args, **kwargs: pytest.fail("pattern")
+        data_layout, "_find_matching_decl_span", lambda *args, **kwargs: pytest.fail("parse")
     )
     assert insert_definition(f, "unusual.$name", "int", 4, "{0}", dry_run=True)
     assert f.read_text() == "int other;\n"
@@ -1054,7 +1054,7 @@ def test_obj_data_symbols_raises_on_bad_object(tmp_path: Path) -> None:
 
     bad = tmp_path / "bad.obj"
     bad.write_text("this is not an object file\n", encoding="utf-8")
-    with pytest.raises(RuntimeError, match="objdump -h failed"):
+    with pytest.raises(RuntimeError, match="failed to parse"):
         obj_data_symbols(bad)
 
 
@@ -1071,7 +1071,7 @@ def test_audit_layout_records_objdump_error(tmp_path: Path) -> None:
     assert report["violations"] == 1
     (row,) = report["rows"]
     assert row["flags"] == ["OBJDUMP_ERROR"]
-    assert "objdump" in row["error"]
+    assert "object" in row["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -1112,7 +1112,7 @@ def test_find_definition_accepts_constant_bounds() -> None:
     The bracket pattern was decimal digits only, so ``g[0x10]`` was not a
     definition and an ownership move could not find it to replace.
     """
-    from rebrew.data_layout import _DEF_LINE_RE, _decl_info, _find_definition
+    from rebrew.data_layout import _decl_info, _defined_globals_in_text, _find_definition
 
     text = "int g_hex[0x10] = {1};\nint g_expr[2 + 2] = {1};\nint g_2d[2][4] = {1};\n"
     hex_def = _find_definition(text, "g_hex")
@@ -1125,7 +1125,7 @@ def test_find_definition_accepts_constant_bounds() -> None:
     two = _find_definition(text, "g_2d")
     assert two is not None
     assert two[3] == "[2][4]"
-    assert _DEF_LINE_RE.match("int g_hex[0x10] = {1};") is not None
+    assert _defined_globals_in_text("int g_hex[0x10] = {1};") == ["g_hex"]
     assert _decl_info("extern unsigned char g_hex[0x10];\n", "g_hex") == (
         "extern unsigned char",
         16,
@@ -1140,7 +1140,7 @@ def test_find_definition_accepts_nested_bracket_bound() -> None:
     The bracket pattern stopped at the inner ``]``, so an ownership move
     could not find the line. ``sizeof(int[2])`` is 8 elements.
     """
-    from rebrew.data_layout import _DEF_LINE_RE, _decl_info, _find_definition
+    from rebrew.data_layout import _decl_info, _defined_globals_in_text, _find_definition
 
     text = "int g_wide[sizeof(wchar_t[3])] = {1};\nint g_ints[sizeof(int[2])] = {1};\n"
     wide = _find_definition(text, "g_wide")
@@ -1149,7 +1149,7 @@ def test_find_definition_accepts_nested_bracket_bound() -> None:
     ints = _find_definition(text, "g_ints")
     assert ints is not None
     assert ints[3] == "[sizeof(int[2])]"
-    assert _DEF_LINE_RE.match("int g_wide[sizeof(wchar_t[3])] = {1};") is not None
+    assert _defined_globals_in_text("int g_wide[sizeof(wchar_t[3])] = {1};") == ["g_wide"]
     assert _decl_info("extern char g_wide[sizeof(wchar_t[3])];\n", "g_wide") == (
         "extern char",
         6,
@@ -1206,24 +1206,16 @@ def test_find_definition_sees_function_pointer_array() -> None:
     The parameter list sat after the brackets, so the scan did not own
     the symbol. ``int (*table[2])[3] = {0}`` stays that definition.
     """
-    from rebrew.data_layout import _DEF_LINE_RE, _find_definition
+    from rebrew.data_layout import _defined_globals_in_text, _find_definition
 
     line = "void (*cbs[4])(int) = {0};"
-    matched = _DEF_LINE_RE.match(line)
-    assert matched is not None
-    assert (matched.group(1) or matched.group(2)) == "cbs"
+    assert _defined_globals_in_text(line) == ["cbs"]
     found = _find_definition(line + "\n", "cbs")
     assert found is not None
     assert line[found[0] : found[1]] == line
-    calls = _DEF_LINE_RE.match("int (*table[4])(int) = {0};")
-    assert calls is not None
-    assert (calls.group(1) or calls.group(2)) == "table"
-    plain = _DEF_LINE_RE.match("int (*table[2])[3] = {0};")
-    assert plain is not None
-    assert (plain.group(1) or plain.group(2)) == "table"
-    scalar = _DEF_LINE_RE.match("int g_a = 1;")
-    assert scalar is not None
-    assert (scalar.group(1) or scalar.group(2)) == "g_a"
+    assert _defined_globals_in_text("int (*table[4])(int) = {0};") == ["table"]
+    assert _defined_globals_in_text("int (*table[2])[3] = {0};") == ["table"]
+    assert _defined_globals_in_text("int g_a = 1;") == ["g_a"]
 
 
 def test_find_definition_sees_cdecl_pointer_array() -> None:
@@ -1233,27 +1225,17 @@ def test_find_definition_sees_cdecl_pointer_array() -> None:
     ``void (__cdecl *cbs[4])(int) = {0}`` defines ``cbs``.
     ``int (*table[2])[3] = {0}`` stays that definition.
     """
-    from rebrew.data_layout import _DEF_LINE_RE, _find_definition
+    from rebrew.data_layout import _defined_globals_in_text, _find_definition
 
     line = "int (__cdecl *table[2])[3] = {0};"
-    matched = _DEF_LINE_RE.match(line)
-    assert matched is not None
-    assert (matched.group(1) or matched.group(2)) == "table"
+    assert _defined_globals_in_text(line) == ["table"]
     found = _find_definition(line + "\n", "table")
     assert found is not None
     assert line[found[0] : found[1]] == line
-    calls = _DEF_LINE_RE.match("void (__cdecl *cbs[4])(int) = {0};")
-    assert calls is not None
-    assert (calls.group(1) or calls.group(2)) == "cbs"
-    const = _DEF_LINE_RE.match("int (__cdecl * const table[2])[3] = {0};")
-    assert const is not None
-    assert (const.group(1) or const.group(2)) == "table"
-    plain = _DEF_LINE_RE.match("int (*table[2])[3] = {0};")
-    assert plain is not None
-    assert (plain.group(1) or plain.group(2)) == "table"
-    scalar = _DEF_LINE_RE.match("int g_a = 1;")
-    assert scalar is not None
-    assert (scalar.group(1) or scalar.group(2)) == "g_a"
+    assert _defined_globals_in_text("void (__cdecl *cbs[4])(int) = {0};") == ["cbs"]
+    assert _defined_globals_in_text("int (__cdecl * const table[2])[3] = {0};") == ["table"]
+    assert _defined_globals_in_text("int (*table[2])[3] = {0};") == ["table"]
+    assert _defined_globals_in_text("int g_a = 1;") == ["g_a"]
 
 
 def test_find_definition_sees_scalar_function_pointer() -> None:
@@ -1559,44 +1541,84 @@ def test_link_objects_missing_raises(tmp_path: Path) -> None:
         link_objects(tmp_path)
 
 
+def _make_multi_section_coff(
+    sections: list[tuple[str, int, bool]],
+    symbols: list[tuple[str, int, int]],
+) -> bytes:
+    """Build a minimal i386 COFF object with ``(name, size, is_bss)`` sections
+    and ``(sym_name, sec_idx_1based, value)`` external symbols."""
+    import struct as _st
+
+    off_hdrs = 20
+    off_data = off_hdrs + 40 * len(sections)
+    sec_hdrs = bytearray()
+    sec_payloads = bytearray()
+    cursor = off_data
+    for name, size, is_bss in sections:
+        raw_ptr = 0 if is_bss else cursor
+        chars = 0xC0000080 if is_bss else 0xC0000040
+        sec_hdrs += _st.pack(
+            "<8sIIIIIIHHI",
+            name.encode("ascii").ljust(8, b"\x00")[:8],
+            0,
+            0,
+            size,
+            raw_ptr,
+            0,
+            0,
+            0,
+            0,
+            chars,
+        )
+        if not is_bss:
+            sec_payloads += b"\x00" * size
+            cursor += size
+    off_symtab = cursor
+    strtab = bytearray(4)
+    symtab = bytearray()
+    for sym_name, sec_idx, value in symbols:
+        raw = sym_name.encode("ascii")
+        if len(raw) <= 8:
+            symtab += _st.pack("<8sIhHBB", raw.ljust(8, b"\x00"), value, sec_idx, 0, 2, 0)
+        else:
+            str_off = len(strtab)
+            strtab += raw + b"\x00"
+            symtab += _st.pack("<IIIhHBB", 0, str_off, value, sec_idx, 0, 2, 0)
+    _st.pack_into("<I", strtab, 0, len(strtab))
+    file_hdr = _st.pack("<HHIIIHH", 0x014C, len(sections), 0, off_symtab, len(symbols), 0, 0)
+    return bytes(file_hdr + sec_hdrs + sec_payloads + symtab + strtab)
+
+
 class TestObjSectionSymbols:
-    def test_rdata_bucket(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_rdata_bucket(self, tmp_path: Path) -> None:
         from rebrew.data_layout import obj_section_symbols
 
-        def fake_run(obj: Path, flag: str) -> str:
-            if flag == "-h":
-                return "  1 .data  00000010\n  2 .rdata 00000008\n  3 .bss   00000004\n"
-            assert flag == "-t"
-            return (
-                "[  1](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_data\n"
-                "[  2](sec  3)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_const\n"
-                "[  3](sec  4)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_bss\n"
+        obj = tmp_path / "f.obj"
+        obj.write_bytes(
+            _make_multi_section_coff(
+                [(".data", 0x10, False), (".rdata", 0x08, False), (".bss", 0x04, True)],
+                [("_g_data", 1, 0), ("_g_const", 2, 0), ("_g_bss", 3, 0)],
             )
-
-        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
-        sizes, buckets = obj_section_symbols(tmp_path / "f.obj", ".data", ".bss", ".rdata")
+        )
+        sizes, buckets = obj_section_symbols(obj, ".data", ".bss", ".rdata")
         assert (sizes[".data"], sizes[".bss"], sizes[".rdata"]) == (0x10, 0x04, 0x08)
         assert buckets[".data"] == {"g_data"}
         assert buckets[".bss"] == {"g_bss"}
         assert buckets[".rdata"] == {"g_const"}
 
-    def test_legacy_wrapper_unchanged(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_legacy_wrapper_unchanged(self, tmp_path: Path) -> None:
         from rebrew.data_layout import obj_data_symbols
 
-        def fake_run(obj: Path, flag: str) -> str:
-            if flag == "-h":
-                return "  1 .data  00000010\n  2 .bss   00000004\n"
-            assert flag == "-t"
-            return "[  1](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_data\n"
+        obj = tmp_path / "f.obj"
+        obj.write_bytes(
+            _make_multi_section_coff(
+                [(".data", 0x10, False), (".bss", 0x04, True)],
+                [("_g_data", 1, 0)],
+            )
+        )
+        assert obj_data_symbols(obj) == (0x10, 0x04, {"g_data"}, set())
 
-        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
-        assert obj_data_symbols(tmp_path / "f.obj") == (0x10, 0x04, {"g_data"}, set())
-
-    def test_decorated_data_symbols_stay_distinct(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_decorated_data_symbols_stay_distinct(self, tmp_path: Path) -> None:
         """``lstrip("_")`` stored ``__g_foo`` and ``_g_foo`` as ``g_foo``.
 
         The C names are ``_g_foo`` and ``g_foo``. ``hook@@12`` is ``hook``.
@@ -1604,95 +1626,17 @@ class TestObjSectionSymbols:
         """
         from rebrew.data_layout import obj_data_symbol_offsets, obj_section_symbols
 
-        def fake_run(obj: Path, flag: str) -> str:
-            if flag == "-h":
-                return "  1 .data  0000000c\n"
-            assert flag == "-t"
-            return (
-                "[  1](sec  2)(fl 0x00)(ty 0)(scl 2) (nx 0) 0x00000000 __g_foo\n"
-                "[  2](sec  2)(fl 0x00)(ty 0)(scl 2) (nx 0) 0x00000004 _g_foo\n"
-                "[  3](sec  2)(fl 0x00)(ty 0)(scl 2) (nx 0) 0x00000008 hook@@12\n"
-                "[  4](sec  2)(fl 0x00)(ty 0)(scl 2) (nx 0) 0x0000000c _g_plain\n"
+        obj = tmp_path / "f.obj"
+        obj.write_bytes(
+            _make_multi_section_coff(
+                [(".data", 0x10, False)],
+                [("__g_foo", 1, 0), ("_g_foo", 1, 4), ("hook@@12", 1, 8), ("_g_plain", 1, 12)],
             )
-
-        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
-        _size, syms = obj_data_symbol_offsets(tmp_path / "f.obj")
+        )
+        _size, syms = obj_data_symbol_offsets(obj)
         assert syms == {"_g_foo": 0, "g_foo": 4, "hook": 8, "g_plain": 12}
-        _sizes, buckets = obj_section_symbols(tmp_path / "f.obj", ".data")
+        _sizes, buckets = obj_section_symbols(obj, ".data")
         assert buckets[".data"] == {"_g_foo", "g_foo", "hook", "g_plain"}
-
-
-class TestObjdumpMemoBound:
-    """The objdump memo is bounded by retained stdout, not by entry count."""
-
-    def test_evicts_by_retained_chars(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        import rebrew.data_layout as dl
-
-        calls: list[str] = []
-
-        def fake_uncached(obj: Path, flag: str) -> str:
-            calls.append(str(obj))
-            return "x" * 2048
-
-        monkeypatch.setattr(dl, "_run_objdump_uncached", fake_uncached)
-        monkeypatch.setattr(dl, "_OBJDUMP_CACHE_MAX_CHARS", 4096)
-        with dl._OBJDUMP_CACHE_LOCK:
-            dl._OBJDUMP_CACHE.clear()
-            dl._OBJDUMP_CACHE_CHARS = 0
-        try:
-            for i in range(4):
-                obj = tmp_path / f"o{i}.obj"
-                obj.write_bytes(b"obj")
-                assert dl._run_objdump(obj, "-t") == "x" * 2048
-            assert dl._OBJDUMP_CACHE_CHARS <= 4096
-            assert len(dl._OBJDUMP_CACHE) < 4
-            # A repeat read of the newest object is served from the memo.
-            newest = tmp_path / "o3.obj"
-            before = len(calls)
-            assert dl._run_objdump(newest, "-t") == "x" * 2048
-            assert len(calls) == before
-        finally:
-            with dl._OBJDUMP_CACHE_LOCK:
-                dl._OBJDUMP_CACHE.clear()
-                dl._OBJDUMP_CACHE_CHARS = 0
-
-
-class TestObjdumpHexSpellings:
-    """objdump emits uppercase and variable-width hex; the parsers must take
-    every spelling (8-digit lowercase is just one)."""
-
-    def test_section_sizes_uppercase(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.data_layout import _obj_section_sizes
-
-        def fake_run(obj: Path, flag: str) -> str:
-            assert flag == "-h"
-            return "  1 .data  0000001A\n  2 .rdata DEADBEEF\n  3 .bss   4\n"
-
-        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
-        _secname, sizes = _obj_section_sizes(tmp_path / "f.obj")
-        assert sizes == {".data": 0x1A, ".rdata": 0xDEADBEEF, ".bss": 0x4}
-
-    def test_symbols_uppercase_and_short(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from rebrew.data_layout import obj_section_symbols
-
-        def fake_run(obj: Path, flag: str) -> str:
-            if flag == "-h":
-                return "  1 .data  00000010\n"
-            assert flag == "-t"
-            return (
-                "[  1](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x0000000A _g_upper\n"
-                "[  2](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x4 _g_short\n"
-                "[  3](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 00000000 _g_bare\n"
-            )
-
-        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
-        sizes, buckets = obj_section_symbols(tmp_path / "f.obj", ".data")
-        assert sizes == {".data": 0x10}
-        assert buckets[".data"] == {"g_upper", "g_short", "g_bare"}
 
 
 class TestAuditLayoutSection:
@@ -1705,20 +1649,16 @@ class TestAuditLayoutSection:
             'format = 2\n["SERVER.0x1000"]\nname = "g_c"\nsize = 4\nsection = ".rdata"\n["SERVER.0x2000"]\nname = "g_d"\nsize = 4\nsection = ".data"\n',
             encoding="utf-8",
         )
-
-        def fake_run(obj: Path, flag: str) -> str:
-            if flag == "-h":
-                return "  1 .data  00000010\n  2 .rdata 00000008\n"
-            assert flag == "-t"
-            return (
-                "[  1](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_d\n"
-                "[  2](sec  3)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000004 _g_c\n"
+        obj = tmp_path / "f.obj"
+        obj.write_bytes(
+            _make_multi_section_coff(
+                [(".data", 0x10, False), (".rdata", 0x08, False)],
+                [("_g_d", 1, 0), ("_g_c", 2, 4)],
             )
-
+        )
         import rebrew.data_layout as dl
 
-        monkeypatch.setattr(dl, "_run_objdump", fake_run)
-        monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [tmp_path / "f.obj"])
+        monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [obj])
         report = audit_layout(tmp_path, meta, ".rdata")
         assert report["violations"] == 0
         assert report["unowned"] == []

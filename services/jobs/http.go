@@ -135,39 +135,48 @@ func (m *jobMetrics) perOp() (compileReq, compileErr, jobReq, jobErr, compileTot
 // (a missing header previously logged request_id="" and could not be
 // correlated with anything).
 
-// traceID extracts the trace id from a W3C traceparent, or "" if absent/invalid.
-func traceID(tp string) string {
-	parts := strings.Split(tp, "-")
-	if len(parts) != 4 || parts[0] != "00" || len(parts[1]) != 32 || len(parts[2]) != 16 {
-		return ""
-	}
-	for _, p := range parts[1:3] {
-		for _, c := range p {
-			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-				return ""
-			}
+const (
+	zeroTraceID = "00000000000000000000000000000000"
+	zeroSpanID  = "0000000000000000"
+)
+
+func isLowerHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
 		}
 	}
-	return parts[1]
+	return true
+}
+
+// traceID extracts the trace id from a W3C traceparent, or "" if absent/invalid.
+func traceID(tp string) string {
+	if len(tp) < 53 || tp[0] != '0' || tp[1] != '0' || tp[2] != '-' || tp[35] != '-' || tp[52] != '-' {
+		return ""
+	}
+	if strings.IndexByte(tp[53:], '-') >= 0 {
+		return ""
+	}
+	tid := tp[3:35]
+	if !isLowerHex(tid) || !isLowerHex(tp[36:52]) {
+		return ""
+	}
+	return tid
 }
 
 // validTraceparent reports whether tp is a well-formed W3C traceparent a
 // downstream call may continue.  The trace id alone (traceID) is not enough
 // to forward: a truncated or non-hex header must not be re-emitted.
 func validTraceparent(tp string) bool {
-	parts := strings.Split(tp, "-")
-	if len(parts) != 4 || parts[0] != "00" || len(parts[2]) != 16 || len(parts[3]) != 2 {
+	if len(tp) != 55 {
 		return false
 	}
-	if traceID(tp) == "" || parts[1] == strings.Repeat("0", 32) || parts[2] == strings.Repeat("0", 16) {
+	tid := traceID(tp)
+	if tid == "" || tid == zeroTraceID || tp[36:52] == zeroSpanID {
 		return false
 	}
-	for _, c := range parts[3] {
-		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return false
-		}
-	}
-	return true
+	return isLowerHex(tp[53:55])
 }
 
 // jobLogContext carries the correlation ids of the HTTP request that

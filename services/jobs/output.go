@@ -3,7 +3,7 @@ package jobs
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"io"
+	"hash"
 	"os"
 	"sync"
 	"time"
@@ -28,6 +28,7 @@ type outputWriter struct {
 	owner     *Owner
 	id        string
 	file      *os.File
+	hash      hash.Hash
 	size      int
 	truncated bool
 	lastSave  time.Time
@@ -48,6 +49,10 @@ func (w *outputWriter) Write(p []byte) (int, error) {
 			w.mu.Unlock()
 			return 0, err
 		}
+		if w.hash == nil {
+			w.hash = sha256.New()
+		}
+		_, _ = w.hash.Write(p[:keep])
 		w.size += keep
 	}
 	size, truncated := w.size, w.truncated
@@ -101,6 +106,13 @@ func (w *outputWriter) persist(size int, truncated bool) error {
 func (w *outputWriter) finish() (string, error) {
 	w.mu.Lock()
 	size, truncated := w.size, w.truncated
+	var sum []byte
+	if w.hash != nil {
+		sum = w.hash.Sum(nil)
+	} else {
+		empty := sha256.Sum256(nil)
+		sum = empty[:]
+	}
 	w.mu.Unlock()
 	if err := w.persist(size, truncated); err != nil {
 		_ = w.file.Close()
@@ -110,18 +122,8 @@ func (w *outputWriter) finish() (string, error) {
 		_ = w.file.Close()
 		return "", err
 	}
-	name := w.file.Name()
 	if err := w.file.Close(); err != nil {
 		return "", err
 	}
-	f, err := os.Open(name)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(sum), nil
 }

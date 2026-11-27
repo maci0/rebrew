@@ -75,7 +75,7 @@ lazy import struct
 lazy from collections.abc import Callable
 lazy from pathlib import Path
 
-lazy from rebrew.formats.pe_headers import pe_header, sections_at
+lazy from rebrew.formats.pe_headers import pe_header
 lazy from rebrew.utils import atomic_write_text, last_change_ns
 
 #: Cap on import name-table / descriptor slots read from one PE.  A missing
@@ -322,35 +322,30 @@ def read_layout_header(root: Path, target: str, bin_path: Path) -> dict[str, Any
 # ---------------------------------------------------------------------------
 
 
-def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
-    """Data directory *index*, or ``ValueError`` when it lies past EOF.
-
-    Index 12 (IAT) is the deepest directory ``extract_layout`` reads.  A PE32
-    whose optional header is present but shorter than that directory used to
-    raise ``struct.error``, which ``rebrew build layout`` does not catch.
-    """
-    off = opt + 96 + 8 * index
-    if off + 8 > len(data):
-        raise ValueError("truncated optional header")
-    return struct.unpack_from("<II", data, off)
-
-
 def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
-    """Derive the full text-only layout metadata from a reference binary."""
-    e, nsec, optsz, opt, image_base = pe_header(data)
+    """Derive the full text-only layout metadata from a reference PE32 binary via LIEF."""
+    import io
+
+    import lief
+
+    e, nsec, optsz, _opt, image_base = pe_header(data)
     header_size = e + 4 + 20 + optsz + nsec * 40
-    sh = opt + optsz
+    if header_size > len(data):
+        raise ValueError("PE section table extends past EOF")
+    binary = lief.PE.parse(io.BytesIO(data))
+    if binary is None:
+        raise ValueError("not a PE32 binary")
 
     sections: list[SectionMeta] = [
         SectionMeta(
-            s.name,
-            s.virtual_address,
-            s.virtual_size,
-            s.size_of_raw_data,
-            s.pointer_to_raw_data,
-            s.characteristics,
+            s.name.decode("latin1") if isinstance(s.name, bytes) else str(s.name),
+            int(s.virtual_address),
+            int(s.virtual_size),
+            int(s.sizeof_raw_data),
+            int(s.pointerto_raw_data),
+            int(s.characteristics),
         )
-        for s in sections_at(data, sh, nsec)
+        for s in binary.sections
     ]
 
     def off(rva: int) -> int | None:
@@ -359,21 +354,19 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                 return s.raw_ptr + (rva - s.va)
         return None
 
-    iat_rva, iat_size = _data_dir(data, opt, 12)  # IAT
-    imp_rva, _ = _data_dir(data, opt, 1)  # IMPORT_TABLE
-    exp_rva, exp_sz = _data_dir(data, opt, 0)  # EXPORT_TABLE
+    def _dir(kind: lief.PE.DataDirectory.TYPES) -> tuple[int, int]:
+        d = binary.data_directory(kind)
+        return (int(d.rva), int(d.size)) if d is not None else (0, 0)
+
+    iat_rva, iat_size = _dir(lief.PE.DataDirectory.TYPES.IAT)
+    imp_rva, _ = _dir(lief.PE.DataDirectory.TYPES.IMPORT_TABLE)
+    exp_rva, _exp_sz = _dir(lief.PE.DataDirectory.TYPES.EXPORT_TABLE)
 
     def region(rva: int, size: int) -> bytes:
         o = off(rva)
         if o is None or o + size > len(data):
             raise ValueError(f"region rva=0x{rva:x} size={size:#x} out of range")
         return data[o : o + size]
-
-    def cstr(o: int) -> str:
-        end = data.find(b"\0", o)
-        if end < 0:
-            end = len(data)  # unterminated — read to EOF, not to -1
-        return data[o:end].decode("latin1", "replace")
 
     header = data[:header_size]
     iat = region(iat_rva, iat_size) if iat_rva else b""
@@ -382,11 +375,6 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
         if iat_rva and imp_rva > iat_rva + iat_size
         else b""
     )
-    # [imp_rva : exp_rva) needs the export directory as its end.  A binary
-    # without exports (EXE, stripped-export DLL) has exp_rva == 0, which made
-    # the size negative; `region` only rejects `o + size > len(data)`, so a
-    # negative size sliced a huge wrong region that postlink then copied over
-    # the built binary.
     bookkeeping = region(imp_rva, exp_rva - imp_rva) if imp_rva and exp_rva > imp_rva else b""
 
     def find_sec_opt(name: str) -> SectionMeta | None:
@@ -402,18 +390,11 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     rdata_sec = find_sec(".rdata")
     text_sec = find_sec(".text")
 
-    # .data raw content, verbatim
     data_bytes = data[data_sec.raw_ptr : data_sec.raw_ptr + data_sec.raw]
 
-    # .reloc content = relocation blocks only; the fixer zero-fills the rest
-    # of the section's raw size (MSVC6 rounds raw up, padding with zeros).
-    # Binaries linked without relocations (stripped game EXEs) have no
-    # .reloc section — the fixer gets empty bytes, not an error.
     if reloc_sec is None:
         reloc_bytes = b""
     else:
-        # The fixer's zero fill reproduces raw bytes, so they must be in the
-        # file: a forged SizeOfRawData would size a multi-gigabyte fill.
         reloc_end = reloc_sec.raw_ptr + reloc_sec.raw
         if reloc_end > len(data):
             raise ValueError(
@@ -421,12 +402,17 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                 f"{len(data):#x}-byte file"
             )
         rblob = data[reloc_sec.raw_ptr : reloc_end]
-        content_end = 0
-        while content_end + 8 <= len(rblob):
-            _page, blksz = struct.unpack_from("<II", rblob, content_end)
-            if blksz == 0 or blksz > len(rblob) - content_end:
-                break
-            content_end += blksz
+        reloc_blocks = list(binary.relocations)
+        if reloc_blocks:
+            content_end = min(sum(int(b.block_size) for b in reloc_blocks), len(rblob))
+        else:
+            # Fallback when .reloc section exists without DataDirectory[5] populated.
+            content_end = 0
+            while content_end + 8 <= len(rblob):
+                _page, blksz = struct.unpack_from("<II", rblob, content_end)
+                if blksz == 0 or blksz > len(rblob) - content_end:
+                    break
+                content_end += blksz
         reloc_bytes = rblob[:content_end]
 
     # sparse .text rewrite maps (offsets relative to .text raw start)
@@ -437,7 +423,6 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     hi_d = data_sec.va + data_sec.vs
 
     operands: dict[int, int] = {}
-    # i reads tb[i:i+4]; the last dword starts at len(tb)-4.
     for i in range(len(tb) - 3):
         v = struct.unpack_from("<I", tb, i)[0]
         rva = v - image_base
@@ -445,7 +430,6 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
             operands[i] = v
 
     calls: dict[int, tuple[int, int, int, int | None]] = {}
-    # i reads tb[i+4:i+6]; the last suffix ends at len(tb)-6.
     for i in range(3, len(tb) - 5):
         if tb[i - 1] in (0xE8, 0xE9):
             rel32 = struct.unpack_from("<I", tb, i)[0]
@@ -453,91 +437,40 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
             suf = int.from_bytes(tb[i + 4 : i + 6], "big")
             calls[i] = (rel32, pre, suf, tb[i - 1])
 
-    # export directory Characteristics+TimeDateStamp pair
-    export_stamp = (0, 0)
-    if exp_rva:
-        eo = off(exp_rva)
-        if eo is not None and eo + 8 <= len(data):
-            export_stamp = struct.unpack_from("<II", data, eo)
+    exp = binary.get_export()
+    export_stamp = (int(exp.export_flags), int(exp.timestamp)) if exp is not None else (0, 0)
 
-    # imports with reference IAT slot VAs
     imports: list[ImportMeta] = []
     import_slots = 0
-    if imp_rva:
-        io = off(imp_rva)
-        if io is not None:
-            # The lookup table is the OriginalFirstThunk (OFT) — except when
-            # the linker left OFT unbound (0), in which case the import
-            # *is* bound by the IAT itself (standard PE rule) and the IAT
-            # must be used as the lookup table instead of skipping the
-            # import or parsing the header region at oft(0) as hint/names.
-            for i in range(_MAX_IMPORT_SLOTS):
-                if io + i * 20 + 20 > len(data):
-                    break
-                oft, _ts, _fwd, name_rva, iat_va = struct.unpack_from("<IIIII", data, io + i * 20)
-                if oft == 0 and name_rva == 0:
-                    break
-                dll_off = off(name_rva)
-                dll = "?" if dll_off is None else cstr(dll_off)
-                lookup_rva = oft or iat_va
-                oo = off(lookup_rva) if lookup_rva else None
-                if oo is None:
-                    continue
-                for j in range(_MAX_IMPORT_SLOTS):
-                    slot_off = oo + 4 * j
-                    if slot_off + 4 > len(data):
-                        break
-                    nm = struct.unpack_from("<I", data, slot_off)[0]
-                    if nm == 0:
-                        break
-                    import_slots += 1
-                    if import_slots > _MAX_IMPORT_SLOTS:
-                        raise ValueError("PE import slot limit exceeded")
-                    if nm & 0x80000000:
-                        imports.append(ImportMeta(dll, None, nm & 0xFFFF, iat_va + 4 * j))
-                    else:
-                        no = off(nm)
-                        if no is not None:
-                            imports.append(ImportMeta(dll, cstr(no + 2), None, iat_va + 4 * j))
+    for imp in list(binary.imports):
+        raw_dll = imp.name
+        dll = raw_dll.decode("latin1") if isinstance(raw_dll, bytes) else (raw_dll or "?")
+        for imp_entry in list(imp.entries):
+            import_slots += 1
+            if import_slots > _MAX_IMPORT_SLOTS:
+                raise ValueError("PE import slot limit exceeded")
+            iat_rva_entry = int(imp_entry.iat_address)
+            if imp_entry.is_ordinal:
+                imports.append(
+                    ImportMeta(dll, None, int(imp_entry.ordinal) & 0xFFFF, iat_rva_entry)
+                )
+            elif imp_entry.name:
+                raw_name = imp_entry.name
+                name = raw_name.decode("latin1") if isinstance(raw_name, bytes) else str(raw_name)
+                imports.append(ImportMeta(dll, name, None, iat_rva_entry))
 
     exports: list[dict[str, Any]] = []
-    eo = off(exp_rva)
-    # IMAGE_EXPORT_DIRECTORY is 40 bytes; require the full header before
-    # reading counts / RVAs, and cap table walks like the import path.
-    if eo is not None and exp_sz and eo + 40 <= len(data):
-        nfuncs = min(struct.unpack_from("<I", data, eo + 20)[0], _MAX_EXPORT_ENTRIES)
-        nnames = min(struct.unpack_from("<I", data, eo + 24)[0], _MAX_EXPORT_ENTRIES)
-        funcs_off = off(struct.unpack_from("<I", data, eo + 28)[0])
-        names_off = off(struct.unpack_from("<I", data, eo + 32)[0])
-        ords_off = off(struct.unpack_from("<I", data, eo + 36)[0])
-        ordinal_base = struct.unpack_from("<I", data, eo + 16)[0]
-        name_by_ord: dict[int, str] = {}
-        for k in range(nnames):
-            if names_off is not None and names_off + 4 * (k + 1) > len(data):
+    if exp is not None:
+        for exp_entry in list(exp.entries):
+            if len(exports) >= _MAX_EXPORT_ENTRIES:
                 break
-            if ords_off is not None and ords_off + 2 * (k + 1) > len(data):
-                break
-            nrva = struct.unpack_from("<I", data, names_off + 4 * k)[0] if names_off else 0
-            ord_idx = struct.unpack_from("<H", data, ords_off + 2 * k)[0] if ords_off else 0
-            nm_off = off(nrva)
-            if nm_off is not None:
-                name_by_ord[ordinal_base + ord_idx] = cstr(nm_off)
-        for k in range(nfuncs):
-            if funcs_off is not None and funcs_off + 4 * (k + 1) > len(data):
-                break
-            addr = struct.unpack_from("<I", data, funcs_off + 4 * k)[0] if funcs_off else 0
-            if addr == 0:
-                continue
-            if exp_rva <= addr < exp_rva + exp_sz:
-                # Forwarder: the RVA points at a forwarder string inside the
-                # export directory, not at code (pe_image.parse_pe drops
-                # these too).  Recording it would claim a function at a .rdata VA.
+            if exp_entry.is_forwarded or not exp_entry.address:
                 continue
             exports.append(
                 {
-                    "name": name_by_ord.get(ordinal_base + k),
-                    "ordinal": ordinal_base + k,
-                    "va": image_base + addr,
+                    "name": exp_entry.name or None,
+                    "ordinal": int(exp_entry.ordinal),
+                    "va": image_base + int(exp_entry.address),
                 }
             )
 

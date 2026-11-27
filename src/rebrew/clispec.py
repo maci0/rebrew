@@ -6,11 +6,12 @@ project, a credential, or the network. ``schema`` is the only caller.
 
 from __future__ import annotations
 
-import re
 lazy from types import UnionType
 lazy from typing import Any, Union, get_args, get_origin
 
 lazy import typer
+lazy from rich.errors import MarkupError
+lazy from rich.text import Text
 
 lazy from rebrew import __version__
 lazy from rebrew.cli import (
@@ -20,11 +21,6 @@ lazy from rebrew.cli import (
     QUIET_HELP,
     TOOLCHAIN_REJECTED_KIND,
     TTY_REQUIRED_KIND,
-)
-
-_RICH_TAG = re.compile(
-    r"\[/?(?:bold|dim|cyan|green|yellow|red|italic|underline|white|blue|magenta)\]",
-    re.IGNORECASE,
 )
 
 # Leaves whose commands only report state. A full path in _WRITING_PATHS
@@ -441,7 +437,11 @@ def _command(path: str, cmd: Any) -> dict[str, Any]:
 
 
 def _plain(text: str) -> str:
-    return " ".join(_RICH_TAG.sub("", text).split())
+    try:
+        plain = Text.from_markup(text).plain
+    except MarkupError:
+        plain = text
+    return " ".join(plain.split())
 
 
 def _has_flag(cmd: Any, flag: str) -> bool:

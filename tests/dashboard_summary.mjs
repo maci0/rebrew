@@ -74,6 +74,12 @@ const {
 const row = rowHtml(["0x10", "start", "_start", 8, "EXACT", "game", "src/a.c"]);
 assert.equal([...row.matchAll(/<td\b/g)].length, 7);
 assert.match(row, /<td>src\/a\.c<\/td><\/tr>$/);
+assert.ok([...row.matchAll(/<[a-z]+\b/g)].length <= 8);
+assert.match(row, /<td class='st status-EXACT'>EXACT<\/td>/);
+assert.match(
+	rowHtml(["", "", "", 0, "<tag>", "", ""]),
+	/<td>&lt;tag&gt;<\/td>/,
+);
 const element = (id) => document.getElementById(id);
 const summary = (status) => ({
 	function_stats: { total: 1, by_status: { [status]: 1 } },
@@ -396,15 +402,15 @@ renderHistory({
 // an unquoted value would truncate at it and drop the colour class.
 assert.match(
 	element("history-rows").innerHTML,
-	/<span class='st status-STUB'>STUB<\/span>/,
+	/<td class='st status-STUB'>STUB<\/td>/,
 );
 assert.match(
 	element("history-rows").innerHTML,
-	/<span class='st status-EXACT'>EXACT<\/span>/,
+	/<td class='st status-EXACT'>EXACT<\/td>/,
 );
 assert.match(
 	element("history-rows").innerHTML,
-	/<span class='st status-RELOC'>RELOC<\/span>/,
+	/<td class='st status-RELOC'>RELOC<\/td>/,
 );
 const stamps = [
 	...element("history-rows").innerHTML.matchAll(/<td>([^<]*)<\/td><\/tr>/g),

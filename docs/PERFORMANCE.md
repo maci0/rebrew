@@ -133,6 +133,102 @@ hosted after measurement.
 [baseline commit CI](https://github.com/maci0/rebrew/actions/runs/45960263327),
 [November 27 warm install](https://github.com/maci0/rebrew/actions/runs/45974947152).
 
+## Structural comparisons, dashboard paging and offline tests (2026-11-27)
+
+Base `b30e6ae3`, Linux 7.3.6, Ryzen 9 9950X, CPython 3.15.2,
+Capstone 5.0.9, Chromium 158.0.8127.88 and pytest 9.2.0. The service
+scenarios used fixed local data. Wall times below are p50 / nearest-rank p95.
+
+| Scenario | Before | After | Work removed |
+|---|---:|---:|---|
+| Structural comparison, 720 instructions with one changed immediate | 4.260 / 4.306 ms | 0.689 / 0.708 ms | One sequence alignment per call |
+| History API, 100 rows starting at offset 27,000 of 36,000 transitions | 0.180 / 0.183 ms | 0.082 / 0.085 ms | Reversing the entire snapshot before slicing |
+| Dashboard, append 500 functions to the first 40 | 40.8 / 43.5 ms | 39.9 / 41.7 ms | 500 status wrapper elements per append |
+| Same append with Chromium CPU throttling at 4× | 120.8 / 143.5 ms | 116.3 / 139.6 ms | Same DOM reduction |
+| Stale validator test body, offline, median of three | 24.05 s | 0.01 s | Registry retries and backoff |
+
+The Python scenarios pinned CPU 10 and took 61 measurements after five
+warm-ups. The comparison used 40 copies of `tools.bench_hotpaths._REAL_BODY`
+and changed byte 11 to 85. cProfile attributed 123 of 146 ms over ten
+comparisons to the mnemonic ratio. Identical mnemonic sequences have ratio
+1 even when their operands differ. All instruction and byte classifications
+still run. A control changing byte zero to NOP retained its alignment and
+measured 4.24 ms median on both versions. The installed CPython 3.15.0,
+3.15.1 and 3.15.2 sources implement the same ratio and longest-match search.
+
+The history measurement includes routing, function-name lookup, scrubbing
+and JSON encoding. Peak traced Python allocation for one warmed request
+fell from 301,372 to 30,407 bytes. Ten API replay bodies matched byte for
+byte. The page reads only the requested window and keeps newest-first order.
+
+Chromium used a 1280 × 900 viewport on CPUs 6–9. Every navigation and API
+request was intercepted with a fixed local response. Each batch discarded
+three warm-ups. The ordinary results pool two batches of 31 per version,
+and the throttled results pool three. The marker runs after an animation
+frame and a queued task following row insertion. Desktop first contentful
+paint was 20 / 24 ms on both versions. Throttled first contentful paint was
+48 / 68 ms before and 52 / 68 ms after. Throttled first-row paint was
+70.2 / 85.7 ms before and 72.6 / 93.1 ms after. All 93 throttled samples
+on each version recorded a long task. At both 390 and 1280 CSS pixels,
+the table text, column widths, status color and weight, and focus after
+append matched. The projected accessibility roles and names matched too.
+A fixed-layout experiment hard-coded a minimum table width and was dropped.
+
+The validator test runs the real installer against a stale launcher. A
+local curl double supplies a corrupt archive. The test requires eviction,
+one fetch and checksum rejection. CI still fetches and verifies the pinned
+validator and runs it on the generated HTML. The test previously accepted
+either installation success or download failure. Its timing describes
+the offline failure path.
+
+Run the four work gates with:
+
+```bash
+.venv/bin/pytest -q \
+  tests/test_scoring.py::TestStructuralSimilarity::test_structural_diff_detected \
+  tests/test_dashboard.py::TestQueryLayer::test_history_reads_only_requested_page \
+  tests/test_dashboard.py::TestSummaryRequests::test_latest_summary_wins \
+  tests/test_ci_pins.py::TestCiPins::test_vnu_install_replaces_an_unpinned_tree
+```
+
+The ceilings are zero sequence alignments for equal mnemonics, three row
+reads for a three-row history page, eight elements for a seven-cell function
+row, and one local fetch for the rejected archive. The first three gates
+were also run against the original product code and each detected the old
+work.
+
+### Other surfaces in this pass
+
+- The 18 workloads in `tools/bench_hotpaths.py` cover CLI/catalog, source
+  and metadata scans, parsing, matcher kernels, status, verify and compiler
+  caches. The largest batch wall medians in the initial loaded-host scan
+  were structural diff (335 ms for 200 pairs), catalog (290 ms for one
+  in-process umbrella invocation) and GA scoring (229 ms for 400 candidates).
+  The GA and sweep drivers already precompute the target.
+- Hyperfine 2.0.0 measured fresh-process `rebrew --version` at 67.1 / 70.0 ms
+  and the Go jobs CLI hashing 2,000 local files at 12.0 / 12.7 ms
+  (21 runs after three warm-ups, CPU 16, warm filesystem).
+  In-process `rebrew.release` dispatch was 13 / 16 µs over 61 calls.
+  The LLM tests use local doubles to check token ceilings, retry behavior,
+  concurrent requests and cached billing. Provider latency, external
+  compiler queues, PostgreSQL contention and live integration traffic
+  require representative service traces.
+- Fresh-tree, no-edit and one-comment-edit wheel builds took 338, 320 and
+  326 ms median with the installed setuptools 84.2.1 backend. The same
+  Go service scenarios took 280, 22 and 147 ms with Go 1.27.4 (repo pin
+  1.27.3). Each used three runs after one warm-up with dependencies
+  already available. These are local builds, excluding CI queueing,
+  dependency provisioning, provenance and publication.
+- Serial pytest collection took 4.12 s median (2.87–4.82 s, three warm
+  runs). An offline eight-worker correctness run passed 16,800 tests,
+  skipped 60 and took 35.18 s. Its longest calls were workspace isolation
+  during binary analysis (4.22 s), reanalysis name binding (2.12 s) and
+  child process group timeout (2.02 s). Each exercises a distinct boundary.
+  The earlier suite profiles below separate collection, setup, calls and teardown.
+- The browser assets are the dashboard and static report pages. There is
+  no native mobile UI in this checkout. Field interaction traces, device
+  distributions and hosted CI queue/cache logs were unavailable.
+
 ## Dashboard text scrubbing (2026-11-27)
 
 On 50 in-process bootstrap requests, cProfile attributed 35 of 38 ms to
@@ -1428,7 +1524,7 @@ gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
 Shell HTML (zstd-19): 3819 bytes on the wire (was ~8.2 KB with inlined JS).
-`/app.js` is served without its full-line comments (they stay in the source the bun harness runs). At this checkpoint, both entry assets totaled 12121 bytes zstd / 12743 gzip, inside the RFC 6928
+`/app.js` is served without its full-line comments (they stay in the source the bun harness runs). At this checkpoint, both entry assets totaled 12116 bytes zstd / 12737 gzip, inside the RFC 6928
 14600-byte initial window less a 500-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 13600), so the loading chrome paints before
 `/app.js` finishes. Gate:
@@ -1496,8 +1592,8 @@ inside the one document that has to fit RFC 6928's initial window, and it cost
 178 gzip bytes of the shell; linked, it is fetched off the critical path (a tab
 icon is not first paint). Hashing the linked URL cost 16 gzip bytes of the
 shell and buys the whole icon request back on every load after the first. The
-entry assets are now 12121 zstd / 12743 gzip against the 13600 B budget, so
-gzip has 857 B of room. One shell-trimming idea is a negative result worth
+entry assets are now 12116 zstd / 12737 gzip against the 13600 B budget, so
+gzip has 863 B of room. One shell-trimming idea is a negative result worth
 recording: deduplicating near-identical JavaScript *raised* the compressed
 size by 340 B even though it removed 262 raw ones, because the copies were
 what gzip matched.

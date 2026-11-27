@@ -211,7 +211,7 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[ObjectFunction]:
         ):
             candidates.setdefault(sym.section_idx, []).append((sym, sym_name))
 
-    i386 = int.from_bytes(obj_data[:2], "little") == _COFF_MACHINE_I386
+    i386 = coff.header.machine == lief.PE.Header.MACHINE_TYPES.I386
     # Every DIR32 field naming a defined symbol: (section, field offset) ->
     # (symbol's section, symbol's offset, the offset the field resolves to).
     dir32: dict[tuple[int, int], tuple[int, int, int]] = {}
@@ -353,7 +353,7 @@ def parse_elf_obj(obj_data: bytes, *, include_local: bool = False) -> Iterator[O
     word: the fixup target field shares the word with the opcode, and the
     object's reloc slots differ from the linked binary's.
     """
-    import tempfile
+    import io
 
     import lief
 
@@ -363,10 +363,7 @@ def parse_elf_obj(obj_data: bytes, *, include_local: bool = False) -> Iterator[O
     if int.from_bytes(obj_data[18:20], "little" if obj_data[5] == 1 else "big") == 6502:
         return
 
-    with tempfile.TemporaryDirectory(prefix="flirt_elf_") as td:
-        tmp_path = Path(td) / "temp.o"
-        tmp_path.write_bytes(obj_data)
-        elf = lief.ELF.parse(str(tmp_path))
+    elf = lief.ELF.parse(io.BytesIO(obj_data))
 
     if elf is None:
         return

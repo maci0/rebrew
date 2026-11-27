@@ -35,8 +35,8 @@ lazy from typing import Any
 
 import typer
 
-from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+lazy from rebrew.c_parser import mask_msvc_syntax, parse_c_source
 lazy from rebrew.pseudo_c import sanitize_tokens
 lazy from rebrew.utils import atomic_write_text, read_source_text
 
@@ -51,8 +51,16 @@ _UNDECLARED_TYPE_RE = re.compile(
     r"'(?P<name>[A-Za-z_]\w*)' undeclared|unknown type name '(?P<name2>[A-Za-z_]\w*)'"
 )
 _IMPLICIT_FN_RE = re.compile(r"implicit declaration of function '(?P<name>[A-Za-z_]\w*)'")
-_TYPEDEF_NAME_RE = re.compile(r"\b(?:typedef|struct|union|enum)\s+([A-Za-z_]\w*)")
-_PROTO_NAME_RE = re.compile(r"\b[A-Za-z_]\w*\s*\([^;]*\)\s*;")
+
+_DECL_WRAPPERS = frozenset(
+    {
+        "init_declarator",
+        "pointer_declarator",
+        "array_declarator",
+        "function_declarator",
+        "attributed_declarator",
+    }
+)
 
 
 @dataclass
@@ -75,38 +83,48 @@ class FixupResult:
         }
 
 
-#: Primitive type spellings (incl. multiword bases) whose declarators name a
-#: variable/function, not a new type: ``unsigned int foo(...)`` declares the
-#: function ``foo``, not a type.
-_PRIMITIVE_BASES = (
-    r"void|char|short|int|long|float|double|signed|unsigned|const|volatile|"
-    r"static|extern|register|inline"
-)
-
-#: ``unsigned int size;`` / ``long long foo(void);`` — multiword-base
-#: declarations: the identifier after the base is already declared and must
-#: never be redefined by injection.
-# ``(*name[N])`` and ``(*name)[N]`` still declare *name*. The opening
-# parenthesis used to hide it, so a diagnostic for that name injected a
-# second typedef. ``(__cdecl *name)`` keeps the calling convention off
-# the name. The two parentheses are optional on their own; a call
-# ``name(...)`` still needs the semicolon form below, so a function
-# definition is not a declaration.
-_MULTWORD_DECL_RE = re.compile(
-    rf"\b(?:{_PRIMITIVE_BASES})(?:\s+(?:{_PRIMITIVE_BASES}|\*))*"
-    r"\s*(?:\(\s*" + CALLING_CONVENTION + r")?\**\s*"
-    r"([A-Za-z_]\w*)\s*"
-    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*"
-    r"\)?\s*"
-    r"(?:[;(=\[]|\([^;]*\)\s*;)"
-)
+def _declarator_name(node: Any, data: bytes) -> str | None:
+    """Extract the declared identifier from a tree-sitter C declarator."""
+    cur = node
+    while cur is not None:
+        if cur.type in ("identifier", "type_identifier", "field_identifier"):
+            return data[cur.start_byte : cur.end_byte].decode("utf-8", errors="surrogateescape")
+        if cur.type in _DECL_WRAPPERS:
+            cur = cur.child_by_field_name("declarator")
+            continue
+        if cur.type == "parenthesized_declarator":
+            cur = next((c for c in cur.named_children if c.type != "comment"), None)
+            continue
+        return None
+    return None
 
 
 def _existing_identifiers(source: str) -> set[str]:
     """Type/function names already declared in *source* (never re-define)."""
-    out = set(_TYPEDEF_NAME_RE.findall(source))
-    out |= set(_PROTO_NAME_RE.findall(source))
-    out |= set(_MULTWORD_DECL_RE.findall(source))
+    tree, data = parse_c_source(mask_msvc_syntax(source))
+    out: set[str] = set()
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        ntype = node.type
+        if ntype in ("type_definition", "declaration"):
+            for decl in node.children_by_field_name("declarator"):
+                name = _declarator_name(decl, data)
+                if name:
+                    out.add(name)
+        elif ntype == "function_definition":
+            name = _declarator_name(node.child_by_field_name("declarator"), data)
+            if name:
+                out.add(name)
+        elif ntype in ("struct_specifier", "union_specifier", "enum_specifier"):
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                out.add(
+                    data[name_node.start_byte : name_node.end_byte].decode(
+                        "utf-8", errors="surrogateescape"
+                    )
+                )
+        stack.extend(node.named_children)
     return out
 
 

@@ -221,6 +221,30 @@ class TestParsePrototype:
         _cc, _n, w, is_void = _parse_prototype("struct Foo * __cdecl foo(void)")
         assert w == 32
 
+    def test_function_pointer_param_counts_as_one_arg(self) -> None:
+        """Commas inside a function-pointer parameter must not inflate arg count."""
+        cc, n, w, is_void = _parse_prototype("int __cdecl with_cb(int (*cb)(int, int), int x)")
+        assert cc == "cdecl"
+        assert n == 2
+        assert w == 32
+        assert is_void is False
+
+    def test_function_pointer_param_with_inner_cc_keeps_outer_cc(self) -> None:
+        cc, n, w, is_void = _parse_prototype(
+            "void __stdcall with_cc_cb(int (__cdecl *cb)(int, int), char *s)"
+        )
+        assert cc == "stdcall"
+        assert n == 2
+        assert w == 32
+        assert is_void is True
+
+    def test_function_returning_function_pointer(self) -> None:
+        cc, n, w, is_void = _parse_prototype("int (*__cdecl ret_fn(int a))(int, int)")
+        assert cc == "cdecl"
+        assert n == 1
+        assert w == 32
+        assert is_void is False
+
 
 class TestVoidFunctionGuard:
     """void functions leave EAX undefined — prove must not compare it.
@@ -581,6 +605,90 @@ class TestWin32SimProcedures:
                 assert len(r) > 50
         finally:
             sp._WIN32_SIMPROCS = old
+
+    def test_shared_symbolic_return_across_projects(self) -> None:
+        """Two projects calling the same Win32 API SimProc with a shared table
+        must observe the same BVS for the same call index (and distinct BVSs
+        for separate calls), while preserving API return constraints."""
+        import io
+
+        import angr
+        from angr import claripy
+
+        from rebrew.prove_simprocs import get_win32_simprocs
+
+        procs = get_win32_simprocs()
+        handle_cls = procs["CreateFileA"]
+        assert handle_cls.__name__ == "ReturnSymbolicHandle"
+        # Two consecutive calls to [0x2000], xor their results into eax:
+        #   call dword ptr [0x2000]; mov ebx, eax; call dword ptr [0x2000]; xor eax, ebx; ret
+        blob = bytes.fromhex("FF 15 00 20 00 00 89 C3 FF 15 00 20 00 00 31 D8 C3")
+        shared: dict[tuple[int | None, int], Any] = {}
+        results = []
+        for _ in range(2):
+            proj = angr.Project(
+                io.BytesIO(blob),
+                main_opts={"backend": "blob", "arch": "x86", "base_addr": 0, "entry_point": 0},
+                auto_load_libs=False,
+            )
+            proj.hook(0xDEAD0000, handle_cls(shared_returns=shared), length=1)
+            proj.hook(0xBAADF00D, angr.SIM_PROCEDURES["stubs"]["PathTerminator"](), length=0)
+            st = proj.factory.call_state(
+                0,
+                cc=angr.calling_conventions.SimCCCdecl(proj.arch),
+                prototype=angr.sim_type.SimTypeFunction([], angr.sim_type.SimTypeInt(signed=False)),
+                ret_addr=0xBAADF00D,
+                stack_base=0x7FFF0000,
+            )
+            st.memory.store(0x2000, claripy.BVV(0xDEAD0000, 32), endness="Iend_LE")
+            sm = proj.factory.simgr(st)
+            sm.run()
+            results.append(sm.deadended[0])
+
+        # Same call sequence across both projects yields identical symbolic EAX
+        solver = claripy.Solver()
+        for c in results[0].solver.constraints:
+            solver.add(c)
+        for c in results[1].solver.constraints:
+            solver.add(c)
+        assert not solver.satisfiable(
+            extra_constraints=[results[0].regs.eax != results[1].regs.eax]
+        )
+        # Two calls in one function got distinct BVSs, so eax ^ ebx can be non-zero
+        assert solver.satisfiable(extra_constraints=[results[0].regs.eax != 0])
+        assert len(shared) == 2
+
+    def test_alloc_zeroed_clears_256_bytes(self) -> None:
+        """SimAllocZeroed zeroes the full 256-byte allocation in one store."""
+        import io
+
+        import angr
+        from angr import claripy
+
+        from rebrew.prove_simprocs import get_win32_simprocs
+
+        alloc_cls = get_win32_simprocs()["LocalAlloc"]
+        blob = bytes.fromhex("FF 15 00 20 00 00 C3")
+        proj = angr.Project(
+            io.BytesIO(blob),
+            main_opts={"backend": "blob", "arch": "x86", "base_addr": 0, "entry_point": 0},
+            auto_load_libs=False,
+        )
+        proj.hook(0xDEAD0000, alloc_cls(), length=1)
+        proj.hook(0xBAADF00D, angr.SIM_PROCEDURES["stubs"]["PathTerminator"](), length=0)
+        st = proj.factory.call_state(
+            0,
+            cc=angr.calling_conventions.SimCCCdecl(proj.arch),
+            prototype=angr.sim_type.SimTypeFunction([], angr.sim_type.SimTypeInt(signed=False)),
+            ret_addr=0xBAADF00D,
+            stack_base=0x7FFF0000,
+        )
+        st.memory.store(0x2000, claripy.BVV(0xDEAD0000, 32), endness="Iend_LE")
+        sm = proj.factory.simgr(st)
+        sm.run()
+        end = sm.deadended[0]
+        ptr = end.solver.eval(end.regs.eax)
+        assert end.solver.eval(end.memory.load(ptr, 256)) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1437,6 +1545,26 @@ class TestProveEquivalenceBytes:
         """mov eax,[esp+4];ret — returns its argument unchanged (identity)."""
         a = bytes.fromhex("8B 44 24 04 C3")
         proven, msg = prove_equivalence(a, a, {}, "int f(int)", timeout=30)
+        assert proven, msg
+
+    def test_thiscall_and_fastcall_calling_conventions(self) -> None:
+        """SimCCMicrosoftThiscall (ECX + stack) and SimCCMicrosoftFastcall (ECX, EDX + stack)."""
+        # thiscall: mov eax, ecx; add eax, [esp+4]; ret 4
+        thiscall_a = bytes.fromhex("89 C8 03 44 24 04 C2 04 00")
+        # equivalent: mov eax, [esp+4]; add eax, ecx; ret 4
+        thiscall_b = bytes.fromhex("8B 44 24 04 01 C8 C2 04 00")
+        proven, msg = prove_equivalence(
+            thiscall_a, thiscall_b, {}, "int __thiscall C::m(int x, int y)", timeout=30
+        )
+        assert proven, msg
+
+        # fastcall: lea eax, [ecx+edx]; add eax, [esp+4]; ret 4
+        fast_a = bytes.fromhex("8D 04 11 03 44 24 04 C2 04 00")
+        # equivalent: mov eax, ecx; add eax, edx; add eax, [esp+4]; ret 4
+        fast_b = bytes.fromhex("89 C8 01 D0 03 44 24 04 C2 04 00")
+        proven, msg = prove_equivalence(
+            fast_a, fast_b, {}, "int __fastcall f(int a, int b, int c)", timeout=30
+        )
         assert proven, msg
 
 

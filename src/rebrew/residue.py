@@ -27,6 +27,7 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 import typer
+lazy import numpy as np
 lazy from rich.cells import cell_len
 
 from rebrew.cli import (
@@ -131,7 +132,9 @@ def residue_report(
         _, _, pr_r, rs_r = sr[name]
         _, _, pr_p, rs_p = sp[name]
         span = min(rs_r, rs_p)
-        diff = sum(1 for i in range(span) if reference[pr_r + i] != built[pr_p + i])
+        ref_arr = np.frombuffer(reference, dtype=np.uint8, count=span, offset=pr_r)
+        built_arr = np.frombuffer(built, dtype=np.uint8, count=span, offset=pr_p)
+        diff = int(np.count_nonzero(ref_arr != built_arr))
         sections[name] = {"ref_raw": rs_r, "built_raw": rs_p, "differing": diff, "span": span}
 
     # The bound is the section's *raw* size, not its virtual size: the indices
@@ -144,7 +147,9 @@ def residue_report(
         0,
         min(t_vs, p_vs, t_rs, p_rs, len(reference) - t_ptr, len(built) - p_ptr),
     )
-    diffs = [i for i in range(n) if reference[t_ptr + i] != built[p_ptr + i]]
+    ref_text = np.frombuffer(reference, dtype=np.uint8, count=n, offset=t_ptr)
+    built_text = np.frombuffer(built, dtype=np.uint8, count=n, offset=p_ptr)
+    diffs: list[int] = np.flatnonzero(ref_text != built_text).tolist()
 
     # Attribute trailing tables to their owner: extend each extent to the
     # next function start (a body's jump table lives past its size).

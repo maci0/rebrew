@@ -1,8 +1,8 @@
 """Unit tests for tools/check_layering.py."""
 
 import ast
-from functools import cache
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -179,11 +179,31 @@ class TestPackageExternals:
         self._write(pkg, "workspace/config.py", "from rebrew import __version__\n")
         assert cl.check_layering(str(pkg)) == []
 
-    def test_real_tree_matches_the_allowlist(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # check_layering re-parses a module for each rule and never mutates a
-        # tree, so one parse per file serves every rule.
-        monkeypatch.setattr(ast, "parse", cache(ast.parse))
+    def test_real_tree_matches_the_allowlist(self) -> None:
         assert cl.check_layering("src/rebrew") == []
+
+    def test_parses_each_module_once(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        pkg = self._workspace_pkg(tmp_path)
+        self._write(pkg, "workspace/config.py", "from rebrew.errors import RebrewError\n")
+        self._write(
+            pkg,
+            "cmd.py",
+            "import typer\napp = typer.Typer()\ndef main_entry() -> None:\n    pass\n",
+        )
+        self._write(pkg, "lib.py", "from rebrew.errors import RebrewError\n")
+        py_files = list(pkg.rglob("*.py"))
+
+        parse_calls = 0
+        orig_parse = ast.parse
+
+        def count_parse(*args: Any, **kwargs: Any) -> Any:
+            nonlocal parse_calls
+            parse_calls += 1
+            return orig_parse(*args, **kwargs)
+
+        monkeypatch.setattr(ast, "parse", count_parse)
+        assert cl.check_layering(str(pkg)) == []
+        assert parse_calls == len(py_files)
 
 
 class TestLibraryDoesNotImportCommand:

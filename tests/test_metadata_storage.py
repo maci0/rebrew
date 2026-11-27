@@ -842,12 +842,13 @@ def test_project_root_cache_survives_scan_and_rechecks_backend(
 def test_project_root_cache_evicts_only_least_recently_used(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from collections import OrderedDict
 
     import rebrew.metadata.storage as storage
 
     (tmp_path / "rebrew-project.toml").write_text("[metadata]\n")
-    monkeypatch.setattr(storage, "_PROJECT_ROOTS", OrderedDict())
+    from cachetools import LRUCache
+
+    monkeypatch.setattr(storage, "_PROJECT_ROOTS", LRUCache(maxsize=storage._PROJECT_ROOTS_MAX))
     monkeypatch.setattr(storage, "walk_up_to_root", lambda _: tmp_path)
     dirs = [tmp_path / str(i) for i in range(storage._PROJECT_ROOTS_MAX + 1)]
     for directory in dirs[:-1]:

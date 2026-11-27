@@ -229,26 +229,26 @@ def _parse_coff(
     assert section is not None  # filtered non-None above; LIEF 1.0 stubs type it Optional
     content = bytes(section.content)
     func_start = target_sym.value
-    # Match symbols by SECTION OFFSET, not name: naked functions land in
-    # separate .text COMDATs (multiple sections all named ".text"), so a
-    # name match collects offsets from unrelated sections and the
-    # next-symbol distance (function size) comes out wrong (e.g. a 3328-byte
-    # naked function reported as 57 bytes).  LIEF COFF has no
-    # section_number on symbols and returns a fresh Section object per
-    # access, so compare the stable section file offset instead.
     target_off = getattr(section, "offset", None)
-    # One access per symbol, not two: LIEF builds a fresh Section on each
-    # `symbol.section` read, so the `is not None` test and the offset compare
-    # each paid for a construction on every symbol of the object.
+    # Match symbols by COFF section_idx (LIEF 1.0 exposes it directly as an int),
+    # avoiding per-symbol Section wrapper allocations while still separating
+    # COMDAT sections that share the ".text" name.
+    target_sec_idx = getattr(target_sym, "section_idx", None)
     sec_offsets: list[int] = []
     for s in symbols:
-        sym_section = s.section
         # "." names are section symbols and the line-number records .bf/.lf/.ef,
         # which sit inside a function and do not end it.
-        if sym_section is None or str(s.name).startswith(("$", ".")):
+        if str(s.name).startswith(("$", ".")):
             continue
-        if target_off is not None and getattr(sym_section, "offset", None) != target_off:
-            continue
+        if target_sec_idx is not None:
+            if getattr(s, "section_idx", None) != target_sec_idx:
+                continue
+        else:
+            sym_section = s.section
+            if sym_section is None:
+                continue
+            if target_off is not None and getattr(sym_section, "offset", None) != target_off:
+                continue
         sec_offsets.append(s.value)
     sec_offsets.sort()
     func_end = _next_symbol_end(sec_offsets, func_start, len(content))

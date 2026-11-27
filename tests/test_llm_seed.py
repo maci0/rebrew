@@ -1215,6 +1215,42 @@ class TestRequestSeeds:
         assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
         assert client.calls == 1
 
+    def test_send_seeds_injected_sleep_records_backoff(self) -> None:
+        """``_send_seeds`` accepts an injected ``sleep`` callable for deterministic backoff tests."""
+        from rebrew.utils import retry_backoff_delay
+
+        class _FlakyConnect:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            @contextmanager
+            def stream(self, *a: object, **k: object) -> Iterator[_FakeResponse]:
+                self.calls += 1
+                if self.calls < 3:
+                    raise httpx.ConnectError("connection refused")
+                yield _FakeResponse(
+                    {
+                        "choices": [{"message": {"content": "```c\nint f(void){return 0;}\n```"}}],
+                        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+                    }
+                )
+
+        naps: list[float] = []
+        client = _FlakyConnect()
+        seeds = rebrew.llm_seed._send_seeds(
+            client,
+            {"endpoint": "https://llm/v1/chat/completions", "api_key": ""},
+            "int f(void){return 0;}",
+            1,
+            ("f", "int f(void)"),
+            "test-model",
+            100,
+            sleep=naps.append,
+        )
+        assert seeds == ["int f(void){return 0;}"]
+        assert client.calls == 3
+        assert naps == [retry_backoff_delay(0), retry_backoff_delay(1)]
+
     def test_oversized_body_rejected(self) -> None:
         huge = b"x" * (_MAX_HTTP_BODY_BYTES + 1)
         client = _FakeClient({"choices": []}, body=huge)

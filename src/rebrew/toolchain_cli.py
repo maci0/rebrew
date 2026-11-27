@@ -17,11 +17,13 @@ lazy import re
 lazy import shutil
 lazy import subprocess
 lazy import time
+lazy from collections.abc import Callable
 lazy from dataclasses import replace
 lazy from pathlib import Path
 lazy from string import Template
 
 import typer
+lazy import tenacity
 
 from rebrew.cli import (
     EXIT_ERROR,
@@ -491,6 +493,7 @@ def _download_pinned_url(
     dest: Path,
     *,
     timeout: float = 1800,
+    sleep: Callable[[float], None] | None = None,
 ) -> None:
     """Download *url* to *dest*, following redirects only while hosts stay trusted.
 
@@ -510,58 +513,59 @@ def _download_pinned_url(
 
     import httpx
 
+    nap = sleep if sleep is not None else time.sleep
     current = _trusted_toolchain_download_url(url)
-    last: Exception | None = None
-    for _hop in range(_DOWNLOAD_REDIRECT_LIMIT):
-        redirected = False
-        for attempt in range(_HTTP_ATTEMPTS):
-            try:
-                with httpx.stream(
-                    "GET", current, timeout=timeout, follow_redirects=False, trust_env=False
-                ) as resp:
-                    if resp.status_code in {301, 302, 303, 307, 308}:
-                        location = resp.headers.get("location")
-                        if not location:
+
+    def _fetch_hop(hop_url: str) -> str | None:
+        try:
+            with httpx.stream(
+                "GET", hop_url, timeout=timeout, follow_redirects=False, trust_env=False
+            ) as resp:
+                if resp.status_code in {301, 302, 303, 307, 308}:
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise ToolchainError(
+                            f"toolchain download redirect missing Location from {hop_url!r}"
+                        )
+                    return _trusted_toolchain_download_url(urljoin(hop_url, location))
+                resp.raise_for_status()
+                received = 0
+                with dest.open("wb") as fh:
+                    for chunk in resp.iter_bytes():
+                        received += len(chunk)
+                        if received > _MAX_PINNED_DOWNLOAD_BYTES:
                             raise ToolchainError(
-                                f"toolchain download redirect missing Location from {current!r}"
+                                f"toolchain download exceeds {_MAX_PINNED_DOWNLOAD_BYTES} bytes from {hop_url!r}"
                             )
-                        current = _trusted_toolchain_download_url(urljoin(current, location))
-                        redirected = True
-                        break
-                    resp.raise_for_status()
-                    received = 0
-                    with dest.open("wb") as fh:
-                        for chunk in resp.iter_bytes():
-                            received += len(chunk)
-                            if received > _MAX_PINNED_DOWNLOAD_BYTES:
-                                raise ToolchainError(
-                                    f"toolchain download exceeds {_MAX_PINNED_DOWNLOAD_BYTES} bytes from {current!r}"
-                                )
-                            fh.write(chunk)
-                    return
-            except ToolchainError:
-                dest.unlink(missing_ok=True)
-                raise
-            except (httpx.HTTPError, OSError) as exc:
-                # A disk-full / permission failure on the write must surface
-                # as a ToolchainError with the cause, not escape as an
-                # unhandled OSError leaving a partial archive at *dest*.
-                last = exc
-                dest.unlink(missing_ok=True)
-                if attempt + 1 == _HTTP_ATTEMPTS:
-                    break
-                time.sleep(_HTTP_RETRY_BACKOFF_S * 2**attempt)
-        if redirected:
-            # A redirect consumed this hop without transferring bytes; the
-            # next hop starts a fresh transport budget.  A chain longer
-            # than the limit still terminates.
-            continue
-        if last is not None:
-            raise ToolchainError(f"toolchain download failed from {current!r}: {last}") from last
-        break
+                        fh.write(chunk)
+                return None
+        except BaseException:
+            dest.unlink(missing_ok=True)
+            raise
+
+    for _hop in range(_DOWNLOAD_REDIRECT_LIMIT):
+        retrying = tenacity.Retrying(
+            stop=tenacity.stop_after_attempt(_HTTP_ATTEMPTS),
+            retry=tenacity.retry_if_exception_type((httpx.HTTPError, OSError)),
+            wait=tenacity.wait_exponential(multiplier=_HTTP_RETRY_BACKOFF_S, exp_base=2),
+            sleep=nap,
+            reraise=True,
+        )
+        try:
+            next_url = retrying(_fetch_hop, current)
+        except (httpx.HTTPError, OSError) as exc:
+            # A disk-full / permission failure on the write must surface as a
+            # ToolchainError with the cause, not escape as an unhandled OSError
+            # leaving a partial archive at *dest*.
+            dest.unlink(missing_ok=True)
+            raise ToolchainError(f"toolchain download failed from {current!r}: {exc}") from exc
+        if next_url is None:
+            return
+        # A redirect consumed this hop without transferring bytes; the next hop
+        # starts a fresh transport budget.  A chain longer than the limit still
+        # terminates.
+        current = next_url
     dest.unlink(missing_ok=True)
-    if last is not None:
-        raise ToolchainError(f"toolchain download failed from {current!r}: {last}") from last
     raise ToolchainError(f"toolchain download exceeded redirect limit from {url!r}")
 
 

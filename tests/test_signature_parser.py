@@ -188,6 +188,21 @@ class TestSignatureParserBranches:
         assert "foo" in result
         assert "caf\x81 e" in result["foo"]
 
+    def test_line_comment_before_signature_does_not_swallow_normalization(
+        self, tmp_path: Path
+    ) -> None:
+        f = tmp_path / "comment.c"
+        f.write_text(
+            "/* unterminated comment\n// trailing comment\n"
+            "void A(const char *s, int (*fn)(int, int)) { return; }\n",
+            encoding="utf-8",
+        )
+        result = dict(extract_function_signatures(f))
+        assert "A" in result
+        assert "const" not in result["A"]
+        assert "(*" not in result["A"]
+        assert "//" not in result["A"]
+
 
 class TestDeepPrototypeTraversal:
     def test_deep_body_does_not_hide_following_prototypes(self, tmp_path: Path) -> None:

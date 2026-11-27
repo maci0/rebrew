@@ -1288,14 +1288,7 @@ _ALIAS_DEPTH = 4
 _WORD_RE = re.compile(r"\b[A-Za-z_]\w*\b")
 _IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 
-#: Hot-path patterns compiled once at module load; previously raw string
-#: patterns recompiled per struct/enum/typedef inside loops.
-_STRUCT_TRAILING_NAME_RE = re.compile(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;\s*\Z")
-_STRUCT_TAG_RE = re.compile(r"struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{")
-_ENUM_TRAILING_NAME_RE = re.compile(r"\}\s*([A-Za-z_]\w*)\s*;")
-_ENUM_TAG_RE = re.compile(r"enum\s+([A-Za-z_]\w*)\s*\{")
-_ENUM_BODY_RE = re.compile(r"\{(.*)\}", flags=re.DOTALL)
-_ENUM_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
+#: Hot-path patterns compiled once at module load.
 _PUNCT_SPACE_RE = re.compile(r"\s*([(),;*])\s*")
 _STRUCT_OR_ENUM_RE = re.compile(r"\b(?:struct|enum)\b")
 
@@ -1401,17 +1394,41 @@ def _parsed_struct_fields(
     return fields
 
 
+def _tag_or_typedef_name(definition: str, specifier_type: str) -> str:
+    """Return the typedef alias or tag name for a top-level struct/enum definition."""
+    from rebrew.c_parser import node_text, parse_c_source
+
+    tree, raw = parse_c_source(definition.strip())
+    for node in tree.root_node.named_children:
+        if node.type == "type_definition":
+            spec = node.child_by_field_name("type")
+            if spec is not None and spec.type == specifier_type:
+                for decl in node.children_by_field_name("declarator"):
+                    if decl.type == "type_identifier":
+                        return node_text(decl, raw)
+                tag = spec.child_by_field_name("name")
+                if tag is not None:
+                    return node_text(tag, raw)
+        elif node.type == specifier_type:
+            tag = node.child_by_field_name("name")
+            if tag is not None:
+                return node_text(tag, raw)
+        elif node.type == "declaration":
+            spec = node.child_by_field_name("type")
+            if spec is not None and spec.type == specifier_type:
+                tag = spec.child_by_field_name("name")
+                if tag is not None:
+                    return node_text(tag, raw)
+    return ""
+
+
 def _struct_name(typedef_text: str) -> str:
     """Struct name: the typedef alias after the closing brace, else the ``struct Name {`` tag.
 
     The alias follows the outermost ``}``; a nested member aggregate
     (``struct { ... } check;``) closes earlier and is not the type's name.
     """
-    name_match = _STRUCT_TRAILING_NAME_RE.search(typedef_text.strip())
-    if name_match:
-        return name_match.group(1)
-    sm = _STRUCT_TAG_RE.search(typedef_text)
-    return sm.group(1) if sm else ""
+    return _tag_or_typedef_name(typedef_text, "struct_specifier")
 
 
 def _unsafe_type_names(source: str) -> set[str]:
@@ -1586,32 +1603,9 @@ def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:
     return headers + sources
 
 
-def _split_top_level(text: str) -> list[str]:
-    """Split *text* on commas at bracket/paren/brace depth zero."""
-    parts: list[str] = []
-    current: list[str] = []
-    depth = 0
-    for ch in text:
-        if ch in "([{":
-            depth += 1
-        elif ch in ")]}":
-            depth -= 1
-        if ch == "," and depth == 0:
-            parts.append("".join(current))
-            current = []
-        else:
-            current.append(ch)
-    parts.append("".join(current))
-    return parts
-
-
 def _enum_name(definition: str) -> str:
     """Enum name: the trailing typedef identifier, else the ``enum Tag`` name."""
-    match = _ENUM_TRAILING_NAME_RE.search(definition)
-    if match:
-        return match.group(1)
-    match = _ENUM_TAG_RE.search(definition)
-    return match.group(1) if match else ""
+    return _tag_or_typedef_name(definition, "enum_specifier")
 
 
 def _enum_members(definition: str) -> dict[str, int]:
@@ -1620,27 +1614,51 @@ def _enum_members(definition: str) -> dict[str, int]:
     A bare ``IDENT`` takes the previous value + 1, starting at 0.
     An unknown explicit value invalidates the complete projection.
     """
-    match = _ENUM_BODY_RE.search(definition)
-    if not match:
+    from rebrew.c_parser import node_text, parse_c_source
+
+    tree, raw = parse_c_source(definition.strip())
+    enum_spec: Any = None
+    for node in tree.root_node.named_children:
+        if node.type == "type_definition":
+            spec = node.child_by_field_name("type")
+            if spec is not None and spec.type == "enum_specifier":
+                enum_spec = spec
+                break
+        elif node.type == "enum_specifier":
+            enum_spec = node
+            break
+        elif node.type == "declaration":
+            spec = node.child_by_field_name("type")
+            if spec is not None and spec.type == "enum_specifier":
+                enum_spec = spec
+                break
+    if enum_spec is None:
         return {}
+    body = enum_spec.child_by_field_name("body")
+    if body is None or body.has_error:
+        return {}
+
     members: dict[str, int] = {}
     next_value = 0
-    for entry in _split_top_level(match.group(1)):
-        entry = entry.split("//")[0].strip()
-        if not entry:
+    for child in body.named_children:
+        if child.type == "comment":
             continue
-        if "=" in entry:
-            ident, _, literal = entry.partition("=")
-            ident = ident.strip()
+        if child.type != "enumerator":
+            return {}
+        name_node = child.child_by_field_name("name")
+        if name_node is None:
+            return {}
+        ident = node_text(name_node, raw)
+        if not is_safe_c_ident(ident):
+            return {}
+        val_node = child.child_by_field_name("value")
+        if val_node is not None:
             try:
-                value = parse_int_literal(literal.strip())
+                value = parse_int_literal(node_text(val_node, raw).strip())
             except ValueError:
                 return {}
         else:
-            ident = entry
             value = next_value
-        if not _ENUM_IDENT_RE.fullmatch(ident):
-            return {}
         members[ident] = value
         next_value = value + 1
     return members

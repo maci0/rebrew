@@ -1122,6 +1122,34 @@ def array_type_shape(
     return base.strip(), tuple(dimensions)
 
 
+def mask_comments_and_literals(source: str) -> str:
+    """Same-length copy of *source* with comments and string/char literals blanked.
+
+    Uses ``tree-sitter-c`` so comments inside string literals and quotes inside
+    comments are handled accurately while preserving every newline (and line
+    number).  Memoized per thread via :func:`recall_source_value`.
+    """
+    cached: str | None = recall_source_value("comments_literals_mask_memo", source)
+    if cached is not None:
+        return cached
+    if not any(ch in source for ch in ('"', "'", "/")):
+        store_source_value("comments_literals_mask_memo", source, source)
+        return source
+    tree, data = parse_c_source(source)
+    out = bytearray(data)
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type in ("comment", "string_literal", "char_literal"):
+            s, e = int(node.start_byte), int(node.end_byte)
+            out[s:e] = _NON_NEWLINE_RE.sub(b" ", data[s:e])
+            continue
+        stack.extend(node.children)
+    masked = bytes(out).decode("utf-8", errors="surrogateescape")
+    store_source_value("comments_literals_mask_memo", source, masked)
+    return masked
+
+
 def protected_spans(source: str | bytes) -> list[tuple[int, int]]:
     """Byte spans of text a rename must NOT rewrite: literals and macro names.
 
@@ -1338,6 +1366,30 @@ def find_declarator_name(declarator: Any, source_bytes: bytes) -> str | None:
         name = find_declarator_name(child, source_bytes)
         if name:
             return name
+    return None
+
+
+def find_declarator_identifier(declarator: Any, source_bytes: bytes) -> str | None:
+    """Recursively walk any declarator (including function & fn-ptr) to its identifier."""
+    if declarator is None:
+        return None
+    if declarator.type == "identifier":
+        return node_text(declarator, source_bytes)
+    inner = declarator.child_by_field_name("declarator")
+    if inner is not None:
+        return find_declarator_identifier(inner, source_bytes)
+    for child in declarator.named_children:
+        if child.type in (
+            "identifier",
+            "pointer_declarator",
+            "array_declarator",
+            "function_declarator",
+            "parenthesized_declarator",
+            "init_declarator",
+        ):
+            name = find_declarator_identifier(child, source_bytes)
+            if name:
+                return name
     return None
 
 
@@ -2448,76 +2500,75 @@ def find_variable_roles(
 
 
 # ---------------------------------------------------------------------------
-# Plain declaration type extraction (regex fallback for single lines)
+# Plain declaration type extraction (tree-sitter-c)
 # ---------------------------------------------------------------------------
 
-_DECL_TYPE_RE = re.compile(
-    r"^(?:extern\s+)?(?P<type>.+?)\s+\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<arr>\[.*\])?\s*;?\s*$"
-)
-# The name sits inside parentheses: ``(*row)[4]`` or ``(*table[4])``.
-# ``(__cdecl *row)`` and ``(* const row)`` are the same parentheses. The
-# convention and the qualifier are not the name.
-_GROUPED_POINTER_RE = re.compile(
-    r"\((" + CALLING_CONVENTION + r"\*+(?:\s*(?:const|volatile)\b)*)\s*$"
-)
-_GROUPED_DECL_RE = re.compile(r"\((\s*\**\s*)$")
-_GROUPED_BRACKETS_RE = re.compile(r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\s*\)(.*)$")
+
+def _find_ident_node(node: Any, raw: bytes, target: str) -> Any | None:
+    """Return the identifier AST node matching *target* inside *node*."""
+    if node.type == "identifier" and node_text(node, raw) == target:
+        return node
+    for child in node.children:
+        found = _find_ident_node(child, raw, target)
+        if found is not None:
+            return found
+    return None
 
 
 def type_from_declaration(decl: str, var_name: str) -> str | None:
     """Extract the C type string for *var_name* from a single declaration line.
 
-    Shared by data annotation / header generation and BinSync global export —
-    lives here so callers do not reach into ``rebrew.binsync``.
+    Uses ``tree-sitter-c`` to locate *var_name* in the declarator and removes
+    only that identifier span while preserving qualifiers, calling conventions,
+    pointer-to-array parentheses, and function-pointer suffixes.
     """
-    decl = decl.strip().rstrip(";").strip()
-    if not decl or var_name not in decl:
+    text = decl.strip().rstrip(";").strip()
+    if not text or var_name not in text:
         return None
-    m = _DECL_TYPE_RE.match(decl + ";")
-    if m and m.group("name") == var_name:
-        t = m.group("type").strip()
-        arr = (m.group("arr") or "").strip()
-        if arr:
-            t = f"{t}{arr}"
-        return t or None
-    idx = decl.find(var_name)
-    if idx > 0:
-        prefix = decl[:idx].strip()
-        if prefix.startswith("extern "):
-            prefix = prefix[7:].strip()
-        suffix = decl[idx + len(var_name) :].strip()
-        # ``(*row)[4]`` is one pointer. Concatenating at the name left
-        # ``char (*`` and dropped the pointee. ``(__cdecl *row)[4]`` and
-        # ``(* const row)[4]`` are the same pointer. ``(counts[4])`` is an array.
-        pointer = _GROUPED_POINTER_RE.search(prefix)
-        if pointer is not None and suffix.startswith(")"):
-            interior = pointer.group(1).strip()
-            rest = suffix[1:].strip()
-            base = prefix[: pointer.start()].rstrip()
-            if interior and rest.startswith(("[", "(")):
-                return f"{base} ({interior}){rest}" if base else None
-        grouped = _GROUPED_DECL_RE.search(prefix)
-        if grouped:
-            stars = "".join(grouped.group(1).split())
-            base = prefix[: grouped.start()].rstrip()
-            if suffix.startswith(")"):
-                rest = suffix[1:].strip()
-                if stars and rest.startswith(("[", "(")):
-                    return f"{base} ({stars}){rest}"
-                if stars:
-                    return f"{base} {stars}" if base else None
-                return f"{base}{rest}" if base else None
-            brackets = _GROUPED_BRACKETS_RE.match(suffix)
-            if brackets:
-                tail = brackets.group(2).strip()
-                if stars:
-                    return f"{base} ({stars}{brackets.group(1)}){tail}"
-                return f"{base}{brackets.group(1)}{tail}" if base else None
-        if suffix.startswith("["):
-            prefix = f"{prefix}{suffix}"
-        if prefix:
-            return prefix
-    return None
+    if text.startswith(("extern ", "extern\t")):
+        text = text[6:].lstrip()
+    probe = text + ";"
+    masked = mask_msvc_syntax(probe)
+    tree, raw = parse_c_source(masked)
+    orig_raw = probe.encode("utf-8", errors="surrogateescape")
+    decl_node = next((c for c in tree.root_node.named_children if c.type == "declaration"), None)
+    if decl_node is None:
+        return None
+    declarator = decl_node.child_by_field_name("declarator")
+    if declarator is None:
+        return None
+    if declarator.type == "init_declarator":
+        declarator = declarator.child_by_field_name("declarator")
+    if declarator is None:
+        return None
+    ident = _find_ident_node(declarator, raw, var_name)
+    if ident is None:
+        return None
+    # Splice out the identifier bytes from the original (unmasked) declaration
+    # so calling conventions like __cdecl / WINAPI stay intact.
+    before = orig_raw[: ident.start_byte].decode("utf-8", errors="surrogateescape").rstrip()
+    after = orig_raw[ident.end_byte : -1].decode("utf-8", errors="surrogateescape").lstrip()
+    # Collapse redundant whitespace inside empty/parenthesized declarators:
+    # - `int (counts[4])` -> `int[4]` (parenthesized non-pointer array)
+    # - `char (*row)[4]` -> `char (*)[4]`
+    # - `int (*table[4])` -> `int (*[4])`
+    # - `int *table[4]` -> `int *[4]`
+    if before.endswith("(") and after.startswith(")"):
+        # Trivial `(name)` with nothing else inside parens
+        before = before[:-1].rstrip()
+        after = after[1:].lstrip()
+    elif before.endswith("(") and after.startswith("["):
+        # Check for `(name[N])` without `*`: unwrap the redundant parens
+        close_idx = after.find(")")
+        if close_idx != -1:
+            before = before[:-1].rstrip()
+            after = after[:close_idx].rstrip() + after[close_idx + 1 :].lstrip()
+    if not after:
+        return before or None
+    result = f"{before}{after}" if after.startswith((")", "[", "(")) else f"{before} {after}"
+    result = re.sub(r"\(\s+", "(", result)
+    result = re.sub(r"\s+\)", ")", result)
+    return result.strip() or None
 
 
 def _mask_cc(source: str) -> str:

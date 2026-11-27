@@ -206,7 +206,7 @@ class TestDownloadWibo:
         with pytest.raises(RuntimeError, match="Invalid JSON in wibo release metadata"):
             download_wibo(dest)
 
-    def test_temp_fd_closed_when_fdopen_fails(
+    def test_failed_atomic_write_leaves_no_temp_or_dest(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         dest = tmp_path / "tools" / "wibo"
@@ -214,25 +214,16 @@ class TestDownloadWibo:
         digest = hashlib.sha256(fake_binary).hexdigest()
         _mock_wibo_http(monkeypatch, _release_payload(digest), fake_binary)
 
-        real_close = wibo_mod.os.close
-        closed_fds: list[int] = []
+        def _failing_replace(_src: object, _dst: object) -> None:
+            raise OSError("replace failed")
 
-        def _fake_fdopen(_fd: int, _mode: str) -> object:
-            raise OSError("fdopen failed")
+        monkeypatch.setattr("rebrew.utils.os.replace", _failing_replace)
 
-        def _recording_close(fd: int) -> None:
-            closed_fds.append(fd)
-            real_close(fd)
-
-        monkeypatch.setattr("rebrew.wibo.os.fdopen", _fake_fdopen)
-        monkeypatch.setattr("rebrew.wibo.os.close", _recording_close)
-
-        with pytest.raises(OSError, match="fdopen failed"):
+        with pytest.raises(OSError, match="replace failed"):
             download_wibo(dest)
 
-        assert closed_fds
         assert not dest.exists()
-        assert not list(dest.parent.glob(".wibo_*"))
+        assert not list(dest.parent.glob("*.tmp"))
 
 
 class TestDoctorCheckRunner:

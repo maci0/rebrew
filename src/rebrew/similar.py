@@ -82,15 +82,17 @@ def disasm_signature(
 
 def _cosine(hist_a: dict[str, int], hist_b: dict[str, int]) -> float:
     """Cosine similarity between two mnemonic histograms (0.0-1.0)."""
-    import numpy as np  # deferred: ~60 ms of startup for non-similar commands
+    from rebrew.binary_similarity import score_matrix
 
-    keys = set(hist_a) | set(hist_b)
-    vec_a = np.array([hist_a.get(k, 0) for k in keys], dtype=float)
-    vec_b = np.array([hist_b.get(k, 0) for k in keys], dtype=float)
-    denom = float(np.linalg.norm(vec_a) * np.linalg.norm(vec_b))
-    if not math.isfinite(denom) or denom <= 0.0:
-        return 0.0
-    raw = float(np.dot(vec_a, vec_b) / denom)
+    # Zero both count terms (ratio(0, 1) == 0.0) so score_matrix computes
+    # 60.0 * cosine via the shared vectorised numpy path.
+    scaled = float(
+        score_matrix(
+            [{"histogram": hist_a, "calls": 0, "branches": 0}],
+            [{"histogram": hist_b, "calls": 1, "branches": 1}],
+        )[0, 0]
+    )
+    raw = scaled / 60.0
     if not math.isfinite(raw):
         return 0.0
     return min(1.0, max(0.0, raw))
@@ -212,7 +214,7 @@ def find_similar(
             sig_cache[va] = disasm_signature(cand_bytes, va, cs_arch, cs_mode)
         return sig_cache[va]
 
-    results: list[dict[str, Any]] = []
+    candidates: list[tuple[int, int, str, dict[str, Any]]] = []
     for va, cand in registry.items():
         if va == query_va:
             continue
@@ -223,9 +225,31 @@ def find_similar(
         sig = _cached_sig(va, cand_bytes)
         if sig is None:
             continue
-        score = similarity_score(query_sig, sig, query_size, cand_size)
+        name = cand.get("list_name") or cand.get("ghidra_name") or ""
+        candidates.append((va, cand_size, name, sig))
+
+    if not candidates:
+        return []
+
+    from rebrew.binary_similarity import score_matrix
+
+    # Compute all candidate histogram cosines in one vectorised matrix call
+    # (calls/branches 0 vs 1 zeros the count terms so score_matrix yields 60 * cos).
+    cos_row = score_matrix(
+        [{"histogram": query_sig["histogram"], "calls": 0, "branches": 0}],
+        [{"histogram": sig["histogram"], "calls": 1, "branches": 1} for _, _, _, sig in candidates],
+    )[0]
+
+    results: list[dict[str, Any]] = []
+    for (va, cand_size, name, sig), cos_scaled in zip(candidates, cos_row, strict=True):
+        raw_cos = float(cos_scaled) / 60.0
+        cos = min(1.0, max(0.0, raw_cos)) if math.isfinite(raw_cos) else 0.0
+        hist = cos * 100.0
+        calls = _ratio(query_sig["calls"], sig["calls"]) * 100.0
+        branches = _ratio(query_sig["branches"], sig["branches"]) * 100.0
+        size_term = _ratio(query_size, cand_size) * 100.0
+        score = round(0.5 * hist + 0.15 * calls + 0.15 * branches + 0.2 * size_term, 6)
         if score >= min_score:
-            name = cand.get("list_name") or cand.get("ghidra_name") or ""
             results.append({"va": f"0x{va:08x}", "size": cand_size, "name": name, "score": score})
 
     results.sort(key=lambda r: r["score"], reverse=True)

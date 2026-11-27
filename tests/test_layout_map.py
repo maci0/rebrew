@@ -233,6 +233,7 @@ def _pe_with_null_and_forwarder_exports() -> bytes:
     struct.pack_into("<I", opt, 28, 0x400000)  # image base
     struct.pack_into("<I", opt, 56, 0x3000)  # size of image
     struct.pack_into("<I", opt, 60, 0x200)  # SizeOfHeaders
+    struct.pack_into("<I", opt, 92, 16)  # NumberOfRvaAndSizes
     secs = struct.pack(
         "<8sIIIIIIHHI", b".text\x00\x00\x00", 0x200, 0x1000, 0x200, 0x200, 0, 0, 0, 0, 0x60000020
     )

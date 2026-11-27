@@ -9,12 +9,13 @@ import contextvars
 import logging
 import os
 import threading
-from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 lazy import hashlib
+
+from cachetools import LRUCache
 
 lazy from rebrew.metadata.files import METADATA_FILENAMES, TomlStore
 lazy from rebrew.metadata.locking import project_transaction
@@ -186,11 +187,11 @@ def _configured_routes(
 
 #: Watch nearer markers and the selected config. Markers above a live project
 #: cannot take precedence. A directory without a project is never cached.
-_PROJECT_ROOTS: OrderedDict[str, tuple[_ProjectRoute, str, tuple[_MarkerProbe, ...]]] = (
-    OrderedDict()
+_PROJECT_ROOTS_MAX = 256
+_PROJECT_ROOTS: LRUCache[str, tuple[_ProjectRoute, str, tuple[_MarkerProbe, ...]]] = LRUCache(
+    maxsize=_PROJECT_ROOTS_MAX
 )
 _PROJECT_ROOTS_LOCK = threading.Lock()
-_PROJECT_ROOTS_MAX = 256
 
 
 def _config_identity(
@@ -236,9 +237,6 @@ def _project_root(directory: Path) -> _ProjectRoute:
         )
         and _config_identity(cached[1], OSError) == cached[0][2]
     ):
-        with _PROJECT_ROOTS_LOCK:
-            if spelling in _PROJECT_ROOTS:
-                _PROJECT_ROOTS.move_to_end(spelling)
         return cached[0]
     walked = walk_up_to_root(directory)
     project = directory if walked is None else walked
@@ -252,9 +250,6 @@ def _project_root(directory: Path) -> _ProjectRoute:
         return result
     with _PROJECT_ROOTS_LOCK:
         _PROJECT_ROOTS[spelling] = (result, os.fspath(config), markers)
-        _PROJECT_ROOTS.move_to_end(spelling)
-        while len(_PROJECT_ROOTS) > _PROJECT_ROOTS_MAX:
-            _PROJECT_ROOTS.popitem(last=False)
     return result
 
 
@@ -274,9 +269,11 @@ def _backend_factory(backend: str) -> BackendFactory:
 #: ``path -> (config identity, store)`` for the project-selected backend.
 #: Only populated when the project config exists: a config created later must
 #: still be found, so the no-config case keeps walking each call.
-_SELECTED_STORES: OrderedDict[Path, tuple[_ConfigIdentity, MetadataStore]] = OrderedDict()
-_SELECTED_STORES_LOCK = threading.Lock()
 _SELECTED_STORES_MAX = 128
+_SELECTED_STORES: LRUCache[Path, tuple[_ConfigIdentity, MetadataStore]] = LRUCache(
+    maxsize=_SELECTED_STORES_MAX
+)
+_SELECTED_STORES_LOCK = threading.Lock()
 
 
 @lru_cache(maxsize=128)
@@ -342,14 +339,7 @@ def metadata_store(
                 return selected_store
             store = _builtin_store(path, backend, project)
         with _SELECTED_STORES_LOCK:
-            # A full clear drops every store a peer thread resolved in
-            # this same window, including ones still inside a transaction.
-            # Drop the oldest entries instead, and refresh a path that
-            # was already cached so it is not the next one evicted.
             _SELECTED_STORES[path] = (config_identity, store)
-            _SELECTED_STORES.move_to_end(path)
-            while len(_SELECTED_STORES) > _SELECTED_STORES_MAX:
-                _SELECTED_STORES.popitem(last=False)
         return store
     if backend is None:
         backend = "toml"

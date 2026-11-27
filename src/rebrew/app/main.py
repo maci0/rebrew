@@ -35,7 +35,11 @@ from rebrew.cli import (
     run_cli,
 )
 lazy from rebrew import telemetry
-lazy from rebrew.app.builtins import BUILTIN_COMPONENTS
+lazy from rebrew.app.builtins import (
+    BUILTIN_COMPONENTS,
+    domain_subcommand,
+    single_domain_app,
+)
 lazy from rebrew.app.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
@@ -287,6 +291,32 @@ def _asks_only_version(argv: list[str]) -> bool:
     return asked
 
 
+def _invoked_domain_subcommand(
+    argv: list[str], component: CliComponent
+) -> tuple[str, CliComponent] | None:
+    """Return ``(domain, subcommand)`` when *argv* directly invokes one pure-domain subcommand."""
+    if component.module != "rebrew.app.builtins" or not component.attr.endswith("_app"):
+        return None
+    domain = component.attr.removesuffix("_app")
+    tokens = iter(argv)
+    for token in tokens:
+        if token in _ROOT_VALUE_OPTIONS:
+            next(tokens, None)
+        elif token in _ROOT_FLAGS or token.startswith("--output=") or _VERBOSE.fullmatch(token):
+            continue
+        elif token.startswith("-"):
+            return None
+        else:
+            if token != component.name:
+                return None
+            sub = next(tokens, None)
+            if not sub or sub.startswith("-"):
+                return None
+            sub_component = domain_subcommand(domain, sub)
+            return (domain, sub_component) if sub_component is not None else None
+    return None
+
+
 def _single_command_app(
     component: CliComponent,
 ) -> tuple[typer.Typer, tuple[Context, CoeffectScope]]:
@@ -294,6 +324,22 @@ def _single_command_app(
     root = _new_root()
     ctx = _cli_context(root)
     return root, (ctx, activate([component], ctx))
+
+
+def _single_domain_command_app(
+    component: CliComponent, domain: str, subcommand: CliComponent
+) -> tuple[typer.Typer, tuple[Context, CoeffectScope]]:
+    """A root with only *component*'s domain and *subcommand* mounted, skipping sibling imports."""
+    root = _new_root()
+    domain_app, fiber = single_domain_app(domain, subcommand)
+    help_text = getattr(domain_app.info, "help", None) or component.help
+    root.add_typer(
+        domain_app,
+        name=component.name,
+        help=help_text,
+        rich_help_panel=component.panel,
+    )
+    return root, fiber
 
 
 _STARTUP_GC_FROZEN = False
@@ -357,10 +403,13 @@ def main() -> None:
     whole umbrella.
     """
     component = _invoked_builtin(sys.argv[1:])
+    domain_sub = _invoked_domain_subcommand(sys.argv[1:], component) if component else None
     # _fiber holds the single command's scope until the command returns. The
     # module attribute (not a global lookup) reaches the lazy `app`.
     entry, _fiber = (
-        _single_command_app(component)
+        _single_domain_command_app(component, *domain_sub)
+        if component and domain_sub
+        else _single_command_app(component)
         if component
         else (_new_root(), None)
         if _asks_only_version(sys.argv[1:])

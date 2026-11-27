@@ -100,19 +100,27 @@ def branch_targets(code: bytes, md: Any) -> dict[int, tuple[int, int]]:
         code: The function's bytes, starting at offset 0.
         md: A capstone ``Cs`` instance for the target arch (x86 branch mnemonics).
     """
+    from capstone import CS_GRP_JUMP
+    from capstone.x86 import X86_OP_IMM
+
     out: dict[int, tuple[int, int]] = {}
+    has_detail = bool(getattr(md, "detail", False))
     for insn in md.disasm(code, 0):
-        if not insn.mnemonic.startswith("j"):
-            continue
-        # capstone renders a branch target as bare decimal when it is small
-        # (``jmp 5``) and as hex otherwise (``jmp 0x4fa``), so parse both rather
-        # than filtering on a ``0x`` prefix -- that filter silently drops every
-        # window in a function under 0x10 bytes and skews the ones just above it.
-        op = insn.op_str.strip()
-        try:
-            target = parse_int_literal(op)
-        except ValueError:
-            continue  # indirect (register/memory) branch: no static target
+        if has_detail:
+            if not insn.group(CS_GRP_JUMP):
+                continue
+            ops = insn.operands
+            if not ops or ops[0].type != X86_OP_IMM:
+                continue
+            target = int(ops[0].imm)
+        else:
+            if not insn.mnemonic.startswith("j"):
+                continue
+            op = insn.op_str.strip()
+            try:
+                target = parse_int_literal(op)
+            except ValueError:
+                continue  # indirect (register/memory) branch: no static target
         if not 0 <= target < len(code):
             continue  # leaves the function body
         out[insn.address] = (insn.size, target)

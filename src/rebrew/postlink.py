@@ -76,7 +76,7 @@ from rebrew.layout_meta import (
     load_package,
 )
 lazy from rebrew.cli import EXIT_ERROR, console, error_exit, json_print
-lazy from rebrew.formats.binary_loader import decode_binary_name, load_binary
+lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.formats.pe_headers import find_section, pe_layout, pe_lfanew, sections_at
 lazy from rebrew.utils import atomic_write_bytes
 
@@ -130,45 +130,15 @@ def binary_info_from_bytes(raw: bytes, path: Path) -> BinaryInfo:
 
     ``load_binary`` reads geometry from the on-disk file, which lags the
     in-memory ``built`` buffer once a fixer rewrites the headers — later
-    fixers would then patch at stale offsets.  Re-parse the buffer instead
-    (mirroring :func:`binary_loader._load_pe`'s mapping so section kinds
-    stay identical), falling back to ``load_binary`` for non-PE input.
+    fixers would then patch at stale offsets.  Re-parse the buffer via
+    :func:`binary_loader.load_pe_bytes`, falling back to ``load_binary`` for
+    non-PE input.
     """
-    # Sniff in place: ``lief.is_pe`` takes a ``list[int]``, eight bytes of
-    # list per image byte.
+    from rebrew.formats.binary_loader import load_pe_bytes
+
     if pe_lfanew(raw) is None:
         return load_binary(path)
-    pe = _pe(raw)
-    sections = {}
-    text_va = pe.optional_header.imagebase
-    text_size = 0
-    text_raw_offset = 0
-    for section in pe.sections:
-        name = decode_binary_name(section.name).rstrip("\x00")
-        va = pe.optional_header.imagebase + section.virtual_address
-        sections[name] = SectionInfo(
-            name=name,
-            va=va,
-            size=section.virtual_size,
-            file_offset=section.pointerto_raw_data,
-            raw_size=section.sizeof_raw_data,
-        )
-        if name == ".text":
-            text_va = va
-            text_size = section.virtual_size
-            text_raw_offset = section.pointerto_raw_data
-    return BinaryInfo(
-        path=path,
-        format="pe",
-        arch="",
-        endian="little",
-        image_base=pe.optional_header.imagebase,
-        text_va=text_va,
-        text_size=text_size,
-        text_raw_offset=text_raw_offset,
-        sections=sections,
-        _data=raw,
-    )
+    return load_pe_bytes(raw, path)
 
 
 def _rva_to_offset(info: BinaryInfo, rva: int) -> int:

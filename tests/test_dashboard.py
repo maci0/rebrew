@@ -653,6 +653,36 @@ size = 64
         assert hist["count"] == 0
         assert hist["total"] == 0
 
+    def test_history_reads_only_requested_page(self, tmp_path: Path) -> None:
+        snapshot = snapshot_from_document(
+            tmp_path, {"version": 1, "history": [{"va": i} for i in range(100)]}, "t"
+        )
+        reads = 0
+
+        class CountedHistory(tuple[Mapping[str, Any], ...]):
+            __slots__ = ()
+
+            def __reversed__(self) -> Iterator[Mapping[str, Any]]:
+                return (self[i] for i in reversed(range(len(self))))
+
+            @override
+            def __iter__(self) -> Iterator[Mapping[str, Any]]:
+                return (self[i] for i in range(len(self)))
+
+            @override
+            def __getitem__(self, key: int | slice) -> Any:
+                nonlocal reads
+                result = super().__getitem__(key)
+                reads += len(result) if isinstance(key, slice) else 1
+                return result
+
+        counted = replace(snapshot, history=CountedHistory(snapshot.history))
+        dashboard = Dashboard(tmp_path, load=lambda _: {"t": counted})
+        page = dashboard.history("t", offset=70, limit=3)
+        assert [int(row[0], 16) for row in page["history"]] == [29, 28, 27]
+        assert page["total"] == 100
+        assert reads <= 3
+
     def test_history_rows_carry_function_name(self, tmp_path: Path) -> None:
         """History rows name the current function and ship newest-first.
 
@@ -961,7 +991,6 @@ class TestHandle:
         assert STATUS_HEX["EXACT"] in html
         assert "#e74c3c" not in body
         assert "#9b59b6" not in body
-        assert "function statusText" in js
         # A status mark renders two classes ("st status-EXACT"); an unquoted
         # class value ends at the space and the colour class is dropped, so
         # every status in the tables renders in the default ink.
@@ -2644,7 +2673,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12121), ("gzip", None)],
+        [("zstd", 12116), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None

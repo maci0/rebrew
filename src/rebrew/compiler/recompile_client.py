@@ -31,6 +31,9 @@ lazy from contextlib import nullcontext
 lazy from email.utils import parsedate_to_datetime
 lazy from urllib.parse import urljoin, urlparse
 
+from cachetools import TTLCache
+lazy import tenacity
+
 from rebrew.errors import RebrewError
 from rebrew.utils import (
     RETRYABLE_HTTP_STATUS,
@@ -109,8 +112,22 @@ _MAX_COMPILERS_BYTES = 4 * 1024**2
 #: guards a long-lived one handed many URLs.
 _COMPILERS_CACHE_MAX = 8
 
-#: Base URL -> (monotonic time read, admitted ids or ``None``).
-_compilers_cache: dict[str, tuple[float, frozenset[str] | None]] = {}
+
+def _new_compilers_cache() -> TTLCache[str, frozenset[str] | None]:
+    """Build a bounded TTL cache for ``GET /api/v1/compilers`` answers.
+
+    Uses a lambda timer so tests monkeypatching ``time.monotonic`` on this
+    module control cache expiry dynamically.
+    """
+    return TTLCache(
+        maxsize=_COMPILERS_CACHE_MAX,
+        ttl=_COMPILERS_WINDOW_SECONDS,
+        timer=lambda: time.monotonic(),
+    )
+
+
+#: Base URL -> admitted ids or ``None`` (bounded TTL cache).
+_compilers_cache: TTLCache[str, frozenset[str] | None] = _new_compilers_cache()
 _compilers_cache_lock = threading.Lock()
 #: One listing refresh per base URL.  Parallel verify workers otherwise all
 #: miss the same 30-second window and stampede the service's catalog route.
@@ -942,9 +959,10 @@ def installed_compilers(base_url: str, *, client: HttpClient) -> frozenset[str] 
     url = base_url.rstrip("/")
     while True:
         with _compilers_cache_lock:
-            cached = _compilers_cache.get(url)
-            if cached is not None and time.monotonic() - cached[0] < _COMPILERS_WINDOW_SECONDS:
-                return cached[1]
+            try:
+                return _compilers_cache[url]
+            except KeyError:
+                pass
             event = _compilers_inflight.get(url)
             if event is None:
                 event = threading.Event()
@@ -970,10 +988,7 @@ def installed_compilers(base_url: str, *, client: HttpClient) -> frozenset[str] 
 
 def _remember_compilers(url: str, answer: frozenset[str] | None) -> None:
     with _compilers_cache_lock:
-        _compilers_cache.pop(url, None)
-        while len(_compilers_cache) >= _COMPILERS_CACHE_MAX:
-            _compilers_cache.pop(next(iter(_compilers_cache)))
-        _compilers_cache[url] = (time.monotonic(), answer)
+        _compilers_cache[url] = answer
 
 
 def _read_installed_compilers(url: str, client: HttpClient) -> frozenset[str] | None:
@@ -1262,258 +1277,279 @@ def compile_source(
     # dependency before giving up, which is the number an operator needs when
     # the service is the thing that changed.
     started_at = time.perf_counter()
-    while True:
+    next_delay = 0.0
+    next_no_room = False
+
+    def _check_deadline(_rs: tenacity.RetryCallState) -> None:
         if deadline is not None and now() >= deadline:
             refusal = _deadline_refusal("the call's deadline has passed")
             refusal.cost = cost
             raise refusal
+
+    def _run_attempt() -> RecompileResult:
+        nonlocal bundle_checked, pending
         # One client for POST + GET.  Injected clients are not closed here.
         cm: Any = (
             nullcontext(client)
             if client is not None
             else httpx.Client(timeout=timeout, trust_env=False)
         )
-        try:
-            with gate.attempt(deadline, wait) if gate is not None else nullcontext(), cm as http:
-                if not bundle_checked:
-                    if not accepts_include_bundles(url, client=http):
-                        raise RecompileError(
-                            f"recompile service at {safe_url} does not accept include bundles "
-                            f"(it does not list {INCLUDE_BUNDLES_FEATURE!r}); upgrade it, "
-                            "or compile this source with a local backend",
-                            kind="validation",
-                        )
-                    bundle_checked = True
-                if pending is None:
-                    try:
-                        with telemetry.span(
-                            "recompile.compile", kind=telemetry.KIND_CLIENT
-                        ) as sent:
-                            sent.set("rebrew.compiler", compiler)
-                            resp = http.post(
-                                f"{url}/api/v1/compile",
-                                json=payload,
-                                headers={**post_headers, "traceparent": sent.traceparent},
-                                follow_redirects=False,
-                            )
-                            sent.set("http.response.status_code", resp.status_code)
-                            if resp.status_code >= 500:
-                                sent.fail(f"status {resp.status_code}")
-                    except Exception as exc:
-                        rule = (
-                            _NOT_SENT
-                            if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
-                            else _LOST_REPLY
-                        )
-                        read(rule)
-                        raise _answered(
-                            f"recompile service at {url} unreachable: {exc}", rule, kind="network"
-                        ) from exc
-                    try:
-                        if resp.status_code != 200:
-                            code = _error_code(resp)
-                            rule = _answer_rule("compile", resp.status_code, code)
-                            read(rule)
-                            detail = (
-                                resp.text.replace(api_key, "[redacted]") if api_key else resp.text
-                            )
-                            raise _answered(
-                                f"recompile service returned HTTP {resp.status_code}"
-                                f"{f' ({code})' if code else ''}: {detail[:300]}",
-                                rule,
-                                kind="http",
-                                status_code=resp.status_code,
-                                error_code=code,
-                                retry_after=_retry_after(resp.headers.get("Retry-After")),
-                            )
-                        # A 200 not yet read may be the key's billed result.
-                        read(_LOST_REPLY)
-                        try:
-                            body = resp.json()
-                        except Exception as exc:
-                            raise RecompileError(
-                                f"recompile service returned non-JSON: {exc}",
-                                kind="protocol",
-                                retryable=True,
-                            ) from exc
-                        if not isinstance(body, dict):
-                            raise RecompileError(
-                                f"recompile service returned {type(body).__name__}, "
-                                "expected a JSON object",
-                                kind="protocol",
-                                retryable=True,
-                            )
-                        status = body.get("status")
-                        if status not in ("ok", "error"):
-                            raise RecompileError(
-                                f"recompile service returned unknown status {status!r}",
-                                kind="protocol",
-                                retryable=True,
-                            )
-                        if (status == "ok" and body.get("error_code") is not None) or (
-                            status == "error" and body.get("artifact_url") is not None
-                        ):
-                            raise RecompileError(
-                                "recompile service returned contradictory verdict fields",
-                                kind="protocol",
-                                retryable=True,
-                            )
-                        if status != "ok":
-                            failure_log = str(body.get("log", ""))
-                            if api_key:
-                                failure_log = failure_log.replace(api_key, "[redacted]")
-                            code = body.get("error_code")
-                            if not isinstance(code, str) or code not in _COMPILE_FAILURES:
-                                raise RecompileError(
-                                    "recompile service returned a failed compile with "
-                                    f"unknown error_code {code!r}"[:300],
-                                    kind="protocol",
-                                    retryable=True,
-                                )
-                            rule = _answer_rule("compile", 200, code)
-                            read(rule)
-                            if rule.then == "verdict":
-                                return RecompileResult(ok=False, log=failure_log)
-                            if emit_assembly and code not in _NOT_RUN_FAILURES:
-                                # The compile may have run and kept its assembly output.
-                                rule = _AnswerRule(rule.cost, "final")
-                            raise _answered(
-                                f"recompile service could not compile ({code}): "
-                                f"{failure_log[:300]}",
-                                rule,
-                                kind="service",
-                                error_code=code,
-                                retry_after=_retry_after(resp.headers.get("Retry-After")),
-                            )
-                        artifact_url = body.get("artifact_url")
-                        if not artifact_url:
-                            raise RecompileError(
-                                'recompile service returned status "ok" with no artifact_url',
-                                kind="protocol",
-                                retryable=True,
-                            )
-                        if not isinstance(artifact_url, str):
-                            raise RecompileError(
-                                f"recompile service returned non-string artifact_url: "
-                                f"{artifact_url!r}",
-                                kind="protocol",
-                                retryable=True,
-                            )
-                        read(_answer_rule("compile", 200, None))
-                        pending = (body, artifact_url)
-                    finally:
-                        close_response(resp)
-                body, artifact_url = pending
-                result = _download_artifact(http, url, body, artifact_url, auth_headers)
-                if api_key:
-                    result = RecompileResult(
-                        ok=result.ok,
-                        obj_bytes=result.obj_bytes,
-                        log=result.log.replace(api_key, "[redacted]"),
-                        compiler_version=(
-                            result.compiler_version.replace(api_key, "[redacted]")
-                            if result.compiler_version is not None
-                            else None
-                        ),
-                        execution=result.execution,
+        with gate.attempt(deadline, wait) if gate is not None else nullcontext(), cm as http:
+            if not bundle_checked:
+                if not accepts_include_bundles(url, client=http):
+                    raise RecompileError(
+                        f"recompile service at {safe_url} does not accept include bundles "
+                        f"(it does not list {INCLUDE_BUNDLES_FEATURE!r}); upgrade it, "
+                        "or compile this source with a local backend",
+                        kind="validation",
                     )
-                return result
-        except RecompileError as exc:
-            exc.cost = cost
-            then = exc._then or ("retry" if exc.retryable else "final")
+                bundle_checked = True
+            if pending is None:
+                try:
+                    with telemetry.span("recompile.compile", kind=telemetry.KIND_CLIENT) as sent:
+                        sent.set("rebrew.compiler", compiler)
+                        resp = http.post(
+                            f"{url}/api/v1/compile",
+                            json=payload,
+                            headers={**post_headers, "traceparent": sent.traceparent},
+                            follow_redirects=False,
+                        )
+                        sent.set("http.response.status_code", resp.status_code)
+                        if resp.status_code >= 500:
+                            sent.fail(f"status {resp.status_code}")
+                except Exception as exc:
+                    rule = (
+                        _NOT_SENT
+                        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+                        else _LOST_REPLY
+                    )
+                    read(rule)
+                    raise _answered(
+                        f"recompile service at {url} unreachable: {exc}", rule, kind="network"
+                    ) from exc
+                try:
+                    if resp.status_code != 200:
+                        code = _error_code(resp)
+                        rule = _answer_rule("compile", resp.status_code, code)
+                        read(rule)
+                        detail = resp.text.replace(api_key, "[redacted]") if api_key else resp.text
+                        raise _answered(
+                            f"recompile service returned HTTP {resp.status_code}"
+                            f"{f' ({code})' if code else ''}: {detail[:300]}",
+                            rule,
+                            kind="http",
+                            status_code=resp.status_code,
+                            error_code=code,
+                            retry_after=_retry_after(resp.headers.get("Retry-After")),
+                        )
+                    # A 200 not yet read may be the key's billed result.
+                    read(_LOST_REPLY)
+                    try:
+                        body = resp.json()
+                    except Exception as exc:
+                        raise RecompileError(
+                            f"recompile service returned non-JSON: {exc}",
+                            kind="protocol",
+                            retryable=True,
+                        ) from exc
+                    if not isinstance(body, dict):
+                        raise RecompileError(
+                            f"recompile service returned {type(body).__name__}, "
+                            "expected a JSON object",
+                            kind="protocol",
+                            retryable=True,
+                        )
+                    status = body.get("status")
+                    if status not in ("ok", "error"):
+                        raise RecompileError(
+                            f"recompile service returned unknown status {status!r}",
+                            kind="protocol",
+                            retryable=True,
+                        )
+                    if (status == "ok" and body.get("error_code") is not None) or (
+                        status == "error" and body.get("artifact_url") is not None
+                    ):
+                        raise RecompileError(
+                            "recompile service returned contradictory verdict fields",
+                            kind="protocol",
+                            retryable=True,
+                        )
+                    if status != "ok":
+                        failure_log = str(body.get("log", ""))
+                        if api_key:
+                            failure_log = failure_log.replace(api_key, "[redacted]")
+                        code = body.get("error_code")
+                        if not isinstance(code, str) or code not in _COMPILE_FAILURES:
+                            raise RecompileError(
+                                "recompile service returned a failed compile with "
+                                f"unknown error_code {code!r}"[:300],
+                                kind="protocol",
+                                retryable=True,
+                            )
+                        rule = _answer_rule("compile", 200, code)
+                        read(rule)
+                        if rule.then == "verdict":
+                            return RecompileResult(ok=False, log=failure_log)
+                        if emit_assembly and code not in _NOT_RUN_FAILURES:
+                            # The compile may have run and kept its assembly output.
+                            rule = _AnswerRule(rule.cost, "final")
+                        raise _answered(
+                            f"recompile service could not compile ({code}): {failure_log[:300]}",
+                            rule,
+                            kind="service",
+                            error_code=code,
+                            retry_after=_retry_after(resp.headers.get("Retry-After")),
+                        )
+                    artifact_url = body.get("artifact_url")
+                    if not artifact_url:
+                        raise RecompileError(
+                            'recompile service returned status "ok" with no artifact_url',
+                            kind="protocol",
+                            retryable=True,
+                        )
+                    if not isinstance(artifact_url, str):
+                        raise RecompileError(
+                            f"recompile service returned non-string artifact_url: {artifact_url!r}",
+                            kind="protocol",
+                            retryable=True,
+                        )
+                    read(_answer_rule("compile", 200, None))
+                    pending = (body, artifact_url)
+                finally:
+                    close_response(resp)
+            body, artifact_url = pending
+            result = _download_artifact(http, url, body, artifact_url, auth_headers)
             if api_key:
-                exc.args = (str(exc).replace(api_key, "[redacted]"),)
-                exc.__cause__ = None
-                exc.__context__ = None
-                exc.__suppress_context__ = True
-            # An answer that asks to wait is waited out until the deadline;
-            # another retryable one spends a retry.
-            no_room = then in ("wait", "new_key_wait")
-            if no_room:
-                waits += 1
-            else:
-                failures += 1
-            if not exc.retryable or (not no_room and failures > retries):
-                # The last word on a dependency that is down: the retries
-                # above logged each attempt that would be retried, so a run
-                # with ``retries=0`` (the default, and what a batch compile of
-                # many sources sends) logged nothing at all.  Its caller turns
-                # the raise into a per-source compile error, so on the log
-                # stream — the one a batch or GA run is grepped through — a
-                # recompile backend that is unreachable, down, or rejecting
-                # reads as a compiler that dislikes the source.  One record
-                # per terminal failure, naming the service and the elapsed
-                # time, is what makes "which dependency failed" answerable.
-                log.warning(
-                    "recompile %s gave up after %d attempt(s) over %.1fs (%s%s): %s",
-                    safe_url,
-                    failures + waits,
-                    time.perf_counter() - started_at,
-                    exc.kind,
-                    "" if exc.status_code is None else f" {exc.status_code}",
-                    retry_log_detail(exc),
+                result = RecompileResult(
+                    ok=result.ok,
+                    obj_bytes=result.obj_bytes,
+                    log=result.log.replace(api_key, "[redacted]"),
+                    compiler_version=(
+                        result.compiler_version.replace(api_key, "[redacted]")
+                        if result.compiler_version is not None
+                        else None
+                    ),
+                    execution=result.execution,
                 )
-                raise
-            if then in ("new_key", "new_key_wait"):
-                # The service answered this attempt, and a hosted recompile
-                # keeps the answer under its key, or says the key can never
-                # yield a result: the retry is a new attempt.
-                post_headers["Idempotency-Key"] = secrets.token_hex(_IDEMPOTENCY_KEY_BYTES)
-                cost = "free"
-            # Immediate re-POST of a 503/timeout hammers a recovering service;
-            # exponential backoff (capped) gives it room without unbounded wait,
-            # and a Retry-After the service named is the least it is given.  With
-            # a gate the Retry-After holds the gate, and the next attempt waits it
-            # out there with every other compile of the process.
-            delay = retry_backoff_delay((waits if no_room else failures) - 1)
-            if exc.retry_after and gate is None:
-                delay = max(delay, exc.retry_after)
-            resumes = now() + max(delay, exc.retry_after or 0.0)
-            until = no_room_until if no_room else deadline
-            if until is not None and resumes > until:
-                log.warning(
-                    "recompile %s gave up after %d attempt(s) over %.1fs: its next attempt "
-                    "would start past %s (%s%s): %s",
-                    safe_url,
-                    failures + waits,
-                    time.perf_counter() - started_at,
-                    "the call's deadline" if deadline is not None else "the wait for room",
-                    exc.kind,
-                    "" if exc.status_code is None else f" {exc.status_code}",
-                    retry_log_detail(exc),
-                )
-                raise
-            if no_room:
-                # One line when the wait starts; a wait of many attempts is
-                # summed up by the line that ends it.
-                (log.warning if waits == 1 else log.debug)(
-                    "recompile %s has no room for the compile (%s%s), waiting %.2fs and "
-                    "trying again until %s: %s",
-                    safe_url,
-                    exc.kind,
-                    "" if exc.status_code is None else f" {exc.status_code}",
-                    max(delay, exc.retry_after or 0.0),
-                    "the call's deadline"
-                    if deadline is not None
-                    else f"{NO_DEADLINE_WAIT_SECONDS} s have passed",
-                    retry_log_detail(exc),
-                )
-            else:
-                # One line per retry, before the sleep: a remote backend that is
-                # failing and recovering otherwise spends the backoff in silence,
-                # so a `rebrew test` run against a flaky service looks hung with no
-                # record of which dependency is faulting or how long the wait is.
-                log.warning(
-                    "recompile %s attempt %d/%d failed (%s%s), retrying in %.2fs: %s",
-                    safe_url,
-                    failures,
-                    retries + 1,
-                    exc.kind,
-                    "" if exc.status_code is None else f" {exc.status_code}",
-                    delay,
-                    retry_log_detail(exc),
-                )
-            wait(delay)
+            return result
+
+    def _should_retry(rs: tenacity.RetryCallState) -> bool:
+        nonlocal cost, failures, waits, next_delay, next_no_room
+        exc = rs.outcome.exception() if rs.outcome is not None else None
+        if not isinstance(exc, RecompileError):
+            return False
+        exc.cost = cost
+        then = exc._then or ("retry" if exc.retryable else "final")
+        if api_key:
+            exc.args = (str(exc).replace(api_key, "[redacted]"),)
+            exc.__cause__ = None
+            exc.__context__ = None
+            exc.__suppress_context__ = True
+        # An answer that asks to wait is waited out until the deadline;
+        # another retryable one spends a retry.
+        no_room = then in ("wait", "new_key_wait")
+        if no_room:
+            waits += 1
+        else:
+            failures += 1
+        if not exc.retryable or (not no_room and failures > retries):
+            # The last word on a dependency that is down: the retries
+            # above logged each attempt that would be retried, so a run
+            # with ``retries=0`` (the default, and what a batch compile of
+            # many sources sends) logged nothing at all.  Its caller turns
+            # the raise into a per-source compile error, so on the log
+            # stream — the one a batch or GA run is grepped through — a
+            # recompile backend that is unreachable, down, or rejecting
+            # reads as a compiler that dislikes the source.  One record
+            # per terminal failure, naming the service and the elapsed
+            # time, is what makes "which dependency failed" answerable.
+            log.warning(
+                "recompile %s gave up after %d attempt(s) over %.1fs (%s%s): %s",
+                safe_url,
+                failures + waits,
+                time.perf_counter() - started_at,
+                exc.kind,
+                "" if exc.status_code is None else f" {exc.status_code}",
+                retry_log_detail(exc),
+            )
+            return False
+        if then in ("new_key", "new_key_wait"):
+            # The service answered this attempt, and a hosted recompile
+            # keeps the answer under its key, or says the key can never
+            # yield a result: the retry is a new attempt.
+            post_headers["Idempotency-Key"] = secrets.token_hex(_IDEMPOTENCY_KEY_BYTES)
+            cost = "free"
+        # Immediate re-POST of a 503/timeout hammers a recovering service;
+        # exponential backoff (capped) gives it room without unbounded wait,
+        # and a Retry-After the service named is the least it is given.  With
+        # a gate the Retry-After holds the gate, and the next attempt waits it
+        # out there with every other compile of the process.
+        delay = retry_backoff_delay((waits if no_room else failures) - 1)
+        if exc.retry_after and gate is None:
+            delay = max(delay, exc.retry_after)
+        resumes = now() + max(delay, exc.retry_after or 0.0)
+        until = no_room_until if no_room else deadline
+        if until is not None and resumes > until:
+            log.warning(
+                "recompile %s gave up after %d attempt(s) over %.1fs: its next attempt "
+                "would start past %s (%s%s): %s",
+                safe_url,
+                failures + waits,
+                time.perf_counter() - started_at,
+                "the call's deadline" if deadline is not None else "the wait for room",
+                exc.kind,
+                "" if exc.status_code is None else f" {exc.status_code}",
+                retry_log_detail(exc),
+            )
+            return False
+        next_delay = delay
+        next_no_room = no_room
+        return True
+
+    def _log_retry(rs: tenacity.RetryCallState) -> None:
+        exc = rs.outcome.exception() if rs.outcome is not None else None
+        if not isinstance(exc, RecompileError):
+            return
+        if next_no_room:
+            # One line when the wait starts; a wait of many attempts is
+            # summed up by the line that ends it.
+            (log.warning if waits == 1 else log.debug)(
+                "recompile %s has no room for the compile (%s%s), waiting %.2fs and "
+                "trying again until %s: %s",
+                safe_url,
+                exc.kind,
+                "" if exc.status_code is None else f" {exc.status_code}",
+                max(next_delay, exc.retry_after or 0.0),
+                "the call's deadline"
+                if deadline is not None
+                else f"{NO_DEADLINE_WAIT_SECONDS} s have passed",
+                retry_log_detail(exc),
+            )
+        else:
+            # One line per retry, before the sleep: a remote backend that is
+            # failing and recovering otherwise spends the backoff in silence,
+            # so a `rebrew test` run against a flaky service looks hung with no
+            # record of which dependency is faulting or how long the wait is.
+            log.warning(
+                "recompile %s attempt %d/%d failed (%s%s), retrying in %.2fs: %s",
+                safe_url,
+                failures,
+                retries + 1,
+                exc.kind,
+                "" if exc.status_code is None else f" {exc.status_code}",
+                next_delay,
+                retry_log_detail(exc),
+            )
+
+    retrying = tenacity.Retrying(
+        before=_check_deadline,
+        retry=_should_retry,
+        wait=lambda _rs: next_delay,
+        before_sleep=_log_retry,
+        sleep=wait,
+        reraise=True,
+    )
+    return retrying(_run_attempt)
 
 
 __all__ = [

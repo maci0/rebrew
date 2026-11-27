@@ -762,6 +762,31 @@ _DOMAIN_BASES = {
 }
 
 
+def domain_subcommand(domain: str, name: str) -> CliComponent | None:
+    """Return subcommand *name* for pure domain *domain*, or ``None`` if not single-mountable."""
+    if domain in _DOMAIN_BASES or domain not in DOMAIN_COMPONENTS:
+        return None
+    return next((c for c in DOMAIN_COMPONENTS[domain] if c.name == name), None)
+
+
+def single_domain_app(
+    name: str, subcommand: CliComponent
+) -> tuple[typer.Typer, tuple[Context, CoeffectScope]]:
+    """Compose pure domain *name* with only *subcommand* activated."""
+    guidance = _DOMAIN_GUIDANCE.get(
+        name, (f"{name.capitalize()} operations.", f"rebrew {name} --help")
+    )
+    domain_app = typer.Typer(
+        help=guidance[0],
+        rich_markup_mode="rich",
+        epilog=f"[bold]Examples:[/bold]\n\n  {guidance[1]}\n\nUse rebrew {name} <operation> --help for inputs and examples.",
+    )
+    ctx = Context()
+    ctx.provide(CLI_SERVICE, domain_app)
+    ctx.provide(CONSOLE_SERVICE, console)
+    return domain_app, (ctx, activate([subcommand], ctx))
+
+
 def __getattr__(name: str) -> typer.Typer:
     """``<domain>_app``, composed on first access and kept for the process.
 

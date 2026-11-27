@@ -1,4 +1,4 @@
-"""Parity of the table-driven mnemonic matcher with difflib (measured by tools/bench_perf10_matcher.py)."""
+"""Invariants of the LCS mnemonic matcher (measured by tools/bench_perf10_matcher.py)."""
 
 import difflib
 import itertools
@@ -7,46 +7,76 @@ from typing import Any
 
 import numpy as np
 import pytest
+from rapidfuzz.distance import LCSseq
 
 from rebrew.matcher import scoring
-from rebrew.matcher.scoring import _mnemonic_matcher, _RunTableMatcher
+from rebrew.matcher.scoring import _LcsMatcher, _mnemonic_matcher
 
 _Sig = dict[str, Any]
 
 
-def _assert_same(a: list[str], b: list[str]) -> None:
-    ref = difflib.SequenceMatcher(None, a, b, autojunk=False)
-    got = _RunTableMatcher(a, b)
-    assert got.get_matching_blocks() == ref.get_matching_blocks(), (a, b)
-    assert got.get_opcodes() == ref.get_opcodes(), (a, b)
+def _assert_valid_lcs(a: list[str], b: list[str]) -> None:
+    got = _LcsMatcher(a, b)
+    blocks = got.get_matching_blocks()
+    assert blocks[-1] == difflib.Match(len(a), len(b), 0), (a, b)
+    prev_i = prev_j = -1
+    for blk in blocks[:-1]:
+        assert blk.size > 0
+        assert blk.a >= prev_i and blk.b >= prev_j
+        assert not (blk.a == prev_i and blk.b == prev_j), f"adjacent blocks not merged: {blocks}"
+        assert a[blk.a : blk.a + blk.size] == b[blk.b : blk.b + blk.size]
+        prev_i = blk.a + blk.size
+        prev_j = blk.b + blk.size
+    matched = sum(blk.size for blk in blocks)
+    assert matched == LCSseq.similarity(a, b), (a, b)
+    ref_matched = sum(
+        blk.size
+        for blk in difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks()
+    )
+    assert matched >= ref_matched, (a, b)
+
+    opcodes = got.get_opcodes()
+    ai = bj = 0
+    rebuilt: list[str] = []
+    prev_tag = ""
+    for tag, i1, i2, j1, j2 in opcodes:
+        assert (i1, j1) == (ai, bj), (a, b, opcodes)
+        assert not (tag == "equal" and prev_tag == "equal"), opcodes
+        if tag == "equal":
+            assert a[i1:i2] == b[j1:j2]
+            rebuilt.extend(a[i1:i2])
+        elif tag in ("replace", "insert"):
+            rebuilt.extend(b[j1:j2])
+        elif tag == "delete":
+            assert j1 == j2
+        else:
+            raise AssertionError(f"unexpected tag {tag!r}")
+        ai, bj = i2, j2
+        prev_tag = tag
+    assert (ai, bj) == (len(a), len(b)), (a, b, opcodes)
+    assert rebuilt == b, (a, b, opcodes)
 
 
 def _sequences(alphabet: str, max_len: int) -> list[list[str]]:
     return [list(t) for n in range(max_len + 1) for t in itertools.product(alphabet, repeat=n)]
 
 
-def _assert_same_up_to_renaming(alphabet: str, max_len: int) -> None:
-    """Every pair over *alphabet* up to *max_len*, one pair per renaming of the symbols.
-
-    Both matchers compare symbols only for equality, so renaming the symbols of a
-    pair leaves its blocks and opcodes unchanged; ``_RunTableMatcher`` numbers
-    symbols by first appearance, so a renamed pair builds the same table. A pair
-    runs when its symbols first appear in *alphabet* order.
-    """
+def _assert_valid_up_to_renaming(alphabet: str, max_len: int) -> None:
+    """Every pair over *alphabet* up to *max_len*, one pair per renaming of the symbols."""
     seqs = _sequences(alphabet, max_len)
     for a in seqs:
         for b in seqs:
             used = list(dict.fromkeys(a + b))
             if used == list(alphabet[: len(used)]):
-                _assert_same(a, b)
+                _assert_valid_lcs(a, b)
 
 
-class TestRunTableMatcher:
+class TestLcsMatcher:
     def test_exhaustive_binary_alphabet(self) -> None:
-        _assert_same_up_to_renaming("ab", 7)
+        _assert_valid_up_to_renaming("ab", 7)
 
     def test_exhaustive_ternary_alphabet(self) -> None:
-        _assert_same_up_to_renaming("abc", 4)
+        _assert_valid_up_to_renaming("abc", 4)
 
     @pytest.mark.parametrize("alphabet", [2, 6, 25, 400])
     def test_random_edited_copies(self, alphabet: int) -> None:
@@ -64,90 +94,52 @@ class TestRunTableMatcher:
                     del b[min(pos, len(b) - 1)]
                 elif b:
                     b[min(pos, len(b) - 1)] = rng.choice(vocab)
-            _assert_same(a, b)
-            _assert_same(a, [rng.choice(vocab) for _ in range(rng.randint(0, 90))])
+            _assert_valid_lcs(a, b)
+            _assert_valid_lcs(a, [rng.choice(vocab) for _ in range(rng.randint(0, 90))])
 
-    def test_ties_prefer_earliest_in_both_sequences(self) -> None:
-        # three equal-length candidates: the block must start at a[0] and b[1]
-        _assert_same(list("xyzxyz"), list("qxyzxyz"))
-        _assert_same(list("abab"), list("abab"[::-1]))
+    def test_single_replacement_emits_replace_not_insert_and_delete(self) -> None:
+        got = _LcsMatcher(["mov", "push", "pop"], ["mov", "xor", "pop"])
+        assert got.get_opcodes() == [
+            ("equal", 0, 1, 0, 1),
+            ("replace", 1, 2, 1, 2),
+            ("equal", 2, 3, 2, 3),
+        ]
 
     def test_adjacent_blocks_report_one_equal_opcode(self) -> None:
         a = list("aabbaabb")
-        got = _RunTableMatcher(a, a + ["z"])
+        got = _LcsMatcher(a, a + ["z"])
         assert [op for op in got.get_opcodes() if op[0] == "equal"] == [("equal", 0, 8, 0, 8)]
 
 
-class TestRunTableMatcherState:
-    def test_replacing_a_sequence_drops_the_cached_table(self) -> None:
-        m = _RunTableMatcher(list("abcabc"), list("abcabc"))
+class TestLcsMatcherState:
+    def test_replacing_a_sequence_drops_the_cached_blocks(self) -> None:
+        m = _LcsMatcher(list("abcabc"), list("abcabc"))
         assert m.get_matching_blocks()[0] == (0, 0, 6)
         m.set_seq2(list("xabcabcx"))
-        ref = difflib.SequenceMatcher(None, list("abcabc"), list("xabcabcx"), autojunk=False)
-        assert m.get_matching_blocks() == ref.get_matching_blocks()
+        assert m.get_matching_blocks() == [
+            difflib.Match(0, 1, 6),
+            difflib.Match(6, 8, 0),
+        ]
         m.set_seq1(list("abcx"))
-        ref.set_seq1(list("abcx"))
-        assert m.get_matching_blocks() == ref.get_matching_blocks()
-
-    def test_explicit_window_bounds_match_difflib(self) -> None:
-        a, b = list("abcabcabd"), list("zabcabdabc")
-        ref = difflib.SequenceMatcher(None, a, b, autojunk=False)
-        got = _RunTableMatcher(a, b)
-        for window in [(0, 9, 0, 10), (2, 9, 3, 10), (0, 4, 0, 4), (5, 5, 0, 3), (1, 8, 4, 4)]:
-            assert got.find_longest_match(*window) == ref.find_longest_match(*window)
-        assert got.find_longest_match() == ref.find_longest_match()
+        assert sum(b.size for b in m.get_matching_blocks()) == 4
 
 
 class TestMatcherSelection:
-    @staticmethod
-    def _repetitive(n: int) -> list[str]:
-        return ["mov", "push"] * (n // 2)
+    def test_mnemonic_matcher_uses_lcs_matcher(self) -> None:
+        assert type(_mnemonic_matcher(["mov"] * 10, ["mov"] * 10)) is _LcsMatcher
+        assert type(_mnemonic_matcher(["mov"] * 200, ["push"] * 200)) is _LcsMatcher
 
-    def test_small_or_dissimilar_pairs_use_difflib(self) -> None:
-        # too few matching pairs per row of the target
-        assert type(_mnemonic_matcher(["mov"] * 10, ["mov"] * 10)) is difflib.SequenceMatcher
-        # no matching pair at all
-        assert type(_mnemonic_matcher(["mov"] * 200, ["push"] * 200)) is difflib.SequenceMatcher
-
-    def test_repetitive_pairs_use_the_run_table(self) -> None:
-        a = self._repetitive(200)
-        m = _mnemonic_matcher(a, a[:150] + ["call"] + a[150:])
-        assert type(m) is _RunTableMatcher
-
-    def test_cell_cap_falls_back_to_difflib(self) -> None:
-        side = int(scoring._ALIGN_TABLE_MAX_CELLS**0.5)
-        assert type(_mnemonic_matcher(["mov"] * side, ["mov"] * side)) is _RunTableMatcher
-        assert (
-            type(_mnemonic_matcher(["mov"] * side, ["mov"] * (side + 2))) is difflib.SequenceMatcher
-        )
-
-    def test_length_cap_falls_back_to_difflib(self) -> None:
-        n = scoring._ALIGN_TABLE_MAX_LEN + 1
-        assert type(_mnemonic_matcher(["mov"] * 20, ["mov"] * n)) is difflib.SequenceMatcher
-
-    def test_both_matchers_give_the_same_score(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_score_candidate_uses_lcs_matcher_on_repetitive_streams(self) -> None:
         body = b"\x8b\xc1\x50\x8b\xd8\x53" * 50  # repetitive: mov/push/mov/push
         target = b"\x55\x8b\xec" + body + b"\x5d\xc3"
         spaced = b"".join(
             body[i : i + 6] + (b"\x90" if i % 18 == 0 else b"") for i in range(0, 300, 6)
         )
         cand = b"\x55\x8b\xec" + spaced + b"\x5d\xc3"
-        table_calls: list[int] = []
-        real = _RunTableMatcher.find_longest_match
-
-        def spy(self: _RunTableMatcher, *args: int) -> difflib.Match:
-            table_calls.append(1)
-            return real(self, *args)
-
-        monkeypatch.setattr(_RunTableMatcher, "find_longest_match", spy)
-        with_table = scoring.score_candidate(target, cand)
-        assert table_calls
-        table_calls.clear()
-        monkeypatch.setattr(scoring, "_ALIGN_TABLE_MAX_CELLS", 0)
-        with_difflib = scoring.score_candidate(target, cand)
-        assert not table_calls
-        assert with_table == with_difflib
-        assert with_table.mnemonic_score > 0
+        score = scoring.score_candidate(target, cand)
+        assert score.mnemonic_score > 0
+        # Exact copy scores 0 mnemonic diff.
+        assert scoring.score_candidate(target, target).mnemonic_score == 0.0
 
 
 def _old_score_matrix(sigs_a: list[_Sig], sigs_b: list[_Sig]) -> np.ndarray:
@@ -218,3 +210,52 @@ class TestScoreMatrixParity:
         got = score_matrix([sig] * na, [sig] * nb)
         assert got.shape == (na, nb)
         assert (got == 100.0).all()
+
+
+class TestNormalizationWork:
+    """Work and parity gates for raw disp32 normalization."""
+
+    def test_standard_modrm_disp32_skips_capstone_detail_and_matches_detail_bytes(self) -> None:
+        import struct
+
+        import capstone
+
+        from rebrew.matcher import scoring
+
+        md_det = scoring.get_cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32, detail=True)
+
+        class _FailDetail:
+            def disasm(self, *_args: object, **_kwargs: object) -> object:
+                raise AssertionError("standard ModR/M+SIB disp32 must not fall back to detail mode")
+
+        disps = (
+            0,
+            0x10000,
+            0x10001,
+            0x7FFFFFFF,
+            0x80000000,
+            0xFFFEFFFF,
+            0xFFFF0000,
+            0xFFFFF000,
+        )
+        for disp_u32 in disps:
+            dbytes = struct.pack("<I", disp_u32)
+            samples = (
+                b"\x8d\x05" + dbytes,  # lea eax, [disp32]
+                b"\x8d\x04\x85" + dbytes,  # lea eax, [eax*4 + disp32]
+                b"\x8d\x85" + dbytes,  # lea eax, [ebp + disp32]
+                b"\x8b\x80" + dbytes,  # mov eax, [eax + disp32]
+                b"\x89\x84\x85" + dbytes,  # mov [ebp + eax*4 + disp32], eax
+                b"\x03\x05" + dbytes,  # add eax, [disp32]
+                b"\x3b\x04\x85" + dbytes,  # cmp eax, [eax*4 + disp32]
+                b"\xc7\x85" + dbytes + b"\x11\x22\x33\x44",  # mov dword ptr [ebp+disp32], imm32
+                b"\x81\x85" + dbytes + b"\x11\x22\x33\x44",  # add dword ptr [ebp+disp32], imm32
+                b"\x83\x85" + dbytes + b"\x11",  # add dword ptr [ebp+disp32], imm8
+            )
+            for code in samples:
+                out_raw = bytearray(code)
+                scoring._zero_reloc_fields_raw(0, len(code), code, out_raw, _FailDetail())  # type: ignore[arg-type]
+                out_det = bytearray(code)
+                for insn in md_det.disasm(code, 0):
+                    scoring._zero_reloc_fields(insn, out_det)
+                assert out_raw == out_det, (code.hex(), out_raw.hex(), out_det.hex())

@@ -50,7 +50,7 @@ lazy from collections.abc import Iterable, Iterator
 
 import typer
 
-from rebrew.c_parser import CALLING_CONVENTION
+from rebrew.c_parser import CALLING_CONVENTION  # noqa: F401
 lazy from rebrew.cli import EXPECTED_DIGEST_HELP, console, error_exit, json_print
 lazy from rebrew.utils import (
     atomic_write_text,
@@ -59,7 +59,7 @@ lazy from rebrew.utils import (
     parse_c_integer_literal,
     read_source_text,
     run_process_group,
-    split_source_lines,
+    split_source_lines,  # noqa: F401
     strip_comment_blocks,
 )
 
@@ -94,21 +94,43 @@ _IMPORT_PREFIX = "__imp_"
 #: MSVC stdcall decoration ``_Name@N``. The byte count is the stack contract.
 _STDCALL_DECORATION = re.compile(r"^_(?!_imp_)(?P<body>.+)@(?P<nbytes>\d+)$")
 _STDCALL_CONVENTIONS = frozenset({"__stdcall", "WINAPI", "CALLBACK", "APIENTRY"})
-
-#: Every ``identifier(`` call site in a source, for the no-declaration stub
-#: fallback; one compile per run, so it lives beside the other module patterns.
-_CALL_RE = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
-
-#: Assignment, compound assignment and increment on an identifier. A member
-#: write (``.field =``) is captured; ``p->field = x`` writes the pointee and
-#: does not match. The leading ``*`` marks a unary dereference, so the caller
-#: can tell ``*p = x`` (pointee store) from ``p = x`` (object store).
-_OBJECT_WRITE_RE = re.compile(
-    r"(?<![A-Za-z0-9_])(?P<deref>\*\s*)?(?P<name>[A-Za-z_]\w*)\s*"
-    r"(?P<index>\[[^\]\n]*\])?\s*"
-    r"(?P<member>\.\w+)?\s*"
-    r"(?P<op>\+\+|--|(?<![=!<>+\-*/%&|^])=(?!=)|\+=|-=|\*=|/=|%=|&=|\|=|\^=|<<=|>>=)"
+_KNOWN_CONVENTIONS = frozenset(
+    {
+        "__vectorcall",
+        "__thiscall",
+        "__fastcall",
+        "__clrcall",
+        "__stdcall",
+        "__cdecl",
+        "REBREW_NAKED",
+        "APIENTRY",
+        "CALLBACK",
+        "_CRTIMP",
+        "WINAPI",
+    }
 )
+_CONVENTION_TOKEN_RE = re.compile(
+    r"\b("
+    + "|".join(re.escape(c) for c in sorted(_KNOWN_CONVENTIONS, key=len, reverse=True))
+    + r")\b"
+)
+_C_TYPE_KEYWORDS = frozenset(
+    {
+        "int",
+        "char",
+        "void",
+        "short",
+        "float",
+        "double",
+        "unsigned",
+        "signed",
+        "long",
+        "struct",
+        "union",
+        "enum",
+    }
+)
+_WIDE_TYPE_KEYWORDS = frozenset({"double", "struct", "union", "__int64"})
 
 
 def is_import_symbol(symbol: str) -> bool:
@@ -136,27 +158,104 @@ def fastcall_arity(symbol: str) -> int | None:
     return stdcall_arity("_" + symbol[1:]) if symbol.startswith("@") else None
 
 
-_WIDE_PARAM_RE = re.compile(r"\b(?:double|struct|union|__int64)\b|long\s+double|long\s+long")
-
-#: Module-level identifier match used by ``ensure_param_names``: the shape is
-#: fixed, so compiling it per parameter was repeated work.
-_IDENT_MATCH_RE = re.compile(r"^[a-zA-Z_]\w*$")
-
 #: Macro words needing a TU-local definition in generated stubs.
 _WINAPI_MACRO_RE = re.compile(r"\b(?:WINAPI|CALLBACK|APIENTRY)\b")
 
 #: ``static`` keyword on the prefix before a function body.
 _STATIC_PREFIX_RE = re.compile(r"\bstatic\b")
 
-#: Identifier scan (no anchors) for collecting used names in a parameter list.
-_IDENT_SCAN_RE = re.compile(r"\b[A-Za-z_]\w*\b")
 
-#: ``(*name[N])`` pointer-array declarator (``CALLING_CONVENTION`` is rebrew.c_parser's).
-_PAREN_ARRAY_DECL_RE = re.compile(
-    r"(.*?)\(\s*" + CALLING_CONVENTION + r"(\**)\s*((?:(?:const|volatile)\b\s*)*)(\w+)\s*"
-    r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\)"
-    r"(?:\s*(?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)?\s*(?:\(.*\))?\s*$",
-)
+def _parse_param_list_nodes(
+    params_str: str,
+) -> tuple[list[tuple[str, str | None, bool]], set[str]] | None:
+    """Parse a parameter list via ``tree-sitter-c`` into ``([(type_text, name, is_variadic)], used_idents)``.
+
+    Returns ``None`` when the parameter list cannot be parsed cleanly.
+    """
+    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+
+    inner = _param_inner(params_str)
+    if not inner:
+        return [], set()
+    probe = f"void _f({inner});"
+    masked = mask_msvc_syntax(probe)
+    tree, _masked_bytes = parse_c_source(masked)
+    raw = probe.encode("utf-8", errors="surrogateescape")
+    if tree.root_node.has_error:
+        return None
+    decl = next((c for c in tree.root_node.named_children if c.type == "declaration"), None)
+    if decl is None:
+        return None
+    fn_decl = decl.child_by_field_name("declarator")
+    if fn_decl is None or fn_decl.type != "function_declarator":
+        return None
+    plist = fn_decl.child_by_field_name("parameters")
+    if plist is None:
+        return None
+
+    used: set[str] = set()
+    stack = [plist]
+    while stack:
+        n = stack.pop()
+        if n.type in ("identifier", "type_identifier"):
+            used.add(node_text(n, raw))
+        stack.extend(n.named_children)
+
+    items: list[tuple[str, str | None, bool]] = []
+    for child in plist.named_children:
+        if child.type == "comment":
+            continue
+        if child.type == "variadic_parameter":
+            items.append(("...", None, True))
+            continue
+        if child.type != "parameter_declaration":
+            return None
+        p_decl = child.child_by_field_name("declarator")
+        if p_decl is None:
+            items.append((node_text(child, raw).strip(), None, False))
+            continue
+        # Walk down pointer/array/paren declarators to see if an identifier name is present.
+        ident_node: typing.Any = None
+        cur: typing.Any = p_decl
+        while cur is not None:
+            if cur.type == "identifier":
+                ident_node = cur
+                break
+            if cur.type in ("pointer_declarator", "array_declarator", "function_declarator"):
+                cur = cur.child_by_field_name("declarator")
+            elif cur.type == "parenthesized_declarator":
+                inner_c = [c for c in cur.named_children if c.type != "comment"]
+                cur = inner_c[0] if inner_c else None
+            else:
+                break
+        if ident_node is None:
+            items.append((node_text(child, raw).strip(), None, False))
+        else:
+            name_text = node_text(ident_node, raw)
+            if name_text in _C_TYPE_KEYWORDS:
+                items.append((node_text(child, raw).strip(), None, False))
+            else:
+                # Reconstruct the type part by removing the identifier token span.
+                before = raw[child.start_byte : ident_node.start_byte].decode(
+                    "utf-8", errors="surrogateescape"
+                )
+                after = raw[ident_node.end_byte : child.end_byte].decode(
+                    "utf-8", errors="surrogateescape"
+                )
+                type_part = (before.rstrip() + after.lstrip()).strip()
+                items.append((type_part, name_text, False))
+    return items, used
+
+
+def _param_is_wide(type_text: str) -> bool:
+    """True when *type_text* is a by-value aggregate or 8-byte scalar."""
+    if "*" in type_text or "[" in type_text or "(" in type_text:
+        return False
+    words = type_text.split()
+    if any(w in _WIDE_TYPE_KEYWORDS for w in words):
+        return True
+    joined = " ".join(words)
+    return "long double" in joined or "long long" in joined
 
 
 def _stdcall_param_slots(params: str | None) -> int | None:
@@ -167,27 +266,18 @@ def _stdcall_param_slots(params: str | None) -> int | None:
     """
     if params is None:
         return None
-    inner = params.strip()
-    if inner.startswith("(") and inner.endswith(")"):
-        inner = inner[1:-1].strip()
-    if not inner or inner == "void":
+    parsed = _parse_param_list_nodes(params)
+    if parsed is None:
+        return None
+    items, _used = parsed
+    if not items:
         return 0
-    if "..." in inner or _WIDE_PARAM_RE.search(inner):
-        return None
-    depth = 0
-    count = 1
-    for ch in inner:
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth < 0:
-                return None
-        elif ch == "," and depth == 0:
-            count += 1
-    if depth != 0:
-        return None
-    return count
+    if len(items) == 1 and not items[0][2] and items[0][1] is None and items[0][0] == "void":
+        return 0
+    for type_text, _name, is_variadic in items:
+        if is_variadic or _param_is_wide(type_text):
+            return None
+    return len(items)
 
 
 def _extern_matches_stdcall(info: dict[str, typing.Any] | None, arity: int) -> bool:
@@ -308,14 +398,6 @@ def _array_size_text(brackets: str) -> str:
 _SAFE_TYPE_RE = re.compile(r"\A[A-Za-z0-9_ \t*(),\[\].]*\Z")
 _SAFE_PARAMS_RE = re.compile(r"\A[A-Za-z0-9_ \t*(),\[\].]*\Z")
 _EXTERN_PREFIX_RE = re.compile(r"^extern\b")
-_DECL_CC_RE = re.compile(
-    r"(.*?)\b(__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
-    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\s+(\w+)\s*(\(.*)",
-    re.DOTALL,
-)
-_DECL_GENERIC_RE = re.compile(r"(.*?)\b(\w+)\s*(\(.*)", re.DOTALL)
-_DECL_ARRAY_RE = re.compile(r"(.*?)\b(\w+)\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)", re.DOTALL)
-_DECL_SCALAR_RE = re.compile(r"(.*?)\b(\w+)\s*$", re.DOTALL)
 
 
 def _is_pasteable_declaration(type_text: str, params: str | None) -> bool:
@@ -325,161 +407,233 @@ def _is_pasteable_declaration(type_text: str, params: str | None) -> bool:
     return params is None or bool(_SAFE_PARAMS_RE.match(params))
 
 
-def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
-    """Parse a single extern declaration line into structured info.
+def _array_brackets_from_node(node: typing.Any, data: bytes) -> str:
+    """Return the ``[...]`` text of an ``array_declarator`` node."""
+    start: int | None = None
+    end: int | None = None
+    for child in node.children:
+        if child.type == "[" and start is None:
+            start = int(child.start_byte)
+        elif child.type == "]" and start is not None:
+            end = int(child.end_byte)
+    if start is None or end is None:
+        return ""
+    return data[start:end].decode("utf-8", errors="surrogateescape")
 
-    Returns ``None`` for a line that is not a declaration, and for one whose
-    type or parameter text carries more than a declarator: the line comes
-    from a ``.c`` in the reviewed tree, and ``generate_stubs`` pastes it into
-    a file the build compiles.
-    """
-    rest = _EXTERN_PREFIX_RE.sub("", decl, count=1).strip().rstrip(";").strip()
 
-    # Function with calling convention: TYPE __cdecl NAME(PARAMS).
-    # ``WINAPI`` and ``__vectorcall`` are conventions too. Leaving them
-    # in the type made the stub ``int __cdecl``.
-    m = _DECL_CC_RE.match(rest)
-    if m:
-        ret_type = m.group(1).strip()
-        cc = m.group(2)
-        name = m.group(3)
-        params = m.group(4)
+def _is_pointer_to_array_declarator(declarator: typing.Any) -> bool:
+    """True for ``(*name)[N]`` / ``(**name)[N]`` (pointer to array, not array of pointers)."""
+    if declarator.type != "array_declarator":
+        return False
+    cur = declarator
+    while cur is not None and cur.type == "array_declarator":
+        cur = cur.child_by_field_name("declarator")
+    if cur is None or cur.type != "parenthesized_declarator":
+        return False
+    inner = [c for c in cur.named_children if c.type != "comment"]
+    if len(inner) != 1:
+        return False
+    ptr = inner[0]
+    if ptr.type != "pointer_declarator":
+        return False
+    while ptr is not None and ptr.type == "pointer_declarator":
+        ptr = ptr.child_by_field_name("declarator")
+    return ptr is not None and ptr.type == "identifier"
+
+
+def _parse_declaration_node(
+    decl_node: typing.Any,
+    raw: bytes,
+    full_decl: str,
+    *,
+    implicit_int: bool = False,
+) -> dict[str, typing.Any] | None:
+    """Extract extern info from a single tree-sitter ``declaration`` node."""
+    from rebrew.c_parser import declares_function, node_text
+
+    declarators = decl_node.children_by_field_name("declarator")
+    if len(declarators) != 1:
+        return None
+    declarator = declarators[0]
+    if declarator.type == "init_declarator":
+        return None
+
+    # Pointer-to-array (``char (*row)[4]``) is not represented as a flat array stub.
+    if _is_pointer_to_array_declarator(declarator):
+        return None
+
+    # Plain function prototype (including pointer-returning functions like ``char * __cdecl f(...)``).
+    if declares_function(declarator):
+        fn_decl = declarator
+        outer_stars = ""
+        while fn_decl is not None and fn_decl.type == "pointer_declarator":
+            outer_stars += "*"
+            fn_decl = fn_decl.child_by_field_name("declarator")
+        if fn_decl is None or fn_decl.type != "function_declarator":
+            return None
+        fn_name_node = fn_decl.child_by_field_name("declarator")
+        params_node = fn_decl.child_by_field_name("parameters")
+        if fn_name_node is None or fn_name_node.type != "identifier" or params_node is None:
+            return None
+        name = node_text(fn_name_node, raw)
+        if name in _C_TYPE_KEYWORDS:
+            return None
+        params = node_text(params_node, raw)
+        # Extract raw prefix up to the function identifier to recover calling convention
+        # and exact return type (including pointer stars and spec(...) / __declspec(...)).
+        prefix = raw[decl_node.start_byte : fn_name_node.start_byte].decode(
+            "utf-8", errors="surrogateescape"
+        )
+        prefix = _EXTERN_PREFIX_RE.sub("", prefix.lstrip(), count=1).strip()
+        cc_match = _CONVENTION_TOKEN_RE.search(prefix)
+        cc: str | None = None
+        if cc_match:
+            cc = cc_match.group(1)
+            ret_type = (prefix[: cc_match.start()] + " " + prefix[cc_match.end() :]).strip()
+            ret_type = _WS_RUN_RE.sub(" ", ret_type)
+        else:
+            ret_type = _WS_RUN_RE.sub(" ", prefix).strip()
+        if implicit_int and ret_type == "int":
+            ret_type = ""
         if not _is_pasteable_declaration(ret_type, params):
             return None
-        if not params.endswith(")"):
-            params += ")"
         return {
             "name": name,
             "type": ret_type,
             "is_func": True,
             "calling_conv": cc,
             "params": params,
-            "full_decl": decl,
+            "full_decl": full_decl,
             "is_array": False,
             "array_size": None,
         }
 
-    # Function without calling convention: TYPE NAME(PARAMS).
-    # ``g[sizeof(int)]`` puts a parenthesis inside the brackets. That is an
-    # array bound, not a function named sizeof.
-    m = _DECL_GENERIC_RE.match(rest)
-    if m and "(" in m.group(3) and rest[: m.start(3)].count("[") == rest[: m.start(3)].count("]"):
-        ret_type = m.group(1).strip()
-        name = m.group(2)
-        params = m.group(3)
-        if not _is_pasteable_declaration(ret_type, params):
+    # Variable (scalar, plain array, or parenthesized pointer/function-pointer array).
+    # Unwrap outer pointee wrappers (``(*table[2])[3]`` or ``(*cbs[4])(int)``) when
+    # a ``parenthesized_declarator`` sits inside them.
+    inner_target = declarator
+    found_paren: typing.Any = None
+    probe = declarator
+    while probe is not None:
+        if probe.type == "parenthesized_declarator":
+            found_paren = probe
+            break
+        if probe.type in ("array_declarator", "function_declarator", "pointer_declarator"):
+            probe = probe.child_by_field_name("declarator")
+        else:
+            break
+    if found_paren is not None:
+        inner_children = [c for c in found_paren.named_children if c.type != "comment"]
+        if len(inner_children) != 1:
             return None
-        if not params.endswith(")"):
-            params += ")"
-        if name not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct"):
-            return {
-                "name": name,
-                "type": ret_type,
-                "is_func": True,
-                "calling_conv": None,
-                "params": params,
-                "full_decl": decl,
-                "is_array": False,
-                "array_size": None,
-            }
+        inner_target = inner_children[0]
 
-    # ``(*name[N])`` is ``*name[N]``, and ``(name[N])`` is ``name[N]``.
-    # The array matcher kept the opening parenthesis in the type, so the
-    # stub was ``int (* table[4] = {0};``. A calling convention and a
-    # function-parameter list still name that array of pointers.
-    # ``(*name[N])[M]`` is still N pointers: the brackets after the
-    # closing parenthesis are the pointee. Leaving them for the array
-    # matcher kept the parenthesis, so the stub was ``int (* table[2] = {0};``.
-    # ``(* const name[N])`` keeps the qualifier on the pointer type.
-    # ``(*name)[N]`` is a pointer to an array and does not match: the
-    # brackets sit outside the parentheses, and none sit inside.
-    m = _PAREN_ARRAY_DECL_RE.match(rest)
-    if m:
-        var_type = m.group(1).strip()
-        stars = m.group(2)
-        qualifier = (m.group(3) or "").strip()
-        name = m.group(4)
-        if stars:
-            var_type = f"{var_type} {stars}".strip() if var_type else stars
-        if qualifier:
-            var_type = f"{var_type} {qualifier}".strip()
-        if (
-            var_type
-            and any(ch.isalnum() for ch in var_type)
-            and name
-            not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct")
-            and _is_pasteable_declaration(var_type, None)
-        ):
-            return {
-                "name": name,
-                "type": var_type,
-                "is_func": False,
-                "calling_conv": None,
-                "params": None,
-                "full_decl": decl,
-                "is_array": True,
-                "array_size": _array_size_text(m.group(5)),
-            }
+    stars = ""
+    quals: list[str] = []
+    cur = inner_target
+    while cur is not None and cur.type == "pointer_declarator":
+        stars += "*"
+        for ch in cur.named_children:
+            if ch.type == "type_qualifier":
+                quals.append(node_text(ch, raw))
+        cur = cur.child_by_field_name("declarator")
 
-    # Variable with array: TYPE NAME[SIZE]. One nested ``[]`` stays in the
-    # bound, so ``[sizeof(wchar_t[3])]`` is not cut at the inner bracket.
-    m = _DECL_ARRAY_RE.match(rest)
-    if m:
-        var_type = m.group(1).strip()
-        name = m.group(2)
-        if name not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct"):
-            if not _is_pasteable_declaration(var_type, None):
-                return None
-            # One decimal element count.  ``[0x400]`` used to collapse to "1",
-            # and ``[2][4]`` kept only the first bound: either stub claimed
-            # fewer bytes than the extern and shifted every later .data symbol.
-            return {
-                "name": name,
-                "type": var_type,
-                "is_func": False,
-                "calling_conv": None,
-                "params": None,
-                "full_decl": decl,
-                "is_array": True,
-                "array_size": _array_size_text(m.group(3)),
-            }
+    bracket_parts: list[str] = []
+    while cur is not None and cur.type == "array_declarator":
+        bracket_parts.append(_array_brackets_from_node(cur, raw))
+        cur = cur.child_by_field_name("declarator")
 
-    # Simple variable: TYPE NAME
-    m = _DECL_SCALAR_RE.match(rest)
-    if m:
-        var_type = m.group(1).strip()
-        name = m.group(2)
-        if name not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct"):
-            if not _is_pasteable_declaration(var_type, None):
-                return None
-            return {
-                "name": name,
-                "type": var_type,
-                "is_func": False,
-                "calling_conv": None,
-                "params": None,
-                "full_decl": decl,
-                "is_array": False,
-                "array_size": None,
-            }
+    if cur is None or cur.type != "identifier":
+        return None
+    name = node_text(cur, raw)
+    if name in _C_TYPE_KEYWORDS:
+        return None
+    # Innermost array_declarator holds the first source dimension, so reverse.
+    bracket_parts.reverse()
+    brackets = "".join(bracket_parts)
 
-    return None
+    # Base type text before the top-level declarator (excluding ``extern``).
+    base_prefix = raw[decl_node.start_byte : declarator.start_byte].decode(
+        "utf-8", errors="surrogateescape"
+    )
+    base_prefix = _EXTERN_PREFIX_RE.sub("", base_prefix.lstrip(), count=1).strip()
+    base_prefix = _WS_RUN_RE.sub(" ", base_prefix)
+    var_type = base_prefix
+    if stars:
+        var_type = f"{var_type} {stars}".strip() if var_type else stars
+    if quals:
+        var_type = f"{var_type} {' '.join(quals)}".strip()
+
+    if not var_type or not any(ch.isalnum() for ch in var_type):
+        return None
+    if not _is_pasteable_declaration(var_type, None):
+        return None
+    if brackets:
+        return {
+            "name": name,
+            "type": var_type,
+            "is_func": False,
+            "calling_conv": None,
+            "params": None,
+            "full_decl": full_decl,
+            "is_array": True,
+            "array_size": _array_size_text(brackets),
+        }
+    return {
+        "name": name,
+        "type": var_type,
+        "is_func": False,
+        "calling_conv": None,
+        "params": None,
+        "full_decl": full_decl,
+        "is_array": False,
+        "array_size": None,
+    }
 
 
-#: File-scope lines that begin a definition or a local-scope keyword rather
-#: than a link-visible declaration.
-_SKIP_DECL_PREFIXES = ("typedef", "static", "register", "return", "else", "case", "default")
+def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
+    """Parse a single extern declaration line into structured info via ``tree-sitter-c``.
 
-
-def _is_file_scope_decl(line: str) -> bool:
-    """True for a file-scope declaration or prototype.
-
-    An initializer (``=``) makes the line a definition, and the skip prefixes
-    mark storage classes or statement keywords; neither names a link symbol.
+    Returns ``None`` for a line that is not a declaration, and for one whose
+    type or parameter text carries more than a declarator: the line comes
+    from a ``.c`` in the reviewed tree, and ``generate_stubs`` pastes it into
+    a file the build compiles.
     """
-    if not line.endswith(";") or "=" in line:
-        return False
-    return not line.startswith(_SKIP_DECL_PREFIXES)
+    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+
+    stripped = decl.strip()
+    if not stripped:
+        return None
+    # Reject multi-statement or preprocessor/brace-carrying input upfront.
+    body_check = stripped[:-1] if stripped.endswith(";") else stripped
+    if any(ch in body_check for ch in (";", "{", "}", "#")):
+        return None
+    probe = body_check + ";"
+
+    # Check for C89 implicit-int function with a calling convention:
+    # e.g. ``extern __stdcall f_5eb120(int);``
+    after_extern = _EXTERN_PREFIX_RE.sub("", body_check, count=1).lstrip()
+    after_declspec = _DECLSPEC_RE.sub("", after_extern).lstrip()
+    implicit_int = False
+    cc_lead = _CONVENTION_TOKEN_RE.match(after_declspec)
+    if cc_lead is not None:
+        # Inject ``int `` so tree-sitter parses the declarator cleanly;
+        # ``_parse_declaration_node`` restores ``type=""`` for implicit int.
+        implicit_int = True
+        probe = "int " + after_extern + ";"
+
+    # Mask MSVC calling conventions, ``__declspec(...)``, and ``spec(...)``
+    # with equal-length spaces so byte offsets match *probe*.
+    masked = mask_msvc_syntax(probe)
+    masked = _DECLSPEC_RE.sub(lambda m: " " * len(m.group(0)), masked)
+    tree, _masked_bytes = parse_c_source(masked)
+    if tree.root_node.has_error:
+        return None
+    raw = probe.encode("utf-8", errors="surrogateescape")
+    decls = [c for c in tree.root_node.named_children if c.type == "declaration"]
+    if len(decls) != 1:
+        return None
+    return _parse_declaration_node(decls[0], raw, decl, implicit_int=implicit_int)
 
 
 #: Retained stripped-source bodies, keyed by (path, mtime_ns, size, inode),
@@ -548,59 +702,86 @@ def _stripped_sources(src_dir: Path) -> Iterator[tuple[Path, str]]:
         yield src_file, stripped
 
 
+_FILE_SCOPE_CONTAINERS = frozenset(
+    {"translation_unit", "preproc_if", "preproc_ifdef", "preproc_else", "preproc_elif"}
+)
+
+
 def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
     """``symbol_name -> info`` from the file-scope declarations in *src_dir*'s sources.
 
     Two passes, so an explicit ``extern`` wins and first-seen wins inside each:
-    ``extern`` lines first, then other brace-depth-0 declarations ending in
-    ``;``.  MSVC sources often declare a symbol as a bare prototype
-    (``int __cdecl foo(void*, int);``) with no ``extern`` keyword; missing
-    those makes gen-stubs guess a data stub for a symbol that is in fact
-    called, and the call stays unresolved.  Declarations inside function
-    bodies are locals, not link symbols, and are skipped.
+    ``extern`` declarations first, then other file-scope declarations without
+    initializers or ``static``/``typedef`` storage classes.  Declarations inside
+    function bodies are locals, not link symbols, and are skipped (unless
+    explicitly ``extern``).
     """
+    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+
     externs: dict[str, dict[str, typing.Any]] = {}
     deferred: dict[str, dict[str, typing.Any]] = {}
     for _src_file, text in _stripped_sources(src_dir):
-        depth = 0
-        for raw in split_source_lines(text):
-            line = raw.strip()
-            if not line:
+        masked = mask_msvc_syntax(text)
+        masked = _DECLSPEC_RE.sub(lambda m: " " * len(m.group(0)), masked)
+        tree, _masked_bytes = parse_c_source(masked)
+        raw = text.encode("utf-8", errors="surrogateescape")
+
+        stack = [(tree.root_node, True)]
+        while stack:
+            node, at_file_scope = stack.pop()
+            kind = node.type
+            if kind == "declaration" and not node.has_error:
+                storages = {
+                    node_text(c, raw)
+                    for c in node.named_children
+                    if c.type == "storage_class_specifier"
+                }
+                has_extern = "extern" in storages
+                has_skip = bool(storages & {"static", "register"})
+                decl_text = node_text(node, raw).rstrip("; ").strip()
+                if has_extern:
+                    info = parse_extern_decl(decl_text)
+                    if info and info["name"] not in externs:
+                        externs[info["name"]] = info
+                elif (
+                    at_file_scope
+                    and not has_skip
+                    and not any(
+                        c.type == "init_declarator"
+                        for c in node.children_by_field_name("declarator")
+                    )
+                ):
+                    # Skip initialized definitions (``init_declarator``).
+                    info = parse_extern_decl(decl_text)
+                    if info and info["name"] not in externs and info["name"] not in deferred:
+                        deferred[info["name"]] = info
                 continue
-            if line.startswith("extern"):
-                info = parse_extern_decl(line.rstrip("; ").strip())
-                if info and info["name"] not in externs:
-                    externs[info["name"]] = info
-            elif depth == 0 and _is_file_scope_decl(line):
-                info = parse_extern_decl(line.rstrip("; ").strip())
-                if info and info["name"] not in externs and info["name"] not in deferred:
-                    deferred[info["name"]] = info
-            depth += line.count("{") - line.count("}")
+            if kind == "type_definition":
+                continue
+            child_scope = at_file_scope and kind in _FILE_SCOPE_CONTAINERS
+            for child in reversed(node.named_children):
+                stack.append((child, child_scope))
+
     for name, info in deferred.items():
         externs.setdefault(name, info)
     return externs
 
 
-#: Identifiers that are followed by ``(`` but are not function calls.
-_NON_CALL_KEYWORDS = frozenset(
-    {
-        "if",
-        "for",
-        "while",
-        "switch",
-        "return",
-        "sizeof",
-        "do",
-        "else",
-        "case",
-        "goto",
-        "break",
-        "continue",
-        "defined",
-        "__asm",
-        "asm",
-    }
-)
+def _called_identifiers_in_source(text: str) -> set[str]:
+    """Identifiers directly invoked via ``call_expression`` in *text*."""
+    from rebrew.c_parser import mask_msvc_syntax, node_text, parse_c_source
+
+    tree, data = parse_c_source(mask_msvc_syntax(text))
+    called: set[str] = set()
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type == "call_expression":
+            fn = node.child_by_field_name("function")
+            if fn is not None and fn.type == "identifier":
+                called.add(node_text(fn, data))
+        stack.extend(node.named_children)
+    return called
 
 
 def collect_called_symbols(src_dir: Path) -> set[str]:
@@ -613,11 +794,47 @@ def collect_called_symbols(src_dir: Path) -> set[str]:
     """
     called: set[str] = set()
     for _src_file, text in _stripped_sources(src_dir):
-        for m in _CALL_RE.finditer(text):
-            name = m.group(1)
-            if name not in _NON_CALL_KEYWORDS:
-                called.add(name)
+        called.update(_called_identifiers_in_source(text))
     return called
+
+
+def _write_target(node: typing.Any, data: bytes) -> tuple[str, bool] | None:
+    """Return ``(identifier_name, is_pointee_store)`` for an assignment/update LHS, or None."""
+    from rebrew.c_parser import node_text
+
+    pointee = False
+    cur = node
+    while cur is not None:
+        while cur is not None and cur.type == "parenthesized_expression":
+            inner = [c for c in cur.named_children if c.type != "comment"]
+            if len(inner) != 1:
+                return None
+            cur = inner[0]
+        if cur is None:
+            return None
+        kind = cur.type
+        if kind == "identifier":
+            return node_text(cur, data), pointee
+        if kind == "field_expression":
+            op = cur.child_by_field_name("operator")
+            if op is None or node_text(op, data).strip() != ".":
+                # ``p->field = x`` writes the pointee, not the pointer object.
+                return None
+            cur = cur.child_by_field_name("argument")
+            continue
+        if kind == "subscript_expression":
+            pointee = True
+            cur = cur.child_by_field_name("argument")
+            continue
+        if kind == "pointer_expression":
+            op = cur.child_by_field_name("operator")
+            if op is None or node_text(op, data).strip() != "*":
+                return None
+            pointee = True
+            cur = cur.child_by_field_name("argument")
+            continue
+        return None
+    return None
 
 
 def collect_written_symbols(
@@ -632,20 +849,31 @@ def collect_written_symbols(
     store reached only through ``&symbol`` or a buffer passed to a callee
     cannot be seen here.
     """
+    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+
     info_by_name = extern_info or {}
     written: set[str] = set()
     for _src_file, text in _stripped_sources(src_dir):
-        for m in _OBJECT_WRITE_RE.finditer(text):
-            name = m.group("name")
-            info = info_by_name.get(name)
-            if info and info.get("is_func"):
-                continue
-            pointee_store = bool(m.group("deref") or m.group("index")) and not (
-                info and info.get("is_array")
-            )
-            if pointee_store and info and "*" in str(info.get("type", "")):
-                continue
-            written.add(name)
+        tree, data = parse_c_source(mask_msvc_syntax(text))
+        stack = [tree.root_node]
+        while stack:
+            node = stack.pop()
+            kind = node.type
+            lhs: typing.Any = None
+            if kind == "assignment_expression":
+                lhs = node.child_by_field_name("left")
+            elif kind == "update_expression":
+                lhs = node.child_by_field_name("argument")
+            if lhs is not None:
+                target = _write_target(lhs, data)
+                if target is not None:
+                    name, is_pointee = target
+                    info = info_by_name.get(name)
+                    if not (info and info.get("is_func")):
+                        pointee_store = is_pointee and not (info and info.get("is_array"))
+                        if not (pointee_store and info and "*" in str(info.get("type", ""))):
+                            written.add(name)
+            stack.extend(node.named_children)
     return written
 
 
@@ -714,7 +942,7 @@ def collect_conditional_callable_aliases(src_dir: Path) -> set[str]:
     for _path, source in _stripped_sources(src_dir):
         if "define" not in source:
             continue
-        called = {m.group(1) for m in _CALL_RE.finditer(source)} - _NON_CALL_KEYWORDS
+        called = _called_identifiers_in_source(source)
         tree, data = parse_c_source(source)
         pending = [(tree.root_node, False)]
         while pending:
@@ -790,13 +1018,6 @@ _STRUCT_PTR_RE = re.compile(r"struct\s+\w+\*")
 _STRUCT_RE = re.compile(r"struct\s+\w+")
 _UNRESOLVED_SYMBOL_RE = re.compile(r"error LNK20(?:01|19): unresolved external symbol (\S+)")
 _TYPE_WORDS = _C_PRIMITIVES | {"volatile"}
-_WS_RUN_RE = re.compile(r"\s+")
-_UINT_RE = re.compile(r"\buint\b")
-_USHORT_RE = re.compile(r"\bushort\b")
-_ULONG_RE = re.compile(r"\bulong\b")
-_UCHAR_RE = re.compile(r"\buchar\b")
-_STRUCT_PTR_RE = re.compile(r"struct\s+\w+\*")
-_STRUCT_RE = re.compile(r"struct\s+\w+")
 
 
 def simplify_type_for_stub(type_str: str) -> str:
@@ -859,27 +1080,6 @@ def const_object_type(type_text: str) -> str:
     return " ".join(part for part in (before, "const", after) if part)
 
 
-def _split_type_name(part: str) -> tuple[str, str | None]:
-    """Split a parameter into a type and an optional name.
-
-    ``int *p`` keeps the stars on the type. A trailing word that is a type
-    keyword is not a name.
-    """
-    tokens = part.split()
-    if len(tokens) < 2 or part.endswith("*"):
-        return part, None
-    last = tokens[-1]
-    stars = ""
-    while last.startswith("*"):
-        stars += "*"
-        last = last[1:]
-    if not last or not _IDENT_MATCH_RE.match(last):
-        return part, None
-    if last in _C_PRIMITIVES | {"struct"}:
-        return part, None
-    return (" ".join(tokens[:-1]) + stars).strip(), last
-
-
 def _param_inner(params_str: str) -> str:
     """The parameter list with its outer whitespace and parentheses removed."""
     inner = params_str.strip()
@@ -890,43 +1090,24 @@ def _param_inner(params_str: str) -> str:
     return inner.strip()
 
 
-def _split_params(params_str: str) -> list[str]:
-    """Split a parameter list on top-level commas."""
-    inner = _param_inner(params_str)
-    parts: list[str] = []
-    depth = 0
-    current = ""
-    for ch in inner:
-        if ch == "(":
-            depth += 1
-            current += ch
-        elif ch == ")":
-            depth -= 1
-            current += ch
-        elif ch == "," and depth == 0:
-            parts.append(current.strip())
-            current = ""
-        else:
-            current += ch
-    if current.strip():
-        parts.append(current.strip())
-    return parts
-
-
 def simplify_params_for_stub(params_str: str) -> str:
     """Simplify each parameter type. Names and ``...`` stay put."""
     inner = _param_inner(params_str)
     if not inner or inner == "void":
         return "(void)"
-    parts = _split_params(params_str)
+    parsed = _parse_param_list_nodes(params_str)
+    if parsed is None:
+        return "(void)"
+    items, _used = parsed
+    if not items:
+        return "(void)"
     simplified: list[str] = []
-    for part in parts:
-        if part == "..." or (part == "void" and len(parts) == 1):
-            simplified.append(part)
+    for type_text, name, is_variadic in items:
+        if is_variadic or (type_text == "void" and name is None and len(items) == 1):
+            simplified.append(type_text)
             continue
-        type_text, name = _split_type_name(part)
-        type_text = simplify_type_for_stub(type_text)
-        simplified.append(f"{type_text} {name}" if name else type_text)
+        simple = simplify_type_for_stub(type_text)
+        simplified.append(f"{simple} {name}" if name else simple)
     return "(" + ", ".join(simplified) + ")"
 
 
@@ -939,40 +1120,27 @@ def ensure_param_names(params_str: str) -> str:
     inner = _param_inner(params_str)
     if not inner or inner in ("void", "..."):
         return params_str
-    parts = _split_params(params_str)
-
-    used_names = set(_IDENT_SCAN_RE.findall(params_str))
+    parsed = _parse_param_list_nodes(params_str)
+    if parsed is None:
+        return params_str
+    items, used_names = parsed
     param_names = "abcdefghijklmnop"
-    result_parts = []
-    for i, part in enumerate(parts):
-        if part == "...":
-            result_parts.append(part)
+    result_parts: list[str] = []
+    for i, (type_text, name, is_variadic) in enumerate(items):
+        if is_variadic or (type_text == "void" and name is None and len(items) == 1):
+            result_parts.append(type_text)
             continue
-        if part == "void" and len(parts) == 1:
-            result_parts.append(part)
-            continue
-        tokens = part.split()
-        has_name = False
-        if len(tokens) >= 2:
-            # A trailing token like "*p" or "**pp" DOES carry a name — strip
-            # the pointer stars before the identifier check, otherwise
-            # "int *p" was "named" with the garbage suffix "int *p a".
-            last = tokens[-1].lstrip("*")
-            if _IDENT_MATCH_RE.match(last) and last not in _C_PRIMITIVES | {"struct"}:
-                has_name = True
-        if part.endswith("*"):
-            has_name = False
-        if not has_name:
+        if name is None:
             stem = param_names[i] if i < len(param_names) else f"p{i}"
-            name = stem
+            gen = stem
             suffix = 1
-            while name in used_names:
-                name = f"{stem}_{suffix}"
+            while gen in used_names:
+                gen = f"{stem}_{suffix}"
                 suffix += 1
-            used_names.add(name)
-            result_parts.append(f"{part} {name}")
+            used_names.add(gen)
+            result_parts.append(f"{type_text} {gen}")
         else:
-            result_parts.append(part)
+            result_parts.append(f"{type_text} {name}")
 
     return "(" + ", ".join(result_parts) + ")"
 
@@ -1318,30 +1486,19 @@ def generate_stubs(
 # --- build integration ---------------------------------------------------------
 
 
-#: Definition names in a generated stub TU, for the overwrite warning.
-# ``WINAPI`` and ``__vectorcall`` are definitions too. The warning used
-# to see only ``__cdecl`` and ``__stdcall``.
-_DEFINED_FUNC_RE = re.compile(
-    r"\b(?:__vectorcall|__thiscall|__fastcall|__clrcall|__stdcall|__cdecl"
-    r"|REBREW_NAKED|APIENTRY|CALLBACK|_CRTIMP|WINAPI)\s+(\w+)"
-)
-# ``(*table[4])`` and ``(*row)[4]`` still define a name. The opening
-# parenthesis used to hide it, so a hand-carried stub was dropped with
-# no overwrite warning. ``__cdecl`` before the star and ``const`` after
-# it are not the name. ``(int)`` before ``=`` is a function-pointer
-# parameter list, not a different symbol.
-_DEFINED_DATA_RE = re.compile(
-    r"(?m)^[A-Za-z_][\w\s\*]*?(?:\(\s*"
-    + CALLING_CONVENTION
-    + r")?\**\s*(?:(?:const|volatile)\b\s*)*\b(\w+)\s*"
-    r"(?:\[(?:[^\[\]]|\[[^\]]*\])*\])*\s*\)?\s*"
-    r"(?:\((?:[^()]|\([^()]*\))*\))?\s*(?:=|\[)"
-)
-
-
 def _defined_symbols(text: str) -> set[str]:
-    """Names this stub TU defines (rough, for the overwrite warning only)."""
-    return set(_DEFINED_FUNC_RE.findall(text)) | set(_DEFINED_DATA_RE.findall(text))
+    """Names this stub TU defines (functions and file-scope data definitions)."""
+    from rebrew.c_parser import find_c_function_definitions, find_extern_variables
+
+    funcs = {name for name, _line in find_c_function_definitions(text)}
+    data_vars = {
+        v.name
+        for v in find_extern_variables(
+            text, include_definitions=True, function_filter=lambda _line: False
+        )
+        if v.is_definition
+    }
+    return funcs | data_vars
 
 
 def _recover_interrupted_build(

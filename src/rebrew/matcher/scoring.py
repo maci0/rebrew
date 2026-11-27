@@ -5,15 +5,16 @@ candidate function bytes, and diff_functions() for instruction-level diffs.
 Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 """
 
-import difflib  # base class of _RunTableMatcher: definition-time use
+import difflib  # base class of _LcsMatcher: definition-time use
 import threading
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from typing import override  # decorator: definition-time use
 lazy from collections.abc import Callable, Sequence
 lazy from io import StringIO
 lazy from typing import TYPE_CHECKING, Any
 
 import capstone
+lazy from rapidfuzz.distance import LCSseq
 lazy from rich.console import Console
 lazy from rich.text import Text
 
@@ -165,13 +166,47 @@ def _build_invalid_reloc_mask(
 _FF_ABS32_MODRM = frozenset({0x15, 0x25})
 #: ModR/M bytes selecting ``[abs32]`` for mov r32 <-> [abs32] (8B/89), any reg.
 _MOV_ABS32_MODRM = frozenset({0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D})
+#: Single-byte x86-32 opcodes with standard ModR/M(+SIB)+disp32 memory operands.
+#: Handled directly without Capstone detail-mode re-disassembly unless a 0x67
+#: address-size override prefix is present.
+_STD_MODRM_DISP32_OPS = frozenset(
+    {
+        0x01,
+        0x03,
+        0x09,
+        0x0B,
+        0x11,
+        0x13,
+        0x19,
+        0x1B,
+        0x21,
+        0x23,
+        0x29,
+        0x2B,
+        0x31,
+        0x33,
+        0x39,
+        0x3B,
+        0x81,
+        0x83,
+        0x85,
+        0x89,
+        0x8B,
+        0x8D,
+        0xC7,
+    }
+)
+_ZERO4 = b"\x00\x00\x00\x00"
 
 
 def _zero_u32_at(out: bytearray, addr: int, start: int) -> None:
     """Zero four little-endian bytes of *out* starting at *addr + start*."""
-    for i in range(start, start + 4):
-        if addr + i < len(out):
-            out[addr + i] = 0
+    pos = addr + start
+    end = pos + 4
+    if end <= len(out):
+        out[pos:end] = _ZERO4
+    elif pos < len(out):
+        out[pos:] = b"\x00" * (len(out) - pos)
 
 
 def _zero_reloc_common(
@@ -375,17 +410,47 @@ def _zero_reloc_fields_raw(
     """
     if size < 5:
         return  # no room for a 32-bit relocatable field
-    opi = _opcode_index(b)
-    op0 = _first_opcode_byte(b)
+    n = len(b)
+    opi = 0
+    has_addr_override = False
+    while opi < n and b[opi] in _PREFIX_BYTES:
+        if b[opi] == 0x67:
+            has_addr_override = True
+        opi += 1
+    if opi >= n:
+        opi = 0
+    op0 = b[opi] if n else 0
     after = opi + 1
     if _zero_reloc_common(addr, size, b, op0, after, out):
         return
 
-    # Rare SIB/disp32 fallback — needs detail attributes; re-disassemble just
-    # this instruction and apply the original detail-based logic verbatim.
-    if size >= 6 and _has_disp32(b):
-        for det in md_det.disasm(b, addr):
-            _zero_reloc_fields(det, out)
+    # Standard x86-32 ModR/M(+SIB)+disp32 instructions (e.g. LEA, MOV, ALU) carry
+    # their 32-bit signed displacement at a fixed byte offset, avoiding Capstone
+    # detail-mode ctypes marshaling on the hot path.
+    if size >= 6:
+        if not has_addr_override and op0 in _STD_MODRM_DISP32_OPS and after < n:
+            modrm = b[after]
+            mod = modrm >> 6
+            rm = modrm & 7
+            disp_off = 0
+            if mod == 2:
+                disp_off = after + 2 if rm == 4 else after + 1
+            elif mod == 0:
+                if rm == 5:
+                    disp_off = after + 1
+                elif rm == 4 and after + 1 < n and (b[after + 1] & 7) == 5:
+                    disp_off = after + 2
+            if disp_off and disp_off + 4 <= n:
+                disp = int.from_bytes(b[disp_off : disp_off + 4], "little", signed=True)
+                if disp > _DISP_ABS_MIN or disp < -_DISP_ABS_MIN:
+                    _zero_u32_at(out, addr, disp_off)
+            return
+
+        # Rare SIB/disp32 fallback — needs detail attributes; re-disassemble just
+        # this instruction and apply the original detail-based logic verbatim.
+        if _has_disp32(b):
+            for det in md_det.disasm(b, addr):
+                _zero_reloc_fields(det, out)
 
 
 #: ``_register_mask_plan`` entries — the offset the ModR/M mask applies to, or
@@ -708,111 +773,48 @@ def score_candidate(
     )
 
 
-#: The run table costs about this many matching pairs of difflib work per row of
-#: *a* (measured on 260 random shapes; the rule below was within 1% of picking
-#: the faster matcher every time).  Smaller, dissimilar, or lopsided pairs have
-#: too few pairs to repay it and stay on difflib.
-_ALIGN_TABLE_PAIRS_PER_ROW = 20
-#: Above this ``len(a) * len(b)`` difflib keeps the pair: the table, its boolean
-#: equality matrix and one clipped window together hold about 7 bytes per cell
-#: (7 MB at the cap) in every concurrent GA worker.
-_ALIGN_TABLE_MAX_CELLS = 1_000_000
-#: Window offsets and runs are stored as int16, so neither sequence may be longer.
-_ALIGN_TABLE_MAX_LEN = 32_767
-_RUN_DTYPE = "int16"
+class _LcsMatcher(difflib.SequenceMatcher[str]):
+    """``SequenceMatcher(None, a, b, autojunk=False)`` backed by ``rapidfuzz.distance.LCSseq``.
 
-
-class _RunTableMatcher(difflib.SequenceMatcher[str]):
-    """``SequenceMatcher(None, a, b, autojunk=False)`` with a table-driven ``find_longest_match``.
-
-    difflib re-scans every matching pair inside a window each time it splits a
-    block off, which dominates the GA fitness walk (x86 mnemonics repeat).  This
-    builds one table of diagonal run lengths on first use and answers each
-    window by clipping it: the longest run inside the window, earliest end in
-    *a* then in *b* (equal lengths end in the order they start), which is the
-    block difflib picks.  Valid only without junk or popular elements, so the
-    constructor takes neither.
+    difflib's Ratcliff/Obershelp scan is quadratic on repetitive x86 mnemonic
+    streams (``push``, ``mov``, ``cmp``).  ``LCSseq.opcodes`` computes an
+    optimal LCS alignment in C++ bit-parallel time, feeding its ``equal`` runs
+    into ``SequenceMatcher`` so ``get_opcodes()`` emits canonical
+    ``equal``/``replace``/``insert``/``delete`` hunks without double-counting
+    substitutions.
     """
 
     a: Sequence[str]  # set by SequenceMatcher.set_seq1 / set_seq2
     b: Sequence[str]
-    _runs: np.ndarray | None = None
+    matching_blocks: list[difflib.Match] | None
 
-    @override
-    def set_seq1(self, a: Sequence[str]) -> None:
-        self._runs = None
-        super().set_seq1(a)
-
-    @override
-    def set_seq2(self, b: Sequence[str]) -> None:
-        self._runs = None
-        super().set_seq2(b)
-
-    def __init__(self, a: list[str], b: list[str]) -> None:
+    def __init__(self, a: Sequence[str], b: Sequence[str]) -> None:
         super().__init__(None, a, b, autojunk=False)
-
-    def _run_table(self) -> np.ndarray:
-        """``run[i, j]``: length of the equal run ending at ``a[i] == b[j]``."""
-        import numpy as np  # deferred: ~60 ms of startup for non-GA commands
-
-        ids: dict[str, int] = {}
-        a = np.fromiter((ids.setdefault(m, len(ids)) for m in self.a), np.int32, len(self.a))
-        b = np.fromiter((ids.setdefault(m, len(ids)) for m in self.b), np.int32, len(self.b))
-        eq = a[:, None] == b[None, :]
-        run = np.zeros(eq.shape, dtype=_RUN_DTYPE)
-        if len(a):
-            run[0] = eq[0]
-        for i in range(1, len(a)):
-            row = run[i]
-            np.add(run[i - 1, :-1], 1, out=row[1:])
-            row[1:] *= eq[i, 1:]
-            row[0] = eq[i, 0]
-        return run
+        self.matching_blocks = None
 
     @override
-    def find_longest_match(
-        self, alo: int = 0, ahi: int | None = None, blo: int = 0, bhi: int | None = None
-    ) -> difflib.Match:
-        import numpy as np  # deferred: ~60 ms of startup for non-GA commands
-
-        ahi = len(self.a) if ahi is None else ahi
-        bhi = len(self.b) if bhi is None else bhi
-        if alo >= ahi or blo >= bhi:
-            return difflib.Match(alo, blo, 0)
-        if self._runs is None:
-            self._runs = self._run_table()
-        window = self._runs[alo:ahi, blo:bhi]
-        if alo or blo:  # a run may start before the window; count only the part inside
-            window = np.minimum(
-                window,
-                np.minimum(
-                    np.arange(1, ahi - alo + 1, dtype=_RUN_DTYPE)[:, None],
-                    np.arange(1, bhi - blo + 1, dtype=_RUN_DTYPE)[None, :],
-                ),
-            )
-        ei, ej = divmod(int(window.argmax()), bhi - blo)
-        size = int(window[ei, ej])
-        if not size:
-            return difflib.Match(alo, blo, 0)
-        return difflib.Match(alo + ei - size + 1, blo + ej - size + 1, size)
+    def get_matching_blocks(self) -> list[difflib.Match]:
+        if self.matching_blocks is not None:
+            return self.matching_blocks
+        blocks = [
+            difflib.Match(op.src_start, op.dest_start, op.src_end - op.src_start)
+            for op in LCSseq.opcodes(self.a, self.b)
+            if op.tag == "equal"
+        ]
+        blocks.append(difflib.Match(len(self.a), len(self.b), 0))
+        self.matching_blocks = blocks
+        return blocks
 
 
 def _mnemonic_matcher(target: list[str], cand: list[str]) -> difflib.SequenceMatcher[str]:
-    """The ``autojunk=False`` matcher for two mnemonic streams, table-driven when that pays.
+    """The ``autojunk=False`` LCS matcher for two mnemonic streams.
 
     ``autojunk=False``: difflib's default drops "popular" elements from
     anchoring once a sequence passes 200 items, and x86 mnemonics (``push``,
     ``mov``, ``cmp``) cross that bar in any real function, so the alignment
     collapsed and every instruction read as a diff.
     """
-    if len(target) * len(cand) <= _ALIGN_TABLE_MAX_CELLS and max(len(target), len(cand)) <= (
-        _ALIGN_TABLE_MAX_LEN
-    ):
-        counts = Counter(cand)
-        pairs = sum(n * counts[m] for m, n in Counter(target).items())
-        if pairs >= _ALIGN_TABLE_PAIRS_PER_ROW * len(target):
-            return _RunTableMatcher(target, cand)
-    return difflib.SequenceMatcher(None, target, cand, autojunk=False)
+    return _LcsMatcher(target, cand)
 
 
 def precompute_target(
@@ -1172,8 +1174,12 @@ def structural_similarity(
     # autojunk=False for the same reason as the fitness walk: a mnemonic stream
     # over 200 items marks its most common opcodes as junk, and the ratio then
     # reports the sweep as not mnemonic-compatible when it is.
-    sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems, autojunk=False)
-    mnemonic_ratio = sm.ratio()
+    if target_mnems == cand_mnems:
+        mnemonic_ratio = 1.0
+    else:
+        mnemonic_ratio = difflib.SequenceMatcher(
+            None, target_mnems, cand_mnems, autojunk=False
+        ).ratio()
     structural_ratio = structural / total if total > 0 else 0.0
 
     # Decide from the rounded ratios the record carries, not the raw ones: a

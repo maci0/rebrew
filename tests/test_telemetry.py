@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import http.client
 import http.server
 import json
@@ -142,16 +141,19 @@ def test_export_worker_survives_http_protocol_errors(
     posted = threading.Event()
     calls = 0
 
-    class Opener:
-        def open(self, *args: Any, **kwargs: Any) -> Any:
-            nonlocal calls
-            calls += 1
-            if calls == 1:
-                raise http.client.HTTPException("malformed collector response")
-            posted.set()
-            return contextlib.nullcontext(None)
+    class _OkResp:
+        def raise_for_status(self) -> None:
+            return
 
-    monkeypatch.setattr(telemetry.urllib.request, "build_opener", lambda *args, **kwargs: Opener())
+    def _fake_post(*args: Any, **kwargs: Any) -> _OkResp:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.RemoteProtocolError("malformed collector response")
+        posted.set()
+        return _OkResp()
+
+    monkeypatch.setattr(httpx, "post", _fake_post)
     stop = telemetry.configure("http://collector.invalid", "relumea-rebrew", "1.2.3")
     exporter = telemetry._current_exporter()
     assert exporter is not None

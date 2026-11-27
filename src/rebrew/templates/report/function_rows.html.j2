@@ -1,0 +1,1 @@
+{%- for fn in functions -%}<tr><td class='mono'>{{ fn.name }}</td><td class='mono'>{{ fn.va_hex }}</td><td class='file'>{{ fn.file }}</td><td class='{{ fn.status_class }}'>{{ fn.status }}</td><td class='mono'>{{ fn.size }}</td><td class='mono'>{{ fn.cflags }}</td><td class='blocker'>{{ fn.blocker }}</td></tr>{%- endfor -%}

@@ -1,4 +1,4 @@
-"""telemetry.py — W3C trace context and OTLP/JSON span export, standard library only.
+"""telemetry.py — W3C trace context and OTLP/JSON span export.
 
 A span continues the caller's ``traceparent`` (the relumea backend sends one on every
 dispatch call) and finished spans queue for a background thread that posts them to an
@@ -18,14 +18,14 @@ import queue
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-lazy import json
 lazy import os
 lazy import re
 lazy import time
-lazy import urllib.request
 lazy from collections.abc import Callable, Iterator
 lazy from typing import Any
 lazy from urllib.parse import urlsplit
+
+lazy import httpx
 
 from rebrew.config import OTLP_ENDPOINT_ENV as ENDPOINT_ENV
 
@@ -260,28 +260,27 @@ class _Exporter:
                 self._post(batch)
 
     def _post(self, batch: list[Span]) -> None:
-        body = json.dumps(
-            {
-                "resourceSpans": [
-                    {
-                        "resource": self._resource,
-                        "scopeSpans": [
-                            {"scope": {"name": "rebrew"}, "spans": [_wire(s) for s in batch]}
-                        ],
-                    }
-                ]
-            }
-        ).encode("utf-8")
-        request = urllib.request.Request(  # noqa: S310  # configure() admits http(s) only
-            self._url, body, {"Content-Type": "application/json"}, method="POST"
-        )
-        # An opener with no ProxyHandler: the collector is operator-configured, so
-        # ambient `*_proxy` / `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` must not reroute
-        # or re-TLS the span POST (matching the pinned downloaders' `trust_env=False`).
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        payload = {
+            "resourceSpans": [
+                {
+                    "resource": self._resource,
+                    "scopeSpans": [
+                        {"scope": {"name": "rebrew"}, "spans": [_wire(s) for s in batch]}
+                    ],
+                }
+            ]
+        }
         try:
-            with opener.open(request, timeout=EXPORT_TIMEOUT_SECONDS):
-                pass
+            # trust_env=False: the collector is operator-configured, so ambient
+            # `*_proxy` / `SSL_CERT_FILE` / `REQUESTS_CA_BUNDLE` must not reroute
+            # or re-TLS the span POST (matching the pinned downloaders).
+            resp = httpx.post(
+                self._url,
+                json=payload,
+                timeout=EXPORT_TIMEOUT_SECONDS,
+                trust_env=False,
+            )
+            resp.raise_for_status()
         except Exception as exc:
             # The exporter is a long-lived worker. A protocol-level HTTP error
             # must count this batch as lost, not kill the thread and silently

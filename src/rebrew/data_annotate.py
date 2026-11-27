@@ -13,7 +13,7 @@ lazy from datetime import UTC, datetime
 lazy from pathlib import Path
 lazy from typing import Any
 
-from rebrew.c_parser import CALLING_CONVENTION, is_pointer_to_array
+from rebrew.c_parser import CALLING_CONVENTION, is_pointer_to_array  # noqa: F401
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.metadata.data import iter_data_symbols, load_data_document
 lazy from rebrew.utils import (
@@ -27,20 +27,14 @@ lazy from rebrew.utils import (
 
 log = logging.getLogger(__name__)
 
-# The whole trailing bracket run moves onto the name. A group that stops
-# at the first ``]`` left ``char[sizeof(wchar_t[3])]`` as the type, and
-# matching only the last group turned ``char[2][4]`` into ``extern char[2] g[4]``.
-_ARRAY_TYPE_RE = re.compile(r"\s*((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)$")
 #: Label for a global whose section name is empty, in both the emitted header
 #: and the returned report, so a caller can match one against the other.
 _UNKNOWN_SECTION_LABEL = "(unknown section)"
-_FUNCPTR_TYPE_RE = re.compile(r"^(.*?)\(\s*([^()]*?)\s*\*\s*\)(.*)$")
 #: A C type spelled out in metadata: word chars, whitespace, and the
 #: declarator punctuation only. A quote is a ``sizeof`` literal
 #: (``sizeof(L"hi")``, ``sizeof(L'A')``). ``;``, braces, ``#``, and
 #: ``\`` stay out: those end the declaration or escape into one.
 _SAFE_TYPE_RE = re.compile(r"""\A[A-Za-z0-9_ \t*(),[\]'"]+\Z""")
-_VAR_DECL_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]*\])?\s*$")
 
 
 def annotate_globals(
@@ -115,73 +109,72 @@ def annotate_globals(
     return per_file, skipped_unnamed
 
 
-def _name_in_pointer_to_array(type_str: str, name: str) -> str | None:
-    """Insert *name* into the ``(*)`` or ``(**)`` that declares *type_str*."""
-    depth = 0
-    index = 0
-    while index < len(type_str):
-        char = type_str[index]
-        if char == "[":
-            depth += 1
-        elif char == "]" and depth:
-            depth -= 1
-        elif char == "(" and depth == 0:
-            close = type_str.find(")", index + 1)
-            if close == -1:
-                return None
-            raw = type_str[index + 1 : close]
-            after = type_str[close + 1 :].lstrip()
-            # Stars only, or a calling convention and a pointer qualifier.
-            # ``(*)`` and ``(__cdecl *)`` and ``(* const)`` are this pointer.
-            # An identifier is already a name, so it is not inserted again.
-            if _POINTER_DECL_INNER_RE.match(raw) and after.startswith("["):
-                joiner = "" if type_str[close - 1] == "*" else " "
-                return type_str[:close] + joiner + name + type_str[close:]
-        index += 1
-    return None
+def _abstract_declarator_insert_pos(
+    type_str: str,
+) -> tuple[int, bool] | None:
+    """Return ``(offset, in_paren)`` where an identifier belongs inside *type_str*.
 
-
-# A calling convention and a pointer qualifier stay on the declarator.
-# ``(__cdecl *[N])`` and ``(* const [N])`` are still N pointers.
-_POINTER_DECL_INNER_RE = re.compile(
-    r"\A\s*" + CALLING_CONVENTION + r"\*+(?:\s*(?:const|volatile)\b)*\s*\Z"
-)
-_ABSTRACT_POINTER_ARRAY_RE = re.compile(
-    r"\A\s*"
-    + CALLING_CONVENTION
-    + r"(\*+)"
-    + r"((?:\s*(?:const|volatile)\b)*)"
-    + r"\s*"
-    + r"((?:\[(?:[^\[\]]|\[[^\]]*\])*\])+)\s*\Z"
-)
-
-
-def _name_in_abstract_pointer_array(type_str: str, name: str) -> str | None:
-    """Insert *name* into ``(*[N])`` or ``(**[N])``.
-
-    ``int (*[4])`` is four pointers. The name belongs inside the parentheses
-    (``extern int (*[4]) g`` is not C). Brackets outside the parentheses are a
-    pointer to an array and are not this form.
+    Parses ``void _f(<masked_type>);`` with ``tree-sitter-c`` and walks down
+    the abstract declarator chain to the innermost placeholder position.
+    Returns ``None`` when the type cannot be parsed cleanly.
     """
-    depth = 0
-    start = -1
-    for index, char in enumerate(type_str):
-        if char == "(":
-            if depth == 0:
-                start = index
-            depth += 1
-        elif char == ")" and depth:
-            depth -= 1
-            if depth == 0 and start >= 0:
-                inside = type_str[start + 1 : index]
-                matched = _ABSTRACT_POINTER_ARRAY_RE.match(inside)
-                if matched:
-                    at = matched.start(3)
-                    head, tail = inside[:at], inside[at:]
-                    joiner = "" if head[-1:] in {"*", " ", "\t"} else " "
-                    return type_str[: start + 1] + head + joiner + name + tail + type_str[index:]
-                start = -1
-    return None
+    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
+
+    masked = mask_msvc_syntax(type_str)
+    prefix = "void _f("
+    probe = f"{prefix}{masked});"
+    tree, _data = parse_c_source(probe)
+    root = tree.root_node
+    if root.has_error:
+        return None
+    decl_nodes = [c for c in root.named_children if c.type == "declaration"]
+    if len(decl_nodes) != 1:
+        return None
+    fn_decl = decl_nodes[0].child_by_field_name("declarator")
+    if fn_decl is None or fn_decl.type != "function_declarator":
+        return None
+    params = fn_decl.child_by_field_name("parameters")
+    if params is None:
+        return None
+    param_decls = [c for c in params.named_children if c.type == "parameter_declaration"]
+    if len(param_decls) != 1:
+        return None
+    param = param_decls[0]
+    declarator = param.child_by_field_name("declarator")
+    if declarator is None:
+        return len(type_str), False
+
+    prefix_len = len(prefix.encode("utf-8", errors="surrogateescape"))
+    in_paren = False
+    cur = declarator
+    while True:
+        kind = cur.type
+        if kind == "abstract_parenthesized_declarator":
+            in_paren = True
+            inner_children = [c for c in cur.named_children if c.type != "comment"]
+            if not inner_children:
+                return int(cur.end_byte) - prefix_len - 1, True
+            cur = inner_children[0]
+            continue
+        if kind == "abstract_pointer_declarator":
+            child = cur.child_by_field_name("declarator")
+            if child is None:
+                return int(cur.end_byte) - prefix_len, in_paren
+            cur = child
+            continue
+        if kind == "abstract_array_declarator":
+            child = cur.child_by_field_name("declarator")
+            if child is None:
+                return int(cur.start_byte) - prefix_len, in_paren
+            cur = child
+            continue
+        if kind == "abstract_function_declarator":
+            child = cur.child_by_field_name("declarator")
+            if child is None:
+                return int(cur.start_byte) - prefix_len, in_paren
+            cur = child
+            continue
+        return None
 
 
 def _emit_extern_decl(row: dict[str, Any]) -> str | None:
@@ -208,30 +201,15 @@ def _emit_extern_decl(row: dict[str, Any]) -> str | None:
     # start top-level code.
     if not _SAFE_TYPE_RE.match(type_str):
         return None
-    # ``char (*)[4]`` is a pointer to an array. The brackets stay on the
-    # array; peeling them first emitted ``extern char (*) g[4]``.
-    # A ``(*)`` inside the bound is not the declarator:
-    # ``char[sizeof(char (*)[4])]`` became ``extern char[sizeof(char (*g)[4])];``.
-    # ``(**)`` has no ``(*)`` substring, so ``char (**)[4]`` became
-    # ``extern char (**) g[4]``.
-    if is_pointer_to_array(type_str):
-        declarator = _name_in_pointer_to_array(type_str, name)
-        if declarator is not None:
-            return f"extern {declarator};"
-    # ``int (*[4])`` is an array of pointers. The brackets are inside the
-    # parentheses, so the name cannot follow the type.
-    abstract = _name_in_abstract_pointer_array(type_str, name)
-    if abstract is not None:
-        return f"extern {abstract};"
-    array = _ARRAY_TYPE_RE.search(type_str)
-    if array:
-        base = type_str[: array.start()].strip()
-        return f"extern {base} {name}{array.group(1)};"
-    fp = _FUNCPTR_TYPE_RE.match(type_str)
-    if fp:
-        prefix, quals, suffix = fp.group(1), fp.group(2), fp.group(3)
-        inner = f"{quals} *{name}" if quals else f"*{name}"
-        return f"extern {prefix}({inner}){suffix};"
+    inserted = _abstract_declarator_insert_pos(type_str)
+    if inserted is not None:
+        pos, in_paren = inserted
+        head = type_str[:pos]
+        tail = type_str[pos:]
+        if in_paren:
+            joiner = "" if head[-1:] in {"*", " ", "\t"} else " "
+            return f"extern {head}{joiner}{name}{tail};"
+        return f"extern {head.rstrip()} {name}{tail};"
     return f"extern {type_str} {name};"
 
 
@@ -472,7 +450,7 @@ def _source_decls_by_va(
     *extra_files* are scanned in addition to *src_dir* (e.g. the stub TU,
     which lives outside the reversed tree but holds real bindings).
     """
-    from rebrew.c_parser import find_extern_variables, type_from_declaration
+    from rebrew.c_parser import find_extern_variables
     from rebrew.sources import iter_sources
     from rebrew.utils import read_source_text
 
@@ -501,28 +479,12 @@ def _source_decls_by_va(
                 continue
             name, type_str = "", ""
             try:
-                ext_vars = find_extern_variables(decl + ";")
+                ext_vars = find_extern_variables(decl + ";", include_definitions=True)
             except Exception:
-                # Falling back to the regex spelling below keeps the decl, but
-                # a parser that fails here usually fails on that too — say which
-                # declaration lost its type instead of dropping it in silence.
                 log.debug("extern-variable parse failed for %r in %s", decl, cfile, exc_info=True)
                 ext_vars = []
             if ext_vars:
                 name, type_str = ext_vars[0].name, ext_vars[0].type_str
-            else:
-                var_m = _VAR_DECL_RE.search(decl)
-                if var_m:
-                    name = var_m.group(1)
-                    type_str = type_from_declaration(decl + ";", name) or ""
-                else:
-                    # ``char (*g_row)[4];`` is a file-scope definition, not an
-                    # extern, and the name is inside parentheses, so the
-                    # regex above never sees it. The definition is the type
-                    # that compiles.
-                    ext_vars = find_extern_variables(decl + ";", include_definitions=True)
-                    if ext_vars:
-                        name, type_str = ext_vars[0].name, ext_vars[0].type_str
             if name and type_str:
                 found[va] = (name, type_str)
     return found

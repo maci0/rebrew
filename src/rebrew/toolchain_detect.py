@@ -1069,123 +1069,44 @@ def processor_pack_profiles() -> set[str]:
     return {str(name) for name in TOOLCHAINS if str(name).endswith("-pp")}
 
 
-_COMPILE3_BLOCK_RE = re.compile(r"S_COMPILE3.*?(?=\n\s*S_|\Z)", re.S)
-_COMPILE3_FIELDS = (
-    ("frontend", re.compile(r"frontend\s*=\s*([^\n,]+)")),
-    ("backend", re.compile(r"backend\s*=\s*([^\n,]+)")),
-    ("flags", re.compile(r"flags\s*=\s*([^\n,]+)")),
-)
-
-
-def _pdb_compile_record(path: Path) -> dict[str, str] | None:
-    """Parse the PDB's S_COMPILE3 record via llvm-pdbutil (best effort).
-
-    Returns dict with keys like ``frontend``, ``backend``, ``flags``, or None
-    when no PDB / no llvm-pdbutil / no record.  The record carries the
-    compiler version and (for MSVC PDBs with full debug info) the exact
-    compiler command-line flags — the only reliable off-the-shelf source of
-    the author's real flags.
-    """
-    if shutil.which("llvm-pdbutil") is None:
-        return None
-    pdb = path.with_suffix(".pdb")
-    if not pdb.exists():
-        return None
-    try:
-        r = run_process_group(
-            ["llvm-pdbutil", "dump", "-symbols", str(pdb)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        logger.warning("llvm-pdbutil dump -symbols failed on %s (%s)", pdb, exc)
-        return None
-    if r.returncode != 0:
-        logger.warning(
-            "llvm-pdbutil dump -symbols exited %d on %s: %s",
-            r.returncode,
-            pdb,
-            (r.stderr or r.stdout or "").strip()[:200],
-        )
-        return None
-    text = r.stdout + r.stderr
-    m = _COMPILE3_BLOCK_RE.search(text)
-    out: dict[str, str] = {}
-    if m:
-        block = m.group(0)
-        for key, pat in _COMPILE3_FIELDS:
-            km = pat.search(block)
-            if km:
-                out[key] = km.group(1).strip()
-
-    # The Zig marker lives in the module list (.zig-cache paths), not the
-    # compile record — check it whenever a PDB exists.
-    zig = _pdb_zig_modules(pdb)
-    if zig:
-        out["zig"] = "1"
-    if not out:
-        return None
-    return out
-
-
-def _pdb_zig_modules(pdb: Path) -> dict[str, str] | None:
-    """Check the PDB module list for a .zig-cache path (Zig marker)."""
-    try:
-        r = run_process_group(
-            ["llvm-pdbutil", "dump", "-modules", str(pdb)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        logger.warning("llvm-pdbutil dump -modules failed on %s (%s)", pdb, exc)
-        return None
-    if r.returncode != 0:
-        logger.warning(
-            "llvm-pdbutil dump -modules exited %d on %s: %s",
-            r.returncode,
-            pdb,
-            (r.stderr or r.stdout or "").strip()[:200],
-        )
-        return None
-    if ".zig-cache" in (r.stdout + r.stderr):
-        return {"zig": "1"}
-    return None
-
-
 def detect_with_pdb(path: Path) -> ToolchainInfo | None:
     """Detect via a sibling .pdb (compiler version + flags, Zig marker).
 
-    Returns None when there is no PDB or no usable tooling.
+    Delegates ``llvm-pdbutil`` execution and ``S_COMPILE3`` / module parsing to
+    :func:`rebrew.formats.pdb.extract_pdb_info`.  Returns None when there is no
+    PDB or no usable tooling.
     """
-    record = _pdb_compile_record(path)
-    if not record:
+    from rebrew.formats.pdb import extract_pdb_info
+
+    pdb_info = extract_pdb_info(path, runner=run_process_group)
+    if pdb_info is None or pdb_info.error:
         return None
 
     info = ToolchainInfo(detected_by="pdb")
-    frontend = record.get("frontend", "")
-    backend = record.get("backend", "")
-    flags = record.get("flags", "")
-    if record.get("zig") or ".zig-cache" in flags or "zig" in (frontend + backend).lower():
+    frontend = pdb_info.frontend
+    backend = pdb_info.backend
+    flags_str = " ".join(pdb_info.flags)
+    if (
+        pdb_info.toolchain == "zig"
+        or ".zig-cache" in flags_str
+        or "zig" in (frontend + backend).lower()
+    ):
         info.family = "zig"
         info.confidence = "high"
         info.version_hint = f"Zig/LLVM {frontend or backend}".strip()
         info.add("PDB module path names .zig-cache (Zig build)")
         return info
+    if not frontend and not pdb_info.flags:
+        return None
     info.add("PDB S_COMPILE3 record present")
     if frontend:
         info.family = "msvc"
         info.confidence = "medium"
         info.version_hint = f"MSVC frontend {frontend}"
         info.add(f"PDB compiler frontend {frontend}, backend {backend}")
-    if flags and flags.lower() not in ("none", ""):
-        info.flags = [f.strip() for f in flags.split() if f.strip()]
-        info.add(f"PDB compiler flags: {flags}")
+    if pdb_info.flags:
+        info.flags = list(pdb_info.flags)
+        info.add(f"PDB compiler flags: {flags_str}")
     if info.family == "unknown":
         return None
     return info

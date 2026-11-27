@@ -94,17 +94,32 @@ def reference_window(cfg: Any, va: int) -> int | None:
 
 
 def _masked_key(raw: bytes | bytearray, reloc: bool, mnemonic: str) -> bytes:
-    """Instruction bytes with reloc slots and branch operands blanked.
-
-    Accepts ``bytearray`` because capstone hands one back, and returns ``bytes``
-    because slicing a bytearray yields another bytearray, which the sequence
-    aligner cannot use as a dict key.
-    """
+    """Instruction bytes with reloc slots and branch operands blanked."""
     if reloc:
         return b"\x00" * len(raw)
     if mnemonic in _BRANCHES:
         return bytes(raw[:1]) + b"\x00" * (len(raw) - 1)
     return bytes(raw)
+
+
+def _masked_key_insn(insn: Any, reloc: bool) -> bytes:
+    """Arch-neutral instruction key using Capstone detail groups & immediate span."""
+    raw = bytes(insn.bytes)
+    if reloc:
+        return b"\x00" * len(raw)
+    from capstone import CS_GRP_CALL, CS_GRP_JUMP
+
+    try:
+        is_branch = bool(insn.group(CS_GRP_JUMP) or insn.group(CS_GRP_CALL))
+    except Exception:
+        is_branch = insn.mnemonic in _BRANCHES
+    if not is_branch:
+        return raw
+    imm_off = int(getattr(insn, "imm_offset", 0) or 0)
+    imm_sz = int(getattr(insn, "imm_size", 0) or 0)
+    if imm_off > 0 and imm_sz > 0 and imm_off + imm_sz <= len(raw):
+        return raw[:imm_off] + (b"\x00" * imm_sz) + raw[imm_off + imm_sz :]
+    return raw[:1] + b"\x00" * (len(raw) - 1)
 
 
 def first_fault(
@@ -300,7 +315,7 @@ def main(
         obj_seq.append(
             (
                 off,
-                _masked_key(insn.bytes, off in local_rels, insn.mnemonic),
+                _masked_key_insn(insn, off in local_rels),
                 insn.mnemonic,
                 insn.op_str,
             )

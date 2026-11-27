@@ -60,26 +60,6 @@ class FloatInstruction:
     disp_offset: int = 2  # byte offset of that disp32 within the instruction
 
 
-#: Bytes that may precede an x87 opcode without changing the ModRM form.
-#: ``67`` (address size) is included so the opcode is still recognized, then
-#: rejected: it turns ``D9 05`` into ``[di]``, which is not an absolute address.
-_X87_PREFIXES = frozenset({0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0x66, 0x67, 0xF0, 0xF2, 0xF3})
-
-
-def _x87_opcode_at(raw: bytes) -> tuple[tuple[int, int], int] | None:
-    """``(opcode, disp_offset)`` after leading prefixes, or None.
-
-    ``disp_offset`` is where the disp32 starts. A segment or operand-size
-    prefix shifts it past the usual ``address + 2``.
-    """
-    index = 0
-    while index < len(raw) and raw[index] in _X87_PREFIXES:
-        index += 1
-    if index + 1 >= len(raw):
-        return None
-    return (raw[index], raw[index + 1]), index + 2
-
-
 @dataclass(frozen=True)
 class FloatConstant:
     """A constant float value discovered via a code reference."""
@@ -92,12 +72,9 @@ class FloatConstant:
 def find_float_instructions_in_buffer(buf: bytes, base_addr: int = 0) -> Iterator[FloatInstruction]:
     """Scan *buf* for float instructions with an absolute memory operand.
 
-    Capstone (x86-32) decides which bytes are an instruction. A ``D9 05``
-    pattern inside another instruction's immediate is not a reference.
-    Undecodable bytes are skipped, so a real instruction later in *buf*
-    is still seen. The operand address is the instruction's disp32. A
-    segment or operand-size prefix (``fld dword ptr ds:[abs]``) stays a
-    reference; the opcode is the two bytes after those prefixes.
+    Capstone (x86-32, ``detail=True``) decides instruction boundaries, operand
+    form, and ``disp_offset`` (accounting for any segment or operand-size
+    prefixes without manual prefix decoding).
     """
     if not buf:
         return
@@ -106,11 +83,15 @@ def find_float_instructions_in_buffer(buf: bytes, base_addr: int = 0) -> Iterato
     from rebrew.analysis import capstone_for
 
     for insn in capstone_for().disasm(buf, base_addr):
-        raw = bytes(insn.bytes)
-        located = _x87_opcode_at(raw)
-        if located is None:
+        if insn.id == 0:
             continue
-        opcode, disp_offset = located
+        disp_offset = int(getattr(insn, "disp_offset", 0) or 0)
+        if disp_offset < 2 or int(getattr(insn, "disp_size", 0) or 0) != 4:
+            continue
+        raw = bytes(insn.bytes)
+        if disp_offset > len(raw):
+            continue
+        opcode = (raw[disp_offset - 2], raw[disp_offset - 1])
         if opcode not in FLOAT_OPCODES:
             continue
         for op in insn.operands:

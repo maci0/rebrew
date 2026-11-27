@@ -50,8 +50,6 @@ lazy from typing import Any
 
 lazy from rebrew.formats.binary_loader import decode_binary_name, extract_bytes_at_va, load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo
-lazy from rebrew.formats.import_table import parse_imports
-lazy from rebrew.formats.pe_headers import pe_layout
 lazy from rebrew.utils import ascii_fold_preserve_case, ascii_slug
 
 # ---------------------------------------------------------------------------
@@ -189,46 +187,25 @@ class PeSymbolTable:
 # ---------------------------------------------------------------------------
 
 
-def _section_spans(layout: Any, image_base: int) -> list[tuple[int, int]]:
-    """Absolute ``(start, end)`` for every section of a parsed PE layout."""
-    spans: list[tuple[int, int]] = []
-    for section in layout.sections:
-        start = image_base + section.virtual_address
-        size = max(section.virtual_size, section.size_of_raw_data)
-        if size > 0:
-            spans.append((start, start + size))
-    return spans
-
-
 def _inside(spans: list[tuple[int, int]], va: int) -> bool:
     """Whether *va* falls inside one of the section spans."""
     return any(start <= va < end for start, end in spans)
 
 
 class _Image:
-    """A parsed PE's section spans and image base, for pointer resolution.
+    """A parsed PE's section spans and image base, for pointer resolution."""
 
-    Wraps :func:`rebrew.formats.pe_headers.pe_layout` so the RVA-vs-VA decision
-    (:meth:`resolve`) and the byte reads share one section model.
-    """
-
-    def __init__(self, data: bytes, info: BinaryInfo, image_base: int) -> None:
-        layout = pe_layout(data)
+    def __init__(self, info: BinaryInfo, image_base: int) -> None:
         self.image_base = image_base
-        self.spans = _section_spans(layout, image_base) if layout is not None else []
+        self.spans = [
+            (sec.va, sec.va + max(sec.size, sec.raw_size))
+            for sec in info.sections.values()
+            if max(sec.size, sec.raw_size) > 0
+        ]
         self._info = info
 
     def resolve(self, value: int | None) -> int | None:
-        """Canonical absolute VA for a pointer stored in a PE structure.
-
-        PE structures store RVAs, but linkers have shipped absolute VAs in
-        these fields (Watcom's PE32+ load config, MSVC's VA-based delay-import
-        descriptors).  The section table decides: the RVA reading wins when it
-        lands inside a mapped section (the spec's meaning), otherwise the value
-        is taken as already absolute when it lands inside one.  ``None`` when
-        neither reading is mapped, so an unmapped pointer is never reported as
-        a fabricated address.
-        """
+        """Canonical absolute VA for a pointer stored in a PE structure."""
         if not value:
             return None
         rva_reading = self.image_base + value
@@ -362,23 +339,16 @@ def _resolve_field(image: _Image, field: int, rva_based: bool) -> int | None:
 
 
 def _read_safe_seh_entries(
-    image: _Image, table: int | None, count: int | None
+    image: _Image, config: Any, table: int | None, count: int | None
 ) -> tuple[list[int], list[str]]:
-    """Handler VAs from the load config's SafeSEH table.
-
-    The table address and entry count come from LIEF, which parses the load
-    config but does not enumerate these entries (its ``seh_functions`` list
-    came back empty for a synthetic PE whose table LIEF itself reported).
-    Entries are 4-byte RVAs per the PE/COFF spec, so they are read from the
-    image bytes; an entry whose target is not mapped is dropped rather than
-    emitted as a fabricated address.
-    """
+    """Handler VAs from the load config's SafeSEH table via LIEF 1.0."""
     if not count:
         return [], []
     table_va = image.resolve(table)
     if table_va is None:
         return [], [f"SafeSEH handler table address ({_pointer_text(table)}) is not mapped"]
-    entries = _read_rva_array(image, table_va, count, stride=_SLOT_SIZE)
+    raw_rvas = list(getattr(config, "seh_functions", ()))[:_MAX_TABLE_ENTRIES]
+    entries = [va for rva in raw_rvas if _inside(image.spans, va := image.image_base + int(rva))]
     if len(entries) < count:
         return entries, [
             f"SafeSEH handler table at {table_va:#010x} is unreadable "
@@ -388,22 +358,21 @@ def _read_safe_seh_entries(
 
 
 def _read_cfg_targets(
-    image: _Image, table: int | None, count: int | None, guard_flags: int
+    image: _Image, config: Any, table: int | None, count: int | None
 ) -> tuple[list[int], list[str]]:
-    """Target VAs from the load config's ``/guard:cf`` function table.
-
-    Same source split as :func:`_read_safe_seh_entries`: the table address and
-    count come from LIEF, the entries from the image bytes because LIEF's
-    ``guard_cf_functions`` list does not enumerate them.  GuardFlags supplies
-    a uniform count of metadata bytes following each four-byte RVA.
-    """
+    """Target VAs from the load config's ``/guard:cf`` function table via LIEF 1.0."""
     if not count:
         return [], []
     table_va = image.resolve(table)
     if table_va is None:
         return [], [f"/guard:cf target table address ({_pointer_text(table)}) is not mapped"]
-    stride = _SLOT_SIZE + ((guard_flags & _GUARD_TABLE_SIZE_MASK) >> 28)
-    entries = _read_rva_array(image, table_va, count, stride=stride)
+    raw_funcs = list(getattr(config, "guard_cf_functions", ()))[:_MAX_TABLE_ENTRIES]
+    entries = [
+        va
+        for fn in raw_funcs
+        if (rva := _int_or_none(getattr(fn, "rva", None))) is not None
+        and _inside(image.spans, va := image.image_base + rva)
+    ]
     if len(entries) < count:
         return entries, [
             f"/guard:cf target table at {table_va:#010x} is unreadable "
@@ -415,21 +384,6 @@ def _read_cfg_targets(
 def _pointer_text(value: int | None) -> str:
     """A pointer field for a note: its hex value, or ``none``."""
     return f"{value:#x}" if value else "none"
-
-
-def _read_rva_array(image: _Image, table_va: int, count: int, *, stride: int) -> list[int]:
-    """Read up to *count* RVA entries at *table_va*, keeping only mapped targets."""
-    limit = min(count, _MAX_TABLE_ENTRIES)
-    out: list[int] = []
-    for index in range(limit):
-        raw = image.read(table_va + index * stride, stride)
-        if len(raw) < stride:
-            break
-        value = struct.unpack_from("<I", raw, 0)[0]
-        va = image.image_base + value
-        if _inside(image.spans, va):
-            out.append(va)
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -505,30 +459,23 @@ def _read_tls_callbacks(pe: Any) -> tuple[list[int], list[str]]:
     return [], []
 
 
-def _read_imports(path: Path) -> list[PeImport]:
-    """The image's import table as records (absolute slot VAs).
-
-    ``parse_imports`` names an ordinal-only slot ``ordinal_<N>`` so the slot
-    stays visible; that synthetic name is dropped here (the ordinal field
-    already carries it) so every reader sees one shape.
-    """
+def _read_imports_from_pe(pe: Any, image_base: int) -> list[PeImport]:
+    """The image's import table as records (absolute slot VAs), from an already-parsed LIEF PE."""
     records: list[PeImport] = []
-    for record in parse_imports(path):
-        va = int(record.get("iat_va") or 0)
-        if not va:
-            continue
-        ordinal = _int_or_none(record.get("ordinal"))
-        name = str(record.get("name", ""))
-        if ordinal is not None and name == f"ordinal_{ordinal}":
-            name = ""
-        records.append(
-            PeImport(
-                dll=str(record.get("dll", "")),
-                name=name,
-                ordinal=ordinal,
-                va=va,
-            )
-        )
+    for imp in as_list(pe, "imports"):
+        dll = PureWindowsPath(decode_binary_name(getattr(imp, "name", "") or "")).name
+        for entry in as_list(imp, "entries"):
+            iat_rva = _int_or_none(getattr(entry, "iat_address", None)) or 0
+            if not iat_rva:
+                continue
+            va = image_base + iat_rva
+            is_ord = bool(getattr(entry, "is_ordinal", False))
+            if is_ord:
+                ordinal = _int_or_none(getattr(entry, "ordinal", None))
+                records.append(PeImport(dll=dll, name="", ordinal=ordinal, va=va))
+            else:
+                name = decode_binary_name(getattr(entry, "name", "") or "")
+                records.append(PeImport(dll=dll, name=name, ordinal=None, va=va))
     return records
 
 
@@ -539,14 +486,15 @@ def _read_load_config(image: _Image, pe: Any) -> tuple[list[int], list[int], int
         return [], [], None, []
     handlers, handler_notes = _read_safe_seh_entries(
         image,
+        config,
         _int_or_none(getattr(config, "se_handler_table", None)),
         _int_or_none(getattr(config, "se_handler_count", None)),
     )
     targets, target_notes = _read_cfg_targets(
         image,
+        config,
         _int_or_none(getattr(config, "guard_cf_function_table", None)),
         _int_or_none(getattr(config, "guard_cf_function_count", None)),
-        _int_or_none(getattr(config, "guard_flags", None)) or 0,
     )
     cookie = image.resolve(_int_or_none(getattr(config, "security_cookie", None)))
     return handlers, targets, cookie, handler_notes + target_notes
@@ -557,7 +505,7 @@ def _read_load_config(image: _Image, pe: Any) -> tuple[list[int], list[int], int
 # ---------------------------------------------------------------------------
 
 
-def pe_directories(path: str | Path) -> PeDirectories:
+def pe_directories(path: str | Path, *, pe: Any | None = None) -> PeDirectories:
     """The PE data directories of the image at *path*, as typed records.
 
     Never raises for a missing, non-PE, or malformed image: those return an
@@ -567,27 +515,28 @@ def pe_directories(path: str | Path) -> PeDirectories:
     target = Path(path)
     if not target.exists():
         return PeDirectories(notes=(f"binary not found: {target}",))
-    import lief
-
-    try:
-        is_pe = lief.is_pe(str(target))
-    except (OSError, ValueError, RuntimeError) as exc:
-        return PeDirectories(notes=(f"cannot identify {target.name}: {exc}",))
-    if not is_pe:
-        return PeDirectories(notes=(f"not a PE image: {target.name}",))
-    try:
-        pe = lief.PE.parse(str(target))
-    except (OSError, ValueError, RuntimeError) as exc:
-        return PeDirectories(notes=(f"cannot parse {target.name}: {exc}",))
     if pe is None:
-        return PeDirectories(notes=(f"cannot parse {target.name}",))
+        import lief
+
+        try:
+            is_pe = lief.is_pe(str(target))
+        except (OSError, ValueError, RuntimeError) as exc:
+            return PeDirectories(notes=(f"cannot identify {target.name}: {exc}",))
+        if not is_pe:
+            return PeDirectories(notes=(f"not a PE image: {target.name}",))
+        try:
+            pe = lief.PE.parse(str(target))
+        except (OSError, ValueError, RuntimeError) as exc:
+            return PeDirectories(notes=(f"cannot parse {target.name}: {exc}",))
+        if pe is None:
+            return PeDirectories(notes=(f"cannot parse {target.name}",))
     try:
         info = load_binary(target)
     except (OSError, ValueError, KeyError) as exc:
         return PeDirectories(notes=(f"cannot load {target.name}: {exc}",))
 
     image_base = _int_or_none(getattr(getattr(pe, "optional_header", None), "imagebase", 0)) or 0
-    image = _Image(info.data, info, image_base)
+    image = _Image(info, image_base)
 
     exports, export_notes = _read_exports(pe, image_base)
     callbacks, callback_notes = _read_tls_callbacks(pe)
@@ -611,7 +560,7 @@ def pe_directories(path: str | Path) -> PeDirectories:
     return PeDirectories(
         entrypoint=entrypoint,
         exports=tuple(exports),
-        imports=tuple(_read_imports(target)),
+        imports=tuple(_read_imports_from_pe(pe, image_base)),
         delay_imports=tuple(delay_records),
         tls_callbacks=tuple(callbacks),
         safe_seh_handlers=tuple(handlers),

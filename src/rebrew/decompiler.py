@@ -38,14 +38,13 @@ lazy import warnings
 lazy from collections.abc import Callable
 lazy from pathlib import Path
 
+lazy from rich.text import Text
+
 from rebrew.c_parser import CALLING_CONVENTION
 from rebrew.errors import RebrewError
 lazy from rebrew.config import KUNA_SPECS_ENV, expand_env_path, warn_env_dir
 lazy from rebrew.registry import RegistryError
 lazy from rebrew.utils import binary_fingerprint, console, run_process_group, untrusted_literal
-
-# ANSI escape code stripper
-_ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
 
 # Auto-probe order when backend="auto" (ghidra is available for explicit
 # use but not auto-probed; use backend='ghidra' with MCP configuration).
@@ -57,7 +56,7 @@ BACKENDS = ("r2ghidra", "r2dec", "kuna", "m2c")
 
 def _clean_output(text: str) -> str | None:
     """Strip ANSI codes and trim blank leading/trailing lines."""
-    text = _ANSI_RE.sub("", text)
+    text = Text.from_ansi(text).plain
     lines = text.splitlines()
     while lines and not lines[0].strip():
         lines.pop(0)
@@ -1348,7 +1347,7 @@ def _plugin_loaded(tool: str, command: str) -> bool:
             "%s plugin probe for %s failed: %s", tool, command, untrusted_literal(str(exc))[:200]
         )
         return False
-    return command in _ANSI_RE.sub("", result.stdout or "")
+    return command in Text.from_ansi(result.stdout or "").plain
 
 
 def _ghidra_answers(endpoint: str) -> bool:

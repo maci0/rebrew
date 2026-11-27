@@ -96,9 +96,11 @@ lazy import json
 lazy import logging
 lazy import os
 lazy import time
-lazy from collections.abc import Sequence
+lazy from collections.abc import Callable, Iterator, Sequence
 lazy from typing import Any
 lazy from urllib.parse import urlparse
+
+lazy import tenacity
 
 from rebrew.config import (
     LLM_PROJECT_ENDPOINT_TRUST_ENV,
@@ -112,7 +114,12 @@ from rebrew.config import (
     validate_llm_model,
 )
 lazy from rebrew.c_parser import normalize_function_prototype
-lazy from rebrew.utils import retry_backoff_delay, strip_bidi_format, truncate_text
+lazy from rebrew.utils import (
+    read_capped_body,
+    retry_backoff_delay,
+    strip_bidi_format,
+    truncate_text,
+)
 
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
@@ -1266,6 +1273,29 @@ def _warn_on_substituted_model(served: Any, requested: str) -> None:
     )
 
 
+class _CappedStreamAdapter:
+    """Adapt an HTTP response for :func:`read_capped_body` with a monotonic deadline."""
+
+    def __init__(self, resp: Any, deadline_s: float | None) -> None:
+        raw_headers = getattr(resp, "headers", None) or {}
+        cl_raw = (
+            raw_headers.get("content-length") or raw_headers.get("Content-Length")
+            if hasattr(raw_headers, "get")
+            else None
+        )
+        self.headers: dict[str, str] = (
+            {} if cl_raw is None else {"content-length": str(cl_raw).strip()}
+        )
+        self._resp = resp
+        self._deadline_s = deadline_s
+
+    def iter_bytes(self) -> Iterator[bytes]:
+        for chunk in self._resp.iter_bytes():
+            if self._deadline_s is not None and time.monotonic() > self._deadline_s:
+                raise TimeoutError("LLM response body exceeded the per-request time budget")
+            yield chunk
+
+
 def _load_response_json(resp: Any, *, deadline_s: float | None = None) -> Any:
     """Parse the HTTP body with a hard size ceiling before ``json.loads``.
 
@@ -1285,29 +1315,15 @@ def _load_response_json(resp: Any, *, deadline_s: float | None = None) -> Any:
     request cannot stretch or shrink it.  Omitted by direct callers that read a
     body already in hand.
     """
-    headers = getattr(resp, "headers", None) or {}
-    cl_raw = None
-    if hasattr(headers, "get"):
-        cl_raw = headers.get("content-length") or headers.get("Content-Length")
-    if cl_raw is not None:
-        try:
-            declared = int(cl_raw)
-        except TypeError, ValueError:
-            # Non-numeric Content-Length: fall through to the body check.
-            pass
-        else:
-            if declared > _MAX_HTTP_BODY_BYTES:
-                raise ValueError(
-                    f"LLM response Content-Length {cl_raw} exceeds {_MAX_HTTP_BODY_BYTES} bytes"
-                )
-
-    content = bytearray()
-    for chunk in resp.iter_bytes():
-        if deadline_s is not None and time.monotonic() > deadline_s:
-            raise TimeoutError("LLM response body exceeded the per-request time budget")
-        if len(content) + len(chunk) > _MAX_HTTP_BODY_BYTES:
-            raise ValueError(f"LLM response body exceeds {_MAX_HTTP_BODY_BYTES} bytes")
-        content.extend(chunk)
+    adapter = _CappedStreamAdapter(resp, deadline_s)
+    content = read_capped_body(adapter, _MAX_HTTP_BODY_BYTES)  # type: ignore[arg-type]
+    if content is None:
+        cl_raw = adapter.headers.get("content-length", "")
+        if cl_raw.isdigit() and int(cl_raw) > _MAX_HTTP_BODY_BYTES:
+            raise ValueError(
+                f"LLM response Content-Length {cl_raw} exceeds {_MAX_HTTP_BODY_BYTES} bytes"
+            )
+        raise ValueError(f"LLM response body exceeds {_MAX_HTTP_BODY_BYTES} bytes")
     if not content:
         return {}
     return json.loads(content)
@@ -1467,6 +1483,8 @@ def _send_seeds(
     expect: tuple[str, str],
     model: str,
     billed_ceiling: int,
+    *,
+    sleep: Callable[[float], None] | None = None,
 ) -> list[str]:
     """One seed request, re-sent only on failures that were never billed.
 
@@ -1480,39 +1498,47 @@ def _send_seeds(
     failure path, which keeps the cost record and the warning text unchanged.
     """
     started = time.monotonic()
-    attempt = 0
-    while True:
-        try:
-            if client is not None:
-                return _request(
-                    client, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
-                )
-            import httpx
+    nap = sleep if sleep is not None else time.sleep
 
-            with httpx.Client(
-                timeout=_request_timeout(), follow_redirects=False, trust_env=False
-            ) as http:
-                return _request(
-                    http, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
-                )
-        except Exception as exc:
-            attempt += 1
-            if (
-                not _never_billed(exc)
-                or attempt >= _CONNECT_ATTEMPTS
-                or time.monotonic() - started >= _CONNECT_RETRY_WINDOW_S
-            ):
-                raise
-            delay = retry_backoff_delay(attempt - 1)
+    def _attempt() -> list[str]:
+        if client is not None:
+            return _request(
+                client, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
+            )
+        import httpx
+
+        with httpx.Client(
+            timeout=_request_timeout(), follow_redirects=False, trust_env=False
+        ) as http:
+            return _request(
+                http, conf, source, count, expect, model=model, billed_ceiling=billed_ceiling
+            )
+
+    def _should_retry(exc: BaseException) -> bool:
+        return _never_billed(exc) and (time.monotonic() - started < _CONNECT_RETRY_WINDOW_S)
+
+    def _log_retry(rs: tenacity.RetryCallState) -> None:
+        exc = rs.outcome.exception() if rs.outcome is not None else None
+        delay = rs.next_action.sleep if rs.next_action is not None else 0.0
+        if exc is not None:
             logging.warning(
                 "LLM seeding connect attempt %d/%d never reached the provider (%s); "
                 "retrying in %.1fs",
-                attempt,
+                rs.attempt_number,
                 _CONNECT_ATTEMPTS,
                 sanitize_log_value(exc, secrets=(conf.get("api_key", ""),)),
                 delay,
             )
-            time.sleep(delay)
+
+    retrying = tenacity.Retrying(
+        stop=tenacity.stop_after_attempt(_CONNECT_ATTEMPTS),
+        retry=tenacity.retry_if_exception(_should_retry),
+        wait=lambda rs: retry_backoff_delay(rs.attempt_number - 1),
+        before_sleep=_log_retry,
+        sleep=nap,
+        reraise=True,
+    )
+    return retrying(_attempt)
 
 
 def request_seeds(

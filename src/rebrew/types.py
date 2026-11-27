@@ -62,18 +62,25 @@ class StructDef:
     alignment: int = 1
 
 
-def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) -> int | None:
+def type_size(
+    spelling: str,
+    known_structs: dict[str, StructDef] | None = None,
+    *,
+    pointer_width: int = 4,
+) -> int | None:
     """Size in bytes of a 32-bit MSVC type spelling, or None when unknown.
 
-    Handles primitives, pointers (4), ``T[N]`` arrays, and known struct
-    names via *known_structs*.  Struct/union/enum spellings without a
+    Handles primitives, pointers (*pointer_width*), ``T[N]`` arrays, and known
+    struct names via *known_structs*.  Struct/union/enum spellings without a
     definition, bitfields, and function pointers are unknown.
     """
     text = " ".join(spelling.strip().split())
     if not text:
         return None
+    while text.startswith(("const ", "volatile ")):
+        text = text.split(None, 1)[1].strip()
     if text.endswith("*"):
-        return 4
+        return pointer_width
     text = text.removeprefix("unsigned ").removeprefix("signed ")
     if text.startswith(("struct ", "union ", "enum ")):
         struct_name = text.split(None, 1)[1].strip()
@@ -90,7 +97,7 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
     # ``T (*)[N]`` is one pointer. The bracket is the array it addresses,
     # not a dimension of this object. ``T *[N]`` has no ``(*)``.
     if _is_pointer_to_array(text):
-        return 4
+        return pointer_width
     if "[" in text or "(*" in text:
         from rebrew.c_parser import abstract_pointer_array_dimensions, array_type_shape
 
@@ -103,7 +110,7 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
                 if not isinstance(bound, int) or bound < 0:
                     return None
                 count *= bound
-            return 4 * count
+            return pointer_width * count
         if "[" not in text:
             return None
         base, dimensions = array_type_shape(text)
@@ -118,7 +125,7 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
             if not isinstance(bound, int) or bound < 0:
                 return None
             count *= bound
-        base_size = type_size(base, known_structs)
+        base_size = type_size(base, known_structs, pointer_width=pointer_width)
         return None if base_size is None else base_size * count
     if known_structs and text in known_structs:
         struct = known_structs[text]
@@ -293,13 +300,20 @@ def _packing_after(text: str, current: int, stack: list[tuple[str, int]]) -> int
     return number if number is not None else current
 
 
-def parse_structs(source_text: str) -> dict[str, StructDef]:
+def parse_structs(
+    source_text: str,
+    *,
+    packed: bool = False,
+    pointer_width: int = 4,
+) -> dict[str, StructDef]:
     """Parse ``typedef struct {...} Name;`` and ``struct Tag {...};`` definitions.
 
     Returns ``{name: StructDef}`` with MSVC 32-bit field offsets (natural
-    alignment capped by source pack pragmas, with padded struct size). Fields whose
-    type size is unknown (nested structs, bitfields, function pointers) end
-    the parseable prefix — the struct keeps the fields before the gap with
+    alignment capped by source pack pragmas, with padded struct size). When
+    *packed* is True, alignment is capped at 1 byte (no padding between fields
+    or trailing struct padding). *pointer_width* sizes pointer fields. Fields
+    whose type size is unknown (nested structs, bitfields, function pointers)
+    end the parseable prefix — the struct keeps the fields before the gap with
     its size set to what is known so far.
 
     Layouts are built to a fixed point, so a field whose type is a struct
@@ -335,7 +349,7 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
                 if not name:
                     name = _struct_name(node, source)
                 if name:
-                    bodies.setdefault(name, (body, packing))
+                    bodies.setdefault(name, (body, 1 if packed else packing))
         for child in node.children:
             collect(child)
 
@@ -347,7 +361,7 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
     structs: dict[str, StructDef] = {}
     for _ in range(len(bodies) + 1):
         updated = {
-            name: _build_struct(name, body, source, structs, pack)
+            name: _build_struct(name, body, source, structs, pack, pointer_width=pointer_width)
             for name, (body, pack) in bodies.items()
         }
         if signature(updated) == signature(structs):
@@ -358,7 +372,13 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
 
 
 def _build_struct(
-    name: str, body: Any, source: bytes, known: dict[str, StructDef], pack: int
+    name: str,
+    body: Any,
+    source: bytes,
+    known: dict[str, StructDef],
+    pack: int,
+    *,
+    pointer_width: int = 4,
 ) -> StructDef:
     """Lay out one struct_specifier body under its active packing cap."""
     fields: list[tuple[str, str, int]] = []
@@ -377,11 +397,11 @@ def _build_struct(
             complete = False
             break
         field_name, spelling = parsed
-        size = type_size(spelling, known)
+        size = type_size(spelling, known, pointer_width=pointer_width)
         if size is None:
             complete = False
             break
-        align = min(_field_align(spelling, size, known), pack)
+        align = min(_field_align(spelling, size, known, pointer_width=pointer_width), pack)
         offset = _align_up(offset, align)
         max_align = max(max_align, align)
         fields.append((field_name, spelling, offset))
@@ -395,31 +415,39 @@ def _build_struct(
     )
 
 
-def _field_align(spelling: str, size: int, known: dict[str, StructDef] | None) -> int:
+def _field_align(
+    spelling: str,
+    size: int,
+    known: dict[str, StructDef] | None,
+    *,
+    pointer_width: int = 4,
+) -> int:
     """Natural alignment: arrays align by element, scalars by size (cap 4).
 
     ``double``, ``long double``, ``long long``, and ``__int64`` align to 8
     on 32-bit MSVC.
     """
     text = " ".join(spelling.split())
+    while text.startswith(("const ", "volatile ")):
+        text = text.split(None, 1)[1].strip()
     # A pointer to an array aligns as a pointer. The ``]`` is the pointee.
     if _is_pointer_to_array(text):
-        return 4
+        return pointer_width
     # ``T (*[N])`` and ``T (*[N])[M]`` are pointers. Peeling the pointee
     # bracket left ``T (*``, which has no size, so the field aligned to 1.
     from rebrew.c_parser import abstract_pointer_array_dimensions
 
     if abstract_pointer_array_dimensions(text):
-        return 4
+        return pointer_width
     if text.endswith("]"):
         base, _, _count = text[:-1].rpartition("[")
         base = base.strip()
-        base_size = type_size(base, known)
+        base_size = type_size(base, known, pointer_width=pointer_width)
         if base_size is None:
             return 1
         # An array aligns by its element: ``double arr[2]`` is 8-aligned, not
         # capped at 4 like a scalar 8-byte type would be.
-        return _field_align(base, base_size, known)
+        return _field_align(base, base_size, known, pointer_width=pointer_width)
     canon = text.removeprefix("unsigned ").removeprefix("signed ")
     aggregate = canon.removeprefix("struct ")
     if known and aggregate in known:
@@ -482,11 +510,27 @@ def rewrite_param_type(
     is not found.  Only the type spelling of the indexed parameter is
     replaced (0-based); name, calling convention, and body are untouched.
     """
-    from rebrew.c_parser import parse_c_source
+    from rebrew.c_parser import mask_msvc_syntax, parse_c_source
 
-    tree, source = parse_c_source(source_text)
+    masked = mask_msvc_syntax(source_text)
+    tree, _masked_bytes = parse_c_source(masked)
+    source = source_text.encode("utf-8", errors="surrogateescape")
 
     target: Any = None
+
+    def _unwrap_fn_declarator(node: Any) -> Any | None:
+        cur = node
+        while cur is not None:
+            if cur.type == "function_declarator":
+                return cur
+            if cur.type == "pointer_declarator":
+                cur = cur.child_by_field_name("declarator")
+            elif cur.type == "parenthesized_declarator":
+                inner = [c for c in cur.named_children if c.type != "comment"]
+                cur = inner[0] if inner else None
+            else:
+                return None
+        return None
 
     def visit(node: Any) -> None:
         nonlocal target
@@ -496,7 +540,7 @@ def rewrite_param_type(
             for child in node.children:
                 visit(child)
             return
-        declarator = next((c for c in node.children if c.type == "function_declarator"), None)
+        declarator = _unwrap_fn_declarator(node.child_by_field_name("declarator"))
         if declarator is None:
             return
         ident = next((c for c in declarator.children if c.type == "identifier"), None)
@@ -540,4 +584,7 @@ def rewrite_param_type(
     stripped = new_type.strip()
     if after.startswith("*"):
         stripped = stripped.rstrip("*").strip()
+        return before + stripped + " " + after
+    if stripped.endswith("*"):
+        return before + stripped + after
     return before + stripped + " " + after

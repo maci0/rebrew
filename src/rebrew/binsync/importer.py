@@ -88,15 +88,11 @@ log = logging.getLogger(__name__)
 #: in it is refused before it is spliced into a ``.c`` file or PROTOTYPE.
 _UNSAFE_PROTOTYPE_RE = re.compile(r"[{};#\x00-\x08\x0a-\x1f\x7f]|/\*|\*/|//")
 
-#: A block comment, replaced by a space before the preprocessor-line test.
-_C_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
-
 #: A field ``type`` value a synthesized struct member may carry.  BinSync
 #: state is collaborator-written, and the value is interpolated straight
 #: into the header body, so a member declared ``int; int evil(`` would
 #: otherwise compile as the next build's code.
 _C_TYPE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_ ]*\*?\Z")
-_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 
 app = typer.Typer(
     help="Import a BinSync state directory into rebrew metadata.",
@@ -343,11 +339,6 @@ _PLACEHOLDER_TYPE_RE = re.compile(r"\bundefined\d*\b")
 #: patterns recompiled per member/prototype inside loops.
 _MEMBER_PUNCT_RE = re.compile(r"\s*([*\[\]()])\s*")
 _KEY_PUNCT_RE = re.compile(r"\s*([(),*\[\]])\s*")
-_LINE_COMMENT_RE = re.compile(r"//[^\n]*")
-_PREPROC_LINE_RE = re.compile(r"^[ \t\f\v]*#", re.MULTILINE)
-_ENUM_WORD_RE = re.compile(r"\benum\b")
-_ENUM_NAME_RE = re.compile(r"\}\s*([A-Za-z_]\w*)\s*;")
-_ENUM_TAG_RE = re.compile(r"enum\s+([A-Za-z_]\w*)\s*\{")
 
 
 def _expanded_type_key(prototype: str, aliases: dict[str, str]) -> str | None:
@@ -1530,6 +1521,41 @@ def _definition_files(cfg: ProjectConfig) -> list[Path]:
     return headers + sources
 
 
+def _declared_type_names(definition: str) -> set[str]:
+    """Return top-level typedef or enum/struct tag names in *definition*."""
+    from rebrew.c_parser import find_declarator_name, node_text, parse_c_source
+
+    tree, raw = parse_c_source(definition.strip())
+    found: set[str] = set()
+    for node in tree.root_node.named_children:
+        if node.type == "type_definition":
+            declarators = node.children_by_field_name("declarator")
+            for decl in declarators:
+                if decl.type == "type_identifier":
+                    found.add(node_text(decl, raw))
+                else:
+                    name = find_declarator_name(decl, raw)
+                    if name:
+                        found.add(name)
+            if not found:
+                spec = node.child_by_field_name("type")
+                if spec is not None:
+                    tag = spec.child_by_field_name("name")
+                    if tag is not None:
+                        found.add(node_text(tag, raw))
+        elif node.type in ("enum_specifier", "struct_specifier"):
+            tag = node.child_by_field_name("name")
+            if tag is not None:
+                found.add(node_text(tag, raw))
+        elif node.type == "declaration":
+            spec = node.child_by_field_name("type")
+            if spec is not None and spec.type in ("enum_specifier", "struct_specifier"):
+                tag = spec.child_by_field_name("name")
+                if tag is not None:
+                    found.add(node_text(tag, raw))
+    return found
+
+
 def _local_type_names(cfg: ProjectConfig, *, files: list[Path] | None = None) -> set[str]:
     """Names of type definitions already present in the local tree.
 
@@ -1548,13 +1574,9 @@ def _local_type_names(cfg: ProjectConfig, *, files: list[Path] | None = None) ->
             for text in extract_structs_from_file(path):
                 names.update(parse_structs(text))
             for text in extract_enums_from_file(path):
-                match = _ENUM_NAME_RE.search(text) or _ENUM_TAG_RE.search(text)
-                if match:
-                    names.add(match.group(1))
+                names.update(_declared_type_names(text))
             for text in extract_type_definitions(path):
-                identifiers = _IDENT_RE.findall(text.rstrip().rstrip(";"))
-                if identifiers:
-                    names.add(identifiers[-1])
+                names.update(_declared_type_names(text))
         except OSError:
             continue
     return names
@@ -1610,17 +1632,26 @@ def _definition_text(name: str, entry: dict[str, object]) -> str:
 def _has_preprocessor_line(definition: str) -> bool:
     """Whether *definition* carries a preprocessor directive.
 
-    The test runs on the text with comments removed because that is what the
-    preprocessor sees: ``/*x*/ #define FOO 1`` is a directive even though the
-    ``#`` is not the first character of the line.
+    Uses ``tree-sitter-c`` to detect ``preproc_*`` nodes (including directives
+    preceded by comments such as ``/*x*/ #define FOO 1``) and rejects any bare
+    leading ``#`` line remaining after comments and literals are masked.
     """
-    stripped = _C_COMMENT_RE.sub(" ", definition)
-    stripped = _LINE_COMMENT_RE.sub(" ", stripped)
-    return bool(_PREPROC_LINE_RE.search(stripped))
+    from rebrew.c_parser import mask_comments_and_literals, parse_c_source
+
+    tree, _raw = parse_c_source(definition)
+    stack = [tree.root_node]
+    while stack:
+        node = stack.pop()
+        if node.type.startswith("preproc_"):
+            return True
+        stack.extend(node.children)
+    masked = mask_comments_and_literals(definition)
+    return any(line.lstrip(" \t\f\v").startswith("#") for line in masked.splitlines())
 
 
 def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -> bool:
     """Whether *definition* is a complete, non-breaking declaration for *name*."""
+    from rebrew.c_parser import parse_c_source
     from rebrew.types import parse_structs
 
     # Shared state must not smuggle preprocessor lines into binsync_types.h.
@@ -1636,11 +1667,26 @@ def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -
     if name in parse_structs(definition):
         return True
     kind = _definition_kind(entry)
-    text = definition.strip()
+    tree, _raw = parse_c_source(definition.strip())
+    if tree.root_node.has_error:
+        return False
+    nodes = [n for n in tree.root_node.named_children if n.type != "comment"]
+    if len(nodes) != 1:
+        return False
+    node = nodes[0]
     if kind == "enum":
-        return bool(_ENUM_WORD_RE.search(text)) and "{" in text and text.endswith(";")
+        if node.type == "enum_specifier":
+            return node.child_by_field_name("body") is not None
+        if node.type in ("type_definition", "declaration"):
+            spec = node.child_by_field_name("type")
+            return (
+                spec is not None
+                and spec.type == "enum_specifier"
+                and spec.child_by_field_name("body") is not None
+            )
+        return False
     if kind == "typedef":
-        return text.startswith("typedef") and text.endswith(";")
+        return bool(node.type == "type_definition")
     return False
 
 

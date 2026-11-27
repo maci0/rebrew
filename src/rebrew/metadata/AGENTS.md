@@ -16,7 +16,7 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `locking.py` | Reentrant project and physical-storage locks |
 | `document.py` | Qualified-key algebra and backend-neutral document cache |
 | `lazydoc.py` | Lazy round-trip document editing, with a full parse when the document cannot be split safely |
-| `rendered_toml.py` | `loads`: `tomllib.loads` for stored documents, a line at a time on the layout rebrew renders, `tomllib` for any other text |
+| `rendered_toml.py` | `loads`: fast TOML loader backed by `rtoml.loads`, with `tomllib.loads` fallback on parse errors |
 | `lazydoc.py` | Round-trip documents that tomlkit-parse only the records a writer touches; top-level record values cached by exact record text |
 | `records.py` | Record boundaries of a logical document, shared by backends and diffs |
 | `model.py` | `MetadataEntry`: typed view and validation of a function entry |
