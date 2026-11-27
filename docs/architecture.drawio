@@ -179,7 +179,7 @@
         <mxCell id="c3" value="rebrew diff&lt;br&gt;hex/asm + --fix-blocker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="480" y="612" width="200" height="56" as="geometry"/>
         </mxCell>
-        <mxCell id="c4" value="rebrew match batch&lt;br&gt;GA / --algorithm flags / --all" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="c4" value="rebrew match batch&lt;br&gt;GA / --algorithm flags / --improve" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="700" y="612" width="200" height="56" as="geometry"/>
         </mxCell>
         <mxCell id="c5" value="rebrew prove&lt;br&gt;angr equivalence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -450,7 +450,7 @@
         <mxCell id="res-lane" value="D. resembl (structural score) vs score_candidate (GA fitness) vs prove (semantics)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="746" width="1680" height="220" as="geometry"/>
         </mxCell>
-        <mxCell id="r1" value="&lt;b&gt;resembl.scoring&lt;/b&gt;&lt;br&gt;uv sync --group similarity&lt;br&gt;path-pin ../resembl&lt;br&gt;&lt;br&gt;tokenize asm: REG / IMM / MEM_SIZE&lt;br&gt;weighted shingles, MinHash&lt;br&gt;hybrid Jaccard + rapidfuzz ratio&lt;br&gt;&lt;br&gt;code_similarity() → 0–100 float&lt;br&gt;used by verify.py for every function&lt;br&gt;None if group missing (not a fake 0)&lt;br&gt;resembl's own LSH DB is not used" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="r1" value="&lt;b&gt;resembl.scoring&lt;/b&gt;&lt;br&gt;uv sync --group similarity&lt;br&gt;path-pin ../resembl&lt;br&gt;&lt;br&gt;tokenize asm: REG / IMM / MEM_SIZE&lt;br&gt;weighted shingles, MinHash&lt;br&gt;hybrid Jaccard + rapidfuzz ratio&lt;br&gt;&lt;br&gt;code_similarity() → 0–100 float&lt;br&gt;optional structural score&lt;br&gt;resembl's own LSH DB is not used" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="786" width="420" height="160" as="geometry"/>
         </mxCell>
         <mxCell id="r2" value="&lt;b&gt;matcher.scoring (always on)&lt;/b&gt;&lt;br&gt;GA fitness, no resembl required&lt;br&gt;&lt;br&gt;byte_score (reloc-zeroed, prologue-weighted)&lt;br&gt;reloc_score · mnemonic_score · prologue_bonus&lt;br&gt;structural_similarity() for diagnose near&lt;br&gt;capstone + numpy only&lt;br&gt;&lt;br&gt;similar.py is a separate clone finder&lt;br&gt;(mnemonic-histogram, not resembl)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -542,7 +542,7 @@
         <mxCell id="d5" value="&lt;b&gt;History (not a cache)&lt;/b&gt;&lt;br&gt;.rebrew/ga_runs.jsonl&lt;br&gt;re-running GA does not&lt;br&gt;reproduce these" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1160" y="568" width="240" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="d6" value="&lt;b&gt;Binsync export&lt;/b&gt;&lt;br&gt;functions/*.toml&lt;br&gt;global_vars.toml&lt;br&gt;structs/*.toml&lt;br&gt;0444 interchange, not canonical" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d6" value="&lt;b&gt;Binsync export&lt;/b&gt;&lt;br&gt;functions/*.toml&lt;br&gt;global_vars.toml&lt;br&gt;structs/*.toml&lt;br&gt;0644 interchange files" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1420" y="568" width="270" height="110" as="geometry"/>
         </mxCell>
 
@@ -704,7 +704,7 @@
         <mxCell id="l4" value="&lt;b&gt;rebrew build postlink&lt;/b&gt;&lt;br&gt;built.dll vs layout/ (or ref)&lt;br&gt;--fix imports | data | pe-metadata | all&lt;br&gt;order: imports → data → pe-metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1130" y="548" width="280" height="104" as="geometry"/>
         </mxCell>
-        <mxCell id="l5" value="&lt;b&gt;byte-identical PE&lt;/b&gt;&lt;br&gt;linker hash/IAT/timestamp&lt;br&gt;normalized away;&lt;br&gt;remaining diff is real code/data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="l5" value="&lt;b&gt;normalized PE&lt;/b&gt;&lt;br&gt;selected layout repairs applied" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1440" y="548" width="250" height="104" as="geometry"/>
         </mxCell>
         <mxCell id="l-note" value="MSVC6 LINK is not a source-order assembler for every section. Placement drift is a linker artifact. The layout package is committed so a public checkout reproduces postlink without original/. Prefix hex is checked for drift, never copied." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -722,7 +722,7 @@
         <mxCell id="m0" value="function compile&lt;br&gt;reloc slots point at globals" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="808" width="220" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="m1" value="smart_reloc_compare&lt;br&gt;zeros reloc bytes;&lt;br&gt;RELOC if only those differ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="m1" value="smart_reloc_compare&lt;br&gt;checks relocation bindings&lt;br&gt;and masks eligible bytes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="320" y="808" width="220" height="70" as="geometry"/>
         </mxCell>
         <mxCell id="m2" value="wrong global VA / BSS gap&lt;br&gt;→ leftover ~~ after mask&lt;br&gt;diagnose near: reloc bucket" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">

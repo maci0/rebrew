@@ -233,8 +233,8 @@ skills.
 
 Tables below list command-specific parameters, accepted input types, defaults,
 and meaning. The shared version, logging, and help flags are documented above
-and remain available at every depth. A dash in Default means no explicit
-value; the Meaning column explains configuration-derived defaults.
+and remain available at every depth. `none` means no explicit value. The
+Meaning column describes defaults read from configuration.
 
 `--fix-sizes` uses evidence specific to each operation: `test` accepts a compiled
 size only when all common bytes match, `verify` records binary-derived extents,
@@ -801,8 +801,8 @@ their inputs are available:
 | Measure | JSON | Denominator |
 |---|---|---|
 | Whole-file agreement | `file.similarity_pct` | Longer of reference and built image; bytes compared at the same file offsets |
-| Accounted executable bytes | `byte_coverage_pct` | File-backed `.text`; matched functions, library attributions, and alignment fill count |
-| Stored data verification | `data.byte_pct` | File-backed `.data` + `.rdata`; only VERIFIED bytes without conflicting verdicts count |
+| Accounted executable bytes | `byte_coverage_pct` | Virtual `.text` size. Matched functions, library attributions, and alignment fill count. |
+| Stored data verification | `data.byte_pct` | File-backed `.data` + `.rdata`. The verified bucket includes `EXACT` and `VERIFIED` bytes without conflicting verdicts. |
 
 Do not add these percentages or treat stored verdicts as a fresh build check.
 Whole-file agreement uses configured `raw_link` or `build/<target>`; a missing
@@ -2020,7 +2020,10 @@ Functions that already have a VA may still document provenance with their own
 
 Choose a search operation explicitly. `run SOURCE` runs the genetic algorithm; `flags SOURCE` searches compiler flags; `toolchains SOURCE` compares compiler profiles and adds per-profile flag search with `--flags`. `batch` selects functions from the project and chooses `--algorithm ga|flags|flags-then-ga`. `history` reads past runs without compiling.
 
-Single-function operations require a source file, symbol, or VA and share the existing function resolver. On `run` and `batch`, `--output/-o` names a search-results **directory**. Flag and toolchain sweeps report results without that option. Toolchain sweeps use plural `--toolchains` and `--exclude-toolchains`; ordinary compilation uses singular `--toolchain` for one profile. Provider defaults and search behavior are unchanged.
+Single-function operations accept a source file, symbol, or VA. For `match run`,
+`--output/-o` names a search-results directory. Toolchain sweeps use plural
+`--toolchains` and `--exclude-toolchains`. Ordinary compilation selects one
+profile with `--toolchain`.
 
 
 Use `rebrew match <operation> --help` for exact arguments and examples.
@@ -2809,7 +2812,7 @@ For a PE the payload carries:
   `high_entropy_va`, `force_integrity`, `isolation`, `seh`, plus
   `certificate_table`, alongside the raw `dll_characteristics` dword.
   `flags_summary` lists the enabled mitigations in a fixed order.
-- **`security`**: the portal's 11-item checklist in display order
+- **`security`**: an 11-item mitigation checklist in display order
   (`aslr`, `dep`, `cfg`, `driver_model`, `app_container`,
   `terminal_server_aware`, `image_isolation`, `code_integrity`,
   `high_entropy`, `seh`, `bound_image`).  Each item is
@@ -4516,10 +4519,9 @@ metadata binding still gets an entry (its project default) instead of silently
 losing its flags. The selected
 target's `defines` are emitted as `COMPILE_DEFINITIONS` for every entry, including
 listed support sources, so CMake selects the same shared-source branch as
-`test` and `verify`. JSON reports them in `defines`. Metadata `/D` defines
-are not emitted (this project's are the `DREBREW_ALLOW_NAKED` reconstruction
-guard, which the shipped build must not compile) and each omission is printed as
-a note.  Shared sources
+`test` and `verify`. JSON reports them in `defines`. The export omits
+metadata `/D` defines such as `/DREBREW_ALLOW_NAKED`, which enables the
+reconstruction branch, and prints a note for each omission. Shared sources
 (`src/shared`) are collected for every target through their own metadata bindings:
 a shared TU is flagless in the build without this.
 
@@ -5207,8 +5209,10 @@ document `rebrew coverage export --output snapshots/` writes stores the same glo
 catalog plus annotated globals whose data module is visible to the target (the
 active module and modules that belong to no other target).
 
-`rebrew coverage catalog` writes no artifact of its own: the coverage document is
-`rebrew coverage export --output snapshots/`'s, and that command generates the catalog dict in-process.
+By default, the catalog reports without writing. `--export-ghidra-labels`
+writes `ghidra_data_labels.json`, and `--fix-sizes` grows undersized stored
+extents. Use `rebrew coverage export --output snapshots/` for a portable
+coverage document.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -5434,7 +5438,7 @@ with the install command before writing anything; so do `rebrew sync push`,
 | `rebrew binsync overlay` | Overlay a related target's BinSync data onto structurally-matched functions. |
 | `rebrew binsync push` | Export the project into rebrew's own BinSync branch and commit it. |
 | `rebrew binsync pull` | Import the other BinSync users' branches into the project. |
-| `rebrew binsync summary` | Preview what push and pull would change, without writing or touching git. |
+| `rebrew binsync summary` | Preview outgoing and incoming BinSync changes. |
 | `rebrew binsync export` | Export Rebrew symbols and types to a BinSync state directory. |
 | `rebrew binsync import` | Import a BinSync state directory into rebrew metadata. |
 
@@ -5563,7 +5567,8 @@ state directory is fast-forwarded and imported from its working tree.
 
 `rebrew binsync summary [OPTIONS] STATE_DIR`
 
-Preview what push and pull would change, without writing or touching git.
+Preview push and pull. In a BinSync repo, the preview uses temporary
+worktrees and may initialize a peer baseline. See [BinSync preview behavior](BINSYNC_INTEGRATION.md).
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -6042,15 +6047,8 @@ and start no container. Objects built from a source-vendored
 library subtree are indexed from the build database, since such a library
 never ships a `.LIB`.
 
-| Flag / Arg | Description |
-|------------|-------------|
-| `--lib FILE` | Static library to check against (repeatable) |
-| `--stock-lib NAME` | Stock archive from the project toolchain's image (repeatable), e.g. `LIBCMT.LIB`. Extracted into `.scratch/` on first use, refused when it differs from the image's copy |
-| `--compile-commands FILE` | Build database used to index objects built from a source-vendored tree (default `build/compile_commands.json`, skipped when absent). With explicit `--lib` or `--stock-lib`, vendored objects are included only when this option is supplied. |
-| `--va HEX` | Check a single function VA instead of every reversed function |
-| `--resolve-callees` | Requires `--va`; reject x86 COFF candidates contradicted by complete known native direct callees and report unresolved edges |
-| `--target NAME` | Select a target from `rebrew-project.toml` |
-| `--json` | Output results as JSON |
+With explicit `--lib` or `--stock-lib`, indexing vendored objects requires
+`--compile-commands FILE`.
 
 Batch matching requires an extent in the configured native inventory and warns when one is missing. Single-address matching uses the inventory first, then the metadata size, and errors if neither exists. Object spans can contain up to 15 trailing NOP or INT3 padding bytes without relocations. Matches mask relocations, so they identify candidates rather than proving operands, literal contents, or the linked provider.
 
@@ -6215,14 +6213,7 @@ The image's `Lib` directory is searched ignoring letter case (the image holds
 `LIBCMT.LIB`); no match, or more than one, is an error. `library match
 --stock-lib` extracts and hash-checks the same way.
 
-| Flag / Arg | Description |
-|------------|-------------|
-| `LIBRARY` | Archive path, or an `external_libs` key/spec |
-| `--member NAME` / `-m` | Only this member: full archive name or basename, case-insensitive (repeatable) |
-| `--refs SYMBOL` | List the COFF members with an undefined reference to `SYMBOL` |
-| `--defines SYMBOL` | List the members defining `SYMBOL`, with how: `section:<name>`, `common`, `alias` (weak search alias), or `import` |
-| `--json` | Output results as JSON |
-| `--target NAME` | Target whose `external_libs` resolves `LIBRARY` |
+`--member` matches a full archive name or basename, ignoring case.
 
 A COFF member row (`kind: "coff"`) has `sections` (`index`, `name`, `size`
 = SizeOfRawData, `align` or `null` when unspecified, `comdat`, `uninitialized`,
@@ -6235,7 +6226,8 @@ import by ordinal), `ordinal`, `hint`, and the symbols it `defines`
 (`__imp_<symbol>`, plus the thunk `<symbol>` for code). A member LIEF cannot
 parse is listed as `kind: "unparsed"`. `--refs` answers
 `{archive, refs, members, count}` and `--defines` answers
-`{archive, defines, members: [{member, how}], count}`.
+`{archive, defines, members: [{member, how}], count}`. `how` is
+`section:<name>`, `absolute:<hex>`, `common`, `alias`, or `import`.
 
 ```text
 $ rebrew library inspect LIBCMT.LIB --refs __imp__GetCPInfo@8
@@ -7131,7 +7123,7 @@ Binaries are referenced, never sent:
   `call_graph`, `cross_references`, `decompilation`, `ai_derived`,
   `member_identities`, or `["none"]` alone (`rebrew.report.SITE_DATA_KINDS`);
   each page declares it where it is generated, and a site file without one
-  fails the report (500). Today `graph.html`, `adjacency.txt` and
+  fails the report (500). `graph.html`, `adjacency.txt` and
   `callgraph.mmd` are `call_graph`, `strings.html` and `strings-pN.html` are
   `cross_references` (each string lists its referencing addresses), and every
   other file (`index*.html`, `imports*.html`, `import-stubs*.html`,
@@ -7509,11 +7501,14 @@ Op details the contract leaves open:
 - `apply_candidate` takes `verify_function`'s candidate fields (`cflags`, `project_cflags` included) and runs the
   comparison in promote mode in the private snapshot: the candidate takes the function's `ADDRESS` anchor, the
   registry entry moves to the candidate's name and derived symbol, `rebrew test` records STATUS, SIZE and the
-  explicit CFLAGS, and a result that is not EXACT or RELOC answers 400. The reply is `{result, files}`, the changed
-  source file and the registry the snapshot's config reads (path, size, sha256, base64): `rebrew-functions.toml`
-  under TOML metadata, or a closed, integrity-checked copy of `rebrew-metadata.sqlite3` under SQLite metadata. No
-  other file leaves the op. The snapshot must carry that registry and not the other backend's, and each returned
-  file stays within 1 MiB.
+  explicit CFLAGS, and the op requires an EXACT or RELOC verdict. The snapshot
+  must include the active function registry and omit the inactive backend's registry.
+  The reply
+  includes `result`, `files`, `metadata`, `attested_registry_digest`, and
+  `remote_compile`. Each file has `path`, `size`, `digest` (SHA-256), and
+  `data` (Base64). The returned files are the changed source and its active
+  registry: `rebrew-functions.toml` or an integrity-checked
+  `rebrew-metadata.sqlite3`. Each returned file is at most 1 MiB.
 - `verify_function`, `verify_target` and `build` take an optional `project_cflags` (the same rules as `cflags`),
   the target's flags: the private snapshot they run in gets them as its project `cflags`
   (`[compiler] cflags`, and the target's own compiler override when it sets cflags), so a function's own

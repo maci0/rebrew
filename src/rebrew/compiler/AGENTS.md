@@ -1,6 +1,7 @@
 # AGENTS.md: compiler/
 
-Compile execution and the compile cache: resolve a toolchain profile, run its docker image (or the remote recompile service), key and store the result, and compare the extracted bytes against the target.
+Resolve the toolchain profile, run it through the configured backend, cache
+eligible outputs, and compare the extracted bytes against the target.
 
 ## Modules
 

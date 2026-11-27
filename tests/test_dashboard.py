@@ -21,10 +21,11 @@ import shutil
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from functools import cache
 from pathlib import Path
-from typing import Any
-lazy from collections.abc import Mapping
+from typing import Any, override
+lazy from collections.abc import Iterator, Mapping
 
 import pytest
 from cli_json import cli_payload
@@ -32,7 +33,12 @@ from typer.testing import CliRunner
 
 from rebrew import dashboard as dashboard_module
 from rebrew.coverage_db import write_coverage
-from rebrew.coverage_toml import CoverageSnapshot, CoverageTomlError
+from rebrew.coverage_toml import (
+    CoverageSnapshot,
+    CoverageTomlError,
+    Function,
+    snapshot_from_document,
+)
 from rebrew.dashboard import (
     _APP_JS,
     _APP_JS_URL,
@@ -64,22 +70,26 @@ class _NullWFile:
 
 
 class _Collector:
-    """An OTLP/HTTP collector: keeps every span posted to /v1/traces."""
+    """An OTLP/HTTP collector that keeps the first span for each name."""
 
     def __init__(self) -> None:
         import http.server
 
-        self.spans: list[dict[str, Any]] = []
+        self.spans: dict[str, dict[str, Any]] = {}
+        self.received = threading.Condition()
         outer = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_POST(self) -> None:
                 length = self.headers.get("Content-Length", "0")
                 body = json.loads(self.rfile.read(int(length)))
-                for resource in body["resourceSpans"]:
-                    for scope in resource["scopeSpans"]:
-                        outer.spans.extend(scope["spans"])
                 assert self.path == "/v1/traces"
+                with outer.received:
+                    for resource in body["resourceSpans"]:
+                        for scope in resource["scopeSpans"]:
+                            for span in scope["spans"]:
+                                outer.spans.setdefault(span["name"], span)
+                    outer.received.notify_all()
                 self.send_response(200)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
@@ -89,16 +99,16 @@ class _Collector:
 
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_port}"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        ).start()
 
     def named(self, name: str) -> dict[str, Any]:
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            for found in self.spans:
-                if found["name"] == name:
-                    return found
-            time.sleep(0.05)
-        raise AssertionError(f"no span {name!r}; saw {[s['name'] for s in self.spans]}")
+        with self.received:
+            assert self.received.wait_for(lambda: name in self.spans, timeout=10), (
+                f"no span {name!r}; saw {list(self.spans)}"
+            )
+            return self.spans[name]
 
 
 @pytest.fixture
@@ -106,6 +116,7 @@ def collector() -> Any:
     sink = _Collector()
     yield sink
     sink.server.shutdown()
+    sink.server.server_close()
 
 
 def _run_script(script: str, **env: str) -> None:
@@ -315,6 +326,44 @@ def empty_dashboard(tmp_path: Path) -> Dashboard:
 
 
 class TestQueryLayer:
+    def test_function_pages_reuse_snapshot_order(self, tmp_path: Path) -> None:
+        scans = 0
+
+        class CountedRows(tuple[Function, ...]):
+            __slots__ = ()
+
+            @override
+            def __iter__(self) -> Iterator[Function]:
+                nonlocal scans
+                scans += 1
+                return super().__iter__()
+
+        snapshot = snapshot_from_document(
+            tmp_path,
+            {
+                "version": 1,
+                "target": "t",
+                "functions": [
+                    {"va": 3, "name": "last", "markerType": "FUNCTION"},
+                    {"va": 1, "name": "first", "markerType": "FUNCTION"},
+                    {"va": 2, "name": "data", "markerType": "GLOBAL"},
+                    {"va": 1, "name": "second", "markerType": "FUNCTION"},
+                ],
+            },
+            "t",
+        )
+        snapshot = replace(snapshot, functions=CountedRows(snapshot.functions))
+        dashboard = Dashboard(tmp_path, load=lambda _: {"t": snapshot})
+        scans = 0
+
+        for _ in range(3):
+            page = dashboard.functions("t", limit=2)
+            assert page["total"] == 3
+            assert [row[1] for row in page["functions"]] == ["first", "second"]
+        assert dashboard.functions("t", offset=2)["functions"][0][1] == "last"
+        assert dashboard.functions("t", q="data")["total"] == 0
+        assert scans == 0
+
     def test_targets(self, dashboard: Dashboard) -> None:
         assert dashboard.targets() == ["server_dll"]
 
@@ -2111,9 +2160,9 @@ class TestLiteralSearch:
         class Snapshot(SimpleNamespace):
             pass
 
-        first = Snapshot(functions=[SimpleNamespace(name="OLD", symbol="X")], globals=[])
+        first = Snapshot(code_functions=[SimpleNamespace(name="OLD", symbol="X")], globals=[])
         second = Snapshot(
-            functions=[
+            code_functions=[
                 SimpleNamespace(name="NEW", symbol="Y"),
                 SimpleNamespace(name="TWO", symbol="Z"),
             ],
@@ -2137,7 +2186,7 @@ class TestLiteralSearch:
         dash._FOLDED.clear()
         dash._FOLDED_GLOBALS.clear()
         snapshot = Snapshot(
-            functions=[SimpleNamespace(name="OLD", symbol="OLD")],
+            code_functions=[SimpleNamespace(name="OLD", symbol="OLD")],
             globals=[SimpleNamespace(name="OLD")],
         )
         ref = weakref.ref(snapshot)
@@ -2160,7 +2209,7 @@ class TestLiteralSearch:
         dash._FOLDED_GLOBALS.clear()
         snapshots = [
             Snapshot(
-                functions=[SimpleNamespace(name=f"FN{index}", symbol="S")],
+                code_functions=[SimpleNamespace(name=f"FN{index}", symbol="S")],
                 globals=[SimpleNamespace(name=f"G{index}")],
             )
             for index in range(10)
@@ -4533,7 +4582,9 @@ class TestThreadFaults:
         server.daemon_threads = True
         _FaultingHandler.dashboard = dashboard
         _FaultingHandler.allowed_hosts = allowed_hosts_for("127.0.0.1", server.server_port)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
         thread.start()
         try:
             with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
@@ -4591,7 +4642,9 @@ class TestRequestSpans:
         monkeypatch.setattr(
             _Handler, "allowed_hosts", allowed_hosts_for("127.0.0.1", server.server_port)
         )
-        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
         serve.start()
         inbound = f"00-{self.TRACE_ID}-{self.PARENT_ID}-01"
         request_id: str = ""
@@ -4610,12 +4663,12 @@ class TestRequestSpans:
             request_id = response.getheader("X-Request-Id") or ""
             response.read()
             conn.close()
+            wire = collector.named("GET /api/health")
         finally:
             server.shutdown()
             serve.join(timeout=5)
             server.server_close()
             stop()
-        wire = collector.named("GET /api/health")
         assert (wire["traceId"], wire["parentSpanId"], wire["kind"]) == (
             self.TRACE_ID,
             self.PARENT_ID,
@@ -4642,7 +4695,9 @@ class TestRequestSpans:
         monkeypatch.setattr(
             _Handler, "allowed_hosts", allowed_hosts_for("127.0.0.1", server.server_port)
         )
-        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
         serve.start()
         try:
             conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
@@ -4655,12 +4710,12 @@ class TestRequestSpans:
             assert response.status == 500
             response.read()
             conn.close()
+            wire = collector.named("GET /api/health")
         finally:
             server.shutdown()
             serve.join(timeout=5)
             server.server_close()
             stop()
-        wire = collector.named("GET /api/health")
         assert wire.get("status") == {"code": 2, "message": "status 500"}
         assert self._attributes(wire)["http.response.status_code"] == "500"
 
@@ -4679,7 +4734,9 @@ class TestRequestSpans:
         monkeypatch.setattr(
             _Handler, "allowed_hosts", allowed_hosts_for("127.0.0.1", server.server_port)
         )
-        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
         serve.start()
         try:
             conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
@@ -4690,12 +4747,12 @@ class TestRequestSpans:
             )
             assert conn.getresponse().status == 404
             conn.close()
+            wire = collector.named("GET /unknown")
         finally:
             server.shutdown()
             serve.join(timeout=5)
             server.server_close()
             stop()
-        wire = collector.named("GET /unknown")
         assert self._attributes(wire)["http.route"] == "/unknown"
         assert self._attributes(wire)["http.response.status_code"] == "404"
 
@@ -4829,7 +4886,9 @@ class TestKeepAliveTimeout:
         monkeypatch.setattr(_Handler, "timeout", 0.2)
         server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         server.daemon_threads = True
-        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
         serve.start()
         try:
             with socket.create_connection(server.server_address[:2], timeout=5) as client:
@@ -4860,7 +4919,9 @@ class TestConnectionCap:
         monkeypatch.setattr(
             _Handler, "allowed_hosts", allowed_hosts_for("127.0.0.1", server.server_port)
         )
-        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
         serve.start()
         return server, serve
 
@@ -5094,7 +5155,9 @@ class TestResponseFraming:
         server.daemon_threads = True
         Bound.dashboard = dashboard
         Bound.allowed_hosts = allowed_hosts_for("127.0.0.1", server.server_address[1])
-        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        )
         serve.start()
         try:
             with socket.create_connection(server.server_address[:2], timeout=5) as client:

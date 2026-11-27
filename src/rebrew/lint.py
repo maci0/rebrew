@@ -785,15 +785,7 @@ def _check_W031_metadata_store(cfg: ProjectConfig) -> list[LintResult]:
 
 
 def _check_W034_identity_paths(cfg: ProjectConfig) -> list[LintResult]:
-    """W034: a stored ``file`` identity that a consumer cannot safely join.
-
-    ``verify`` compiles ``reversed_dir / file`` for a function row, data scans
-    match a global to the source that owns it, ``rename`` rewrites the path,
-    and BinSync reads it.  An absolute path or a ``..`` segment names a file
-    the metadata's author chose rather than one in this checkout.  Writers
-    refuse it (:func:`rebrew.metadata.functions.validate_identity_file`); this reports
-    rows that were written before the gate, or edited by hand, in either store.
-    """
+    """W034: invalid stored file identities or a store that cannot be checked."""
     from rebrew.metadata.data import DATA_METADATA_FILENAME
     from rebrew.metadata.functions import validate_identity_file
     from rebrew.metadata.storage import metadata_store

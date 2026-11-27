@@ -89,9 +89,9 @@ claims are explicitly downgraded in the per-version files.
 | `fld1; fadd [esp+4]` for FP `+1.0` | `d9 e8 dc 44 24 04` (the pair; `fld1` alone also appears in later FP-loop accumulators) | MSVC 2.0 & 4.x | ✓ probe2 (`fadd1`) |
 | **3-byte shift-by-1 encoding** | `c1 e8 01` / `c1 f8 01` | **MSVC 2.0 & 4.x** (5.0+ use 2-byte `d1 e8`/`d1 f8`) | ✓ probe3 (`u2`/`s2`) |
 | **FP adds via `fsub` with negated `.rdata` constants** | `dc 25` after `fld`; `-1.0`/`-3.0` in .rdata | **MSVC 5.0 only** | ✓ probe2 + .rdata dump |
-| Magic division WITHOUT post-shift (`mov eax,edx` tail) | `8b c2 c1 e8 N` | MSVC 5.0 & 6.0 | ✓ probe2+3, 20 divisors |
+| Unsigned reciprocal division shifts after `mov eax,edx` | `8b c2 d1 e8` for `/3u`, `8b c2 c1 e8 N` for larger shifts | MSVC 5.0 & 6.0 | ✓ probe2+3 |
 | Signed-div sign-fix via ECX round-trip | `8b c8 c1 e9 1f 03 c1` | MSVC 5.0 & 6.0 | ✓ probe2+3, 13 divisors |
-| Magic division WITH post-shift (`shr edx,N` tail) | `c1 ea N 8b c2` | MSVC 7.0+ | ✓ probe2+3 |
+| Unsigned reciprocal division shifts `edx` before the move | `c1 ea N 8b c2` | MSVC 7.0+ | ✓ probe2+3 |
 | **`rol` for rotate (`x<<n \| x>>(32-n)`)** | `d3 c0` | **MSVC 8.0+** (shift pairs in 2.0–7.1) | ✓ probe2 (`rotl`) |
 | **Memory-operand `imul dword ptr [esp+4]` in signed-div magic** | `f7 6c 24 04` | **MSVC 10.0/11.0** (`/7` only from 11.0, see C37 and C42; register-load in 5.0–9.0) | ✓ probe2+3, 13 divisors |
 | **`iabs` via cdq** (`x<0?-x:x`) | `99 33 c2 2b c2` | **MSVC 2.0/4.1 and 10.0/11.0** (branchy `test/jns/neg` in 5.0–9.0). Raw bytes also occur in a VC 6.0 corpus binary, so the marker is the probe function, not the idiom alone | ✓ probe2 (`iabs`); RULES.md C38 |
@@ -308,7 +308,9 @@ The generator (`gen_codegen_corpus.py`), schema validator
 **query CLI** (`corpus_query.py`; `info` / `matrix <func>` /
 `unique <ver>` / `diff <v1> <v2>` / `look <hex>`) live in the
 local `.cache/fp_probe/` harness. The harness itself is outside the tracked tree.
-The [behavior corpus](corpus-behavior.json) records the probe outcomes.  `matrix`/`diff`/`unique` read
+The [behavior corpus](corpus-behavior.json) records 13,762 outcomes through
+probe28. The packaged corpus also includes probes 29 and 30.
+`matrix`/`diff`/`unique` read
 the precomputed [`corpus-matrix.json`](corpus-matrix.json) index (576 functions × their
 per-version byte groups) for O(1) lookups.  `matrix lcg_next` prints the
 per-version byte groups for a function; `look ff 24 85` finds every

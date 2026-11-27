@@ -2,7 +2,7 @@
 
 Each docker-backed compile (and any native plugin toolchain without an
 image) costs hundreds of milliseconds of container/subprocess startup.
-During ``rebrew match batch`` (100 gen × 30 pop × N functions) and
+During ``rebrew match batch`` (100 generations × 64 candidates × N functions by default) and
 ``rebrew match flags`` (192 to ~100k flag combinations, since
 ``_MAX_SWEEP_COMBOS`` caps the Cartesian product), the same
 ``(source + flags)`` combination is frequently compiled multiple times.

@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Changed
+
+- Reuse coverage row ordering across dashboard requests and reduce per-row search work.
+- Skip detail reads for completed and parked functions during todo ranking.
+- Reuse one copy buffer when hashing or snapshotting a jobs workspace.
+
 ## [6.80.0] - 2026-11-25
 
 ### Fixed

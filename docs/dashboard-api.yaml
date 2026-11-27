@@ -372,8 +372,8 @@ paths:
       summary: Paged function rows for one target.
       description: |
         Ordered by virtual address.  `q` matches name or symbol, and also
-        matches the address exactly when it is a hex number of four or more
-        digits (`0x401000` and `00401000` name the same address).
+        matches the address exactly when it contains 4–16 hex digits within
+        the address ceiling (`0x401000` and `00401000` name the same address).
       parameters:
         - $ref: "#/components/parameters/Target"
         - $ref: "#/components/parameters/Status"
@@ -657,12 +657,12 @@ components:
       in: query
       required: false
       description: |
-        A case-insensitive substring of the row's name (and symbol, on
-        functions).  A hex number of four or more digits, with or without a
-        `0x` prefix, also matches that virtual address exactly.  LIKE
-        wildcards are escaped.  Surrounding whitespace is trimmed, so a blank
-        value is no filter, like omitting it.  A repeated parameter takes its
-        first value.
+        A literal substring of the row's name and, for functions, its symbol.
+        Search uses NFC normalization and ASCII-only case folding. A number
+        of 4–16 hex digits within the address ceiling, with or without a `0x`
+        prefix, also matches that virtual address exactly. Surrounding
+        whitespace is trimmed. A blank value applies no filter. A repeated
+        parameter takes its first value.
       schema: { type: string }
     Limit:
       name: limit
@@ -859,6 +859,8 @@ components:
         - slow_requests
         - slowest_ms
         - active_connections
+        - trace_spans_dropped
+        - trace_spans_failed
       properties:
         failures:
           type: object

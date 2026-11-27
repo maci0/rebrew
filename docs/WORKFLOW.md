@@ -27,10 +27,9 @@ rebrew todo --category start-function    # uncovered functions, ranked by affect
 rebrew todo --stats              # coverage summary
 ```
 
-`rebrew todo` evaluates the entire project and ranks actions by affected byte
-extent, then estimated effort. It includes compile errors, symbol-extraction
-errors (EXTRACT_ERROR), near-misses of ≤20 bytes (`fix-delta`), and new starts.
-See [queue ordering](CLI.md#rebrew-todo). Each item carries a ready-to-run `command`.
+`rebrew todo` ranks work for the selected target. Setup comes first. Within
+each priority tier, work is ordered by affected bytes and score. Each item
+includes a `command`. See [queue ordering](CLI.md#rebrew-todo).
 
 ### 2. Open the source or generate a skeleton
 
@@ -55,20 +54,19 @@ rebrew skeleton 0x<VA> --append existing_file.c
 ### 3. Get the decompilation
 
 With Ghidra + ReVa MCP:
-```
+
+```text
 get-decompilation programPath="/target.dll" functionNameOrAddress="0x<VA>"
 ```
 
-Without Ghidra: use the built-in disassembler:
+Without Ghidra, use the built-in disassembler.
+
 ```bash
 rebrew binary asm show 0x<VA> --size <SIZE>
 ```
 
-For known library functions, identify via FLIRT or CRT cross-reference:
-```bash
-rebrew library scan-signatures [path_to_sig_directory]
-rebrew library crt-match 0x<VA>
-```
+For possible library functions, preview attribution before rewriting them.
+See [library attribution](GETTING_STARTED.md#5-check-library-attribution).
 
 ### 4. Implement the function
 
@@ -96,7 +94,7 @@ compiling.
 ```bash
 rebrew diff src/target_name/my_func.c
 
-# Show only structural differences (** lines)
+# Show structural differences and invalid relocation rows
 rebrew diff --mismatches-only src/target_name/my_func.c
 
 # VA form works too: resolves to the source file and selects the stored function identity
@@ -108,6 +106,7 @@ rebrew diff 0x10009310
 - `==` identical bytes
 - `~~` relocation-only difference (acceptable)
 - `**` structural difference (needs fixing)
+- `XX` invalid relocation
 
 ### 7. If bytes still differ: sweep flags or run the GA
 
@@ -170,12 +169,8 @@ rebrew prove src/target_name/my_func.c --dry-run      # preview without updating
 rebrew prove my_func --timeout 120                    # allow 2 minutes for complex functions
 ```
 
-Uses angr symbolic execution and Z3 constraint solving to compare selected return
-registers (`EAX` and, when configured, `EDX`) and watched memory within the
-configured argument constraints, modeled external calls and exploration bounds.
-A successful comparison promotes STATUS
-to `PROVEN`; a timeout or incomplete exploration does not establish equivalence.
-See [proof scope](MATCH_TYPES.md#proven).
+A completed equivalence proof can promote STATUS to `PROVEN`. See the
+[proof scope and limits](MATCH_TYPES.md#proven).
 
 > [!NOTE]
 > Install the [`prove` extra](../README.md#optional-features) in the
@@ -183,11 +178,9 @@ See [proof scope](MATCH_TYPES.md#proven).
 > `make setup` already include it.
 
 > [!CAUTION]
-> **PROVEN is not a byte match and is not sticky.** The next `rebrew test` /
-> `rebrew verify` of a PROVEN function records its byte result
-> (NEAR_MATCHING, STUB, EXACT, …) over PROVEN, keeping the blocker unless
-> the result is EXACT/RELOC.  `rebrew status` counts PROVEN apart from
-> byte-matched, and `rebrew todo` keeps it as improve-match work.
+> The next byte verdict replaces `PROVEN`. An `EXACT` or `RELOC` result
+> clears the blocker when the source is readable and has no inline assembly. `status` counts
+> `PROVEN` separately, and `todo` lists it as improve-match work.
 
 ### 10. Verify STATUS is current
 
@@ -195,10 +188,9 @@ See [proof scope](MATCH_TYPES.md#proven).
 rebrew verify  # rechecks tracked functions, reusing unchanged verdicts; auto-updates drifted STATUS
 ```
 
-`verify` promotes and corrects drifted statuses, PROVEN included (see
-section 9).  The writer keeps parked SKIP, keeps a STUB against
-`SIZE_MISMATCH` / `MISSING_SIZE`, and keeps earned EXACT/RELOC/PROVEN against
-tooling failures (`should_promote_status` in `src/rebrew/metadata/functions.py`).
+The writer preserves parked `SKIP`, `STUB` against `SIZE_MISMATCH` or
+`MISSING_SIZE`, and earned `EXACT`, `RELOC`, or `PROVEN` against tooling
+failures. See the [verdict writer rules](METADATA.md#who-owns-which-fact).
 
 ### 11. Lint source bindings and metadata
 
@@ -258,8 +250,8 @@ Tools default to `[project] default_target`, which is required: config load rais
 `--target` to select another:
 
 ```bash
-rebrew test --target Europa1400Gold_TL.exe src/Europa1400Gold_TL.exe/my_func.c
-rebrew todo --target Europa1400Gold_TL.exe
+rebrew test --target game_alt src/game_alt/my_func.c
+rebrew todo --target game_alt
 ```
 
 ### Sharing code between targets

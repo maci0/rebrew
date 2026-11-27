@@ -6,13 +6,12 @@ and [status accounting](CLI.md#rebrew-status) for byte and function counts.
 
 ## Status Overview
 
-The coverage document uses `UNKNOWN` when it has no stored verdict for a
-catalog function. The matched columns below refer to byte-match credit.
+The matched columns refer to byte-match credit.
 
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
-| *(undocumented)* | n/a | Automatic (no `.c` file); the coverage document records `UNKNOWN` | No |
-| `STUB` | <60% | `rebrew test` / `rebrew verify` (demotion) | No |
+| No stored verdict | n/a | Coverage presents this as `UNKNOWN` | No |
+| `STUB` | Placeholder or comparison below threshold | `intake`, `source document-unmatched`, `test`, or `verify` | No |
 | `NEAR_MATCHING` | ≥60% | `rebrew test` / `rebrew verify` | No matched-function credit |
 | `RELOC` | 100% (masked) | `rebrew test` / `rebrew verify` | Yes |
 | `EXACT` | 100% (raw object, or raw linked image) | `rebrew test` / `rebrew verify`; linked EXACT via `rebrew verify --text --raw-link` | Yes |
@@ -27,33 +26,26 @@ for selection, Rebrew reports `NOT_RUN` and keeps the stored verdict.
 
 ---
 
-## Undocumented
+## No stored verdict
 
-Function exists in the catalog but no `.c` file has been created yet. This is the
-implicit starting state, tracked from the function list rather than the metadata:
-there is no entry, so there is no STATUS to hold. Writing `UNDOCUMENTED` as a
-STATUS is rejected by `metadata.update_source_status` and by `rebrew lint` (E004).
-The coverage document carries the row as `UNKNOWN`. Tools like `rebrew todo` and
-`rebrew source document-unmatched` surface these as action items.
+Catalog functions without a stored verdict appear as `UNKNOWN` in coverage.
+That includes undocumented functions without a source file. `rebrew todo`
+surfaces them as action items. `UNDOCUMENTED` is invalid in managed metadata.
 
 ```bash
 rebrew todo --json          # find next undocumented function to start
-rebrew skeleton 0x10008880  # generate .c skeleton → transitions to STUB
+rebrew skeleton 0x10008880  # generate the source and record its identity
 ```
 
 ---
 
 ## STUB
 
-A `.c` file exists but the implementation is a placeholder, either empty, contains
-`TODO`, or compiles to something radically different from the target (< 60% byte match).
-A size mismatch is otherwise its own verdict (`SIZE_MISMATCH`), with two
-exceptions: a minimal body (at most 8 bytes) against a target of at least 12
-bytes and more than twice its size classifies as STUB (a fresh skeleton), and a
-stored STUB keeps its status against a `SIZE_MISMATCH` verdict.
-
-Also assigned automatically by `rebrew test` when a previously-matching function
-regresses below the 60% match threshold (demotion).
+`intake` and `source document-unmatched` seed `STUB` for generated placeholders. `test` and `verify`
+return it for comparable bodies below 60% similarity, including regressions.
+A body of at most 8 bytes also returns `STUB` when the target is at least
+12 bytes and more than twice as large. The metadata writer preserves a
+stored `STUB` against `SIZE_MISMATCH` and `MISSING_SIZE`.
 
 ```toml
 ["SERVER.0x10008880"]
@@ -105,7 +97,7 @@ checks the function's raw linked bytes without masking.
 ```
 Target:  50 e8 f0 83 00 00 8b f8 83 c4 04 a1 80 58 03 10
 Output:  50 e8 00 00 00 00 8b f8 83 c4 04 a1 00 00 00 00
-         == ~~ ~~ ~~ ~~ ~~ == == == == == ~~ ~~ ~~ ~~ ~~
+         == == ~~ ~~ ~~ ~~ == == == == == == ~~ ~~ ~~ ~~
 ```
 
 This is the **typical best result** for functions that call other functions or reference
@@ -122,7 +114,7 @@ size = 42
 ## EXACT
 
 Byte-for-byte identical. Every single byte in the compiled `.obj` matches the target
-bytes extracted from the DLL.
+bytes extracted from the target binary.
 
 ```
 Target:  53 8b 5c 24 08 56 57 8b 43 10 50 e8 f0 83 00 00
@@ -235,26 +227,30 @@ DIR32 whose value matches no other catalogued symbol is tolerated; an ambiguous
 symbol is rejected. `strict=True` (proof mode) rejects every other slot that
 does not equal its resolved symbol, uncatalogued ones included;
 `check_known_bindings=True` rejects a conflicting mapped operand but keeps the
-tolerant rule for uncatalogued symbols. The IAT exception applies in every mode. With no relocation records the comparator falls back to zero-span detection
+tolerant rule for uncatalogued symbols. The IAT exception applies in every mode.
+With no relocation records the comparator falls back to zero-span detection
 (`00 00 00 00` runs in the object aligned with non-zero target bytes).
 
 The GA's candidate scoring uses a separate opcode heuristic, the normalizer
 `_zero_reloc_fields` (driven by `_normalize_and_mnems_x86_32` in
 `src/rebrew/matcher/scoring.py`), which zeros these fields without relocation
-records:
+records. Byte offsets start at the opcode, after any legacy prefixes.
 
 | Pattern | Opcode | Bytes zeroed | Why |
 |---------|--------|-------------|-----|
-| `call rel32` | `E8` | bytes 1-4 | Call target is a relative offset from current IP |
-| `jmp rel32` | `E9` | bytes 1-4 | Jump target is a relative offset |
-| `mov eax, [moffs32]` | `A1` | bytes 1-4 | Absolute address of a global variable |
+| `call rel32` | `E8` | bytes 1-4 | Offset from the next instruction |
+| `jmp rel32` | `E9` | bytes 1-4 | Offset from the next instruction |
+| Accumulator `mov` to or from `[moffs32]` | `A0`–`A3` | bytes 1-4 | Absolute address of a global variable |
 | `cmp [abs32], imm8` | `83 3D` | bytes 2-5 | Address of global in comparison |
 | Conditional jumps near | `0F 8x` | bytes 2-5 | 32-bit relative offsets in Jcc instructions |
 | `push imm32` | `68` | bytes 1-4 | Only when value looks like an address (> 0x10000000) |
-| `mov reg, imm32` | `B8`-`BF` | bytes 1-4 | Only when value looks like an address |
+| `mov reg, imm32` | `B8`-`BF` | bytes 1-4 | Only when the value exceeds `0x10000000` |
 | `mov reg, [abs32]` | `8B 05/0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable loads |
-| `mov [abs32], reg` | `89 0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable stores |
-| `call/jmp dword ptr [abs32]` | `FF 15/25` | bytes 2-5 | Indirect call/jump through an IAT slot |
+| `mov [abs32], reg` | `89 05/0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable stores |
+| `call/jmp dword ptr [abs32]` | `FF 15/25` | bytes 2-5 | Indirect call/jump through an absolute memory slot |
+
+For other instructions six or more bytes long, the heuristic also masks a
+32-bit memory displacement with an absolute value above `0x10000`.
 
 For both, identical bytes after masking mean the code agrees outside the masked
 fields, not a proof that only addresses differ (the GA heuristic masks any
@@ -264,9 +260,8 @@ large `mov` immediate). Only the comparator's verdict earns RELOC.
 
 ## Observed NEAR_MATCHING Patterns
 
-Observations from one MSVC6 `/O2 /Gd` game project, kept as examples of what
-blocked byte matching there. The sizes and counts below are that project's,
-not general limits.
+These examples record what blocked byte matching in the Guild project with
+MSVC 6 and `/O2 /Gd`. The sizes and counts apply to that project.
 
 ### Close NEAR_MATCHING analysis (0-3B delta)
 
@@ -284,7 +279,7 @@ Common uncontrollable blocker categories:
 
 Register allocation was the primary blocker for that project's remaining game functions. With `/O2 /Gd` (`/O2` implies frame-pointer omission), the compiler may use ebp as a callee-save register, but only if there's enough register pressure. If C source doesn't create enough demand, the compiler won't allocate ebp, producing fewer push/pop instructions and different register assignments throughout.
 
-### Dependency chains
+### Worked example: Guild CRT dependencies
 
 In that project, unreversed helpers held back work on the CRT functions that
 depend on them (a caller can still byte-match with an unreversed callee, since
@@ -295,7 +290,7 @@ the comparison checks the caller's bytes and relocations):
 - `FreeHeapBlockWithRuntimeLock` (SEH) blocks ~33 other functions
 
 
-### STUB conversion notes
+### Worked example: Guild STUBs
 
 - Remaining GAME STUBs range from 355B to 6000B+. Even small ones (under 400B) face register pressure challenges with `/O2 /Gd`.
 - MSVCRT STUBs range from 11B to 1825B. Many small ones (85-200B) may be achievable using reference CRT source.

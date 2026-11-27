@@ -1,8 +1,7 @@
 """ReVa MCP command builder for Ghidra integration.
 
-Constructs MCP commands and orchestrates Ghidra sync operations, including
-command building for push operations and direct MCP communication for pull
-operations.
+Builds Ghidra function-creation and bookmark commands and reads data labels
+through MCP. BinSync owns field exchange.
 """
 
 from __future__ import annotations

@@ -29,7 +29,7 @@ Usage:
     rebrew source inline-strings                    # inline + define
     rebrew source inline-strings --inline-only      # only the use-site rewrite
     rebrew source inline-strings --named            # same-file named arrays
-    rebrew source inline-strings --files a.c b.c
+    rebrew source inline-strings --files a.c --files b.c
 """
 
 from __future__ import annotations

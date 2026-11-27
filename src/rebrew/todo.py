@@ -338,6 +338,8 @@ def _collect_active_functions(
     Compile errors, near misses, stubs, and verify failures share one pass
     and one effort heuristic; collection ranks their affected scope afterward.
     """
+    from rebrew.metadata.document import canonical_va_key
+
     items: list[TodoItem] = []
     prover_available: bool | None = None  # one angr probe per call, taken on first need
 
@@ -350,8 +352,6 @@ def _collect_active_functions(
     verify_vas: set[int] = set()
     padded: dict[int, Any] = {}
     for va_str, entry in verify_entries.items():
-        from rebrew.metadata.document import canonical_va_key
-
         va = canonical_va_key(va_str)
         if isinstance(va, int):
             verify_vas.add(va)
@@ -362,23 +362,12 @@ def _collect_active_functions(
 
     for va in all_vas:
         info = existing.get(va, {})
-        status = info.get("status", "STUB")
-
-        # The annotated SIZE is what verify compares; the inventory extent
-        # can carry alignment padding or run into a missed neighbour.
-        try:
-            size = int(info.get("size") or 0) or size_by_va.get(va) or 0
-        except TypeError, ValueError:
-            size = size_by_va.get(va) or 0
-        name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
-        filename = info.get("filename", "")
-
         v_entry = padded.get(va)
         v_status = v_entry.status if v_entry else None
         # Same rule as `rebrew status`: a stale metadata EXACT whose cached
         # verdict no longer matches is live work. Canonical spelling, so a
         # hand-edited "skip" parks the same way SKIP does.
-        status = effective_status(status, v_status)
+        status = effective_status(info.get("status", "STUB"), v_status)
 
         # User-parked: intentional "don't touch" — never surface as actionable
         # work (flag sweep / GA / prove) until someone unparks with force.
@@ -389,8 +378,22 @@ def _collect_active_functions(
         # via a generated skeleton (`source = "naked"`) is reproduced, not
         # decompiled, so it stays actionable until the real C body matches
         # (ct-recomp's NAKED_REQUIRED vs PURE_C_EXACT distinction).
-        if status in MATCHED_STATUSES:
-            if info.get("source") == "naked":
+        matched = status in MATCHED_STATUSES
+        naked = matched and info.get("source") == "naked"
+        if matched and not naked and status != "RELOC":
+            continue
+
+        # The annotated SIZE is what verify compares; the inventory extent
+        # can carry alignment padding or run into a missed neighbour.
+        try:
+            size = int(info.get("size") or 0) or size_by_va.get(va) or 0
+        except TypeError, ValueError:
+            size = size_by_va.get(va) or 0
+        name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
+        filename = info.get("filename", "")
+
+        if matched:
+            if naked:
                 items.append(
                     TodoItem(
                         category=CAT_NAKED,
@@ -407,7 +410,7 @@ def _collect_active_functions(
                         status=status,
                     )
                 )
-            elif status == "RELOC":
+            else:
                 # Matched only after masking linker-filled addresses, so the
                 # bytes are not identical straight out of the toolchain.  A
                 # project at 100% byte-matched is still this far from an

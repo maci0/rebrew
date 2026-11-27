@@ -108,10 +108,9 @@ capture's `metadata` field, `rebrew.metadata_describe`, both sides of
 `rebrew.metadata_diff`, and the `metadata` field of the `rebrew.apply_candidate`
 and `rebrew.metadata_carry` replies all use this shape.
 
-**`rebrew.metadata_describe`** `{files, documents}` answers the descriptor of
-that set. It replaces any client-side registry naming, SQLite inspection or
-config parsing: a stored version 1 or 2 capture, a source tree and an applied
-result are all described the same way.
+**`rebrew.metadata_describe`** takes `{files}` and returns the descriptor
+`{files, documents}`. Use it for captured trees and applied results to let
+the storage layer identify the active metadata backend.
 
 **`rebrew.metadata_diff`** `{before, after}` (two file sets) answers
 `{before, after, changes}`: both descriptors and every changed record, read
@@ -260,10 +259,9 @@ The journal and the replication state carry a top-level `format`. Format 2
 records hold `clock`, `updated_at_ns`, `content`, `deleted`, `digest` and
 `content_sha256` (the raw SHA-256 of `content`). Rebrew reads format 1 (no
 `content_sha256` before 6.59.0, with it in 6.59.0) and rewrites it as format 2
-on the next write; it refuses a newer format by number and asks for an upgrade.
-Rebrew releases before this one refuse format 2 as `invalid metadata replication
-state`, so every tool that reads a replicated project through rebrew (such as
-recoverage's live mode) must run a rebrew that reads the format the project holds.
+on the next write. Format 2 requires Rebrew 6.60.0 or newer, including in tools
+that read the project through Rebrew such as recoverage's live mode. A newer,
+unsupported format produces an upgrade error that includes the format number.
 
 Recovered destinations catch up during the next metadata write, or explicitly:
 
@@ -287,41 +285,30 @@ local files use mode 0444 at rest. See [ADR 035](adr/035-metadata-replication.md
 
 ## Backup and restore
 
-Durable, must-back-up state: the C sources under `src/` (and any other
-source tree the project config points at), `rebrew-project.toml`, the four
-managed metadata stores (`rebrew-functions.toml`, `rebrew-data.toml`,
-`rebrew-types.toml`, `rebrew-libraries.toml`, including their `.d/`
-drop-ins) in the TOML backend, or `rebrew-metadata.sqlite3` in the
-SQLite backend, plus `.rebrew/ga_runs.jsonl` (GA win fingerprints;
-fsynced per record, never pruned for wins), the BinSync
-baselines (`.rebrew/sync/*.toml`), the decomp.me upload ledger
-(`.rebrew/decompme-uploads.json`, claim tokens), the replication
-journal and sidecar (`.rebrew/metadata-journal.toml`,
-`.rebrew/metadata-replication.toml`), the verify cache and
-`--compare` baseline (`.rebrew/verify_cache.toml` /
-`.rebrew/verify_cache.json` (legacy JSON compat sidecar) /
-`.rebrew/verify_baseline.toml`, or the same filenames under
-`.rebrew/targets/<sha256-of-exact-target-name>/`), and the Ghidra
-sync dedup state (`.rebrew/ghidra_sync_state.json`), the root scan
-caches (`.rebrew/name-map-cover.json`, `.rebrew/data-scan-roles.json`;
-store-fingerprint-guarded parse facts, a stale copy degrades to a
-re-parse), the extern-name cache (`.rebrew/extern-names.json`,
-`rebrew todo` caller counts) and the name-to-VA cache
-(`.rebrew/name_to_va_cache.json`, single-file `rebrew test`; both
-fingerprint-guarded, regenerable with a whole-tree re-scan), the
-`pgsql-before-transfer` snapshots (`.rebrew/pgsql-before-transfer/**/*.toml`;
-the only copy of the destination a `metadata migrate pgsql` replaced),
-and the
-metadata-doc parsed-document caches (`.rebrew/metadata-doc/*.json`,
-hand-reviewed fingerprints), and coverage snapshots
-(`snapshots/coverage-*.toml`, carrying the durable `history[]`
-status-transition log). The TOML and
-SQLite backup commands (`rebrew metadata backup`) carry the whole
-`.rebrew/` extras set plus coverage snapshots; the manual copy
-procedure below must too.
+Back up the configured source trees separately. For TOML or SQLite,
+`rebrew metadata backup` saves managed state and `rebrew-project.toml`.
+Preserve:
 
-Regenerable files include compile caches, `.rebrew/include-closures.json`,
-`output/`, `bin/`, and toolchain images (re-pull via `rebrew toolchain pull`).
+- The four logical stores and their TOML drop-ins, or
+  `rebrew-metadata.sqlite3` for a SQLite project.
+- `.rebrew/ga_runs.jsonl`, BinSync baselines in `.rebrew/sync/*.toml`,
+  the sensitive `.rebrew/decompme-uploads.json` ledger, and Ghidra
+  dedup state in `.rebrew/ghidra_sync_state.json`.
+- `.rebrew/metadata-journal.toml`, `.rebrew/metadata-replication.toml`, and
+  any previous destination stored under `.rebrew/pgsql-before-transfer/`.
+- The `verify_baseline.toml` used by `verify --compare`, at the root of
+  `.rebrew/` or under `.rebrew/targets/<sha256-of-exact-target-name>/`.
+- Retained source pre-images in `.rebrew/source-backups/*.orig`.
+- Coverage snapshots with historical verdicts. Import their history before
+  retiring them. See [coverage history](COVERAGE_DOCUMENT.md).
+
+The bundle also includes regenerable caches such as `verify_cache.toml`,
+the legacy root `verify_cache.json`, name maps, scan roles, extern names,
+and parsed metadata under `.rebrew/metadata-doc/`. Use the manual copy
+procedure below for the equivalent recovery set.
+
+Compile caches, `.rebrew/include-closures.json`, generated `output/` and
+`bin/` files, and toolchain images can also be regenerated.
 The include-closure sidecar lets `rebrew status` reuse header search results
 across processes for absolute search paths. It checks the source and search
 configuration, re-reads reached headers, and rechecks missing includes and
@@ -631,8 +618,8 @@ supplies its own tag.
 - **Data store.** `set_data_field` / `set_data_fields_batch` stamp the same pair
   alongside whichever field they change, tagged by the writer that ran: `verify`
   from `verify --data` on a data verdict, `rename` from `rebrew source rename` on a
-  renamed global, `data` from `rebrew data list`, `lint` when it fills a data
-  row's missing section.
+  renamed global, `data` from operations such as `rebrew data set`, `move`,
+  `fix-bss`, and `mark-literals`, and `lint` when it fills a missing section.
   The separate `verification` table keeps the measurement's producer, input
   digest and time alive after deleting `db/` and after later label/note edits.
   The coverage document's `verify_results[]` row

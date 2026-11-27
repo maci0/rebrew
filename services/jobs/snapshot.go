@@ -68,6 +68,7 @@ func snapshot(root, dir string) (string, string, error) {
 // synchronized copy; digest-only callers avoid that disk traffic entirely.
 func hashWorkspace(root, stage string) (string, error) {
 	h := sha256.New()
+	copyBuffer := make([]byte, 32*1024)
 	count := 0
 	var total int64
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -137,7 +138,7 @@ func hashWorkspace(root, stage string) (string, error) {
 		if out != nil {
 			dst = io.MultiWriter(out, h)
 		}
-		written, e := io.Copy(dst, io.LimitReader(f, info.Size()+1))
+		written, e := io.CopyBuffer(dst, io.LimitReader(f, info.Size()+1), copyBuffer)
 		if e == nil && out != nil {
 			e = out.Sync()
 		}

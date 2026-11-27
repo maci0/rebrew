@@ -1,251 +1,84 @@
 # CI integration
 
-This repo's own CI pipeline, then suggested gates for reverse-engineering
-workspaces that use rebrew.
+Use the package gates when contributing to Rebrew and the workspace gates
+when verifying a project that uses it.
 
 ## Package CI (this repo)
 
-The lint and test jobs install `ant default-jdk build-essential` before dependency
-installation so JPype 1.7.1 can build from its official source on Python 3.15.
+[CI](../.github/workflows/ci.yml) runs lint, tests, hook parity, package
+checks, and CLI contract checks on Ubuntu 24.04. The jobs service has its
+own Go gate. Python jobs use the patch pinned in `.python-version`. The
+test job fetches full Git history and tags for release-contract tests.
 
-Assembly and vendor tests require nasm and GNU patch. Native runner tests also
-require a C compiler, pkg-config and json-c development files. Every Python matrix
-entry installs `nasm patch build-essential pkg-config libjson-c-dev` through
-`tools/ci_apt_install.sh` with its retry policy.
-The disposable Ubuntu runner also disables AppArmor's unprivileged-userns
-restriction when that kernel setting exists, then probes a real user namespace
-before the suite. This setup belongs to CI; Rebrew never changes a user's host
-security policy automatically.
+### Dependencies and host tools
 
-GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
-across the supported Python versions (3.15; the pinned entry runs it as
-`make coverage`, failing below `COV_FLOOR`), plus, on that same 3.15 entry,
-a fixture-freshness
-check (`tools/gen_fixtures.py --check`) and an idempotency sweep
-(`tools/check_idempotency.py --fixture-dir`, which runs its configured offline
-commands twice, comparing exit codes and parsed JSON without `timestamp` keys,
-and each configured mutating command twice against its own scratch project,
-requiring the first run to actually change it; derived `.rebrew` read caches
-are outside the content digest), both
-version-independent. The pytest suite does not run the sweep itself; the
-pre-push hook runs it after the suite (`make idempotency-check`).
+The [uv setup action](../.github/actions/uv-env/action.yml) pins uv, Python,
+and the sibling Resembl checkout (`v5.3.0` at a checked commit). Update the
+action, Makefile, and lock together when advancing that pin. The sibling
+clone checks the commit before replacing an existing checkout and retries
+transient failures. Both workflows can be dispatched manually after an
+outage.
 
-Local idempotency sweeps rebuild and delete their scratch fixtures. The tool
-marks owned directories with `.rebrew-idempotency-fixture` and refuses existing
-unmarked directories, including fixtures from older versions. The write-sweep
-base and its fixture children must all be owned. Use a fresh, nonexistent
-`--fixture-dir` path when upgrading from unmarked fixtures; do not add ownership
-markers to an existing project.
+| Job | Dependency install |
+| --- | --- |
+| Lint and test | `uv sync --locked --all-extras --group similarity`, with a dedicated uv cache for the all-extras build |
+| Pre-commit and CLI contract | `uv sync --locked`, with the sibling checkout present for resolution |
+| Package | `make smoke-wheel` uses `uv sync --frozen --no-dev --no-default-groups --no-install-project` in `.venv-pkg`, then installs the wheel with `--no-deps`. This job skips the sibling clone. |
 
-The same job also installs the W3C validator through
-`tools/ci_install_vnu.sh`, because `tests/html_validate.py` skips when
-`vnu` is off PATH and the two HTML surfaces (the dashboard shell and
-every generated report page) would otherwise never be parsed by a
-validator in CI. The `vnu-jar` npm tarball is pinned by sha256 (the upstream
-release assets sit under a moving `latest` tag) and the helper runs its
-jar with the job's `default-jdk`. `make vnu` runs that same helper for a
-contributor and prints the PATH line for the directory it installed into, so a local
-`make test` can run the gate instead of skipping it; `make doctor` reports
-a missing `vnu` and `make test` warns. The pre-commit hook-parity job runs `make check` with
-the two ruff hooks and the mypy hook skipped, since the lint job runs them; it installs
-shellcheck and yamllint first through `tools/ci_apt_install.sh`, and biome
-through `tools/ci_install_biome.sh`, so the shell, YAML and dashboard-JS hooks
-are enforced there; the SKILL.md command validator
-`tools/validate_skill_commands.py` runs there too, so a flag a skill
-documents but the CLI no longer accepts fails the job.
+[`tools/ci_apt_install.sh`](../tools/ci_apt_install.sh) checks for existing
+tools and retries apt failures. Lint and test install `ant default-jdk
+build-essential` for the JPype source build. The test job also installs
+`nasm patch build-essential pkg-config libjson-c-dev` for assembly, vendor,
+and native runner tests. Its disposable runner enables unprivileged user
+namespaces and probes them before testing. Rebrew leaves host policy changes
+to the operator on local machines.
 
-The package job builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH,
-umask 022, C/UTC,
-`PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
-wheel entry modes), checks both artifacts, the SBOM and `dist/rebrew.buildinfo` hash the same when
-`make build-repro` reruns from a `git archive` copy extracted under umask 077 at
-another path under another TZ and locale (the manifest's `source-commit` and
-`source-dirty` lines excepted, since the copy has no `.git`; an EXIT trap
-removes that copy on every exit path, so a failed comparison does not leave a
-second source tree beside the workspace), emits a CycloneDX 1.5 SBOM
-(`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`, with the
-MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
-`v` tag for `__version__`, project URLs as external references, each
-locked distribution's own declared license from `tools/licenses.py`, and the
-attributed expressions listed in `NOTICE`; certifi and hypothesis (MPL-2.0,
-in every resolve) plus the optional resembl, m2c, pyvex, tqdm (`MPL-2.0 AND MIT`, pulled in by the binsync extra), and lmdb (`OLDAP-2.8`, an attribution grant rather than a reciprocal one, pulled in by the prove extra); every
-component also carries a CycloneDX `scope`, `required` for the closure of
-`[project].dependencies` and `optional` for the distributions only a dev
-group or an install extra reaches, so the dev tree the lock resolves into the
-same file (mypy, pytest, ruff, angr, declib) does not read to a scanner as
-shipped with the wheel; the
-generator validates the document it emits, so a lock that parsed short, a
-component whose grant nobody recorded, a component with no scope, or an
-inventory with nothing in it marked `required` fails the build instead of
-shipping a
-BOM that reads to a scanner as a clean bill of health), writes
-`dist/rebrew.buildinfo`
-(project name and `__version__`, uv/python/`.python-version`/setuptools parsed
-from `pyproject.toml` + epoch knobs, the sha256 of `build-constraints.txt` and
-of `uv.lock` (the input the SBOM inventories and the smoke install resolves),
-the sha256 of the two artifacts the manifest ships beside, and
-the source commit and dirty flag), re-reads that manifest against the bytes
-actually in `dist/` through `make verify-dist` (a stale or hand-edited manifest
-keeps every key and still describes the wrong artifact, and the check lives
-here so a contributor gets the same verdict from `make pr-check` before
-pushing), and installs the
-wheel into a clean venv for a smoke import through `make smoke-wheel`: the
-Makefile owns that recipe, the same way it owns the build, so the CI and
-contributor paths cannot drift. Runtime deps come from
-`uv sync --frozen --no-dev --no-default-groups --no-install-project`, then the
-wheel is overlaid with
-`--no-deps` so the smoke cannot drift past `uv.lock`. The smoke assertions
-live in `tools/smoke_wheel_install.py`, run with that venv's interpreter so
-the import resolves to the wheel's site-packages rather than `src/`: it
-reports the installed version and path and exits non-zero naming any of
-`agent-skills/`, `AGENTS.md.template`, `PRINCIPLES.md`, `py.typed`, or
-`workspace/py.typed` the wheel failed to ship. It then runs every console
-script the installed distribution declares, as the installer wrote it, and
-exits non-zero naming one that is missing from the bin directory or that fails
-to start. The single installed executable exposes the build hooks as subcommands;
-the CMake integration tests check tool arguments and generated build rules. The
-`cli-contract` job checks the high-value `--help` surfaces. No pipeline step and no
-Makefile recipe inlines Python: each check is a `tools/` script
-(`release_check.py` for the release preflight, `require_extras.py` for the
-`ensure-extras` mypy guard) or a Makefile target, so a failure names a file and
-a line instead of an anonymous exit code. The package job also runs
-`make sdist-check`: it builds a wheel *from* the shipped sdist through the
-same hash-pinned build constraints and diffs the archive member lists
-(`tools/check_sdist_wheel.py`). The wheel is smoke-installed, but the sdist is
-the artifact a source install compiles, its file list comes from
-`MANIFEST.in` rather than package-data, and `tools/normalize_sdist.py` rewrites
-its tar metadata after the build, so a prune rule that dropped a runtime file
-would otherwise ship a working wheel and a broken source install.
-`make sbom` is the last build-touching step of the package job (and the last
-target in `make pr-check`), because `make build` clears `dist/*.cdx.json` so a
-bumped version cannot leave a stale BOM. An SBOM generated before it is deleted
-again, and the upload's `if-no-files-found: error` still passes on the wheel,
-sdist and buildinfo patterns, so the artifact would ship with no BOM.
-`make sdist-check` no longer contributes to that (it depends on
-`dist/rebrew.buildinfo`, which builds only when `dist/` is empty or a build
-input is newer than the artifacts, rather than on the phony `build`; the input
-list carries the `src/` directories as well as the files, so adding or
-deleting a module also rebuilds). The step asserts
-`test -s dist/rebrew.cdx.json`; `tests/test_ci_pins.py` pins the order.
-The lint job also runs
-`make audit` (`uv audit --locked`; diskcache's unfixed pickle advisory is
-`--ignore-until-fixed` until upstream ships a fix). Every job installs uv
-through the local composite action `.github/actions/uv-env`, which holds the
-one `uv-version` / `python-version` / `resembl-ref` / `resembl-sha` pin set both workflows
-share (commit-SHA-pinned `setup-uv` / `checkout` Actions; Dependabot scans the
-action's directory as well as `.github/workflows/`).
-Lint, pre-commit, package, and cli-contract use the exact Python patch from
-`.python-version`, as does the test matrix's coverage entry. The separate
-nightly workflow `.github/workflows/toolchain-sync.yml` uses the same pin. Jobs run on pinned `ubuntu-24.04` (not
-`ubuntu-latest`). Both workflows also take `workflow_dispatch`: the apt
-install and resembl clone helpers retry three times, so a network that stays
-down past that needs a manual re-run. Re-run the workflow or failed job to
-invoke those helpers again; a job-only re-run does not guarantee a fresh
-runner image. `setup-uv` runs with
-`enable-cache` and `cache-python`, so the pinned managed CPython is cached
-alongside the uv cache. The `lint` and `test` jobs sync `--all-extras`, so
-they pass `cache-suffix: all-extras` to `uv-env` and keep their own cache: a
-saved key is never overwritten, and with one shared key the plain
-`uv sync --locked` jobs saved first, so the extras' source builds (lmdb,
-jpype1, pypcode) ran again on every run. Workflow `permissions` are `contents: read` only:
-`setup-uv`'s `enable-cache` saves through the runner's cache token, not
-`GITHUB_TOKEN`. It does **not**
-require a target binary or MSVC toolchain.
+The test job installs Bun for dashboard interactions and W3C Nu for HTML
+validation. `make test` requires Bun. Bare pytest skips dashboard scripts
+without Bun and skips HTML validation without Nu. See the
+[contributor bootstrap](../CONTRIBUTING.md#bootstrap-clean-clone).
+The pre-commit job installs `shellcheck`, `yamllint`, and Biome. It skips
+the Ruff and mypy hooks because lint runs those checks directly.
 
-Except for the runtime-only package job described below, jobs that run
-`uv sync` first clone the sibling `resembl` repo
-(`maci0/resembl`, tag from the action's `resembl-ref` input, currently
-`v5.3.0`) into the
-directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
-network flake; each attempt clones into a sibling staging directory that
-replaces `../resembl` by rename only after the SHA check, so a retargeted tag
-or an exhausted retry leaves an existing checkout in place; the job passes
-`secrets.GITHUB_TOKEN` as the action's
-`github-token` input, which reaches only the clone step; header auth in a
-gitconfig created under umask 077, with the token unset before `git` runs,
-and hooks / fsmonitor / LFS smudge disabled before the SHA check, so
-lint/test steps never see the token):
-`pyproject.toml`'s `[tool.uv.sources]` resolves
-the `similarity` group's `resembl` from `../resembl`, so a default
-`uv sync --locked` fails to build the installation plan when that checkout is
-absent. Keep `resembl-ref` in step with the `resembl` version in `uv.lock`,
-and `resembl-sha` with the commit that tag resolves to: the clone fails when
-the tag points anywhere else.  `make setup` checks the same commit
-(`RESEMBL_SHA` in the Makefile) so a local checkout on another commit fails
-before `uv sync`, with the checkout command, instead of diverging from CI.
-Every host package the jobs install comes from one helper,
-`tools/ci_apt_install.sh` (nasm for the asm round-trip tests,
-`build-essential pkg-config libjson-c-dev` for native runner tests,
-`ant default-jdk` for JPype source builds, shellcheck and
-yamllint for the pre-commit gate, jq for the nightly drift result gate): apt
-mirrors flake
-under load, so it retries update and
-install with a backoff, skips tools already on `PATH` and development packages
-whose C build tools or json-c development files are available, and fails the step
-naming the package after the last attempt. A host that cannot install at all
-is named up front rather than retried: the helper requires `apt-get` (and
-`sudo`, when it is not already root) before the first attempt, and elevates
-with `sudo -n`, because there is no TTY in CI and a password prompt would
-block until the job timeout. `tools/ci_clone_resembl.sh` takes the same
-preflight for `git`, so a host missing the binary reports that instead of
-`git clone resembl failed after 3 attempts`.
-The test job installs Bun 1.4.4 (pinned `bun-version` on `oven-sh/setup-bun`):
-`tests/dashboard_*.mjs` need it, and `test_dashboard.py` skips those scripts
-when it is missing, so a job without it would go green without ever running
-the dashboard JS. The HTML validator is Nu 26.10.12, pinned by version and
-npm tarball digest in `tools/ci_install_vnu.sh`.
-The package job skips the sibling clone (`clone-resembl: "false"`): its
-lockfile sync uses
-`--no-dev --no-default-groups --no-install-project` (no path dep needed)
-before the
-`--no-deps` wheel overlay. After the smoke import it uploads the verified
-`dist/` wheel, sdist, `rebrew.buildinfo`, and CycloneDX SBOM as a workflow
-artifact (`rebrew-dist-<sha>`, 14-day retention). The test job checks out with `fetch-depth: 0` and `fetch-tags: true`.
-`git describe` walks from HEAD to the last release tag, so the commits
-between them have to be in the clone. Tag refs alone are not enough.
-Dev installs use `uv sync --locked --all-extras --group similarity` (Makefile
-`make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.
+### Test and package gates
 
-Jobs use three dependency environments. The package job uses a separate
-wheel-test environment created by `make smoke-wheel`.
+- `make coverage` runs the full suite with the `COV_FLOOR` threshold. The
+  test job then runs `make gen-fixtures-check` and `make idempotency-check`.
+  The idempotency sweep compares two runs, ignoring timestamps and derived
+  read caches. Mutating cases must change their scratch project on the
+  first run. The sweep rebuilds directories it owns. Choose a fresh
+  `--fixture-dir` when the existing directory lacks its ownership marker.
+- The lint job runs `make audit` against the lock. See the
+  [security policy](../SECURITY.md) for the scope of dependency checks.
+- Help and shell-output assertions use consistent terminal settings.
+  `make test`, `make check`, and `make cli-contract` disable forced ANSI
+  output, and the pytest plugin applies the same settings to
+  `uv run --frozen pytest`. The CLI contract job checks help without a
+  project binary or an MSVC image.
+- The package job runs `make build` and `make verify-dist` to produce and
+  check the wheel, sdist, and `rebrew.buildinfo`. `make build-repro` rebuilds
+  from a Git archive under a different path, umask, locale, and timezone.
+  The comparison excludes the source-commit and source-dirty entries
+  because the archive lacks Git metadata.
+- `make smoke-wheel` checks the installed version, packaged skills and
+  templates, type markers, and console scripts. `make sdist-check`
+  rebuilds a wheel from the sdist using the same pinned build constraints
+  and compares archive member names and payload hashes. It skips directory
+  entries.
+- `make sbom` runs after the last build because `make build` clears stale
+  SBOMs. The generator validates the CycloneDX 1.5 inventory, component
+  licenses, and dependency scope. See [dependency records](../CONTRIBUTING.md#adding-a-dependency).
+  CI checks the SBOM is nonempty and uploads it with the wheel, sdist, and
+  buildinfo as `rebrew-dist-<sha>` for 14 days. The wheel, sdist, and SBOM
+  receive provenance attestations. See [release steps](../CONTRIBUTING.md#cut-a-release).
 
-| Job | Sync | Why |
-|-----|------|-----|
-| `lint`, `test` | `uv sync --locked --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves; `--locked` fails a `pyproject.toml` edit that never reached `uv.lock` |
-| `package` via `make smoke-wheel` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --python .venv-pkg --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
-| `cli-contract`, `pre-commit` | `uv sync --locked` | default groups only for CLI help and pre-commit. The hooks the `pre-commit` job runs are file hygiene, the two SKILL.md validators, the AST import checks, and shellcheck/yamllint; the only one that reaches an extra is the mypy hook, which it skips because the `lint` job runs `make mypy` |
+### Nightly toolchain drift
 
-The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
-forced-ANSI mode it enables whenever `GITHUB_ACTIONS` is set. Without it the
-help text carries escape sequences on a CI runner, which breaks every
-assertion on help output (the help-listing tests and the cli-contract grep).
-`make test` / `make check` / `make cli-contract` also set `NO_COLOR=1` /
-`TERM=dumb` / `_TYPER_FORCE_DISABLE_TERMINAL`, because Rich Consoles
-created at import inspect the real stderr TTY and would otherwise color
-status text on a local terminal (and typer's CI ANSI mode splits option
-names across escape sequences).  The pytest plugin `pytest_ansi_env`
-(loaded via `pyproject.toml` `addopts`) applies the same trio for a bare
-`uv run --frozen pytest`, so `FORCE_COLOR` / `GITHUB_ACTIONS` in a
-developer shell cannot break CliRunner assertions that `make test`
-would have passed.  `make all` includes `cli-contract`.
-
-The nightly `toolchain-sync.yml` drift check installs through the same pinned
-uv flow (`uv sync --locked`) and the same `.github/actions/uv-env` pins,
-so scheduled runs can never silently resolve newer dependency versions than
-the audited lockfile. It checks sources once, prints that JSON result, and
-fails on drift, failed checks, unpinned sources, or an empty source inventory.
-`GH_TOKEN` is mapped onto the resembl-clone and `check-updates` steps only
-(authenticated git + GitHub API rate limits). The result gate uses `jq`,
-installed up front through the same `tools/ci_apt_install.sh` helper nasm and
-shellcheck come from, rather than assumed from the runner image. Its allowlist
-of passing statuses is the `STATUS_CURRENT` / `STATUS_STATIC_ASSET` /
-`STATUS_STATIC_TARBALL` constants in `rebrew.toolchain_cli`, listed once as
-`$ok` and used by both the verdict and the diagnostic, so a wording change in
-the command fails `tests/test_ci_pins.py` instead of reddening the nightly; a
-failing verdict names the sources it is about. One GitHub API blip is not
-drift either: `_live_commit_sha` retries a transport failure or a retryable
-status on the same backoff the pinned-media download uses, and only a 404-class
-answer is reported on the first attempt.
+[Toolchain sync](../.github/workflows/toolchain-sync.yml) uses the same
+locked install and Resembl pin. The check prints a JSON report and fails on
+drift, failed checks, unpinned sources, or an empty inventory. The workflow
+installs `jq` through the apt helper and scopes the GitHub token to the
+sibling clone and drift check. It reports drift for manual review.
 
 ## Required status checks
 
@@ -259,21 +92,17 @@ id, with the `test` matrix expanded per entry, so the required contexts are
 |-----|------|
 | `jobs-service` | Go formatting, vet, and race tests for the [jobs service](../services/jobs/README.md), using a SHA-256 verified Go release |
 | `lint` | ruff, ruff format, mypy, `uv audit` |
-| `test` | the full suite on Python 3.15 under the coverage floor, fixture freshness, idempotency sweep, W3C validation of the HTML surfaces |
+| `test` | the full suite on Python 3.15.2 with the coverage floor, fixture freshness, idempotency sweep, and W3C validation |
 | `pre-commit` | hook parity, including shellcheck, yamllint and biome |
-| `package` | reproducible sdist/wheel/SBOM/buildinfo, smoke install, sdist member diff, SBOM |
+| `package` | reproducible build, wheel smoke test, sdist member and payload comparison, SBOM, and provenance attestations |
 | `cli-contract` | the public `--help` surfaces |
 
 `tests/test_ci_pins.py` compares this table against the job ids `ci.yml`
-defines. A job added here stays unprotected until the branch-protection rule
-names it, and a job removed or renamed from the workflow leaves a required
-context nothing ever reports, which blocks every pull request until the rule
-is edited; the test is what keeps the two from drifting apart unnoticed.
+defines. Update branch protection when a job is added, renamed, or removed.
+A job added to `ci.yml` becomes required only when named by the rule. An
+old required check that the workflow no longer reports blocks pull requests.
 
-`toolchain-sync.yml` is deliberately absent: it is a nightly drift check, not
-a merge gate, and requiring it would hold a pull request on an upstream
-release-asset lookup. Its locked sync uses the default dependency groups and clones the
-sibling Resembl checkout.
+The nightly toolchain drift check runs outside branch protection.
 
 ## Project / workspace CI
 
@@ -281,9 +110,7 @@ Wire these into the **game/workspace** repo (the one with `rebrew-project.toml`
 and binaries), not necessarily this package:
 
 ```bash
-# Bulk byte-check with regression detection against the local baseline.
-# --compare needs no -o; the baseline lives in .rebrew/ (gitignored run
-# state) and carries target/compiler/binary identity guards.
+# Check bytes and compare against the saved baseline.
 rebrew verify --compare --json
 
 # End-to-end splice check. Default: fail only on hard mismatches.
@@ -292,6 +119,10 @@ rebrew verify --compare --json
 # zero-splice rule.
 rebrew build round-trip --strict-catalog --json
 ```
+
+For a regression-only gate, restore a baseline under `.rebrew/` for the same
+target, compiler configuration, and binary before running `verify --compare`.
+With a missing or incompatible baseline, any failed function fails the run.
 
 ### Exit codes
 

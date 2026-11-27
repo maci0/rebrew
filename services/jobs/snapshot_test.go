@@ -1,10 +1,31 @@
 package jobs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestWorkspaceDigestAllocationBudget(t *testing.T) {
+	root := t.TempDir()
+	data := make([]byte, 8*1024)
+	for i := range 128 {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("%03d.c", i)), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	allocations := testing.AllocsPerRun(5, func() {
+		if _, err := WorkspaceDigest(root); err != nil {
+			t.Fatal(err)
+		}
+	})
+	const budget = 2380 // 2324 with a shared buffer, 2452 with one buffer per file.
+	if allocations > budget {
+		t.Fatalf("workspace digest allocated %.0f times, budget %d", allocations, budget)
+	}
+	t.Logf("%.0f allocations for 128 files", allocations)
+}
 
 func TestWorkspaceDigestMatchesSnapshotWithoutTempCopy(t *testing.T) {
 	root := t.TempDir()

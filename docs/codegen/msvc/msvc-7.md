@@ -1,8 +1,8 @@
 # MSVC 7.0: codegen patterns
 
 MSVC 7.0 (VS .NET 2002, CL 13.00.9466).  The first compiler to emit
-**`lea esp,[esp]` loop-alignment nops inside function bodies**, and the
-first to post-shift division magic.
+**`lea esp,[esp]` loop-alignment nops inside function bodies**. Unsigned
+reciprocal division shifts `edx` before moving the result to `eax`.
 
 **Profiles:** `msvc-7.0`, `msvc-7.0-rtm`, `msvc-7.0-sp1`; Rich builds 9466 (RTM), 9955
 (SP1); linker 7.0.
@@ -25,10 +25,10 @@ first to post-shift division magic.
 
 ## Integer division
 
-- **Magic + post-shift**: `x/3u` → `mov eax,0xAAAAAAAB; mul [esp+4];
+- **Shift before moving the result**: `x/3u` → `mov eax,0xAAAAAAAB; mul [esp+4];
   shr edx,1; mov eax,edx`.  `x/10u` → `shr edx,3`, `x/100u` → `shr
-  edx,5`.  The `shr edx,N` tail is the **7.0+ marker** (5.0/6.0 take
-  `mov eax,edx` directly).
+  edx,5`. In these unsigned cases, VC 5.0/6.0 move the result first and
+  shift `eax`.
 
 ## FPU / SSE
 
@@ -151,9 +151,9 @@ first to post-shift division magic.
 
 ## Version deltas
 
-- From VC 6.0: `lea esp,[esp]` loop-alignment nops appear; division
-  magic gains `shr edx,N`; unsigned char loads use `movzx`; `rep
-  stosd`/wrappers unchanged.
+- From VC 6.0: `lea esp,[esp]` loop-alignment nops appear. Unsigned division
+  shifts move to `edx` before `mov eax,edx`. Unsigned char loads use `movzx`.
+  `rep stosd` inlining and the `/O1` and `/O2` wrapper patterns stay the same.
 - To VC 7.1: nothing verified in codegen.
 
 ## Probe13: string intrinsics: verified

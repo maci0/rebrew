@@ -320,4 +320,4 @@ your-project/
 | Too many ambiguous matches | Overly broad signature database | Use `--min-size 32` to skip tiny functions, or use more targeted `.pat` files |
 | `flirt` module not found | Dependency missing from the environment | Reinstall Rebrew, or run `make setup` in a checkout; the maintained binding comes from its pinned release archive, not PyPI |
 | `.sig` file won't load | Incompatible format or corrupt file | Try the `.pat` equivalent; `python-flirt` supports both but older `.sig` versions may fail |
-| Functions not detected at expected VAs | Probes advance by 16 bytes on x86 or an unknown arch, 2 on SH2, and 4 on the other listed RISC arches | An x86 function that starts off that stride is skipped; recheck the function start before regenerating signatures |
+| Functions not detected at expected VAs | Scan stride: 16 bytes on x86 or unknown architectures, 2 on SH2, and 4 on the other listed RISC architectures | Probe the exact start with `rebrew library scan-signatures --va <VA>` to bypass the scan stride and minimum-size filter. |

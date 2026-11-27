@@ -39,7 +39,9 @@ flowchart LR
     LOAD --> CMP
 
     CMP --> STATUS["test / verify<br/>metadata verdict writers"]
-    CMP --> DIFF["diff.py / match.py<br/>byte + structural scoring"]
+    MERGED --> CANDIDATE["matcher/compiler.py<br/>candidate build"]
+    CANDIDATE --> DIFF["diff.py<br/>byte + structural scoring"]
+    LOAD --> DIFF
 
     LOAD --> CATALOG["catalog/ (LIEF section/label data)"]
     CATALOG --> COVERAGE["coverage_project.py<br/>load_project_coverage"]
@@ -48,7 +50,8 @@ flowchart LR
     COVERAGE -.-> DB["coverage export<br/>portable coverage-&lt;target&gt;.toml"]
 
     LOAD --> IMPORTS["formats/import_table.py<br/>PE/ELF/NE import table + stubs"]
-    DIFF --> SOL["matcher/solutions.py<br/>target-scoped seeds + ga_runs.jsonl"]
+    CANDIDATE --> GA["match run<br/>candidate search"]
+    GA --> SOL["matcher/solutions.py<br/>target-scoped seeds + ga_runs.jsonl"]
 ```
 
 ## Module map
@@ -79,7 +82,7 @@ boundaries before adding another surface.
 
 | Surface | Answers | Input and cost |
 |---|---|---|
-| `similar.py` | which functions in this target rank closest to this one | this target, mnemonic histogram, linear per candidate |
+| `similar.py` | which functions in this target rank closest to this one | mnemonic histogram, call and branch counts, byte size, linear work per candidate |
 | `similar.py --submatch` (`instruction_clones.find_common_runs`) | where inside these two functions do they correspond | two functions, exact longest common runs, quadratic in the pair |
 | `similar.py --cluster` (`instruction_clones.cluster_units`) | which functions are identical after normalization | this target, one hash per function, linear in total instructions |
 | `binary_similarity.py` | how alike are two whole binaries (versions, DLL vs EXE) | two images, section and structural summary |

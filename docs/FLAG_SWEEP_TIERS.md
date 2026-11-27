@@ -135,7 +135,8 @@ non-MSVC6 grids below are selected per profile.
 
 ### MSVC 1.52 (16-bit)
 
-`rebrew match toolchains src/game/my_func.c --toolchains msvc-1.52 --flags`
+`rebrew match flags src/game/my_func.c --tier targeted` in a project
+configured with `msvc-1.52`
 sweeps the 16-bit CL flags (`/Od /O1 /O2 /Ox` opt, `/AS /AM /AC /AL`
 **memory models**, `/G2 /G3` codegen, `/Aw /Au` far-data, `/Gs`/`/Za`
 toggles): quick=25, targeted=75, normal=450, thorough=900 combinations.

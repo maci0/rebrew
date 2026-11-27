@@ -8,11 +8,11 @@ Single-function usage:
     rebrew match flags <source.c>
 
 Batch usage (``rebrew match batch``)::
-    rebrew match batch Run GA on all STUB functions
-    rebrew match batch --improve GA on all NEAR_MATCHING functions
-    rebrew match batch --near-miss Near-miss NEAR_MATCHING functions
-    rebrew match batch Batch flag sweep on NEAR_MATCHING --algorithm flags
-    rebrew match batch --dry-run List targets without running
+    rebrew match batch                             # GA on STUB functions
+    rebrew match batch --improve                   # GA on NEAR_MATCHING functions
+    rebrew match batch --near-miss                 # GA on close NEAR_MATCHING functions
+    rebrew match batch --improve --algorithm flags # flag sweep on NEAR_MATCHING functions
+    rebrew match batch --dry-run                   # list candidates without compiling
 """
 
 from __future__ import annotations
@@ -225,9 +225,6 @@ def execute_search(
 
     # Validate --tier up front: generate_flag_combinations raises a bare
     # ValueError that would otherwise escape as a traceback mid-sweep.
-    # Checked unconditionally — `rebrew match run f.c --tier nonsense` silently
-    # succeeded before (tier is only consulted in sweep paths, so the typo
-    # went unnoticed instead of erroring at invocation time).
     from rebrew.flag_data import MSVC_SWEEP_TIERS
 
     if tier not in MSVC_SWEEP_TIERS:

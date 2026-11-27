@@ -4,8 +4,8 @@ Same harness body and invariants as tests/test_property_binsync_serial.py
 (Hypothesis drives it in CI; this file is the coverage-guided libFuzzer
 entry point for local/OSSFuzz runs).
 
-    uv run --frozen python tests/fuzz_binsync_serial.py <corpus_dir> [flags]
-    uv run --frozen python tests/fuzz_binsync_serial.py tests/fixtures/binsync_serial -runs=1000
+    uv run --frozen --extra binsync --group fuzz python tests/fuzz_binsync_serial.py <corpus_dir> [flags]
+    uv run --frozen --extra binsync --group fuzz python tests/fuzz_binsync_serial.py tests/fixtures/binsync_serial -runs=1000
 
 Seed corpus: tests/fixtures/binsync_serial/*.toml (one dumps() output
 per artifact kind, per the review rule that seeds come from real

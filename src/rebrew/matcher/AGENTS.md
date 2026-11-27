@@ -1,6 +1,7 @@
 # AGENTS.md: matcher/
 
-GA engine for binary-matching decompilation. Compiles C through the docker-backed toolchain abstraction, scores byte similarity against targets, mutates source to converge on exact matches.
+The GA builds candidates through the configured toolchain backend, scores
+similarity to the target, and mutates source to improve byte matches.
 
 ## Modules
 
@@ -21,7 +22,7 @@ Externals (the only packages this one may import): `coff_reloc`, `compiler.cache
 
 ## Data flow (GA path)
 
-`build_candidate_obj_only` → miss in same-run memo and shared compile cache → docker compile → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
+`build_candidate_obj_only` → miss in same-run memo and shared compile cache → toolchain compile → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
 
 ## Non-obvious types
 

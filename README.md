@@ -33,7 +33,7 @@ To install from the source repository instead:
 uv tool install git+https://github.com/maci0/rebrew.git
 ```
 
-From an empty project directory, onboard your binary and check the setup:
+From an empty project directory, onboard your binary and run the setup checks:
 
 ```bash
 rebrew intake /path/to/game.exe
@@ -41,10 +41,10 @@ rebrew doctor
 rebrew todo
 ```
 
-Follow the [first-binary walkthrough](https://github.com/maci0/rebrew/blob/main/docs/GETTING_STARTED.md)
-to prepare the compiler image, identify library code, and start matching a
-function. See [onboarding](https://github.com/maci0/rebrew/blob/main/docs/ONBOARDING.md)
-for manual setup and first-run errors.
+A fresh setup may report a missing compiler image. Prepare the image and
+rerun `doctor` before matching. Follow the
+[first-binary walkthrough](https://github.com/maci0/rebrew/blob/main/docs/GETTING_STARTED.md)
+or use the [manual setup guide](https://github.com/maci0/rebrew/blob/main/docs/ONBOARDING.md).
 
 ### Optional features
 

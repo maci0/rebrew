@@ -125,8 +125,7 @@ the string at each reported RVA while preserving IAT enumeration order. Ordinal
 controls cover both widths; ELF and NE controls require null positions.
 
 Guild's prepared caller patch reproduces its tracked response file exactly.
-Its package pins now select released Rebrew 6.0.3, which lacks this field, so
-that patch remains unapplied until a release containing this change is installed.
+`hint_name_rva` shipped in Rebrew 5.4.0 and is present in 6.0.3.
 The native cutoffs, DLL recipe and ordinal spellings stay in Guild; changing
 its package environment or publishing a release is outside this migration.
 
@@ -4953,6 +4952,16 @@ pair; and an exact masked-hash pre-pass before similarity scoring.
 
 ## Batch status writes for multi-function test promotion
 
-2026-11-12, guild-rebrew compiler-flag audit: `test.py` multi-function path calls `update_source_status` separately inside its per-function loop (near lines 2360-2415), although a public batched status writer exists. A roughly 21 MB function store and concurrent workers make ordinary promoting tests much slower than diagnostic comparisons. One single-function source-targets promoting replay took several minutes; `references/minizip/unzip.c` measures 31 functions across three targets and then repeats status writes. Wanted: collect reviewed per-function promotions and apply the existing locked batch writer once per target/TU, preserving parked/documented-STUB policy, verification/provenance, explicit setting updates, failure reporting and cache-write ordering. This is a performance capability request; no incorrect byte comparison or metadata corruption is established. Evidence: guild-rebrew `.scratch/sol/flags/013.*.run.json`, `014.current.json`, `014.canonical.json`, and `014.recorded.run.json` when complete. Replay from guild-rebrew: `.scratch/microfleet/rtest /home/maci/Desktop/Projects/relumea/repos/rebrew/.venv/bin/rebrew test references/minizip/unzip.c --source-targets --json`; diagnostic control adds `--no-promote`.
+**Shipped in 6.78.0.** Multi-function `rebrew test` batches STATUS writes
+per source and publishes verify-cache updates for accepted rows. See the
+[release note](../CHANGELOG.md#6780---2026-11-25).
+
+The 2026-11-12 Guild compiler-flag audit found that `test.py` rewrote a roughly
+21 MB function store for each promoted verdict. The `references/minizip/unzip.c`
+replay compared 31 functions across three targets. The audit asked to batch
+promotions while preserving verdict guards, verification evidence, settings,
+and cache-write ordering. Receipts are under `.scratch/sol/flags/` in Guild.
+Replay from Guild with `rebrew test references/minizip/unzip.c --source-targets --json`.
+The diagnostic control adds `--no-promote`.
 
 Batch status write audit follow-up (2026-11-12): the minizip whole-file promoting run was interrupted after 23/31 durable verifications; it therefore has no completed `014.recorded.run.json`. Exact completed timing control is `013.recorded.run.json`; recovery evidence is guild-rebrew `.scratch/sol/flags/014.recovery.json`, `014.resume.*.run.json` and explicitly assembled `014.recorded.json`. Diagnostic measurements finished intact. Final report: `.scratch/sol/flags/REPORT.md`; 16 overrides cleared, no new byte matches, 11 previously linked EXACT server library rows now object RELOC pending renewed raw-link evidence.

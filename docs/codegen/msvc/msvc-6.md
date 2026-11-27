@@ -1,12 +1,11 @@
 # MSVC 6.0: codegen patterns
 
-MSVC 6.0 (1998, CL 12.00).  The most-used Windows-era compiler for
-matching; codegen-identical to VC 5.0 for the probe, with the SP levels
-indistinguishable by code shape.
+MSVC 6.0 (1998, CL 12.00) shares many instruction patterns with VC 5.0.
+The tested service packs generated identical code on the probes below.
 
 **Profiles:** `msvc-6.0` + `msvc-6.0-sp1..sp6`.  Rich-header C1 builds:
-**8168 (RTM, SP1, SP2), 8447 (SP3), 8966 (SP4/SP5), 9782 (SP6)**; the exact
-build is the only reliable SP discriminator (see below).  Linker 6.0.
+**8168 (RTM, SP1, SP2), 8447 (SP3), 8966 (SP4/SP5), 9782 (SP6)**.
+The C1 build narrows the service pack to one of these groups. Linker 6.0.
 
 ## Prologue & frame pointer
 
@@ -33,10 +32,10 @@ build is the only reliable SP discriminator (see below).  Linker 6.0.
 
 ## Integer division
 
-- **Magic constants, `mov eax,edx` tail (no post-shift)**: identical to
-  VC 5.0: `x/3u` → `mov eax,0xAAAAAAAB; mul [esp+4]; mov eax,edx`.
+- **Magic constants, shift after `mov eax,edx`**: same tail order as
+  VC 5.0: `x/3u` → `mov eax,0xAAAAAAAB; mul [esp+4]; mov eax,edx; shr eax,1`.
   Full constant set and signed tails as in [msvc-5.md](msvc-5.md).
-- The no-shift tail is the 5.0/6.0 marker; VC 7.0+ adds `shr edx,N`.
+- In these unsigned probes, VC 7.0 shifts `edx` before `mov eax,edx`.
 
 ## FPU / SSE
 
@@ -116,19 +115,19 @@ build is the only reliable SP discriminator (see below).  Linker 6.0.
   produces byte-identical output across SP1–SP6 at **both /O1 and
   /O2** (the smoke `_add` is identical too); the SPs differ in the
   compiler binary (C1 build), not in the tested code shape.  Treat
-  the Rich-header C1 build as the only reliable SP fingerprint;
-  complex-function optimizer differences between SPs are possible but
+  the Rich-header C1 build as evidence for the service-pack group.
+  Complex-function optimizer differences between SPs are possible but
   not reproduced.
 - What IS unique to the 6.0 family vs 7.0+: no `lea esp,[esp]`
-  loop-alignment nops, the no-shift division tails, no `mov
+  loop-alignment nops, the shift-after-move unsigned division tails, no `mov
   edi,edi`-heavy padding.  Identity must come from the Rich header (C1
   builds 8168/8447/8966/9782) + linker 6.0.
 
 ## Version deltas
 
-- From VC 5.0: nothing verified in codegen (identical optimizer output).
-- To VC 7.0: `lea esp,[esp]` loop-alignment nops appear; division tails
-  gain `shr edx,N`; `movzx` replaces `mov dl;add` for unsigned char
+- From VC 5.0: the x87 constant and address forms differ on the probes above.
+- To VC 7.0: `lea esp,[esp]` loop-alignment nops appear. Unsigned division
+  shifts move before `mov eax,edx`. `movzx` replaces `mov dl;add` for unsigned char
   sums; linked binaries show `mov edi,edi` padding.
 
 ## Probe12: static-helper inlining: verified negative

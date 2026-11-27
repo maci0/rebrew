@@ -1,12 +1,13 @@
 # decomp.me compiler fleet
 
-How the decomp.me compiler fleet is packaged, which IDs map onto rebrew
-profiles, and what the probes of the compilers rebrew does not ship found.
+This guide maps the decomp.me compiler fleet to Rebrew profiles and records
+code generation probes.
 Companion to [codegen/RULES.md](codegen/RULES.md) (rules J2 and A2 cite this
 fleet) and to the per-version files. Captured 2026-08-24 from the decompme
 GitHub org, then probed (rules catalog rounds 26 and 27).
 
-The inventory and probes below describe the August 2026 capture.
+The decomp.me inventory and probes describe the August 2026 capture. Rebrew
+profile names reflect the current [toolchain registry](TOOLCHAIN.md).
 
 ## 1. Where the definitions live
 
@@ -49,8 +50,7 @@ workdir and passes `/I` include paths per version.
 
 Watcom invocation, from `compilers.py`: `wcc386.exe` under wibo with
 `-zq -i="Z:${COMPILER_DIR}/h" -i="Z:${COMPILER_DIR}/h/nt"`. The compiler tree
-is the `Z:` drive and the include paths are explicit (the same shape as
-rebrew's `-I/tmp/cur_wc/h` for 16-bit wcc).
+is the `Z:` drive and the include paths are explicit.
 
 MSVC tarball sources: `OmniBlade/decomp.me` releases (`msvcwin9x/`),
 `roblabla/MSVC-7.0-Portable`, `widberg/msvc8.0`. The `cl` binary set is the
@@ -74,27 +74,28 @@ PS1/PS2/N64/GBA/NDS/3DS, clang 3.9-9.0, PPC MSVC) is outside the corpus.
 | `msvc4.0` | Microsoft Visual C/C++ 4.0 | `msvc-4.0`. 4.0/4.1/4.2 are codegen-identical to each other and to VC 2.0 |
 | `msvc4.1` | 4.1 | `msvc-4.1` |
 | `msvc4.2` | 4.2 | `msvc-4.2` (same codegen as 4.1) |
-| `msvc6.0` | 6.0 | `msvc-6.0` RTM, cl 12.00.8168 |
-| `msvc6.3` | 6.0 SP3 | `msvc-6.0-sp3`, 8447 |
-| `msvc6.4` | 6.0 SP4 | SP4, 8804 |
-| `msvc6.5` | 6.0 SP5 | SP5, 8966 |
+| `msvc6.0` | 6.0 | `msvc-6.0` RTM, C1 build 8168 |
+| `msvc6.3` | 6.0 SP3 | `msvc-6.0-sp3`, C1 build 8447 |
+| `msvc6.4` | 6.0 SP4 | `msvc-6.0-sp4`, C1 build 8966 |
+| `msvc6.5` | 6.0 SP5 | `msvc-6.0-sp5`, C1 build 8966 |
 | `msvc6.5pp` | 6.0 SP5 w/ Processor Pack | `msvc-6.0-sp5-pp`. See below |
-| `msvc6.6` | 6.0 SP6 | SP6, 9782 |
+| `msvc6.6` | 6.0 SP6 | `msvc-6.0-sp6`, C1 build 9782 |
 | `msvc7.0` | 7.0 .NET 2002 | `msvc-7.0`, `msvc-7.0-rtm` |
 | `msvc7.1` | 7.1 .NET 2003 | `msvc-7.1` |
 | `msvc8.0` | 8.0 | `msvc-8.0` RTM |
-| `msvc8.0p` | 8.0 (Patched) | not shipped. See below |
-| `bcc2.0` / `bcc3.1` | Turbo C 2.0 / 3.1 | `borland-2.0`, `borland-3.1` |
-| `wcc10.0a`, `wcc10.5`, `wcc10.5a`, `wcc10.6`, `wcc11.0` | commercial Watcom | not shipped. See below |
+| `msvc8.0p` | 8.0 (Patched) | `msvc-8.0-portable` |
+| `bcc2.0` / `bcc3.1` | Turbo C 2.0 / 3.1 | `borland-2.0-decompme`, `borland-3.1-decompme` |
+| `wcc10.0a`, `wcc10.5`, `wcc10.5a`, `wcc10.6`, `wcc11.0` | Commercial Watcom | `watcom-10.0a`, `watcom-10.5`, `watcom-10.5a`, `watcom-10.6`, `watcom-11.0` |
 
-`msvc6.3` through `msvc6.6` are separate IDs because each carries a different
-C1 build (8168 RTM, 8447 SP3, 8804 SP4 and later, 8966 SP5, 9782 SP6). The
-corpus measured SP1-SP6 codegen as byte-identical (rule J2). The split is
+The driver build is 12.00.8168 through SP3 and 12.00.8804 from SP4 onward.
+C1 is 8168 from RTM through SP2, 8447 in SP3, 8966 in SP4 and SP5, and
+9782 in SP6. The corpus measured SP1-SP6 codegen as byte-identical (rule J2). The split is
 CRT and headers, not instruction selection. Rebrew's SP rows are the codegen
 equivalent of those IDs. The 7.0 SP1 memset shapes are the exception, and
 they are an MSVC service pack, not a decomp.me ID.
 
-Rebrew ships, and decomp.me does not: MSVC 2.0, 5.0, 9.0, 10.0, 11.0; the
+Rebrew profiles absent from the capture include MSVC 2.0, 5.0, 9.0, 10.0,
+11.0, and 12.0 Update 4, along with the
 16-bit MSVC 1.0/1.5/1.52 line; Delphi 1.0; MinGW GCC. (Zig binaries are
 fingerprinted by toolchain detection, but no Zig compiler profile is packaged.) decomp.me hosts
 MSVC up to 8.0 only.
@@ -128,13 +129,13 @@ packaged binaries.
 
 Probed codegen is ordinary VC 8 (the FP reload dance `d9 5c 24 04 …`, and
 `add eax,1` for an increment). No new corpus rows against rebrew's 8.0
-RTM/SP1 ([msvc-8.md](codegen/msvc/msvc-8.md), rule J2). Rebrew does not ship
-an image for it.
+RTM/SP1 ([msvc-8.md](codegen/msvc/msvc-8.md), rule J2). Rebrew's
+`msvc-8.0-portable` image uses the same patched commit.
 
 ### Commercial Watcom 10.x / 11.0
 
-`wcc10.0a`, `wcc10.5`, `wcc10.5a`, `wcc10.6`, and `wcc11.0` are the
-commercial line. Rebrew ships only Open Watcom 2.0. The probes ran the
+Rebrew lists each commercial version above with a separate `-cxx` variant.
+The probes ran the
 decomp.me tarballs under wibo (decomp.me's own runner) and folded 35 rows
 into the corpus under `watcom/<ver>` at `-otexan`
 ([open-watcom.md](codegen/watcom/open-watcom.md), rule A2):
@@ -177,11 +178,9 @@ is cursor-based: `page_size`, then the `next` field of the envelope. Fields
 `preset`, `target_assembly`, `source_code`, `score`, `max_score`, `family`,
 `parent`, `owner`.
 
-The capture script is
-`~/Desktop/ai-decomp/third-party/decompme-api/scrape_snippets.sh`. It walks
-the x86 compiler ids, requests
-`/api/scratch?platform=win32&compiler=<id>&page_size=50`, stores each page as
-`snippets-x86/<id>_pN.json`, follows `next`, and flattens to
+The local capture script walked the x86 compiler IDs, requested
+`/api/scratch?platform=win32&compiler=<id>&page_size=50`, stored each page as
+`snippets-x86/<id>_pN.json`, followed `next`, and flattened the pages into
 `snippets-x86/all_snippets.json`. One page by hand:
 
 ```bash

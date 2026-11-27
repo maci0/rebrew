@@ -46,7 +46,7 @@ dependencies = [
     "httpx>=0.28.1,<1",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
     "idna>=3.20,<4",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
     "lief>=1.0.0,<2",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
-    "numpy>=2.5.4,<3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
+    "numpy>=2.5.4,<3",  # byte and structural scoring (matcher/scoring.py, binary_similarity.py, similar.py)
     "python-flirt @ https://github.com/maci0/lancelot/releases/download/python-flirt-v0.10.2-relumea.1/python_flirt-0.10.2%2Brelumea.1.tar.gz#sha256=5ad7a93c992d33478d97b8ce874fa7d5b92a121a949cd2a7e8f589e1a48fff01",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
     "pyyaml>=6.0.3,<7",  # splat config YAML (splat_config.py; replaces the hand-rolled subset reader)
     "rich>=15.0.0,<16",  # console rendering (Console(stderr=True) convention) and typer's markup backend
@@ -189,7 +189,7 @@ extend-exclude = [".hypothesis", ".scratch"]
 # (a named intermediate reads better than an inlined comprehension).
 # PERF403, C416 and C402 disagree on `{k: v for k, v in it}`: index the parsed
 # rows instead (layout_meta). The pylint PLR*/PLW*/PLC* rows below are the
-# zero-finding subset of the preview-only pylint rules; C4/TRY*/S*/PT*/PTH*
+# zero-finding subset of pylint rules. Individual TRY*/S*/PT*/PTH* rules
 # families stay off where they still fire (see the ratchet note above).
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
@@ -282,7 +282,7 @@ dev = [
 # scoring core + rapidfuzz.  Path-pinned via [tool.uv.sources] — never an
 # extra, so wheel METADATA cannot point pip at the unrelated PyPI `resembl`.
 # Install: `uv sync --group similarity` (needs ../resembl checked out).
-# resembl 5.0.0 declares License-Expression: GPL-3.0-only. See NOTICE.
+# resembl declares License-Expression: GPL-3.0-only. See NOTICE.
 similarity = [
     "resembl",
     "rapidfuzz>=3.14.6,<4",  # direct import in matcher/scoring.py code_similarity
@@ -297,7 +297,7 @@ similarity = [
 m2c = [
     "m2c @ git+https://github.com/matt-kempster/m2c.git@c632946b8cfbe8fce442b522dba92dfa72f1f317",
 ]
-# Coverage-guided fuzzing (tests/fuzz_lzexe_dfm.py, the libFuzzer entry point
+# Coverage-guided fuzzing (tests/fuzz_obj_symbol.py, the libFuzzer entry point
 # whose body tests/test_property_obj_symbol.py also drives under Hypothesis).
 # Resembl's own `fuzz` extra already carries the same atheris spec through the
 # `similarity` group, but rebrew's own harness import must be declared here:

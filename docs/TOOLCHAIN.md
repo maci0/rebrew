@@ -469,7 +469,7 @@ runtime and flag style). Notes on the families documented here:
 - `msvc-6.0`: image `rebrew/msvc:6.0-win32`, MSVC 6.0 under wine from the
   sha256-pinned archaic-msvc `msvc600` tarball, CL.EXE 12.00.8168.
 - The **MSVC 1.0–11.0 examples** ([matrix below](#the-msvc-10110-matrix)):
-  the table lists 31 classic-line profiles from `msvc-1.0` to `msvc-11.0`;
+  the table lists selected classic-line profiles;
   the registry also includes variants such as `msvc-6.0-sp5-pp` and
   newer profiles such as `msvc-12.0-u4`. Every version and preserved
   service pack is a sha256-pinned image `rebrew/msvc:<version>-<arch>` plus a
@@ -633,7 +633,7 @@ Notes:
 - **MSVC 1.52** (`recompile-toolchains/msvc/1.52-win16`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary: runs headless under DOSBox via the
   shared `rebrew.compiler.dosbox` runner; produces 16-bit OMF objects.
-- **Borland C++ (bcc32)**: the `turbo-c-v-4.5` CD was fully surveyed;
+- **Borland C++ 4.5/5.0 (bcc32)**: the `turbo-c-v-4.5` CD was fully surveyed;
   its 207 `.PAK` files are **Quantum** archives (extractable with
   `recompile-toolchains/delphi/1.0-win16/source/pak_extract.py`), the `.CA1`/`.CA2` containers hold an
   embedded Quantum stream at offset 5 (`[count u32][DS\0Z …]`; TCW.CA1 =
@@ -641,8 +641,8 @@ Notes:
   BCC32/BCC/TLINK anywhere; it is the Windows-IDE-only release).  The
   compiler needs the actual **Borland C++ 4.5/5.0 floppy set** (different
   archive.org item), not this CD: extraction deferred pending that source.
-- **Symantec C++ / Zortech C++ / Intel C++**: detected (family hints) but
-  no byte-matching profile.
+- **Symantec C++ / Zortech C++**: detected as family hints. Intel C++ has
+  the `icc-5.0.1-010525z` profile.
 
 ### Reproducible, self-contained builds
 
@@ -654,7 +654,7 @@ docker**: no host files:
 - **Downloads are sha256-verified** (msvc-6.0 tarball, the dated Open Watcom
   snapshot (both Watcom images pin the immutable `2026-09-01-Build` release) and the Borland InstallShield payload).  A changed source fails the build
   loudly.
-- **The six 16-bit toolchains** (msvc-1.0/1.5/1.52, borland-2.0/3.1,
+- **The six 16-bit `archaic-toolchains` profiles** (msvc-1.0/1.5/1.52, borland-2.0/3.1,
   delphi-1.0) download the same pinned `archaic-toolchains` codeload tarball
   their image builds from, sha256-verified and extracted with the wrapper
   directory stripped.  `rebrew toolchain vendor <name>` reproduces that tree
@@ -1094,7 +1094,8 @@ CRT function bodies against each candidate `LIBCMT.LIB` with the member's
 relocation slots zero-filled: linked-in library code is byte-identical to the
 member outside its own relocations, and the variant that covers the most
 target functions built the binary.  `docker cp
-<image>:/opt/msvc6.0-spN/VC98/Lib .` extracts a candidate; COFF archive members
+<container>:/opt/msvc6.0-spN/VC98/Lib .` extracts a candidate from a container
+created from that profile's image. COFF archive members
 are read by `rebrew.matcher.parsers`.  A body that matches only one variant
 pins the pack: for the Guild's `server.dll` the sbh family matched SP4/SP5/SP6
 and not the 8168 builds, and `___old_sbh_resize_block` (169 B at `0x1001e638`)
@@ -1239,7 +1240,7 @@ msvc6.0/6.3/6.4/6.5/6.5pp/6.6/7.0 only, no Lib dir):
 | Version | File | CL version | Notes |
 |---------|------|------------|-------|
 | msvc6.0 | `msvc6.0.tar.gz` (6.2 MB) | 12.00.x | same SP line as the local master |
-| msvc-6.0-sp3-win32 | `msvc6.3.tar.gz` (6.6 MB) | 12.00.8168 | **SP3: codegen differs from SP6** |
+| msvc-6.0-sp3-win32 | `msvc6.3.tar.gz` (6.6 MB) | 12.00.8168 | SP3 C1 build 8447. In the [corpus probes](codegen/msvc/msvc-6.md), SP3 generated the same bytes as SP6. |
 | msvc-6.0-sp6-win32 | `msvc6.6.tar.gz` (6.6 MB) | 12.00.8804 | **SP4+ driver: distinct from `msvc-6.0`'s RTM..SP3 8168** |
 | msvc-7.0-win32 | `msvc7.0.tar.gz` (33 MB) | 13.10.3077 | the 7.1 build, not `msvc-7.0`'s: no profile resolves it; `msvc-7.0` takes the `Vc7/` tree `rebrew toolchain vendor msvc-7.0` assembles (13.00.9466) |
 | msvc4.x/7.1/8.0 | not published | n/a | document + skip |

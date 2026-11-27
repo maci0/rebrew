@@ -71,9 +71,10 @@ commands that round-trip TOML.
 
 - Onboarding is not responsible for **finding** the binary; the user must drop it
   into `original/<filename>` themselves.
-- `rebrew init` does not download or build the toolchain. Every packaged
-  compiler profile (`rebrew toolchain list`) runs image-backed: build or pull the image
-  with `rebrew toolchain build <name>` / `rebrew toolchain pull <name>`.
+- Noninteractive `rebrew init` scaffolds the project. Build or pull the
+  compiler image with `rebrew toolchain build <name>` or `rebrew toolchain
+  pull <name>`. The interactive wizard can build it on request. See
+  [project setup](../ONBOARDING.md).
   Only a plugin/overlay toolchain registered without an `image` may exec a
   vendored host binary. The legacy `--install-wibo` host runner is
   ignored for image-backed profiles.
@@ -91,8 +92,8 @@ commands that round-trip TOML.
   when one already exists ("A rebrew-project.toml already exists").
 - Creates `original/`, `src/<target>/`, and `bin/<target>/` subdirectories, and
   `rebrew-functions.toml` + `rebrew-data.toml` metadata files, at the project root.
-  (`function_structure.json` is written later by `rebrew intake` /
-  `discover-functions`; there is no `functions.txt` scaffold.)
+  (`rebrew intake` or `rebrew binary functions --output <inventory-path>`
+  writes the inventory later.)
 - Writes an `AGENTS.md` from the bundled template so AI agents have project
   context, copies the bundled `agent-skills/` into `.agents/skills/` (with
   `<target>` substituted), and copies `PRINCIPLES.md`.

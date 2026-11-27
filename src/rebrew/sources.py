@@ -4,7 +4,7 @@ Single home for locating the source files that make up a target: configured
 extensions (:func:`source_exts`), glob patterns (:func:`source_glob`),
 recursive enumeration incl. shared sources (:func:`iter_sources`), library
 headers (:func:`iter_library_headers`).  Pure pathlib/config logic — no CLI or output
-concerns — so library modules (catalog, matcher, core) can depend on it
+concerns, so library modules such as catalog and matcher can depend on it
 without pulling in the presentation layer.
 """
 

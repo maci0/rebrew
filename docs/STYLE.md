@@ -32,7 +32,7 @@ to the reference for flags, schemas, or edge cases. The
 Edit skills in `src/rebrew/agent-skills/`, the project rule template in
 `src/rebrew/AGENTS.md.template`, and principles in `src/rebrew/PRINCIPLES.md`.
 Run `make gen-skills` after editing packaged skills. Copy modified principles
-to root `PRINCIPLES.md`. `docs/PRINCIPLES.md` is a symlink. In a generated
+to root `PRINCIPLES.md`. `docs/PRINCIPLES.md` points to the packaged source. In a generated
 project, `rebrew init --check` reports drift and `--refresh-agents` refreshes
 the scaffold.
 

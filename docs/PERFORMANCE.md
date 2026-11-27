@@ -2,6 +2,99 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## Dashboard text scrubbing (2026-11-27)
+
+On 50 in-process bootstrap requests, cProfile attributed 35 of 38 ms to
+recursive response scrubbing. The formatting-character regex alone used
+15 ms across 28,400 string checks. Every character the scrubber removes
+is outside ASCII, so ASCII strings now bypass the regex. Unicode uses the
+same search and translation. Terminal control escaping is a separate step.
+
+Ryzen 9 9950X, CPU 2, Linux 7.3.6, CPython 3.15.2 and perf 7.3.6-1.
+The fixed dashboard fixture has 36,000 stored functions and 8,000 globals.
+Each route used five warm-up requests and 61 measurements. Wall time is
+p50 / p95, in ms, for the handler including serialization and excluding
+compression and network transfer.
+
+| Scenario | Before | After |
+| --- | ---: | ---: |
+| Bootstrap | 0.327 / 0.332 | 0.070 / 0.073 |
+| Append page of 500 functions | 1.900 / 1.909 | 0.437 / 0.443 |
+| Function prefix search | 2.779 / 2.804 | 2.478 / 2.502 |
+| Globals first page | 0.568 / 0.570 | 0.305 / 0.309 |
+| History first page | 0.458 / 0.468 | 0.174 / 0.177 |
+
+All ten replayed API responses were byte-identical. Three processes per
+version, each making 4,000 bootstrap requests, retired a median of 36.41 G
+instructions before and 13.53 G after, including the fixture setup. An
+interleaved CPU check of 512 mixed visible and formatting-bearing Unicode
+strings measured 356 / 422 µs before and 361 / 452 µs after (61 samples
+per version). The new guard adds a small check on this fallback path.
+The deterministic work gate is
+`pytest -q tests/test_utils.py::TestStripBidiFormat`. It allows zero regex
+scans for ASCII and checks that the removal set contains no ASCII characters.
+
+An offline Chromium 158.0.8127.88 replay intercepted every request with
+local fixtures. Over 31 measured runs after three warm-ups, first contentful
+paint was 24 / 24 ms and click-to-paint marker on the 500-row append was
+38.3 / 42.8 ms. The traced append used 11.2 ms across two layout passes.
+This replay measures browser work with fixed responses. The handler
+improvement above has no demonstrated input-to-paint effect.
+
+## Coverage, todo, and workspace hashing (2026-11-27)
+
+Base `35148703`, Ryzen 9 9950X on Linux 7.3.6, CPython 3.15.2, Go
+1.27.4, and perf 7.3.6-1. Wall times below are in milliseconds. Each pair
+is p50 / p95 after warm-up. Dashboard requests used an in-process handler
+with 36,000 stored rows, including 372 non-code markers. Todo used the
+24,000-row fixture from `tools/bench_perf10_workflow.py`. The Go CLI
+hashed a local tree of 2,000 files. Runs used CPU affinity.
+
+| Scenario | Before | After |
+|---|---:|---:|
+| Coverage bootstrap, 61 requests | 2.28 / 2.40 | 0.33 / 0.34 |
+| Coverage append page, 500 rows | 4.34 / 6.25 | 1.96 / 1.98 |
+| Coverage function prefix search | 7.93 / 8.22 | 2.80 / 2.84 |
+| Coverage global name search | 1.57 / 1.59 | 0.78 / 0.79 |
+| Rebuild the snapshot, 31 interleaved runs per version | 223.3 / 253.6 | 225.3 / 252.4 |
+| Todo ranking, 31 interleaved runs per version | 105.0 / 199.6 | 101.8 / 170.1 |
+| Workspace digest CLI, 101 interleaved runs per version | 13.03 / 13.69 | 12.42 / 13.07 |
+
+Coverage keeps one VA-ordered tuple per immutable snapshot, about 279 KiB
+of references for this fixture. Code rows with the same VA keep their input
+order. The default list slices the tuple directly. Search avoids building a
+generator per row. Across 2,000 bootstrap calls, including setup, retired
+user-space instructions fell from 135.92 G to 21.35 G. Replaying ten API
+scenarios produced identical response bodies.
+
+Go pprof attributed 61% of allocated bytes to the per-file copy buffer.
+Reusing a 32 KiB buffer for the walk reduced bytes per digest from 5.94 MB
+to 2.39 MB and retired user-space instructions from 48.13 M to 45.21 M.
+Todo checks the effective status before reading details for the ranked rows.
+
+The regression tests use work counters. `test_function_pages_reuse_snapshot_order`
+bounds raw row scans at zero (previously six). `test_rank_reads_details_only_for_listed_functions`
+allows up to three field reads (previously 603). `TestWorkspaceDigestAllocationBudget`
+allows 2,380 allocations across a 128-file digest, against 2,324–2,325 observed
+and 2,452 before the change. It uses `testing.AllocsPerRun` with five measured
+runs after warm-up.
+
+In a separate offline Chromium 158 trace with 31 samples, first contentful
+paint was 20 / 24 ms, the first 40 rows painted in 34.7 / 35.2 ms, and the
+500-row append took 43 / 45.2 ms from click to the paint marker. The traced
+append spent 11.5 ms in layout alone. The server-side table above excludes
+browser work. CSS border and row-containment experiments showed no repeatable
+tail improvement. The browser replay intercepted all requests in memory.
+
+Other baselines include Hyperfine 2.0.0 on the CLI and Docker 29.10 with the
+installed MSVC 6.0 image. A one-function compile cache miss took 1,638 /
+3,788 ms, and a cache hit took 359 / 727 ms while the host was busy. In the
+first `cProfile` capture the compiler runner accounted for 4.38 s of 4.84 s.
+The small-project `status` and `todo` commands took 134 / 143 ms and 272 /
+327 ms. A deferred padding probe still left the binary parse on the latter
+path. The local CPython 3.15.0, 3.15.1, and 3.15.2 builds retired 21.40 G
+instructions each for the same bootstrap repeat.
+
 ## Test suite (2026-11-25)
 
 Base `1a168d04`, 16,662 tests, one warm run on 16 xdist workers: 51 s by
@@ -31,6 +124,143 @@ Rejected:
   item; every test module's top-level code together is under 1 s;
 - shorter op deadlines in `TestOpDeadlines` (about 3 s of sleeping): the
   remaining margin is what keeps them deterministic on a loaded host.
+
+### Fixture waits (2026-11-27)
+
+The baseline was the working tree at `35148703` before these test edits.
+Profiles used Python 3.15.2, pytest 9.2.0 and xdist 3.8.0 on a Ryzen 9
+9950X. Each side ran once to warm caches, then three times with
+`taskset -c 0-15 .venv/bin/pytest -q -n 8 --dist worksteal`. A pytest
+probe recorded collection and the setup, call and teardown reports.
+`perf stat -e instructions:u` counted retired user instructions, and
+`getrusage(RUSAGE_CHILDREN)` counted CPU time for the runner and its children.
+Work done by the Docker daemon is outside those counters. Each full run
+reported 16,745 passes and 47 skips.
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Full wall time, median (range) | 64.66 s (56.73–70.61) | 60.11 s (59.71–72.09) |
+| CPU-minutes, median | 4.29 | 4.26 |
+| Retired instructions, median | 2,262 G | 2,264 G |
+| Per-test p50 / p95, median of runs | 0.64 / 82.62 ms | 0.66 / 85.50 ms |
+| Longest worker's collection, median | 2.71 s | 2.77 s |
+| Sum of setup / call / teardown across workers, median of each | 27.74 / 405.86 / 9.56 s | 30.26 / 375.28 / 6.94 s |
+
+The whole-suite ranges overlap. CPU work and per-test percentiles stayed near
+the baseline. The affected tests show the savings more directly.
+
+| Tests | Median summed worker time before | After |
+| --- | ---: | ---: |
+| 30 dashboard, telemetry and compile HTTP cases | 12.68 s | 4.21 s |
+| Two in-process deadline cases | 3.02 s | 0.021 s |
+| Competing library writer | 2.02 s | 0.009 s |
+
+The focused 33-test run passed four consecutive times after the edits. Its
+median wall time after warm-up was 5.45 s.
+
+The serial focus run reproduced a dashboard race. The test could stop the
+trace exporter after reading an HTTP status while the request thread was still
+finishing its span. A missing span cost the entire ten-second wait and failed
+the run. The test now waits for the exported span before shutdown. The other
+socket tests still exercise real loopback requests, server limits and teardown.
+
+The deadline tests advance only the dispatcher clock across the existing
+one-second deadline. The lock test requires a real denied lock acquisition
+before asserting the file is intact. After the holder commits a change, the
+waiting write must preserve it. These assertions use events and outcomes.
+Their safety timeouts only bound failures.
+
+The local four-CPU SlipCover command
+(`tools/coverage_shards.py --fail-under 85`) passed in 137.8 s before and
+129.8 s after. These are single validation runs. The byte-size partitioner
+changed shard membership after the test edits. Both runs passed 16,745 tests
+with 47 skips. Merged line coverage was 90.033% before and 90.029% after, with
+the same executed lines in the ops, library, metadata locking, dashboard
+and telemetry modules.
+
+Disabling the unused AnyIO plugin during serial collection moved median
+collection wall time from 3.049 to 3.055 s over five warm runs. Keep the plugin.
+The largest remaining groups by summed worker time are ops (39.2 s),
+candidate application (33.9 s), reanalysis (20.3 s) and compiler round-trips
+(13.9 s). The large read-only setup fixtures already build once and copy before
+writes. Keep the real child deadline and compiler tests in the PR suite.
+
+#### Local instruction budget
+
+The 33 cases below retired a median of 36.63 billion instructions after one
+warm-up. On the same Linux environment, the median of three warm runs may be
+at most 40.4 billion (about 10% headroom). The inputs are local fixtures and
+loopback servers. Use an available CPU in the `taskset` command. The counter
+checks CPU work. The event and virtual-clock assertions cover the waits.
+
+```bash
+stats=$(mktemp -d)
+export UV_OFFLINE=1 PIP_NO_INDEX=1
+for run in 0 1 2 3; do
+  LC_ALL=C perf stat -x, -e instructions:u -o "$stats/$run" -- \
+    taskset -c 31 .venv/bin/pytest -q -n 0 --tb=short \
+    tests/test_dashboard.py::TestThreadFaults \
+    tests/test_dashboard.py::TestRequestSpans \
+    tests/test_dashboard.py::TestKeepAliveTimeout \
+    tests/test_dashboard.py::TestConnectionCap \
+    tests/test_dashboard.py::TestResponseFraming \
+    tests/test_telemetry.py \
+    tests/test_compile_verdict.py::test_a_retained_toolchain_rejection_is_a_verdictless_422 \
+    tests/test_ops.py::TestOpDeadlines::test_verify_function_without_a_candidate_runs_in_process_past_its_deadline \
+    tests/test_ops.py::TestOpDeadlines::test_an_import_past_its_deadline_installs_nothing \
+    tests/test_library.py::TestLibraryCli::test_set_writes_under_the_metadata_write_lock || exit 1
+done
+awk -F, '$3 == "instructions:u" && $1 > 0 { print $1 }' "$stats"/[123] |
+  sort -n |
+  awk 'NR == 2 { median = $1 } END { print median; exit !(NR == 3 && median <= 40400000000) }'
+```
+
+### Shared binary analysis (2026-11-27)
+
+The dispatch budget and reanalysis tests now share the real `mini_pe.exe`
+analysis with `test_ops`. The budget tests and SQLite fixture write to their
+own copies. Both snapshot cases build their manifests from the cached capture
+and put the objects in their private filestores. Tests of reanalysis still
+run the real operation on their modified projects.
+
+Three warm runs of the same 68 tests in `tests/test_op_budget.py` and
+`tests/test_reanalysis_name_binding.py`, serial pytest on CPU 31 with the
+timing probe and `perf stat -e instructions:u` above.
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Wall time, median (range) | 20.19 s (20.17–22.34) | 18.63 s (18.53–18.89) |
+| CPU time, median | 18.92 s | 17.25 s |
+| Retired instructions, median | 193.64 G | 154.35 G |
+| Per-test p50 / p95, median of runs | 20.72 / 1,365 ms | 17.42 / 1,571 ms |
+| Total setup, median | 2.76 s | 1.65 s |
+| Calls of both snapshot cases, summed | 2.73 s | 0.018 s |
+
+The eight-worker full suite kept all 16,792 cases, including 47 skips. Over
+three warm runs, retired instructions fell from 2,263.53 G to 2,210.02 G and
+CPU time moved from 4.26 to 4.23 minutes. Wall time moved from 60.11 s
+(59.71–72.09) to 71.64 s (71.22–97.97). These runs were on a shared host
+with higher load during the second set. Median summed call time outside the
+two edited modules rose from 357.88 to 456.17 s. The fixed-scenario latency
+and full-suite instruction counts show the work removed.
+
+One local four-shard SlipCover run passed in 104.3 s at 90.029% line
+coverage, the same aggregate coverage as the fixture-waits run. The
+byte-size partitioner assigned different files to each shard.
+
+The existing copy-isolation test now also guards snapshot setup against an
+unexpected dispatch. For an end-to-end work check, the nine cases below must
+launch exactly two intake subprocesses, both from the shared analysis. The
+same trace recorded eight before the change. The count uses local fixtures
+and is independent of CPU speed.
+
+```bash
+trace=$(mktemp)
+UV_OFFLINE=1 PIP_NO_INDEX=1 strace -f -s 1000 -e trace=execve -o "$trace" \
+  .venv/bin/pytest -q -n 0 tests/test_op_budget.py tests/test_reanalysis_name_binding.py \
+  -k 'test_an_op_does_no_more_work_than_its_budget or decompile_snapshot or security_scan_snapshot or test_a_tests_project_is_a_copy_and_runs_no_op' &&
+  test "$(rg -c 'execve\(.*"intake", "--json", "--target", "mini"' "$trace")" -eq 2
+```
 
 ## `rebrew status` on guild-rebrew (2026-11-24)
 
@@ -139,6 +369,7 @@ Retained changes:
 
 Not changed: `types contracts` is first-time parsing (each file's text is
 parsed once), and asking rizin for less analysis would change its results.
+
 ## Source scans read each store once (2026-11-16)
 
 `scan_globals` loaded both metadata stores once, then read them again for every
@@ -418,6 +649,11 @@ Replacing the function-definition walk with a tree-sitter Query
 source analysis, formats, matching and workflow analysis. The report includes
 paired CPU medians, raw CPU/wall samples, cache states, correctness checks,
 rejected changes and reproduction commands.
+
+## Hot-path review follow-ups (6.7.0)
+
+[The follow-up report](PERFORMANCE_6_7_0.md) covers the next 50 reviews and
+the resulting correctness and performance changes.
 
 ## Independent hot-path load reviews (2026-10-28, 6.6.0)
 
@@ -949,7 +1185,7 @@ to stay under one quadratic pass. That count does not move with scheduler load.
 
 ## Surface reads and recompile retries
 
-`tools/public_surface.surface_at_ref` lists the tree and reads every blob
+`surface_at_ref` in `tools/public_surface.py` lists the tree and reads every blob
 in one `git cat-file --batch`, avoiding one `git show` process per module.
 `public_surface` parses each module once and reuses that tree for constant
 substitution. Substitution walks signatures, bases, and literal values, not
@@ -1015,16 +1251,12 @@ immutable in-memory snapshot, so the per-request connections and per-row
 `json.loads` this section measured no longer exist. The numbers below are kept
 as the record of why the reader is snapshot-based.)*
 
-Nested query methods each opened their own read-only SQLite connection.
-Cold-start `bootstrap()` therefore connected four times (targets, known-target
-check, summary, functions); `/api/functions` and `/api/summary` connected twice
-(`target_known` then the query). The reader now parses each coverage document
-once, caches the immutable snapshot against the document's stat, and every
-route answers from that one object: the connect counts are structurally zero
-rather than reduced. Gates: `TestQueryLayer.test_one_response_reads_one_snapshot`,
-`test_revalidation_matches_the_get_it_stands_in_for`.
+The earlier SQLite reader opened four connections for `bootstrap()` and two
+for `/api/functions` and `/api/summary`. The intermediate fix shared one
+connection per request. The current snapshot reader opens zero.
 
-Measured 50 warmed calls on 500 synthetic functions (CPU time, `getrusage`):
+The SQLite connection-sharing benchmark measured 50 warmed calls on 500
+synthetic functions (CPU time, `getrusage`).
 
 | Path | before connects | after connects | CPU / 50 |
 |---|---|---|---|
@@ -1206,8 +1438,8 @@ the icon and the pages precompressed.
 
 ## Idempotency
 
-`tools/check_idempotency.py` runs its 18 commands twice as an offline
-CI step, comparing exit codes and parsed JSON after recursively removing
+`tools/check_idempotency.py` runs 18 commands twice in its read-only phase,
+comparing exit codes and parsed JSON after recursively removing
 `timestamp` keys. JSON formatting and object-key order do not affect the
 comparison; non-JSON output is compared verbatim. This check does not establish
 raw byte identity or cover invocations outside that list. See [CI.md](CI.md).

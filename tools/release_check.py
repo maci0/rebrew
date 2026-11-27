@@ -12,10 +12,8 @@ dirty, whose changelog notes are split across ``[Unreleased]`` and
 half-documented files or a pin every fresh clone refuses. GitHub release
 artifacts are verified separately.
 
-The checks live here rather than in the Makefile recipe because the version
-comes out of the package: a shell recipe had to read it with ``python -c``,
-and the changelog scan that followed was awk and grep in the same string.  One
-language per command, and a failure names a file and a line.
+This script reads the version from the package, checks the changelog, and
+reports the reason for each failure.
 
 Usage::
 

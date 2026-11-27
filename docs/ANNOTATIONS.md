@@ -104,9 +104,9 @@ source comments or rewrites obsolete blocks.
 | W005 | An unfinished function lacks a stored blocker explanation. |
 | W006 | A declared library module lacks source provenance in function metadata. |
 | W015 | Hex address digits use inconsistent case. |
-| W016 | A data identity lacks its native section; --fix can resolve it from the binary. |
+| W016 | A data identity lacks its native section. `--fix` can resolve it from the binary. |
 | W018 | Missing CFLAGS with no config fallback. No CFLAGS in metadata **and** no `[compiler].cflags` default in project config: compile may use wrong flags |
-| W020 | Undocumented assembly. Names each definition using `__asm`/`_emit`, using only its selected-target metadata. Its own `BLOCKER`, or current file/symbol/target evidence recorded by `rebrew source document-assembly`, documents original-assembly provenance and suppresses only that definition's warning. Another function's status, blocker or naked body does not affect it. Foreign-only target files/definitions are excluded. Naked assembly is handled by **E023**. Non-stub statuses appear in the warning, but a byte match alone does not establish original assembly provenance |
+| W020 | Inline assembly lacks original-source evidence for this definition and target. See [assembly warnings](#assembly-warnings). |
 | W021 | Duplicate global. Conflicting addresses for one module/name, or initialized definitions in more than one file; same-address extern references are allowed |
 | W022 | Zero-init `.bss` global: file-scope `= 0` initializer on a `.bss`-style global |
 | W023 | Default function name. Function named with a placeholder (`fcn`, `FUN_<hex>`, `sub_<hex>`, `fcn_<hex>`, ...; `rebrew.workspace.names.is_placeholder_name`; pedantic only): rename it; a descriptive name is what the call graph and reports key on |
@@ -114,13 +114,37 @@ source comments or rewrites obsolete blocks.
 | W025 | Opening brace style does not match project configuration (`lint_brace_style` in config) |
 | W026 | Line indent style does not match project configuration (`lint_indent_style` in config) |
 | W027 | Line exceeds `lint_max_line_length` characters |
-| W028 | Stale bound VA. FUNCTION/STUB binding VA has no function in the current discovery inventory (`function_structure.json`, removed/shifted) or points inside another function's span (moved/merged): review the binding or refresh with `rebrew binary functions`; LIBRARY/DATA/GLOBAL bindings excluded |
+| W028 | A FUNCTION or STUB binding is absent from the inventory or points inside another function's span. Review it or run `rebrew binary functions --output <inventory>`. Earned EXACT and RELOC bindings are exempt. |
 | W029 | Redundant cflags. Per-function `cflags` in `rebrew-functions.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`). `rebrew lint --fix` drops the redundant field; the fallback chain already supplies the same flags |
 | W030 | Function addresses for one target do not follow C definition order. |
-| W031 | Metadata store problem. A `rebrew-functions.toml` / `rebrew-data.toml` entry a reader will not honour: an unknown field, a STATUS outside the vocabulary, half an `updated_by`/`updated_at` pair, an unknown provenance tag, a stray top-level key, or a missing / foreign `format` stamp. Also reports malformed function-store source evidence, unknown target modules and evidence bound to a changed, missing or ambiguous definition; clear the record or review and record evidence again |
-| W033 | Agent scaffold drift: `AGENTS.md`, `PRINCIPLES.md` or `.agents/skills/**` no longer matches the installed rebrew's packaged sources, so an agent follows workflow instructions for a version that is not running. Warn-only; fix with `rebrew init --refresh-agents` (it writes differing generated files and removes unchanged retired skill files recorded in its scaffold manifest; locally modified retired files are reported and kept). `AGENTS.md`'s own comparison is profile-rendered: `rebrew init --refresh-agents --check` reports it in full |
-| W034 | `file` identity is not joinable: a stored `file` in `rebrew-functions.toml` is absolute or contains a `..` segment, so `verify`/`rename`/BinSync would join it to a path outside the checkout. Writers refuse it (`rebrew.metadata.functions.validate_identity_file`); this reports rows written before the gate |
+| W031 | A metadata store contains an unsupported format or field, malformed provenance or evidence, or evidence bound to a changed, missing, or ambiguous definition. |
+| W033 | Generated agent instructions or skills have drifted. See [refreshing the scaffold](#refreshing-the-scaffold). |
+| W034 | A stored `file` is absolute, drive-qualified, or contains a `..` segment. Writers reject these values. An unreadable store also triggers W034 because lint cannot check its identities. |
 | W035 | Module belongs to no target. A metadata row's `module` matches no project binding, target binding, or declared library module, so `status`, `todo` and the dashboards (all of which filter by module) cannot show it. Typical after a target rename left rows behind |
 | W036 | Stray metadata store. A `rebrew-data.toml` / `rebrew-functions.toml` outside the directories the readers use (`metadata_dir`, `reversed_dir`, `shared_dir`). The readers resolve a store by directory with no fallback, so a second copy is not a backup: pointed at its directory it answers with its own smaller entry set, and is invisible otherwise. Warn-only; delete the copy that no command is pointed at |
-| W037 | Data row disagrees with its definition. A `rebrew-data.toml` row of the active target whose `file` names this source, where the file-scope definition of its `name` has a different byte size than the row's `size` or the extent of its `type`. `extern` declarations are users and are ignored, except for `storage_kind = "span"` rows, whose owning file may hold only an extern inventory view; a definition still wins. A tiled allocation (a short leading definition plus separately defined interior names and pads, each an `alias` row in the same file whose `backing` names the allocation) is measured as the leading definition plus the backed definitions that follow it contiguously; a backed row with no definition there is a view and is ignored, and a hole before the next piece is reported by address. Only byte sizes are compared, so `[0x104]` against `[260]` or a typedef against its expansion is silent. Skipped, not guessed: no definition in the file, conflicting definitions (`#if` branches), and any size `data_symbol_size` cannot compute (struct/union/unknown typedef, unsized array, non-x86_32). The message names both values and the fix: `rebrew data set --type '0xVA=TYPE'` / `--size 0xVA=BYTES` |
+| W037 | A data row's size or type extent disagrees with its definition. See [data extent warnings](#data-extent-warnings). |
 | W038 | Overlapping data rows. Two named `rebrew-data.toml` rows of one module whose `[va, va + size)` extents intersect (size from `size`, else a computable `type`). An `alias` row with a `backing` is a view and is excluded; rows that only touch end-to-start do not overlap. Two storage owners cannot share a byte, so one extent is stale (W037 often names it) or a view is not recorded as one (`rebrew data set --storage-kind 0xVA=alias --backing 0xVA=GLOBAL`). `rebrew status` otherwise shows only the discounted byte count |
+
+### Assembly warnings
+
+W020 checks each selected-target definition using `__asm` or `_emit`. It accepts
+a blocker on that definition or current evidence from `rebrew source
+document-assembly`. A byte match alone does not document provenance. E023
+handles whole-function naked assembly.
+
+### Refreshing the scaffold
+
+`rebrew init --refresh-agents --check` previews W033 fixes. Apply with
+`rebrew init --refresh-agents`. It refreshes generated files and removes
+unchanged retired skills recorded in the scaffold manifest. Locally modified
+retired files are reported and kept.
+
+### Data extent warnings
+
+W037 checks byte sizes it can compute for the selected target. For a `span`
+row, it measures the extern declaration when the file has no definition.
+For a tiled allocation, the check adds contiguous same-file definitions whose alias rows
+name the allocation as `backing`. A gap before the next tile is reported if
+it starts within the stored extent. Ambiguous or uncomputable extents are
+skipped. Review the definition before correcting metadata with `rebrew data
+set --type '0xVA=TYPE'` or `rebrew data set --size 0xVA=BYTES`.

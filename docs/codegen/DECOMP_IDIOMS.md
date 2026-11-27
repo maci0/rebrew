@@ -16,7 +16,7 @@ era).
 |---|---|---|---|
 | LCG `*1103515245+12345` | `*s = *s * 1103515245u + 12345u` | `69 c0 6d 4e c6 41 05 39 30 00 00` (`imul eax,eax,0x41c64e6d` + `add eax,0x3039`) | `imul reg,reg,imm32`: **UNIFORM across ALL versions** (matrix-verified); the multiplier in the imm32 is itself the fingerprint |
 | LCG `*1664525+1013904223` | `*s = *s * 1664525u + 1013904223u` | `69 c0 0d 66 19 00` + `05 5f f3 6e 3c` (imul + add imm32) | `imul` uniform across ALL versions |
-| LCG `*69069+1` | `*s = *s * 69069u + 1u` | `69 c0 cd 0d 01 00` (imul 0x10dcd) | **the only LCG multiplier that decomposes**: VC 2.0-6.0 emit shl/add chains (`8d 04 80 c1 e0 08 2b c1 …`), 7.0+ `imul`; the imul-vs-decompose split is a version fingerprint FOR THIS CONSTANT |
+| LCG `*69069+1` | `*s = *s * 69069u + 1u` | `8d 04 89 c1 e0 08 2b c1 …` (shift/add chain) | On the `/O2` probes, VC 2.0/4.1's shift/add chain starts `8d 04 80`, VC 5.0/6.0 use the form shown, and VC 7.0+ use `imul`. The `/O1` probes use `imul` across these versions. |
 
 ## Fixed-point math
 

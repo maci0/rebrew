@@ -1,8 +1,8 @@
 # MSVC 5.0: codegen patterns
 
-MSVC 5.0 (1997, CL 11.00.7022; SP1–SP3 ship the same CL.EXE).  The
-**magic-number division era begins here**, and the magic tail still lacks
-the post-shift VC 7.0+ adds.
+MSVC 5.0 (1997, CL 11.00.7022, also used by SP1–SP3) starts the
+reciprocal-division pattern in these probes. The unsigned division tail shifts
+`eax` after `mov eax,edx`.
 
 **Profiles:** `msvc-5.0`, `msvc-5.0-sp1`, `msvc-5.0-sp2`, `msvc-5.0-sp3`; linker
 5.0/5.10/5.12.  VC 5.0-era linkers write a Rich header with C1 build 0
@@ -36,14 +36,14 @@ does.  VC 2.0–4.2 linkers write no Rich header at all.
 
 - **Magic constants** (first appearance): `x/3u` →
   `mov eax,0xAAAAAAAB` (`b8 ab aa aa aa`) · `mul dword ptr [esp+4]`
-  (`f7 64 24 04`) · **`mov eax,edx`**; the high half is taken directly,
-  **no post-shift**.
+  (`f7 64 24 04`) · `mov eax,edx` · `shr eax,1`.
 - Full verified constant set: `x/3u` → `0xAAAAAAAB`, `x/7u` →
   `0x24924925`, `x/10u` → `0xCCCCCCCD`, `x/100u` → `0x51EB851F`, signed
-  `x/7` → `0x92492493`, signed `x/10` → `0x66666667`.  Signed tails use
-  `sar edx,N` + `shr eax,31` correction.
-- `mov eax,edx` (no shift) is the **VC 5.0/6.0 marker**: VC 7.0+ emits
-  `shr edx,N` before taking the result.
+  `x/7` → `0x92492493`, signed `x/10` → `0x66666667`. In the signed `/10`
+  probe, the compiler moves `edx` to `eax`, shifts `eax` arithmetically,
+  then uses `ecx` for the sign correction.
+- In these unsigned probes, VC 5.0/6.0 shift `eax` after `mov eax,edx`.
+  VC 7.0 shifts `edx` before the move.
 
 ## FPU / SSE
 

@@ -15,10 +15,12 @@ first function. This guide covers setup choices and recovery from common errors.
 `intake` uses the binary stem as the target name unless you pass `--target`.
 For a custom target name, the copied binary uses that name with the original
 extension. `intake` needs the target to be configured if the project already
-exists. Run it from the project root to repeat discovery for an existing target.
-It preserves recorded progress and can remove untouched generated stubs for
-functions that disappeared from the inventory. Use the copy under `original/`
-to repeat discovery on the same binary.
+exists. For a target created by intake, repeat the command from the project
+root with the copy under `original/`. Intake preserves existing source work
+and can remove untouched generated stubs for functions that disappeared.
+Copy any reviewed inventory elsewhere first, since intake replaces
+`function_structure.json` in `reversed_dir`. For custom binary or inventory
+paths, use [manual discovery](#manual-discovery).
 
 ### Interactive wizard
 
@@ -65,9 +67,10 @@ rebrew binary functions --target game --output src/game/function_structure.json
 rebrew doctor --target game
 ```
 
-For third-party discovery, write the inventory as a JSON array of objects with
-integer `va` and `size` fields and a string `name`. Use the configured target's
-`reversed_dir` for the output path. See [binary functions](CLI.md#rebrew-binary-functions).
+For third-party discovery, write a JSON array of objects with integer `va`
+and `size` fields and a string `name`. The default inventory is
+`function_structure.json` in the target's `reversed_dir`. For a configured
+`inventory_file`, write to that path. See [binary functions](CLI.md#rebrew-binary-functions).
 
 ## Project instructions and skills
 

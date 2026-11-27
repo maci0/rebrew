@@ -2434,7 +2434,7 @@ def call_references(config: WorkerConfig, req: ProjectRequest) -> dict[str, Any]
 
 
 def describe(config: WorkerConfig, req: AddressRequest) -> dict[str, Any]:
-    """The function dossier ``rebrew describe --json`` prints."""
+    """The function dossier ``rebrew binary function --json`` prints."""
     from rebrew.analysis import is_inside
     from rebrew.describe import JSON_KEYS, build_dossier
     from rebrew.formats.binary_loader import load_binary
@@ -6512,7 +6512,7 @@ _MAX_DOWNLOAD_HELP = "Largest binary in bytes a request url may name"
 @app.command(
     "call",
     epilog="[bold]Examples:[/bold]\n\n"
-    "  rebrew ops call rebrew.pe_info --filestore /srv/files · request on stdin",
+    "  rebrew ops call rebrew.pe_info --filestore /srv/files  # JSON on stdin",
 )
 def call_command(
     op: str = typer.Argument(..., help="Wire op name, such as rebrew.disassemble"),

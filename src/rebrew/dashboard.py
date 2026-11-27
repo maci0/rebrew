@@ -99,7 +99,7 @@ lazy from rebrew.coverage_toml import (
     Global,
     load_all_coverage_from,
 )
-lazy from rebrew.metadata.bindings import FUNCTION_KINDS
+lazy from rebrew.metadata.bindings import FUNCTION_KINDS as FUNCTION_KINDS
 lazy from rebrew.metadata.functions import canonical_status
 lazy from rebrew.status_style import STATUS_LEGEND_ORDER, STATUS_SUMMARIES, status_text_css
 lazy from rebrew.utils import (
@@ -2049,13 +2049,13 @@ def _fold(text: str) -> str:
     return normalized.lower() if normalized.isascii() else normalized.translate(_ASCII_FOLD)
 
 
-def _folded_match(needle: str, wanted_va: int | None, va: int, *texts: str) -> bool:
-    """Whether folded *texts* contain *needle*, or *va* equals *wanted_va*.
+def _folded_match(needle: str, wanted_va: int | None, va: int, name: str, symbol: str = "") -> bool:
+    """Whether a folded name or symbol contains *needle*, or the VA matches.
 
     The term is literal: SQL wildcards are ordinary characters here.  Callers
     pre-fold the needle and texts because the in-memory readers test every row.
     """
-    return (wanted_va is not None and va == wanted_va) or any(needle in text for text in texts)
+    return va == wanted_va or needle in name or needle in symbol
 
 
 # Weak references guard against reused IDs without retaining old snapshots.
@@ -2071,7 +2071,7 @@ def _folded_functions(snapshot: CoverageSnapshot) -> tuple[tuple[str, str], ...]
         hit = _FOLDED.get(key)
         if hit is not None and hit[0]() is snapshot:
             return hit[1]
-    folded = tuple((_fold(fn.name), _fold(fn.symbol)) for fn in snapshot.functions)
+    folded = tuple((_fold(fn.name), _fold(fn.symbol)) for fn in snapshot.code_functions)
     reference = weakref.ref(snapshot)
     with _FOLD_CACHE_LOCK:
         # Re-check: a peer may have stored this snapshot while the fold ran,
@@ -2385,17 +2385,14 @@ class Dashboard:
         offset: int = 0,
     ) -> dict[str, Any]:
         snapshot = self.snapshots().get(target)
-        rows: list[Function] = []
-        if snapshot is not None:
+        rows: Sequence[Function] = snapshot.code_functions if snapshot is not None else ()
+        if snapshot is not None and (status or module is not None or q):
             wanted_status = canonical_status(status) if status else None
             needle = _fold(q) if q else ""
             wanted_va = _va_query(q) if q else None
             folds = _folded_functions(snapshot) if q else ()
-            for index, fn in enumerate(snapshot.functions):
-                # Code rows only, and the filter is the same one the COUNT
-                # total ran over, so the page and the total cannot disagree.
-                if fn.markerType not in FUNCTION_KINDS:
-                    continue
+            filtered: list[Function] = []
+            for index, fn in enumerate(rows):
                 if wanted_status is not None and fn.status != wanted_status:
                     continue
                 if module is not None and preset_module_key(fn.module) != module:
@@ -2404,14 +2401,8 @@ class Dashboard:
                     needle, wanted_va, fn.va, folds[index][0], folds[index][1]
                 ):
                     continue
-                rows.append(fn)
-        # VA order, which is the file's own order (the writer sorts by VA) and
-        # the ORDER BY this read used to carry.  Sorted here rather than
-        # trusted: a hand-edited document's row order is not a fact.  The
-        # ordering check is O(n) and settles the common writer-sorted case,
-        # which is the whole page for an unfiltered request.
-        if any(rows[i - 1].va > rows[i].va for i in range(1, len(rows))):
-            rows.sort(key=lambda fn: fn.va)
+                filtered.append(fn)
+            rows = filtered
         page = rows[offset : offset + limit]
         return {
             "target": target,

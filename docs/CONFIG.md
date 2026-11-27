@@ -2,9 +2,8 @@
 
 Project commands read target and toolchain settings from `rebrew-project.toml`.
 
-[`rebrew-project.toml.example`](../rebrew-project.toml.example) is the complete
-template: every key the loader knows, most of them commented out. Copy it to
-`rebrew-project.toml` and edit, rather than starting from the excerpts below.
+Copy [`rebrew-project.toml.example`](../rebrew-project.toml.example) to
+`rebrew-project.toml` for a starting configuration and commented examples.
 The loader warns about unknown top-level, project, target, compiler, and linker keys.
 It rejects unknown keys in strict sections such as `[metadata]` and
 `address_comments`, and rejects the retired `marker` key.
@@ -41,8 +40,8 @@ bin_dir = "bin/target_name"
 # raw_link = "bin/target_name/target_name_pre.dll"  # Image as the linker emitted
 # it, before any `rebrew build postlink` fixer rewrote it. Optional; when it is set,
 # `rebrew status` compares against this file instead of `build/<target>`, so a
-# fixer-supplied byte is not reported as a regression. A configured path that
-# does not exist is an error, never a silent fallback to the postlinked image.
+# fixer-supplied byte is not reported as a regression. If the configured path
+# is missing, status warns and omits the whole-file score.
 
 # Add more targets as needed:
 # [targets.client_exe]
@@ -482,11 +481,9 @@ there rather than falling back to the default; `rebrew cfg effective` reports
 the resolved values (`llm_max_requests`, `llm_max_tokens`, `llm_timeout`) with
 credentials redacted.
 
-The three budget keys are read from the environment first: a set
-`REBREW_LLM_MAX_REQUESTS` / `REBREW_LLM_MAX_TOKENS` / `REBREW_LLM_TIMEOUT`
-is the whole value, empty included, so one run can move the ceiling without
-editing the project file. With the variable unset the `[llm]` field applies,
-and with both unset the default does.
+Setting `REBREW_LLM_MAX_REQUESTS`, `REBREW_LLM_MAX_TOKENS`, or `REBREW_LLM_TIMEOUT`
+overrides the corresponding numeric setting for one run. A blank value uses
+its built-in default. See [environment precedence](#environment-variables).
 
 ## Lint style (`[project.lint]`)
 
@@ -519,7 +516,7 @@ the shell (or let direnv load a private, gitignored ``.env``).
 
 | Setting | Winner |
 |---------|--------|
-| `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env **when the variable is present** (even if empty; empty forces local docker for the run); else TOML |
+| `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | Environment when present. An empty value selects the configured local execution backend. Otherwise use TOML. |
 | `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
 | `[llm] api_key` / `REBREW_LLM_API_KEY` | env **when present** (even if empty; clears a committed TOML key for the run); else TOML: prefer the env var; do not commit keys |
 | `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini-2024-07-18`; `latest`/`auto`/`default` and malformed ids raise an error). A response reporting a different `model` than the pin warns, since a substituted model changes both cost and the seeds the GA receives |
@@ -650,16 +647,17 @@ by the CLI layer and win for that invocation.
 - `REBREW_MANAGED_RECOMPILE_URL`: upstream for the owner-mediated managed
   compile path. Must be `https`, or `http` to `127.0.0.1`/`::1`, with no
   path, query, fragment or credentials. Unset disables the managed path.
-- `REBREW_MANAGED_COMPILE_LIMIT`: per-owner managed-compile budget,
+- `REBREW_MANAGED_COMPILE_LIMIT`: per-job managed-compile budget,
   required with `REBREW_MANAGED_RECOMPILE_URL`. Must be an int in `1..1000`.
 - `REBREW_MANAGED_COMPILERS`: allowed compilers for managed compile,
   required with `REBREW_MANAGED_RECOMPILE_URL`. Comma-separated,
   non-empty entries (e.g. `msvc-6.0,gcc-14.2.0`).
 - `REBREW_WORKSPACE` / `REBREW_JOB_DIR`: required by `rebrew-jobs`, the
   workspace it copies/seals and the private job directory outside it.
-  Each must be an absolute path to an existing directory.
-- `REBREW_BINARY` / `REBREW_DOCKER_BINARY`: absolute path to the `rebrew`
-  CLI for the direct / Docker job provider. A relative spelling is refused.
+  Use absolute paths. The workspace must exist. The service can create the
+  job directory. `rebrew cfg effective` checks that it already exists when set.
+- `REBREW_BINARY` / `REBREW_DOCKER_BINARY`: absolute path to the Rebrew
+  executable for the direct provider or to Docker for the Docker provider.
 - `REBREW_JOB_DOCKER_IMAGE`: Docker provider image, a `sha256:` image id
   (`sha256:` followed by 64 lowercase hex digits). Required with
   `REBREW_DOCKER_BINARY`.
@@ -852,9 +850,9 @@ and use a numeric port in
 1–65535 if specified. Malformed IPv6 addresses, embedded whitespace, and control
 characters are rejected. Surrounding whitespace is trimmed; empty values remain
 unset. TOML values are validated at load; environment values are validated when
-resolved, before any HTTP request. `REBREW_LLM_MAX_REQUESTS`, when set, must be
-a non-negative integer, `REBREW_LLM_MAX_TOKENS` likewise, and
-`REBREW_LLM_TIMEOUT` an integer no lower than 5.
+resolved, before any HTTP request. When nonblank, `REBREW_LLM_MAX_REQUESTS`
+and `REBREW_LLM_MAX_TOKENS` must be non-negative integers, and
+`REBREW_LLM_TIMEOUT` must be an integer of at least 5.
 All three are parsed by `load_config`, so a mistyped value is a `ConfigError` for
 every command that reads a project config, not a silent reset to the default;
 `rebrew cfg effective` reports the resolved values as `llm_max_requests`,
