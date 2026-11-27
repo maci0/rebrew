@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+## [6.91.0] - 2026-11-27
+
+### Changed
+
+- **Breaking:** Updated public inventory and utility helpers:
+  - Removed unused `utils.BoundedLRU` (and re-exports in `compiler.cache`, `compiler.overrides`, `matcher.solutions`, `metadata.files`), `crt_match.inventory_path_for`, `pdb_info.parse_compile3`, and `pdb_info.parse_procs`.
+  - `catalog.loaders.cached_function_list` now returns `tuple[dict[str, Any], ...]` instead of `list[dict[str, Any]]`; `build_function_registry`, `catalog.build_coverage_data`, and `workspace.status.TrustedCoverage.bind` accept `Sequence[dict[str, Any]]`.
+  - `crt_match.build_crt_index` now returns `CrtIndex` (with `.hits`) instead of `list[CrtSourceEntry]`.
+- Share the function inventory across lookups (adding `catalog.cached_function_by_va`), page dashboard globals once, and index CRT name lookups.
+- Align coverage and verification documentation with current code.
+
+### Fixed
+
+- Handle empty pattern scans in toolchain detection and duplicate inventory sizes in `rebrew test`.
+- Verify legacy metadata rows survive the SQLite schema upgrade.
+- Keep dashboard results in sync with active searches.
+
 ## [6.90.0] - 2026-11-27
 
 ### Changed
