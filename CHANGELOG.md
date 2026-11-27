@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- `rebrew source rename-batch` applies a line after the first in 1.84 s instead of 2.67 s (medians of three interleaved runs of 100 renames, 95 applied and 5 refused, on a 5,300-source project with a 25 MB function store replicated to SQLite and TOML; the batch took 214 s instead of 271 s), with the same sources, stores and JSON report. A line still plans against the tree the lines before it left and commits on its own. Inside the batch a source's bindings are read again only when its text, its address-comment syntax, the function rows naming it or at its anchors, or its data rows changed, and each row file's bound source path is resolved once. A store write hands its replication digest the record split of the text it rendered instead of segmenting the whole document again, a replication state save hands the next load the records it rendered when the store reads back that text, and `data_rows_for_path` slices an in-tree path instead of walking it.
+
 ## [6.90.0] - 2026-11-27
 
 ### Changed
