@@ -8,6 +8,7 @@ A renamed or moved file (``git mv``) leaves every function and data row that
 names it stale; ``--from OLD --to NEW`` retargets them all at once.
 """
 
+lazy from collections.abc import Sequence
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -157,7 +158,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
     if not module:
         raise ValueError("no target module configured to address the function metadata")
     rows: list[dict[str, Any]] = []
-    evidence_moves: list[tuple[Path, Path]] = []
+    evidence_moves: list[tuple[Path, Path, str, str]] = []
     for spec in specs:
         va_s, sep, value = spec.partition("=")
         value = value.strip()
@@ -176,8 +177,8 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
         owner_root = cfg.root if entry.get("kind") == "LIBRARY" else metadata_dir
         identity = validate_identity_file(identity_file(path, owner_root))
         old_file = str(entry.get("file") or "")
-        if old_file and old_file != identity:
-            evidence_moves.append((owner_root / old_file, path))
+        if old_file and old_file != identity and name == old_name:
+            evidence_moves.append((owner_root / old_file, path, name, module))
         row: dict[str, Any] = {
             "va": f"0x{va:x}",
             "name": name,
@@ -201,7 +202,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
     _check_definition_ownership(cfg, updates)
     if not dry_run:
         record_function_rows(metadata_dir, updates, overwrite_name=True, updated_by="rehome")
-        _follow_assembly_evidence(cfg, evidence_moves)
+        _follow_assembly_evidence(cfg, definitions=evidence_moves)
     return rows
 
 
@@ -276,19 +277,26 @@ def retarget_file(
     return function_rows, data_rows
 
 
-def _follow_assembly_evidence(cfg: Any, moves: list[tuple[Path, Path]]) -> None:
+def _follow_assembly_evidence(
+    cfg: Any,
+    files: Sequence[tuple[Path, Path]] = (),
+    *,
+    definitions: Sequence[tuple[Path, Path, str, str]] = (),
+) -> None:
     """Keep documented original-assembly records filed under the live paths.
 
     Assembly provenance is keyed by source path, so a moved file would lose its
     reviewed evidence and fall back to "whole-function asm is not allowed".
     Every move goes into one locked write, in order.
     """
-    from rebrew.metadata.source_provenance import move_source_provenance
+    from rebrew.metadata.source_provenance import move_definition_provenance, move_source_provenance
 
     directory = cfg.metadata_dir.resolve()
-    live = [(old, new) for old, new in moves if old.exists() or new.exists()]
     try:
-        move_source_provenance(directory, live)
+        if definitions:
+            move_definition_provenance(directory, definitions)
+        elif files:
+            move_source_provenance(directory, files)
     except ValueError:
         # An invalid store refuses every move.
         return

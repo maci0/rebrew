@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- Positional `source rehome` moves assembly evidence only for the selected definition and target. Whole-file `--from/--to` keeps moving the file's complete provenance.
+
 ## [6.92.0] - 2026-11-28
 
 ### Changed
