@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.85.0] - 2026-11-27
+
 ### Added
 
 - `rebrew orphans drop FILE --support` removes the target module's support-file purpose of FILE, whether or not FILE exists. `orphans prune` removes the same entries for missing files, but together with every unearned orphan row of the module.
