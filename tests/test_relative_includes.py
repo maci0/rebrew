@@ -1,143 +1,73 @@
-"""Relative project-include regression: the docker-only compile path must
-resolve project-relative includes (the /work source copy is flat, so the
-project root + include dirs are same-path mounted into the container).
-"""
+"""Project-relative includes must resolve through the container's same-path root mount."""
 
 from __future__ import annotations
 
-import shutil
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
+lazy from collections.abc import Iterator
 
 import pytest
 
 from rebrew.compiler.compile import compile_and_compare, compile_to_obj
+from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 from rebrew.compiler.toolchain_paths import toolchains_repo
 
-_REPO = Path(__file__).resolve().parents[1]
-
-#: A vendored-tree include path under the recompile-toolchains checkout — the
-#: docker layer skips bind-mounting these (the image bakes its own), so the
-#: relative-include machinery gets exercised without docker recreating
-#: stray host dirs.
-_INSTALL_INCLUDES = str(toolchains_repo() / "msvc" / "6.0-win32" / "VC98" / "Include")
+_IMAGE = TOOLCHAINS["msvc-6.0"].image
+pytestmark = pytest.mark.skipif(
+    not _IMAGE or not image_present(_IMAGE),
+    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc-6.0`)",
+)
 
 
-def _image_available(profile: str) -> bool:
-    from rebrew.compiler.toolchain import TOOLCHAINS, image_present
+@pytest.fixture
+def cfg() -> Iterator[SimpleNamespace]:
+    """Give each compile a private project under the Docker-visible checkout."""
+    cache = Path(__file__).resolve().parents[1] / ".cache"
+    cache.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="rt-includes-", dir=cache) as directory:
+        root = Path(directory)
+        headers = root / "Units" / "Error"
+        headers.mkdir(parents=True)
+        (headers / "error.h").write_text("int error_code(void);\n", encoding="utf-8")
+        yield SimpleNamespace(
+            root=root,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            compiler_runner="",
+            compiler_includes=str(toolchains_repo() / "msvc" / "6.0-win32" / "VC98" / "Include"),
+            base_cflags="/nologo /c",
+            compile_timeout=180,
+            posix_style=False,
+            cflags_presets={},
+            cflags="",
+            cflags_explicit=False,
+        )
 
-    spec = TOOLCHAINS[profile]
-    return spec.image is not None and image_present(spec.image)
 
-
-def _project(name: str) -> tuple[Path, Path, Path]:
-    """A docker-visible mini project: src/server_c/f.c including
-    ../../Units/Error/error.h (the guild-rebrew layout).  Lives under the
-    repo .cache so the container mount can see it."""
-    root = _REPO / ".cache" / "rt-includes" / name
-    shutil.rmtree(root, ignore_errors=True)
-    server_c = root / "src" / "server_c"
-    errdir = root / "Units" / "Error"
-    server_c.mkdir(parents=True)
-    errdir.mkdir(parents=True)
-    (errdir / "error.h").write_text("int error_code(void);\n", encoding="utf-8")
-    src = server_c / "f.c"
+def _source(root: Path, subdir: str, include: str) -> Path:
+    src = root / subdir / "f.c"
+    src.parent.mkdir(parents=True)
     src.write_text(
-        '#include "../../Units/Error/error.h"\n' + "int exit_code(void){ return error_code(); }\n",
+        f'#include "{include}/Units/Error/error.h"\nint exit_code(void){{ return error_code(); }}\n',
         encoding="utf-8",
     )
-    return root, src, errdir / "error.h"
+    return src
 
 
-@pytest.mark.skipif(
-    not _image_available("msvc-6.0"),
-    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc-6.0`)",
-)
-def test_relative_include_resolves_through_image() -> None:
-    """compile_to_obj on a source with a relative ../../ include must not
-    fail with C1083 — the project root is same-path mounted."""
-    root, src, _ = _project("one")
-    cfg = SimpleNamespace(
-        root=root,
-        compiler_profile="msvc-6.0",
-        compiler_command="",
-        compiler_runner="",
-        compiler_includes=_INSTALL_INCLUDES,  # skipped (image has its own)
-        base_cflags="/nologo /c",
-        compile_timeout=180,
-        posix_style=False,
-        cflags_presets={},
-        cflags="",
-        cflags_explicit=False,
-    )
-    work = root / "work"
-    work.mkdir(exist_ok=True)
+@pytest.mark.parametrize(("subdir", "include"), [("src/server_c", "../.."), ("a/b/c", "../../..")])
+def test_relative_include_resolves_through_image(cfg: Any, subdir: str, include: str) -> None:
+    src = _source(cfg.root, subdir, include)
+    work = cfg.root / "work"
+    work.mkdir()
     obj, err = compile_to_obj(cfg, src, ["/O1"], work, use_cache=False)
-    assert obj is not None, f"relative include failed: {err}"
-    assert Path(obj).exists()
+    assert obj is not None, err
+    assert Path(obj).is_file()
 
 
-@pytest.mark.skipif(
-    not _image_available("msvc-6.0"),
-    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc-6.0`)",
-)
-def test_relative_include_deep_nesting() -> None:
-    """Three-level ../../../ include still resolves (the root mount covers
-    arbitrary depth)."""
-    root = _REPO / ".cache" / "rt-includes" / "deep"
-    shutil.rmtree(root, ignore_errors=True)
-    deep = root / "a" / "b" / "c"
-    errdir = root / "Units" / "Error"
-    deep.mkdir(parents=True)
-    errdir.mkdir(parents=True)
-    (errdir / "error.h").write_text("int error_code(void);\n", encoding="utf-8")
-    src = deep / "f.c"
-    src.write_text(
-        '#include "../../../Units/Error/error.h"\n' + "int g(void){ return error_code(); }\n",
-        encoding="utf-8",
-    )
-    cfg = SimpleNamespace(
-        root=root,
-        compiler_profile="msvc-6.0",
-        compiler_command="",
-        compiler_runner="",
-        compiler_includes=_INSTALL_INCLUDES,
-        base_cflags="/nologo /c",
-        compile_timeout=180,
-        posix_style=False,
-        cflags_presets={},
-        cflags="",
-        cflags_explicit=False,
-    )
-    work = root / "work"
-    work.mkdir(exist_ok=True)
-    obj, err = compile_to_obj(cfg, src, ["/O1"], work, use_cache=False)
-    assert obj is not None, f"deep relative include failed: {err}"
-    assert Path(obj).exists()
-
-
-@pytest.mark.skipif(
-    not _image_available("msvc-6.0"),
-    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc-6.0`)",
-)
-def test_compile_and_compare_resolves_relative_include() -> None:
-    """The batch path (compile_and_compare — rebrew test / verify) compiles
-    a relative-include source without COMPILE_ERROR."""
-    root, src, _ = _project("compare")
-    cfg = SimpleNamespace(
-        root=root,
-        compiler_profile="msvc-6.0",
-        compiler_command="",
-        compiler_runner="",
-        compiler_includes=_INSTALL_INCLUDES,
-        base_cflags="/nologo /c",
-        compile_timeout=180,
-        posix_style=False,
-        cflags_presets={},
-        cflags="",
-        cflags_explicit=False,
-    )
-    # empty target bytes: the compile stage is what matters — it must not
-    # be COMPILE_ERROR (C1083).
+def test_compile_and_compare_resolves_relative_include(cfg: Any) -> None:
+    """The batch verification entry point must also produce bytes for the same source."""
+    src = _source(cfg.root, "src/server_c", "../..")
     res = compile_and_compare(cfg, src, "_exit_code", b"", [], use_cache=False)
-    assert res.status != "COMPILE_ERROR", getattr(res, "message", "")
+    assert res.full_obj_bytes, res.message

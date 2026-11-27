@@ -596,6 +596,8 @@ class TestStructuralSimilarity:
         target = b"\x90" * 7 + b"\x40\x40\x40"
         cand = b"\x90" * 7 + b"\x48\x48\x48"
         sim = structural_similarity(target, cand)
+        assert sim.mnemonic_match_ratio == 0.7
+        assert sim.flag_sensitive is False
         assert sim.exact >= 7
         assert sim.structural > 0
         assert sim.total_insns > 0

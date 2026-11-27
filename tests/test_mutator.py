@@ -844,6 +844,7 @@ class TestReturnGoto:
         assert result == (
             "int f() {\n  if (err) goto ret_false;\n  return 1;\nret_false:\n    return 0;\n}"
         )
+        assert mut_return_to_goto(result, _rng()) is None
 
     def test_goto_to_return(self) -> None:
         src = "int f() {\n  goto ret_false;\nret_false:\n  return FALSE;\n}"

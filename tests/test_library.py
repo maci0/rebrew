@@ -289,10 +289,14 @@ class TestLibraryCli:
         assert "unknown toolchain" in res.output
         assert not (lib / LIBRARY_METADATA_FILE).exists()
 
-    def test_known_toolchain_accepts_all_profiles(self, tmp_path: Path) -> None:
+    def test_known_toolchain_accepts_all_profiles(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Every registry profile is settable (docker-backed and native)."""
         from rebrew.compiler.toolchain import TOOLCHAINS
 
+        # Each profile still goes through the real CLI, atomic replace, and readback.
+        monkeypatch.setattr("os.fsync", lambda _fd: None)
         for name in sorted(TOOLCHAINS):
             lib = tmp_path / name
             lib.mkdir()

@@ -52,6 +52,7 @@ globalThis.AbortController = class {
 	}
 };
 const {
+	rowHtml,
 	loadSummary,
 	bindControls,
 	renderSections,
@@ -60,6 +61,7 @@ const {
 	renderSummary,
 	setView,
 } = await loadApp([
+	"rowHtml",
 	"loadSummary",
 	"bindControls",
 	"renderSections",
@@ -68,6 +70,10 @@ const {
 	"renderSummary",
 	"setView",
 ]);
+// A function row includes all seven columns, ending with its source file.
+const row = rowHtml(["0x10", "start", "_start", 8, "EXACT", "game", "src/a.c"]);
+assert.equal([...row.matchAll(/<td\b/g)].length, 7);
+assert.match(row, /<td>src\/a\.c<\/td><\/tr>$/);
 const element = (id) => document.getElementById(id);
 const summary = (status) => ({
 	function_stats: { total: 1, by_status: { [status]: 1 } },

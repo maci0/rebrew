@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Changed
+
+- Update the optional similarity dependency and CI checkout to Resembl 5.4.0.
+
 ## [6.88.0] - 2026-11-27
 
 ### Fixed

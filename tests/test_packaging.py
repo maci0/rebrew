@@ -162,19 +162,24 @@ def _notes_block(last_tag: str, subject: str) -> str:
     return block if next_header == -1 else block[:next_header]
 
 
-def _build_wheel(out: Path) -> str:
-    """Build the wheel from the source tree into *out*; return its file name."""
-    env = os.environ.copy()
-    env.update(
-        {
-            "SOURCE_DATE_EPOCH": "0",
-            "TZ": "UTC",
-            "LC_ALL": "C",
-            "PYTHONHASHSEED": "0",
-        }
-    )
+@pytest.fixture(scope="module")
+def uv_cache_dir() -> str:
+    """Resolve uv's dependency cache before per-test Rebrew cache isolation starts."""
+    return subprocess.check_output(["uv", "cache", "dir"], text=True).strip()
+
+
+def _build_dist(out: Path, kind: str, uv_cache_dir: str) -> str:
+    """Build an archive in its own output directory and return its name."""
+    env = {
+        **os.environ,
+        "UV_CACHE_DIR": uv_cache_dir,
+        "SOURCE_DATE_EPOCH": "0",
+        "TZ": "UTC",
+        "LC_ALL": "C",
+        "PYTHONHASHSEED": "0",
+    }
     proc = subprocess.run(
-        ["uv", "build", "--wheel", "--out-dir", str(out)],
+        ["uv", "build", f"--{kind}", "--out-dir", str(out)],
         cwd=ROOT,
         check=False,
         capture_output=True,
@@ -184,14 +189,16 @@ def _build_wheel(out: Path) -> str:
         env=env,
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
-    wheels = list(out.glob("*.whl"))
-    assert len(wheels) == 1, wheels
-    return wheels[0].name
+    (archive,) = out.glob("*.whl" if kind == "wheel" else "*.tar.gz")
+    return archive.name
 
 
-def _wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+@pytest.fixture(scope="module")
+def wheel(tmp_path_factory: pytest.TempPathFactory, uv_cache_dir: str) -> Path:
     """The session's wheel, built once; read it, never write to it."""
-    directory, name = build_once(tmp_path_factory, "packaging-wheel", _build_wheel)
+    directory, name = build_once(
+        tmp_path_factory, "packaging-wheel", lambda out: _build_dist(out, "wheel", uv_cache_dir)
+    )
     wheel: Path = directory / name
     return wheel
 
@@ -1443,7 +1450,9 @@ class TestSdistManifest:
         for doc in ("CHANGELOG.md", "SECURITY.md"):
             assert f"include {doc}" in text, doc
 
-    def test_built_sdist_omits_dev_trees_and_egg_info_residue(self, tmp_path: Path) -> None:
+    def test_built_sdist_omits_dev_trees_and_egg_info_residue(
+        self, tmp_path: Path, uv_cache_dir: str
+    ) -> None:
         """The built sdist carries only the runtime tree, not the dev checkout.
 
         A src/ layout places egg-info next to the package.  Without an explicit
@@ -1460,35 +1469,12 @@ class TestSdistManifest:
         still pass every gate.  Build into tmp_path so this stays
         offline-friendly when the pinned setuptools wheel is already cached.
         """
-        import os
-        import subprocess
         import tarfile
 
         out = tmp_path / "dist"
         out.mkdir()
-        env = os.environ.copy()
-        env.update(
-            {
-                "SOURCE_DATE_EPOCH": "0",
-                "TZ": "UTC",
-                "LC_ALL": "C",
-                "PYTHONHASHSEED": "0",
-            }
-        )
-        proc = subprocess.run(
-            ["uv", "build", "--sdist", "--out-dir", str(out)],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-        )
-        assert proc.returncode == 0, proc.stderr or proc.stdout
-        sdists = list(out.glob("*.tar.gz"))
-        assert len(sdists) == 1, sdists
-        with tarfile.open(sdists[0]) as tf:
+        sdist = out / _build_dist(out, "sdist", uv_cache_dir)
+        with tarfile.open(sdist) as tf:
             names = tf.getnames()
         egg_files = [n for n in names if ".egg-info/" in n or n.endswith(".egg-info")]
         # Directory entry + SOURCES.txt only — no duplicated metadata files.
@@ -1514,7 +1500,7 @@ class TestSdistManifest:
         setup_cfgs = [n for n in names if n.endswith(("/setup.cfg", "setup.cfg"))]
         if setup_cfgs:
             assert len(setup_cfgs) == 1, setup_cfgs
-            with tarfile.open(sdists[0]) as tf:
+            with tarfile.open(sdist) as tf:
                 raw = tf.extractfile(setup_cfgs[0])
                 assert raw is not None
         assert any(n.endswith("src/rebrew/py.typed") for n in names)
@@ -1527,18 +1513,16 @@ class TestSdistManifest:
         # Normalization must ensure all files have mode 0644 (no spurious executable bits).
         from tools.normalize_sdist import normalize
 
-        normalize(sdists[0], 0)
-        with tarfile.open(sdists[0]) as tf:
+        normalize(sdist, 0)
+        with tarfile.open(sdist) as tf:
             exec_files = [m.name for m in tf.getmembers() if m.isfile() and (m.mode & 0o111)]
         assert exec_files == [], f"normalized sdist has executable files: {exec_files}"
 
-    def test_built_wheel_ships_skill_tree_and_typing_marker(
-        self, tmp_path_factory: pytest.TempPathFactory
-    ) -> None:
+    def test_built_wheel_ships_skill_tree_and_typing_marker(self, wheel: Path) -> None:
         """Wheel must carry every on-disk skill asset plus Typing :: Typed."""
         import zipfile
 
-        with zipfile.ZipFile(_wheel(tmp_path_factory)) as zf:
+        with zipfile.ZipFile(wheel) as zf:
             names = set(zf.namelist())
             meta = zf.read(next(n for n in names if n.endswith(".dist-info/METADATA"))).decode()
             ep_name = next(n for n in names if n.endswith(".dist-info/entry_points.txt"))
@@ -1753,13 +1737,9 @@ class TestInstalledWheelAssetRuntime:
     source checkout on sys.path or hardcoding internal module layouts.
     """
 
-    def test_wheel_runtime_skill_and_scaffold_behavior(
-        self, tmp_path: Path, tmp_path_factory: pytest.TempPathFactory
-    ) -> None:
+    def test_wheel_runtime_skill_and_scaffold_behavior(self, tmp_path: Path, wheel: Path) -> None:
         """The built wheel executes skills listing and resolves packaged scaffold assets."""
         import zipfile
-
-        wheel = _wheel(tmp_path_factory)
 
         site_dir = tmp_path / "wheel_site"
         with zipfile.ZipFile(wheel) as zf:
