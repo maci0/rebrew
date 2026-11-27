@@ -513,7 +513,8 @@ def _plan_function(
     """Resolve the function identity, then plan its rename."""
     from rebrew.metadata.functions import get_entry
 
-    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+    # A rename reads names and identities, not comparison scores.
+    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg, similarity=False)
     identity = _parse_identity(target_ident)
     if identity is not None:
         module, va = identity
@@ -665,7 +666,8 @@ def _plan_data(
     from rebrew.metadata.data import load_data_metadata
     from rebrew.utils import preset_module_key
 
-    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+    # A rename reads names and identities, not comparison scores.
+    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg, similarity=False)
     rows = load_data_metadata(cfg.metadata_dir, deepcopy=False)
     scan_files = {
         (getattr(e, "module", "") or "", getattr(e, "va", 0)): getattr(e, "filepath", "")

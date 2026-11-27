@@ -396,6 +396,39 @@ class TestScanReversedDirStoreReads:
             per_scan.append(sum(path.name == data.DATA_METADATA_FILENAME for path in reads))
         assert per_scan[0] == per_scan[1]
 
+    def test_a_scan_without_similarity_checks_no_score(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Checking a stored score hashes each function's compile inputs; callers can skip it."""
+        from types import SimpleNamespace
+
+        from rebrew import verify_hash
+        from rebrew.catalog.loaders import scan_reversed_dir
+
+        src = tmp_path / "src"
+        src.mkdir()
+        write_source(
+            src / "f.c",
+            "/* ADDRESS: SERVER 0x10001000 */\nvoid f(void) {}\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION", "size": 16}},
+            metadata_dir=tmp_path,
+        )
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path, module="SERVER", source_ext=".c", reversed_dir=src, root=tmp_path
+        )
+        checked: list[Any] = []
+
+        def current_similarity(_cfg: Any, entry: dict[str, Any]) -> float:
+            checked.append(entry)
+            return 97.5
+
+        monkeypatch.setattr(verify_hash, "current_similarity", current_similarity)
+        assert [e.similarity for e in scan_reversed_dir(src, cfg=cfg)] == [97.5]
+        checked.clear()
+        assert [e.similarity for e in scan_reversed_dir(src, cfg=cfg, similarity=False)] == [None]
+        assert checked == []
+
 
 class TestParseRizinAfl:
     """Shared rizin ``afl`` parser (discover + intake used to hand-roll
