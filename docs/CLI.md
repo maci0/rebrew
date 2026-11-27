@@ -1444,10 +1444,23 @@ command hold: reviewed reference selections still need their digest.
 `--dry-run` previews every line against the unchanged tree, so a line that
 depends on an earlier line of the same plan is refused in the preview.
 
-Each applied line is its own transaction: a failure in one line does not undo
-the lines before it. The process parses each source once and later lines reuse
-the parse caches, where separate commands each read the whole tree again. Each
-line still writes the metadata stores once.
+Each applied line is its own transaction: it publishes its sources and commits
+its metadata rows (the replication journal, then each replica) before the next
+line plans. A refused line, including one whose write fails, restores its
+sources and commits no row, and it does not undo the lines before it. As with
+the single command this is rollback on error, not crash recovery: a process
+killed while a line writes can leave that line's sources ahead of its rows. The
+batch does not hold one transaction across its lines, which would keep the
+project metadata lock for the whole batch and publish every line's sources long
+before its rows.
+
+One process parses each source once, and each top-level metadata record once
+for each exact text: a line's write re-renders only the records it changed, so
+the next line's reads, its write and the replication digest reuse the rest.
+On a 5,300-source project with a 25 MB function store replicated to SQLite and
+TOML, an applied line after the first took 2.6 s (median of 22), against 9.2 s
+in 6.84.0; a 25-line batch took 66 s against 211 s. The first line pays the
+full parse.
 
 `--json` prints `dry_run`, `renamed`, `refused` and `items`. An item carries its
 plan `line`, its `arguments` and either the change list of

@@ -16,6 +16,7 @@ this module, so both stores and their readers can depend on it without a cycle.
 
 import logging
 import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 lazy import json
@@ -154,6 +155,21 @@ def _fingerprint_token(
     ]
 
 
+#: ``sidecar -> (stat identity, fingerprint token)`` of each sidecar this process
+#: wrote.  One still holding that write is stale for any other token, so the read
+#: skips parsing it: a batch of edits otherwise parses the 22 MB sidecar of
+#: guild-rebrew's functions store once per edit only to find it stale.
+_WRITTEN_DOC_CACHES: OrderedDict[Path, tuple[tuple[int, int, int, int], list[Any]]] = OrderedDict()
+
+
+def _sidecar_identity(path: Path) -> tuple[int, int, int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size)
+
+
 def _read_doc_cache(
     path: Path,
     fingerprint: tuple[tuple[str, int, int, int, int], ...],
@@ -164,14 +180,20 @@ def _read_doc_cache(
     The cache is JSON written by this process. A truncated or foreign file
     misses and the TOML is parsed again.
     """
+    cache_path = _doc_cache_file(path)
+    token = _fingerprint_token(fingerprint, known_fields)
+    with _METADATA_DOC_CACHE_LOCK:
+        written = _WRITTEN_DOC_CACHES.get(cache_path)
+    if written is not None and written[1] != token and _sidecar_identity(cache_path) == written[0]:
+        return None
     try:
-        payload = json.loads(_doc_cache_file(path).read_text(encoding="utf-8"))
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
     except OSError, ValueError, TypeError:
         return None
     if (
         not isinstance(payload, dict)
         or payload.get("version") != _DOC_CACHE_VERSION
-        or payload.get("fingerprint") != _fingerprint_token(fingerprint, known_fields)
+        or payload.get("fingerprint") != token
     ):
         return None
     rows = payload.get("rows")
@@ -205,9 +227,10 @@ def _write_doc_cache(
     reparse rather than data, and a cold load waited on two fsyncs per store.
     """
     cache_path = _doc_cache_file(path)
+    token = _fingerprint_token(fingerprint, known_fields)
     payload = {
         "version": _DOC_CACHE_VERSION,
-        "fingerprint": _fingerprint_token(fingerprint, known_fields),
+        "fingerprint": token,
         "rows": [[module, va, fields] for (module, va), fields in result.items()],
     }
     try:
@@ -219,6 +242,15 @@ def _write_doc_cache(
         )
     except OSError:
         return
+    identity = _sidecar_identity(cache_path)
+    with _METADATA_DOC_CACHE_LOCK:
+        if identity is None:
+            _WRITTEN_DOC_CACHES.pop(cache_path, None)
+            return
+        _WRITTEN_DOC_CACHES[cache_path] = (identity, token)
+        _WRITTEN_DOC_CACHES.move_to_end(cache_path)
+        while len(_WRITTEN_DOC_CACHES) > _METADATA_DOC_CACHE_MAX:
+            _WRITTEN_DOC_CACHES.popitem(last=False)
 
 
 def load_metadata_doc(

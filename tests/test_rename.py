@@ -1025,7 +1025,7 @@ class TestRenameCli:
             ]
         monkeypatch.setattr(
             "rebrew.rename.scan_reversed_dir",
-            lambda d, cfg=None: entries,
+            lambda d, cfg=None, similarity=True: entries,
         )
         return CliRunner().invoke(app, list(args))
 
@@ -1159,7 +1159,7 @@ class TestRenameCli:
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.rename.scan_reversed_dir",
-            lambda d, cfg=None: [
+            lambda d, cfg=None, similarity=True: [
                 SimpleNamespace(name="dup", symbol="_dup", filepath="a.c", va=0x1000),
                 SimpleNamespace(name="dup", symbol="_dup", filepath="b.c", va=0x2000),
             ],
@@ -1187,7 +1187,7 @@ class TestRenameCli:
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.rename.scan_reversed_dir",
-            lambda d, cfg=None: [
+            lambda d, cfg=None, similarity=True: [
                 SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000),
                 SimpleNamespace(name="taken", symbol="_taken", filepath="taken.c", va=0x2000),
             ],
@@ -1217,7 +1217,7 @@ class TestRenameCli:
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.rename.scan_reversed_dir",
-            lambda d, cfg=None: [
+            lambda d, cfg=None, similarity=True: [
                 SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000),
                 SimpleNamespace(name="taken2", symbol="_taken2@8", filepath="taken2.c", va=0x2000),
             ],
@@ -1251,7 +1251,7 @@ class TestRenameCli:
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
 
         def scan_for(symbol: str):
-            return lambda d, cfg=None: [
+            return lambda d, cfg=None, similarity=True: [
                 SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000),
                 SimpleNamespace(name="ghidra_taken", symbol=symbol, filepath="taken.c", va=0x2000),
             ]
@@ -1785,7 +1785,7 @@ class TestRenameData:
         )
 
         def scan_for(symbol: str):
-            return lambda d, cfg=None: [
+            return lambda d, cfg=None, similarity=True: [
                 data,
                 SimpleNamespace(
                     name="ghidra_hook",
@@ -1837,7 +1837,7 @@ class TestRenameData:
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
 
         def scan_for(symbol: str):
-            return lambda d, cfg=None: [
+            return lambda d, cfg=None, similarity=True: [
                 SimpleNamespace(
                     name="ghidra_hook",
                     symbol=symbol,

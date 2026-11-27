@@ -209,6 +209,47 @@ def document_assembly(
     return report
 
 
+#: Definition and support-file paths of a validated ``source`` table by store
+#: fingerprint: a rename checks them before its transaction and again inside it.
+_PATHS_CACHE: dict[
+    tuple[Path, str, Path, tuple[tuple[str, int, int, int, int], ...]],
+    tuple[frozenset[str], frozenset[str]],
+] = {}
+_PATHS_CACHE_MAX = 16
+
+
+def _source_paths(path: Path, version: int) -> tuple[frozenset[str], frozenset[str]]:
+    """Paths under ``source.definitions`` and ``source.files``, after validating the store."""
+    reader = metadata_store(path)
+    fingerprint = reader.fingerprint()
+    key = (reader.path, reader.name, reader.root, fingerprint)
+    with _READ_CACHE_LOCK:
+        cached = _PATHS_CACHE.get(key)
+    if cached is not None:
+        return cached
+    current = reader.read(
+        "function metadata",
+        validate=lambda member: parse_metadata_doc(
+            member,
+            known_fields=_FUNCTION_FIELDS,
+            source=str(path),
+            version=version,
+            deepcopy=False,
+        ),
+    )
+    parse_metadata_doc(
+        current, known_fields=_FUNCTION_FIELDS, source=str(path), version=version, deepcopy=False
+    )
+    source = current.get("source", {"definitions": {}, "files": {}})
+    result = frozenset(source["definitions"]), frozenset(source["files"])
+    if fingerprint and reader.fingerprint() == fingerprint:
+        with _READ_CACHE_LOCK:
+            if key not in _PATHS_CACHE and len(_PATHS_CACHE) >= _PATHS_CACHE_MAX:
+                _PATHS_CACHE.pop(next(iter(_PATHS_CACHE)))
+            _PATHS_CACHE[key] = result
+    return result
+
+
 def rename_source_provenance(
     directory: Path,
     edits: dict[Path, tuple[str, str]],
@@ -223,26 +264,7 @@ def rename_source_provenance(
     if (not edits and move is None) or not metadata_store(path).exists():
         return
     with nullcontext() if dry_run else metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
-        version = metadata_format(path)
-        reader = metadata_store(path)
-        current = reader.read(
-            "function metadata",
-            validate=lambda member: parse_metadata_doc(
-                member,
-                known_fields=_FUNCTION_FIELDS,
-                source=str(path),
-                version=version,
-                deepcopy=False,
-            ),
-        )
-        parse_metadata_doc(
-            current,
-            known_fields=_FUNCTION_FIELDS,
-            source=str(path),
-            version=version,
-            deepcopy=False,
-        )
-        source = current.get("source", {"definitions": {}, "files": {}})
+        definition_paths, file_paths = _source_paths(path, metadata_format(path))
         edit_paths = {
             file.resolve().relative_to(directory).as_posix()
             for file in edits
@@ -252,12 +274,11 @@ def rename_source_provenance(
         if move:
             move[1].resolve().relative_to(directory)
         if not (
-            edit_paths.intersection(source["definitions"])
-            or (move_path and move_path in source["files"])
-            or (move_path and not edits and move_path in source["definitions"])
+            edit_paths.intersection(definition_paths)
+            or (move_path and move_path in file_paths)
+            or (move_path and not edits and move_path in definition_paths)
         ):
             return
-        del current, source
         store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
         doc = store.setdefault("source", {"definitions": {}, "files": {}})
         definitions = doc["definitions"]

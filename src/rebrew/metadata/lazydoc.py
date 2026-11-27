@@ -4,12 +4,15 @@ A single-record edit of a large metadata store used to parse the whole file
 with tomlkit (about 18 s for a 21 MB function store) and dump all of it again.
 :func:`parse_roundtrip` splits the text at top-level table headers, keeps each
 record's text verbatim, and gives tomlkit only the records a writer touches;
-:func:`render` writes untouched records back unchanged.  Validation runs on a
-``tomllib`` parse of the same text.  Text the splitter cannot segment exactly
-(multi-line strings, a record split across non-adjacent headers, keys that
-disagree with ``tomllib``) falls back to a full tomlkit parse.
+:func:`render` writes untouched records back unchanged.  Validation runs on the
+``tomllib`` values of the records, each parsed on its own (:func:`split_records`).
+Text the splitter cannot segment exactly (multi-line strings, a record split
+across non-adjacent headers, a record whose own parse fails or names other keys)
+falls back to a full tomlkit parse.
 """
 
+import threading
+from collections import OrderedDict
 from collections.abc import Callable, Iterator, MutableMapping
 from typing import Any, cast, override
 lazy import tomllib
@@ -18,10 +21,32 @@ lazy import tomlkit
 lazy from tomlkit import TOMLDocument
 lazy from tomlkit.items import Item
 
+lazy from rebrew.metadata import rendered_toml
+lazy from rebrew.utils import clone_plain
+
 #: Below this size a full tomlkit parse is cheap and keeps the plain path.
 LAZY_MIN_CHARS = 256 * 1024
 
 _BARE_KEY_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
+
+#: A document split at its top-level records: preamble text, preamble values and
+#: ``(key, record text, value)`` per record, in document order.
+Split = tuple[str, dict[str, Any], tuple[tuple[str, str, Any], ...]]
+
+#: Parsed top-level records by their exact text: ``text -> (text, value)``.  A
+#: store write re-renders only the records it touched, so parsing the next
+#: version of a document in the same process parses only those.  The bound is
+#: in characters and must exceed the largest store (guild-rebrew's functions
+#: store is 25 MB), or one pass over it evicts each record before its reuse.
+_RECORDS: OrderedDict[str, tuple[str, Any]] = OrderedDict()
+_RECORDS_CHARS = 0
+_RECORDS_MAX_CHARS = 64 * 1024 * 1024
+_RECORDS_LOCK = threading.Lock()
+#: The last documents split, by their full text: a write splits its new text for
+#: the replication digest, and the reads and the next write of that version
+#: reuse the split instead of segmenting 25 MB again.
+_SPLITS: OrderedDict[str, Split] = OrderedDict()
+_SPLITS_MAX = 4
 
 
 class _Chunk:
@@ -133,6 +158,11 @@ def _first_key(header: str) -> str | None:
         return None
     quote = text[0]
     if quote in "\"'":
+        end = text.find(quote, 1)
+        # Without an escape the key is the quoted text. A control character in
+        # it fails the record's own parse, so the document still falls back.
+        if end > 0 and (quote == "'" or "\\" not in text[1:end]):
+            return text[1:end]
         end = 1
         while end < len(text):
             char = text[end]
@@ -188,29 +218,115 @@ def _segment(text: str) -> tuple[str, list[_Chunk]] | None:
     return "".join(preamble), chunks
 
 
+def split_records(text: str) -> Split | None:
+    """*text* split at its top-level records: preamble, its values, ``(key, text, value)`` each.
+
+    Every value is what ``tomllib.loads(text)`` holds under its key. A record is
+    parsed on its own, once per process for each exact text; values are shared
+    between calls and must not be mutated. None when the text cannot be split
+    exactly: a piece fails its own parse (a value spanning a split line leaves one
+    piece unterminated), a record parses to other keys, or the preamble defines
+    a record's key.
+    """
+    with _RECORDS_LOCK:
+        split = _SPLITS.get(text)
+        if split is not None:
+            _SPLITS.move_to_end(text)
+            return split
+    split = _split(text)
+    if split is not None:
+        with _RECORDS_LOCK:
+            _SPLITS[text] = split
+            while len(_SPLITS) > _SPLITS_MAX:
+                _SPLITS.popitem(last=False)
+    return split
+
+
+def _split(text: str) -> Split | None:
+    global _RECORDS_CHARS
+    segmented = _segment(text)
+    if segmented is None:
+        return None
+    preamble, chunks = segmented
+    try:
+        head = rendered_toml.loads(preamble)
+    except tomllib.TOMLDecodeError:
+        return None
+    with _RECORDS_LOCK:
+        known = [_RECORDS.get(chunk.raw) for chunk in chunks]
+    records: list[tuple[str, str, Any]] = []
+    parsed: list[tuple[str, Any]] = []
+    for chunk, record in zip(chunks, known, strict=True):
+        key = chunk.keys[0]
+        if key in head:
+            return None
+        if record is None:
+            try:
+                values = rendered_toml.loads(chunk.raw)
+            except tomllib.TOMLDecodeError:
+                return None
+            if list(values) != [key]:
+                return None
+            record = (chunk.raw, values[key])
+            parsed.append(record)
+        records.append((key, *record))
+    with _RECORDS_LOCK:
+        for record in known:
+            if record is not None and record[0] in _RECORDS:
+                _RECORDS.move_to_end(record[0])
+        for raw, value in parsed:
+            if raw not in _RECORDS:
+                _RECORDS[raw] = (raw, value)
+                _RECORDS_CHARS += len(raw)
+        while _RECORDS_CHARS > _RECORDS_MAX_CHARS:
+            evicted, _ = _RECORDS.popitem(last=False)
+            _RECORDS_CHARS -= len(evicted)
+    return preamble, head, tuple(records)
+
+
+def loads(text: str) -> dict[str, Any]:
+    """``tomllib.loads(text)``, copied from :func:`split_records` when it split *text* recently.
+
+    A store write splits its new text (for the replication digest or its own
+    parse), so the reads of the version it wrote copy record values instead of
+    parsing the whole document.  The result is the caller's to mutate.
+    """
+    split = None
+    if len(text) >= LAZY_MIN_CHARS:
+        with _RECORDS_LOCK:
+            split = _SPLITS.get(text)
+            if split is not None:
+                _SPLITS.move_to_end(text)
+    if split is None:
+        return rendered_toml.loads(text)
+    _preamble, head, records = split
+    doc = {key: clone_plain(value) for key, value in head.items()}
+    for key, _raw, value in records:
+        doc[key] = clone_plain(value)
+    return doc
+
+
 def parse_roundtrip(
     text: str, validate: Callable[[dict[str, Any]], Any] | None = None
 ) -> dict[str, Any]:
     """Parse *text* for round-trip editing, validating a plain ``tomllib`` view.
 
     Returns a :class:`LazyDocument` for a large document the splitter can segment
-    exactly, else a full ``TOMLDocument``.  A ``tomllib`` decode error falls back to
-    tomlkit so callers keep tomlkit's error type and message.
+    exactly, else a full ``TOMLDocument``.  Text that is not valid TOML falls back
+    to tomlkit so callers keep tomlkit's error type and message.  The plain view's
+    values come from :func:`split_records` and are shared: validators read them.
     """
     if len(text) < LAZY_MIN_CHARS:
         doc = tomlkit.parse(text)
         if validate is not None:
             validate(doc)
         return doc
-    segmented = _segment(text)
-    try:
-        plain = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        segmented = None
-        plain = {}
-    if segmented is not None:
-        preamble, chunks = segmented
-        lazy = LazyDocument(preamble, chunks, plain)
+    split = split_records(text)
+    if split is not None:
+        preamble, head, records = split
+        plain = dict(head)
+        plain.update((key, value) for key, _raw, value in records)
+        lazy = LazyDocument(preamble, [_Chunk(raw, key) for key, raw, _value in records], plain)
         if list(lazy) == list(plain):
             if validate is not None:
                 validate(plain)

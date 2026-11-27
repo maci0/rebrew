@@ -3,10 +3,13 @@
 ### Changed
 
 - **Breaking:** `app.builtins.DOMAIN_COMPONENTS` includes `build warm-sessions`.
+- `rebrew source rename-batch` applies a line after the first in 2.6 s instead of 9.2 s (medians over 22 renames on a 5,300-source project with a 25 MB function store replicated to SQLite and TOML; the 25-line batch took 66 s instead of 211 s), with the same sources, stores and JSON report. Each line still commits on its own before the next one plans. One process parses each top-level metadata record once for each exact text, so a write parses and digests only the records the previous write changed, and the reads of a just-written store copy its records instead of parsing it. Rename planning no longer checks comparison scores and reads the source-provenance table once per line.
+- A write to a metadata store of 262,144 characters or more parses it and computes its replication digest record by record in every command; the semantic digest is unchanged. On the 25 MB function store a digest from scratch takes 1.1 s instead of 4.0 s.
 
 ### Added
 
 - `rebrew build warm-sessions -- COMMAND` runs a build command so that its `rebrew build driver cl|link|lib` runs on the `unshare` backend reuse long-lived sandboxes. Each sandbox starts a persistent wineserver and boots its Wine session once, instead of every run booting wineserver, `wineboot --init`, services, explorer, plugplay and device hosts in a fresh sandbox. Runs share a sandbox only when image, project root, mounts and environment are equal; each sandbox runs one tool at a time with its own Wine prefix overlay, at most `--workers` at once. A run past its timeout kills its sandbox, and every sandbox ends with the command or with the wrapper's process. Objects are byte-identical to fresh-sandbox output. On 50 sources of a VC6 game (medians of 5 interleaved runs on a loaded 32-core host), a compile took 0.26 s instead of 0.48 s serially and 0.30 s instead of 0.58 s with 8 jobs, and the 8-job run took 2.2 s instead of 3.9 s. Most of the rest is the driver's Python start-up.
+- `rebrew.catalog.scan_reversed_dir(..., similarity=False)` skips checking each stored comparison score against its compile inputs; the bindings carry no `similarity`.
 
 ## [6.85.0] - 2026-11-27
 

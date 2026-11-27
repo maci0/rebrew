@@ -337,22 +337,37 @@ class _Project:
         if getattr(cfg, "root", None) is not None:
             # Include every target's providers so an independent vendor twin still collides.
             metadata_dir = self.metadata_dir
+            # The bound path depends only on the row's file and whether it is a
+            # LIBRARY row; rows share files, so resolve each pair once.
+            bound: dict[tuple[str, bool], Path | None] = {}
             for (module, va), row in load_metadata(metadata_dir, deepcopy=False).items():
                 if row.get("kind") in {"FUNCTION", "LIBRARY"}:
-                    entry = bind_compiled_source(
-                        cfg,
-                        SourceBinding(module=module, va=va, kind=str(row["kind"])),
-                        row,
-                        metadata_dir=metadata_dir,
-                    )
-                    if entry.filepath:
-                        library_sources.append((Path(cfg.reversed_dir) / entry.filepath).resolve())
+                    identity = (str(row.get("file", "")), row["kind"] == "LIBRARY")
+                    if identity not in bound:
+                        entry = bind_compiled_source(
+                            cfg,
+                            SourceBinding(module=module, va=va, kind=str(row["kind"])),
+                            row,
+                            metadata_dir=metadata_dir,
+                        )
+                        bound[identity] = (
+                            (Path(cfg.reversed_dir) / entry.filepath).resolve()
+                            if entry.filepath
+                            else None
+                        )
+                    source = bound[identity]
+                    if source is not None:
+                        library_sources.append(source)
         seen: set[Path] = set()
         self.paths: list[Path] = []
-        for path in [*first, *iter_sources_and_headers(cfg.reversed_dir, cfg), *library_sources]:
+        for path in [*first, *iter_sources_and_headers(cfg.reversed_dir, cfg)]:
             key = path.resolve()
             if key not in seen:
                 seen.add(key)
+                self.paths.append(path)
+        for path in library_sources:  # already resolved
+            if path not in seen:
+                seen.add(path)
                 self.paths.append(path)
         self.texts: dict[Path, tuple[str, str, bytes]] = {}
         unreadable: list[Path] = []

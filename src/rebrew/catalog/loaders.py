@@ -416,6 +416,7 @@ def scan_reversed_dir(
     inventory_only: bool = False,
     scanned: Sequence[Path] | None = None,
     source_bindings: list[tuple[Path, list[SourceBinding]]] | None = None,
+    similarity: bool = True,
 ) -> list[SourceBinding]:
     """Scan source files and ``library_*.h`` headers under *reversed_dir*.
 
@@ -431,7 +432,9 @@ def scan_reversed_dir(
     *reversed_dir*, so a caller that already walked the tree does not walk it
     again for sources and headers.  *source_bindings* is a
     :func:`scan_source_bindings` result for the same sources, so a caller that
-    also needs them per file reads each source once.
+    also needs them per file reads each source once.  Without *similarity* the
+    bindings carry no ``similarity``; checking that each stored score is still
+    current hashes every function's compile inputs.
     """
     entries: list[SourceBinding] = []
     # Hoisted: `metadata_dir` re-derives its answer with a filesystem probe
@@ -511,7 +514,7 @@ def scan_reversed_dir(
                 entries.append(entry)
                 seen.add((entry.module, entry.va))
 
-    if cfg is not None:
+    if cfg is not None and similarity:
         from rebrew.verify_hash import current_similarity
 
         for entry in entries:

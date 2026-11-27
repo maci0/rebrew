@@ -16,6 +16,7 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `locking.py` | Reentrant project and physical-storage locks |
 | `document.py` | Qualified-key algebra and backend-neutral document cache |
 | `rendered_toml.py` | `loads`: `tomllib.loads` for stored documents, a line at a time on the layout rebrew renders, `tomllib` for any other text |
+| `lazydoc.py` | Round-trip documents that tomlkit-parse only the records a writer touches; top-level record values cached by exact record text |
 | `records.py` | Record boundaries of a logical document, shared by backends and diffs |
 | `model.py` | `MetadataEntry`: typed view and validation of a function entry |
 | `anchors.py` | Configurable address comments bound to the next declaration; C stays AST-based |
@@ -37,6 +38,7 @@ Externals (the only packages this one may import): `c_parser`, `compiler.toolcha
 
 - **Drop-ins partition records.** Each main TOML also reads direct TOMLs in its sibling `.d` directory. Reject duplicates, update existing records in their owning file, and put new records in the main TOML. The main filename owns the collection lock.
 - **Batch readers pass one snapshot.** A whole-tree reader loads each store once (`load_metadata` / `load_data_metadata` with `deepcopy=False`, `data_file_index`) and hands it to every source: `source_bindings` / `read_source_bindings` take `function_entries`, `data_entries` and `preloaded_data_rows`, and `data_rows_for_path` takes `index`. An omitted one is read per call, which fingerprints the store again (an SQLite statement; outside `sqlite.reading()` also a connection and a schema check).
+- **Parsed records are shared.** `lazydoc.split_records` caches each top-level record's value by its exact text for the process, so a write and its replication digest parse only the records the previous write changed. Those values, and the plain view `parse_roundtrip` hands to validators, are read-only; `lazydoc.loads` (the SQLite and replicated store reads) returns copies.
 - **One SQLite reader per op.** `rebrew.ops` runs every op inside `sqlite.reading()`: each database gets one read-only connection, schema-checked at its first read, reopened when the file is replaced, closed when the op ends. It holds no lock between statements, so the op's own writes commit and are read back.
 - **Persist through storage.** All four managed stores use `storage.metadata_store`; keep validation and provenance in the domain owners. Project configuration remains TOML. Read fallback uses only explicitly configured readers and only on unavailability; missing or corrupt data does not trigger it.
 - **Writers lock through storage.** Domain edits use `storage.metadata_write_lock` around the complete read/modify/write. Acquire the project-config lock before storage locks so migration cannot race a writer. Backends own atomic writes. TOML files and SQLite databases use mode 0444 at rest; PostgreSQL uses database permissions. SQLite and PostgreSQL transactions span their logical documents.
