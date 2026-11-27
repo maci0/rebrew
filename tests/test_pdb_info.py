@@ -5,7 +5,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 lazy from pathlib import Path
 
-from rebrew.pdb_info import _parse_compile3, _parse_procs, extract_pdb_info
+from rebrew.formats.pdb import parse_compile3 as _parse_compile3
+from rebrew.formats.pdb import parse_procs as _parse_procs
+from rebrew.pdb_info import extract_pdb_info
 
 
 class TestParseCompile3:

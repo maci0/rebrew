@@ -347,16 +347,6 @@ def _opcode_index(insn_bytes: bytes) -> int:
     return i if i < n else 0
 
 
-def _first_opcode_byte(insn_bytes: bytes) -> int:
-    """The first real opcode byte of *insn_bytes* (legacy prefixes skipped).
-
-    Equivalent to ``capstone.CsInsn.opcode[0]`` for the opcode set
-    :func:`_zero_reloc_fields_raw` checks — x86-32 has no REX/VEX, so the
-    legacy prefix set is complete.
-    """
-    return insn_bytes[_opcode_index(insn_bytes)] if insn_bytes else 0
-
-
 def _has_disp32(insn_bytes: bytes) -> bool:
     """Cheap superset test: could this instruction carry a 32-bit displacement?
 

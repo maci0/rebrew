@@ -8,11 +8,11 @@ lazy import os
 lazy import re
 lazy import shlex
 lazy import tempfile
-lazy import unicodedata
 lazy from dataclasses import replace
 lazy from pathlib import Path
 lazy from typing import Any
 
+lazy from rebrew.compiler.cache import _fold_name
 lazy from rebrew.compiler.image_headers import ImageHeaders
 lazy from rebrew.compiler.toolchain import get_toolchain, run_toolchain
 lazy from rebrew.utils import path_identity
@@ -50,10 +50,6 @@ def _unsafe_source(raw: bytes, *, allow_token_paste: bool = False) -> bool:
         or _VOLATILE.search(masked)
         or (not allow_token_paste and ("##" in masked or "%:%:" in masked))
     )
-
-
-def _fold_name(part: str) -> str:
-    return unicodedata.normalize("NFC", part).casefold()
 
 
 def _protected(path: Path, root: Path) -> bool:

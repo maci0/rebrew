@@ -10,7 +10,8 @@ import string
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.pdb_info import _parse_compile3, _parse_procs
+from rebrew.formats.pdb import parse_compile3 as _parse_compile3
+from rebrew.formats.pdb import parse_procs as _parse_procs
 
 # ---------------------------------------------------------------------------
 # Strategies

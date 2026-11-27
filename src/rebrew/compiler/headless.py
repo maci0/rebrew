@@ -44,7 +44,7 @@ lazy import tempfile
 lazy import time
 lazy from collections.abc import Callable
 
-from rebrew.config import XVFB_DISPLAY_ENV as _XVFB_DISPLAY_ENV
+from rebrew.config import XVFB_DISPLAY_ENV
 lazy from rebrew.config import check_env_display
 
 log = logging.getLogger(__name__)
@@ -56,11 +56,6 @@ log = logging.getLogger(__name__)
 #: becomes an unexpected positional).  Join with spaces for ``xvfb-run -s``.
 _XVFB_SCREEN = ("-screen", "0", "1280x1024x24")
 XVFB_RUN_SERVER_ARGS = " ".join(_XVFB_SCREEN)
-
-#: Env var recording the display our Xvfb (or a reused one) lives on.
-#: Named in :mod:`rebrew.config` so ``rebrew cfg effective`` validates an
-#: operator-pinned value against the same string this module writes.
-XVFB_DISPLAY_ENV = _XVFB_DISPLAY_ENV
 
 #: Env var the spawned Xvfb carries, naming the ``-auth`` file it was started
 #: with, so a later rebrew process can find the same file for an orphan server

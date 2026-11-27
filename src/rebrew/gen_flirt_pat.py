@@ -70,8 +70,6 @@ class ObjectFunction(NamedTuple):
 #: docstring.  Rows stored under another version describe other functions.
 FUNCTION_BOUNDARIES = 2
 
-#: IMAGE_FILE_MACHINE_I386, the COFF machine :func:`_i386_function_starts` reads.
-_COFF_MACHINE_I386 = 0x14C
 #: Longest x86 instruction, in bytes.
 _X86_MAX_INSN = 15
 #: Instructions after which execution does not continue at the next byte.

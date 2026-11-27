@@ -85,9 +85,6 @@ _DELAY_ATTR_RVA = 0x1
 #: would otherwise turn one bad dword into an unbounded read.
 _MAX_TABLE_ENTRIES = 65536
 
-#: GuardFlags encodes extra metadata bytes after every CFG table entry.
-_GUARD_TABLE_SIZE_MASK = 0xF0000000
-
 #: High bit of an import name-table entry: the value is an ordinal, not an RVA.
 _IMPORT_ORDINAL_FLAG = 0x80000000
 _IMPORT_NAME_MASK = 0x7FFFFFFF

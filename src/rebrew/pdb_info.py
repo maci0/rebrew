@@ -34,17 +34,12 @@ lazy import tomlkit
 
 from rebrew.formats.pdb import (
     PdbInfo,
-    parse_compile3,
-    parse_procs,
 )
 from rebrew.formats.pdb import (
     extract_pdb_info as _extract_pdb_info,
 )
 lazy from rebrew.cli import console, error_exit, json_print, untrusted_ident
 lazy from rebrew.utils import run_process_group
-
-_parse_compile3 = parse_compile3
-_parse_procs = parse_procs
 
 log = logging.getLogger(__name__)
 

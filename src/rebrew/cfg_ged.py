@@ -32,8 +32,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import NamedTuple
-lazy import math
-lazy from collections import Counter
 lazy from collections.abc import Callable, Mapping
 lazy from typing import Any
 
@@ -715,19 +713,6 @@ def _add_edge(
     if edge not in edge_set:
         edge_set.add(edge)
         edges.append(edge)
-
-
-def _cosine_scaled(a: Counter[str], b: Counter[str], va: float, vb: float) -> float:
-    """Cosine of two signatures with norms precomputed (invariant per sweep)."""
-    if va == 0 or vb == 0:
-        return 0.0
-    denom = va * vb
-    if not math.isfinite(denom) or denom <= 0.0:
-        return 0.0
-    raw = sum(a[k] * b[k] for k in a.keys() & b.keys()) / denom
-    if not math.isfinite(raw):
-        return 0.0
-    return min(1.0, max(0.0, raw))
 
 
 def cfg_similarity(

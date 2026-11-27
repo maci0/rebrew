@@ -92,9 +92,6 @@ lazy from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHE
 
 log = logging.getLogger(__name__)
 
-_FUNC_DEF_STYLE_RE = re.compile(
-    r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
-)
 _TYPE_SPELLING_RE = re.compile(r"\s*([^\w\s])\s*")
 _EXTERN_DECL_RE = re.compile(r"\s*extern\b")
 
