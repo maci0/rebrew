@@ -299,3 +299,52 @@ def test_library_row_moves_to_a_library_header(tmp_path: Path) -> None:
     assert row["file"] == "src/library_libcmt.h"
     with pytest.raises(ValueError, match="does not define f"):
         rehome_functions(cfg, ["0x2000=src/library_libcmt.h"])
+
+
+def test_rehome_files_every_moved_definition_s_evidence_in_one_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each spec's old path hands its assembly evidence to the new one; one locked write."""
+    from rebrew.metadata import source_provenance
+    from rebrew.metadata.source_provenance import document_assembly, load_source_provenance
+
+    cfg = _cfg(tmp_path)
+    write_store_fixture(
+        tmp_path / "rebrew-functions.toml",
+        "format = 3\n"
+        + "".join(
+            f'["SERVER.0x{va:x}"]\nname = "{name}"\nsymbol = "_{name}"\nfile = "src/{name}_old.c"\n'
+            'kind = "FUNCTION"\n'
+            for va, name in ((0x1000, "f"), (0x2000, "g"), (0x3000, "h"))
+        ),
+        encoding="utf-8",
+    )
+    for name in ("f", "g", "h"):
+        (tmp_path / "src" / f"{name}_old.c").write_text(f"int {name}(void)\n{{\n\treturn 1;\n}}\n")
+    for name in ("f", "h"):
+        document_assembly(
+            tmp_path, tmp_path / "src" / f"{name}_old.c", name, "SERVER", "Reviewed assembly"
+        )
+    for name in ("f", "g", "h"):
+        (tmp_path / "src" / f"{name}_old.c").rename(tmp_path / "src" / f"{name}.c")
+    real = source_provenance.metadata_write_lock
+    locks: list[str] = []
+
+    def counted(directory: Path, name: str) -> Any:
+        locks.append(name)
+        return real(directory, name)
+
+    monkeypatch.setattr(source_provenance, "metadata_write_lock", counted)
+    rows = rehome_functions(cfg, ["0x1000=src/f.c", "0x2000=src/g.c", "0x3000=src/h.c"])
+    assert [row["file"] for row in rows] == ["src/f.c", "src/g.c", "src/h.c"]
+    assert locks == ["rebrew-functions.toml"]
+    assert {(r.file, r.symbol) for r in load_source_provenance(tmp_path)} == {
+        ("src/f.c", "f"),
+        ("src/h.c", "h"),
+    }
+    stored = tomllib.loads((tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8"))
+    assert [stored[f"SERVER.0x{va:x}"]["file"] for va in (0x1000, 0x2000, 0x3000)] == [
+        "src/f.c",
+        "src/g.c",
+        "src/h.c",
+    ]

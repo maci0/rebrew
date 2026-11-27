@@ -1,5 +1,6 @@
 """Reviewed source evidence survives moves without validating stale evidence."""
 
+from typing import Any
 lazy from pathlib import Path
 
 import pytest
@@ -10,7 +11,9 @@ from rebrew.metadata.source_provenance import (
     function_definition_hashes,
     load_source_files,
     load_source_provenance,
+    move_source_provenance,
     plan_source_rehome,
+    rename_source_provenance,
     replace_source_metadata,
     set_source_file,
 )
@@ -77,3 +80,53 @@ def test_rehome_failure_rolls_back_source_and_provenance(tmp_path: Path, backend
         raise RuntimeError("injected")
     assert a.read_text() == "int f(void) { return 2; }\n" and not out.exists()
     assert metadata_store(tmp_path / "rebrew-functions.toml").snapshot() == metadata
+
+
+def _documented(root: Path, backend: str) -> None:
+    """Evidence and purposes on a.c, evidence on b.c and c.c, nothing on x.c."""
+    (root / "rebrew-project.toml").write_text(f'[metadata]\nbackend = "{backend}"\n')
+    for name, function in (("a.c", "f"), ("b.c", "g"), ("c.c", "h"), ("x.c", "k")):
+        (root / name).write_text(f"int {function}(void) {{ return 1; }}\n")
+    for name, function in (("a.c", "f"), ("b.c", "g"), ("c.c", "h")):
+        document_assembly(root, root / name, function, "A", "Reviewed original assembly")
+    set_source_file(root, "a.c", "A", "native support")
+
+
+@pytest.mark.parametrize("backend", ["toml", "sqlite"])
+def test_several_moves_follow_like_one_move_at_a_time(
+    tmp_path: Path, backend: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One locked write; a refused move in the middle leaves the others applied."""
+    from rebrew.metadata import source_provenance
+
+    separate, together = tmp_path / "separate", tmp_path / "together"
+    for root in (separate, together):
+        root.mkdir()
+        _documented(root, backend)
+    # a.c moves twice; b.c onto c.c is refused (c.c holds records); x.c has none.
+    names = [("a.c", "a2.c"), ("b.c", "c.c"), ("a2.c", "a3.c"), ("x.c", "y.c")]
+    for old, new in names:
+        try:
+            rename_source_provenance(separate, {}, move=(separate / old, separate / new))
+        except ValueError:
+            continue
+    real = source_provenance.metadata_write_lock
+    locks: list[str] = []
+
+    def counted(directory: Path, name: str) -> Any:
+        locks.append(name)
+        return real(directory, name)
+
+    monkeypatch.setattr(source_provenance, "metadata_write_lock", counted)
+    move_source_provenance(together, [(together / old, together / new) for old, new in names])
+    assert locks == ["rebrew-functions.toml"]
+    assert {(r.file, r.symbol) for r in load_source_provenance(together)} == {
+        ("a3.c", "f"),
+        ("b.c", "g"),
+        ("c.c", "h"),
+    }
+    assert [f.file for f in load_source_files(together)] == ["a3.c"]
+    assert load_source_provenance(together) == load_source_provenance(separate)
+    assert load_source_files(together) == load_source_files(separate)
+    stored = metadata_store(together / "rebrew-functions.toml").snapshot()
+    assert stored == metadata_store(separate / "rebrew-functions.toml").snapshot()
