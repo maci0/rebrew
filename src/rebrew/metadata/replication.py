@@ -18,7 +18,7 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 from rebrew.metadata.sqlite import MetadataStorageError, MetadataUnavailableError
-lazy from rebrew.metadata import rendered_toml
+lazy from rebrew.metadata import lazydoc, rendered_toml
 lazy from rebrew.metadata.files import METADATA_FILENAMES, TomlStore
 lazy from rebrew.metadata.lazydoc import parse_roundtrip, render
 lazy from rebrew.metadata.locking import project_transaction
@@ -52,30 +52,77 @@ _DIGEST_MAX = 64
 _DIGEST_LOCK = threading.Lock()
 _DIGESTS: OrderedDict[tuple[str, bool], str] = OrderedDict()
 
+#: Normalized JSON of one top-level record by the record's exact text.  A write
+#: changes a few records of a store, so the next digest of it normalizes only
+#: those.  Bounded in characters of JSON, above the largest store's (33 MB for
+#: guild-rebrew's functions store).
+_RECORD_JSON: OrderedDict[str, str] = OrderedDict()
+_RECORD_JSON_CHARS = 0
+_RECORD_JSON_MAX_CHARS = 96 * 1024 * 1024
+
 
 def _content_sha256(content: str) -> str:
     """Raw SHA-256 of a replicated document's text (no parse)."""
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+def _normalized(value: Any) -> Any:
+    if isinstance(value, dict):
+        return ["table", sorted((key, _normalized(item)) for key, item in value.items())]
+    if isinstance(value, list):
+        return ["array", [_normalized(item) for item in value]]
+    return [type(value).__name__, str(value)]
+
+
+def _normalized_json(content: str) -> str:
+    """``json.dumps(_normalized(tomllib.loads(content)), ensure_ascii=True)``.
+
+    A large document is assembled from the JSON of each top-level record, cached
+    by the record's text: a dict normalizes to its items sorted by key, so the
+    document's JSON is the records' JSON in key order.
+    """
+    global _RECORD_JSON_CHARS
+    split = lazydoc.split_records(content) if len(content) >= lazydoc.LAZY_MIN_CHARS else None
+    if split is None:
+        return json.dumps(_normalized(rendered_toml.loads(content)), ensure_ascii=True)
+    _preamble, head, records = split
+    items = [
+        (key, json.dumps([key, _normalized(value)], ensure_ascii=True))
+        for key, value in head.items()
+    ]
+    with _DIGEST_LOCK:
+        known = [_RECORD_JSON.get(raw) for _key, raw, _value in records]
+    computed: list[tuple[str, str]] = []
+    for (key, raw, value), item in zip(records, known, strict=True):
+        if item is None:
+            item = json.dumps([key, _normalized(value)], ensure_ascii=True)
+            computed.append((raw, item))
+        items.append((key, item))
+    with _DIGEST_LOCK:
+        for (_key, raw, _value), item in zip(records, known, strict=True):
+            if item is not None and raw in _RECORD_JSON:
+                _RECORD_JSON.move_to_end(raw)
+        for raw, item in computed:
+            if raw not in _RECORD_JSON:
+                _RECORD_JSON[raw] = item
+                _RECORD_JSON_CHARS += len(item)
+        while _RECORD_JSON_CHARS > _RECORD_JSON_MAX_CHARS:
+            _evicted, item = _RECORD_JSON.popitem(last=False)
+            _RECORD_JSON_CHARS -= len(item)
+    items.sort(key=lambda pair: pair[0])
+    return '["table", [' + ", ".join(item for _key, item in items) + "]]"
+
+
 def _digest(content: str, deleted: bool = False) -> str:
     """Hash semantic TOML values, independent of comments and fragment placement."""
-
-    def normalized(value: Any) -> Any:
-        if isinstance(value, dict):
-            return ["table", sorted((key, normalized(item)) for key, item in value.items())]
-        if isinstance(value, list):
-            return ["array", [normalized(item) for item in value]]
-        return [type(value).__name__, str(value)]
-
     key = (hashlib.sha256(content.encode()).hexdigest(), deleted)
     with _DIGEST_LOCK:
         cached = _DIGESTS.get(key)
         if cached is not None:
             _DIGESTS.move_to_end(key)
             return cached
-    values = ["deleted"] if deleted else normalized(tomllib.loads(content))
-    digest = hashlib.sha256(json.dumps(values, ensure_ascii=True).encode()).hexdigest()
+    values = json.dumps(["deleted"], ensure_ascii=True) if deleted else _normalized_json(content)
+    digest = hashlib.sha256(values.encode()).hexdigest()
     with _DIGEST_LOCK:
         _DIGESTS[key] = digest
         while len(_DIGESTS) > _DIGEST_MAX:
@@ -88,13 +135,22 @@ def _toml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
 
 
-def _render_state(records: dict[str, _Record], node: str) -> str:
-    """Render a journal or replication-state document without per-character TOML escaping."""
+def _render_state(records: dict[str, _Record], node: str, body: str | None = None) -> str:
+    """Render a journal or replication-state document without per-character TOML escaping.
+
+    *body* is :func:`_render_records` of *records*, when the caller already has it.
+    """
     lines = [f"format = {_STATE_FORMAT}"]
     if node:
         lines.append(f"node = {_toml_string(node)}")
     lines.append("")
     lines.append("[records]")
+    return "\n".join(lines) + "\n" + (_render_records(records) if body is None else body)
+
+
+def _render_records(records: dict[str, _Record]) -> str:
+    """The record tables of a journal or state document; a commit writes the same ones to each."""
+    lines: list[str] = []
     for key, record in records.items():
         table = f"records.{_toml_string(key)}"
         lines += [
@@ -109,7 +165,7 @@ def _render_state(records: dict[str, _Record], node: str) -> str:
             f"[{table}.clock]",
             *(f"{_toml_string(name)} = {revision}" for name, revision in record.clock.items()),
         ]
-    return "\n".join(lines) + "\n"
+    return "".join(line + "\n" for line in lines)
 
 
 def _parse_rendered(
@@ -354,8 +410,10 @@ def _parse_state(
     return records, node
 
 
-def _save(store: MetadataStore, records: dict[str, _Record], node: str = "") -> None:
-    store.write_text(_render_state(records, node), "metadata replication state")
+def _save(
+    store: MetadataStore, records: dict[str, _Record], node: str = "", body: str | None = None
+) -> None:
+    store.write_text(_render_state(records, node, body), "metadata replication state")
 
 
 def _observed(store: MetadataStore, recorded: _Record | None) -> _Record | None:
@@ -566,9 +624,10 @@ class _Session:
         self.validate()
         if self.report_divergence:
             self.divergence = self.diverged()
+        body = _render_records(self.records)
         if self.records:
             # This local write-ahead journal is the durable commit before replica publication.
-            _save(self.journal, self.records, self.node)
+            _save(self.journal, self.records, self.node, body)
         self.committed = True
         for name in self.route.write_backends:
             if name not in self.contexts or name in self.pending:
@@ -592,7 +651,7 @@ class _Session:
                             store.remove()
                         else:
                             store.write_text(record.content, "metadata replication")
-                _save(self.route.state(name), self.records)
+                _save(self.route.state(name), self.records, body=body)
                 self.contexts.pop(name).close()
             except (OSError, MetadataStorageError) as exc:
                 # The journal already holds the commit, so a replica that
@@ -733,7 +792,7 @@ class RoutedStore:
             return {}
         if roundtrip:
             return parse_roundtrip(record.content, validate)
-        doc = rendered_toml.loads(record.content)
+        doc = lazydoc.loads(record.content)
         if validate is not None:
             validate(doc)
         return doc

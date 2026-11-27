@@ -850,3 +850,89 @@ class TestReplicaDivergence:
         assert all(not i["diverged"] for i in reconcile_metadata(cfg, dry_run=True)["items"])
         reconcile_metadata(cfg)
         assert get_entry(root, 0x1000, "GAME")["note"] == "old"
+
+
+#: Every escape a stored string can need, without the ``'''`` that keeps a store
+#: from splitting at its records.
+_SPLITTABLE_AWKWARD = 'q"\\ back\nslash\ttab \x01ctl \x7fdel é \U0001f600 end'
+#: Records in :func:`_large_store`, which with ``_SMALL_LAZY_MIN_CHARS`` puts it
+#: on the record-wise digest path.
+_LARGE_STORE_RECORDS = 64
+_SMALL_LAZY_MIN_CHARS = 4 * 1024
+#: Semantic digests of :func:`_large_store` and of it with one row renamed, as
+#: rebrew 6.85.0 computed them over the whole document. Journals and states
+#: store these; a digest that changes makes every stored one disagree.
+_LARGE_STORE_DIGEST = "a70655a0a08a98dc35b87b4323e7a8e469b771373ce25b6fddf52f19a05b1eb4"
+_RENAMED_STORE_DIGEST = "be1f0672fb7ecfaf81c977f81101c8addd5ed94d3e74cb671448bfd276bd7223"
+
+
+def _large_store(records: int, *, reverse: bool = False) -> str:
+    """A function store holding every value kind the stores write, in either key order."""
+    doc = tomlkit.document()
+    doc["format"] = 3
+    order = range(records - 1, -1, -1) if reverse else range(records)
+    for index in order:
+        entry = tomlkit.table()
+        entry["name"] = f"fcn_{index:05x}"
+        entry["size"] = index * 4
+        entry["similarity"] = index / 8
+        entry["exact"] = index % 2 == 0
+        entry["note"] = _SPLITTABLE_AWKWARD if index % 5 == 0 else f"row {index}"
+        entry["globals"] = [f"g_{index}", "g_shared"]
+        if index % 7 == 0:
+            entry["verified_at"] = tomlkit.datetime("2026-11-27T08:00:00+00:00")
+        verification = tomlkit.table()
+        verification["aligned_pairs"] = index
+        entry["verification"] = verification
+        history = tomlkit.aot()
+        for step in range(index % 3):
+            row = tomlkit.table()
+            row["old_status"] = "STUB"
+            row["new_status"] = "RELOC"
+            row["step"] = step
+            history.append(row)
+        if history:
+            entry["status_history"] = history
+        doc[f"GAME.0x{0x1000 + 16 * index:08x}"] = entry
+    return tomlkit.dumps(doc)
+
+
+class TestRecordWiseDigest:
+    """A large store is digested record by record, to the digest a whole-document parse gives."""
+
+    @pytest.fixture(autouse=True)
+    def _record_wise(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from collections import OrderedDict
+
+        import rebrew.metadata.replication as replication
+        from rebrew.metadata import lazydoc
+
+        monkeypatch.setattr(lazydoc, "LAZY_MIN_CHARS", _SMALL_LAZY_MIN_CHARS)
+        monkeypatch.setattr(replication, "_DIGESTS", OrderedDict())
+        monkeypatch.setattr(replication, "_RECORD_JSON", OrderedDict())
+        monkeypatch.setattr(replication, "_RECORD_JSON_CHARS", 0)
+
+    def test_a_large_store_keeps_the_stored_digest(self) -> None:
+        from rebrew.metadata import lazydoc
+        from rebrew.metadata.replication import _digest
+
+        text = _large_store(_LARGE_STORE_RECORDS)
+        assert len(text) > _SMALL_LAZY_MIN_CHARS
+        assert lazydoc.split_records(text) is not None
+        assert _digest(text) == _LARGE_STORE_DIGEST
+
+    def test_an_edit_after_a_digest_matches_a_fresh_digest(self) -> None:
+        from rebrew.metadata.replication import _digest
+
+        text = _large_store(_LARGE_STORE_RECORDS)
+        _digest(text)
+        renamed = text.replace('name = "fcn_00010"', 'name = "renamed"', 1)
+        assert renamed != text
+        assert _digest(renamed) == _RENAMED_STORE_DIGEST
+
+    def test_key_order_and_comments_do_not_change_the_digest(self) -> None:
+        from rebrew.metadata.replication import _digest
+
+        reordered = "# a comment\n" + _large_store(_LARGE_STORE_RECORDS, reverse=True)
+        assert reordered != _large_store(_LARGE_STORE_RECORDS)
+        assert _digest(reordered) == _LARGE_STORE_DIGEST
