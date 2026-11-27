@@ -76,6 +76,12 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
             panel="",
         ),
         CliComponent(
+            name="rename-batch",
+            module="rebrew.rename_batch",
+            help="Run a list of renames in one process, each line one `rebrew source rename`.",
+            panel="",
+        ),
+        CliComponent(
             name="fix",
             module="rebrew.fixup",
             help="Make raw decompiler output compilable (DecBench-style fixup).",

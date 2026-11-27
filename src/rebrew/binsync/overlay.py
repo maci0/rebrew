@@ -53,6 +53,7 @@ lazy from rebrew.binsync.importer import (
     is_safe_prototype,
     normalize_stack_vars,
     resolve_state_dir,
+    same_function_name,
     strip_cdecl_prefix,
 )
 lazy from rebrew.binsync.serial import require_declib
@@ -436,12 +437,7 @@ def overlay_state(
             # only that prefix left them decorated, so they conflicted with
             # the C name and could not be written onto a generic local.
             bs_stripped = strip_cdecl_prefix(bs_name)
-            local_stripped = strip_cdecl_prefix(local_name)
-            if (
-                bs_name
-                and is_meaningful(bs_name)
-                and fold_ident(bs_stripped) != fold_ident(local_stripped)
-            ):
+            if bs_name and is_meaningful(bs_name) and not same_function_name(bs_name, local_name):
                 local_meaningful = is_meaningful(local_name)
                 if local_meaningful:
                     conflicts.append(_conflict(dst_va, src_va, "name", local_name, bs_name))

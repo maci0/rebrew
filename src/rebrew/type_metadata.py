@@ -254,6 +254,40 @@ def rehome_type_bindings(
         return {"input_digest": digest, "rows": rows, "written": bool(rows) and not dry_run}
 
 
+_CONTEXT_KEYS = (
+    "compiler_profile",
+    "base_cflags",
+    "compiler_includes",
+    "shared_dir",
+    "defines",
+    "compiler_command",
+    "compiler_runner",
+    "recompile_url",
+)
+
+
+def _context_digest(cfg: ProjectConfig, cflags: str, *, portable: bool) -> str:
+    """Digest of the compiler context a type layout was checked under.
+
+    *portable* spells paths under the project root relative to it, so the digest
+    does not depend on the checkout location. Earlier releases hashed absolute
+    paths; ``portable=False`` reproduces those digests so ``check_types`` and
+    ``migrate_context_hashes`` can recognise them.
+    """
+    root = Path(cfg.root).resolve() if portable and getattr(cfg, "root", None) else None
+
+    def spell(value: object) -> str:
+        if root is not None and isinstance(value, (str, Path)) and str(value):
+            resolved = Path(value).resolve()
+            if Path(value).is_absolute() and resolved.is_relative_to(root):
+                return resolved.relative_to(root).as_posix()
+        return str(value).replace(f"{root}/", "") if root is not None else str(value)
+
+    context = {key: spell(getattr(cfg, key, "")) for key in _CONTEXT_KEYS}
+    context["cflags"] = cflags
+    return hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()
+
+
 def _inputs(
     cfg: ProjectConfig,
     file: Path,
@@ -265,24 +299,10 @@ def _inputs(
     source, _ = read_source_text(file)
     if symbol not in struct_definition_names(source):
         raise ValueError(f"{symbol!r} has no unique parseable struct definition in {file}")
-    context = {
-        key: str(getattr(cfg, key, ""))
-        for key in (
-            "compiler_profile",
-            "base_cflags",
-            "compiler_includes",
-            "shared_dir",
-            "defines",
-            "compiler_command",
-            "compiler_runner",
-            "recompile_url",
-        )
-    }
-    context["cflags"] = cflags
     return {
         "source_hash": sha256_file(file),
         "headers_hash": entry_headers_fp(cfg, file, cflags),
-        "context_hash": hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest(),
+        "context_hash": _context_digest(cfg, cflags, portable=True),
         "binary_hash": binary_hash or sha256_file(cfg.target_binary),
     }
 
@@ -459,6 +479,49 @@ def bind_type(
     return report
 
 
+def _inputs_match(cfg: ProjectConfig, record: dict[str, Any], inputs: dict[str, str]) -> bool:
+    """True when *record* is fresh; a context digest stored with absolute paths counts in place."""
+    stale = {key for key, value in inputs.items() if record[key] != value}
+    return not stale or (
+        stale == {"context_hash"}
+        and record["context_hash"] == _context_digest(cfg, record["cflags"], portable=False)
+    )
+
+
+def migrate_context_hashes(cfg: ProjectConfig, *, dry_run: bool = False) -> list[str]:
+    """Rewrite absolute-path context digests of this target's fresh rows to the portable form.
+
+    Only rows whose source, headers and binary still match and whose stored
+    context digest equals the legacy digest at this checkout location change;
+    stale or unrecognised rows are left for a reviewed rebind. Returns the
+    migrated type identities.
+    """
+    directory = cfg.metadata_dir
+    module = preset_module_key(cfg.module)
+    with metadata_write_lock(directory, TYPE_METADATA_FILENAME):
+        store = metadata_store(directory / TYPE_METADATA_FILENAME)
+        if not store.exists():
+            return []
+        doc = store.read("type metadata", validate=validate_type_document, roundtrip=True)
+        migrated: list[str] = []
+        for record in validate_type_document(doc):
+            if record["module"] != module or record.get("path_revalidation_required"):
+                continue
+            file = (directory / record["file"]).resolve()
+            file.relative_to(directory.resolve())
+            inputs = _inputs(cfg, file, record["symbol"], record["cflags"])
+            legacy = _context_digest(cfg, record["cflags"], portable=False)
+            if record["context_hash"] == legacy != inputs["context_hash"] and all(
+                record[key] == inputs[key] for key in _HASH_FIELDS if key != "context_hash"
+            ):
+                doc["types"][record["id"]][module]["context_hash"] = inputs["context_hash"]
+                migrated.append(record["id"])
+        if migrated and not dry_run:
+            validate_type_document(doc)
+            store.write(doc, "type metadata")
+        return migrated
+
+
 def check_types(cfg: ProjectConfig, *, compile_layouts: bool = False) -> list[dict[str, str]]:
     """Report invalid/stale bindings; compile only fresh records when requested."""
     findings = []
@@ -487,7 +550,7 @@ def check_types(cfg: ProjectConfig, *, compile_layouts: bool = False) -> list[di
                 inputs = _inputs(
                     cfg, file, record["symbol"], record["cflags"], binary_hash=binary_hash
                 )
-                if any(record[key] != value for key, value in inputs.items()):
+                if not _inputs_match(cfg, record, inputs):
                     issue = "stale type evidence: source, headers, compiler context or native binary changed; review and rebind"
                 elif compile_layouts:
                     compile_type(cfg, record)

@@ -34,6 +34,7 @@ def verify_data_bytes(
     cfg: Any | None = None,
     built_symbols: dict[str, int] | None = None,
     span_placements: dict[tuple[str, int], int] | None = None,
+    image_identical: bool = False,
 ) -> dict[str, Any]:
     """Compare per-symbol bytes; return ``matched`` / ``mismatched`` / ``missing``.
 
@@ -46,7 +47,10 @@ def verify_data_bytes(
     offset.  Symbols with no name in metadata are skipped (unnamed inventory
     cannot be attributed).
     ``results`` preserves each symbol's ``(module, VA)`` identity and verdict;
-    aliases are compared at their own sizes. With *cfg*, other targets are
+    aliases are compared at their own sizes. *image_identical* states that the built
+    image, acknowledged as the raw link, equals the reference file byte for byte: every
+    record then sits at its reference VA, so a verified record the link map does not
+    name is placed by the image itself (``placement_method`` ``identical-image``). With *cfg*, other targets are
     excluded from both results and totals. Incomplete reference bytes remain
     UNCHECKED, and incomplete built bytes are missing rather than matched.
     **Coverage is reported, because the summary is otherwise misleading.** A
@@ -130,7 +134,8 @@ def verify_data_bytes(
     exact = 0
     displaced: list[dict[str, Any]] = []
     unplaced = 0
-    if built_symbols is not None:
+    if built_symbols is not None or image_identical:
+        built_symbols = built_symbols or {}
         resolved = {}
         by_name: dict[tuple[str, str], list[tuple[str, int, dict[str, Any]]]] = {}
         for module, va, fields in iter_data_symbols(db, section=None):
@@ -174,6 +179,8 @@ def verify_data_bytes(
                 and key in (span_placements or {})
             ):
                 placement = ((span_placements or {})[key], "section-relative-span")
+            if placement is None and image_identical:
+                placement = (va, "identical-image")
             if placement is None:
                 unplaced += 1
                 continue

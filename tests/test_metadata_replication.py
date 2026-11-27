@@ -1,5 +1,6 @@
 """Ordered read failover, replicated writes and durable recovery contracts."""
 
+import json
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -781,3 +782,71 @@ def test_fresh_clone_without_the_database_reads_and_keeps_the_toml_replica(tmp_p
         "GAME.0x00003000": "new",
     }
     assert _raw(tmp_path, "sqlite").read("test") == toml
+
+
+class TestReplicaDivergence:
+    def _reverted_toml(self, root: Path) -> Any:
+        """Dual-backend project whose TOML replica was reset outside the router."""
+        cfg = _project(root)
+        update_field(root, 0x1000, "NOTE", "old", "GAME")
+        replica = root / "rebrew-functions.toml"
+        before = replica.read_text()
+        update_field(root, 0x1000, "NOTE", "new", "GAME")
+        replica.chmod(0o644)
+        replica.write_text(before)
+        replica.chmod(0o444)
+        return cfg
+
+    def test_reconcile_reports_the_replica_that_differs(self, tmp_path: Path) -> None:
+        cfg = self._reverted_toml(tmp_path)
+
+        preview = reconcile_metadata(cfg, dry_run=True)
+        by_backend = {item["backend"]: item for item in preview["items"]}
+        assert by_backend["sqlite"]["diverged"] == ["rebrew-functions.toml"]
+        assert by_backend["toml"]["diverged"] == []
+        assert get_entry(tmp_path, 0x1000, "GAME")["note"] == "new"
+
+        applied = reconcile_metadata(cfg)
+        assert {i["backend"]: i["diverged"] for i in applied["items"]}["sqlite"] == [
+            "rebrew-functions.toml"
+        ]
+        assert get_entry(tmp_path, 0x1000, "GAME")["note"] == "old"
+        assert all(not i["diverged"] for i in reconcile_metadata(cfg, dry_run=True)["items"])
+
+    def test_reconcile_cli_lists_diverged_documents(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata_cli import app
+
+        self._reverted_toml(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["reconcile", "--dry-run"])
+        assert result.exit_code == 0, result.output
+        assert "sqlite: previewed (1 documents, 1 differ: rebrew-functions.toml)" in result.output
+
+    def test_restore_leaves_both_replicas_equal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata_cli import app
+
+        cfg = _project(tmp_path / "project")
+        root = cfg.root
+        update_field(root, 0x1000, "NOTE", "old", "GAME")
+        monkeypatch.setattr("rebrew.metadata_cli.require_config", lambda **kwargs: cfg)
+        runner = CliRunner()
+        made = runner.invoke(app, ["backup", "--dir", str(tmp_path / "off-tree"), "--json"])
+        assert made.exit_code == 0, made.output
+        backup = Path(json.loads(made.output)["file"])
+        update_field(root, 0x1000, "NOTE", "new", "GAME")
+
+        restored = runner.invoke(app, ["restore", "--file", str(backup), "--json"])
+        assert restored.exit_code == 0, restored.output
+        assert 'note = "old"' in (root / "rebrew-functions.toml").read_text()
+        assert get_entry(root, 0x1000, "GAME")["note"] == "old"
+        assert all(not i["diverged"] for i in reconcile_metadata(cfg, dry_run=True)["items"])
+        reconcile_metadata(cfg)
+        assert get_entry(root, 0x1000, "GAME")["note"] == "old"

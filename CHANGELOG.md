@@ -6,6 +6,69 @@
 - Skip detail reads for completed and parked functions during todo ranking.
 - Reuse one copy buffer when hashing or snapshotting a jobs workspace.
 
+## [6.85.0] - 2026-11-27
+
+### Added
+
+- `rebrew orphans drop FILE --support` removes the target module's support-file purpose of FILE, whether or not FILE exists. `orphans prune` removes the same entries for missing files, but together with every unearned orphan row of the module.
+
+## [6.84.0] - 2026-11-27
+
+### Added
+
+- `rebrew orphans list` reports support-file purposes (`[source.files]`, from `rebrew source register FILE --support`) whose file no longer exists, under `support_files`, and `rebrew orphans prune` removes the target module's ones (`pruned_support_files`). There was no way to retire a support registration: deleting its file left the entry behind, unseen by source selection.
+
+## [6.83.0] - 2026-11-27
+
+### Changed
+
+- **Breaking:** `rebrew.binsync.diff.strip_cdecl_prefix` is no longer imported there; import it from `rebrew.binsync.importer`, which also adds `same_function_name`.
+
+### Fixed
+
+- BinSync export takes a typedef's name from its C declarator. It took the last identifier, so `typedef int (__stdcall *Fn)(void *self);` exported a type named `self` and `typedef char Pad[0x106];` one named `x106`. On one project such names (`self`, `a3`, `char`) collided and were dropped, and others (`b`, `n`, `ptr`, `total`) reached the state. Function-pointer, array and multi-declarator typedefs are now left out of the export.
+- `rebrew binsync diff`, `pull`, `summary` and `overlay` match a BinSync C name such as `_tr_init` with the local symbol `__tr_init`. They stripped a cdecl prefix from both and reported every library function whose C name starts with an underscore as a rename conflict (136 on one project's server).
+
+## [6.82.0] - 2026-11-27
+
+### Changed
+
+- **Breaking:** `app.builtins.DOMAIN_COMPONENTS` includes `source rename-batch`.
+
+### Added
+
+- `rebrew source rename-batch PLAN_FILE` runs a list of renames in one process. Each plan line holds the arguments of one `rebrew source rename`; lines apply in order, a refused line is reported and the rest still run, and the exit code is 1 when any line was refused. On a 5,385-source project a rename inside a batch took about 9 s against 20 s as a preview plus an apply command, because later lines reuse the first line's source parses.
+
+## [6.81.2] - 2026-11-26
+
+### Fixed
+
+- `rebrew verify --data --raw-link` places every verified record EXACT when the raw link is byte-identical to the reference file (`placement_method` `identical-image`): the image itself puts each record at its reference VA. Before, a record the link map did not name (a CRT static, a field view) stayed VERIFIED on an identical image. A map entry that places a name elsewhere still reports DISPLACED.
+- `rebrew verify --data` lists configured library archives missing from the stock cache (`uncached_archives`) and warns when records stay unplaced, since library statics are placed only from cached archives. Before, the EXACT count dropped with no reason given. `data_ownership.library_key` is public.
+
+## [6.81.1] - 2026-11-26
+
+### Fixed
+
+- A source reached through a symlinked checkout path (for example a CMake build dir configured before the checkout moved behind a symlink) keeps its project-relative identity. `identity_file` compared the unresolved source path with the resolved project root, so every anchor reported "address anchor conflicts with the stored source binding" for its own file.
+
+## [6.81.0] - 2026-11-26
+
+### Fixed
+
+- Type evidence context digests spell project paths relative to the project root, so a clone at another path no longer reports every type row stale (W031). Digests stored with absolute paths stay valid in the checkout that recorded them; `rebrew types migrate-context` rewrites them to the portable form on request.
+- `rebrew metadata backup --dir` and `restore --file` resolve relative paths instead of failing with "relative paths can't be expressed as file URIs" on the SQLite backend.
+- `metadata reconcile` lists the documents whose replica differs from the reconciled state (`diverged`), so a TOML replica reset by `git checkout` is no longer reported as clean. `metadata restore` now publishes the restored backend to the other replicas; before, the untouched replica kept its later state and the next reconcile reverted the restore.
+- `rebrew build symbol-stubs` names the option that conflicts with `--update-symbol` or `--update-data-symbol` (for example `--module`) instead of reporting that `--specials` is missing when it is given.
+- `rebrew test --va ... --no-promote` compares at the function inventory's SIZE when the row records none, instead of asking for `--size`. Promoting runs still require a size.
+- `source binding rebind` name refusals (generated name of another function, name already declared with other types) give the `rebrew source rename` command to run and the `--name` to rebind with.
+- `source import-related --shared` refuses a retired destination row before verifying and writing. Before, the refusal came after the size write, so every refused row still had its `size` rewritten with `updated_by = "cross-import"`.
+- `rebrew data pair --name-unnamed` creates a `g_<--from address>` row in both targets for operand pairs named on neither side, sized from the paired instructions' access width, so a function with many unnamed operands can be paired in one reviewed run.
+- `source import-related` lists relocation operands the destination cannot bind under `unresolved_relocations` and warns after the table, since the compare masks them without proof. `--require-resolved` records an import only when every operand binds.
+- The unshare backend no longer needs Docker for a tag whose image it has already exported: it records the id each tag was admitted as in `image-tags.json` in its cache and reuses it, so compiles run while the Docker daemon is stopped. Before, every process asked `docker image inspect` and refused to compile without an answer. Retagging through rebrew drops the record; run `rebrew toolchain pull` after rebuilding a tag outside rebrew.
+- Makefile preflight messages no longer run the commands they name: `ensure-jpype-build` spelled `make setup` in backquotes inside double quotes, so on a host without Ant it ran `make setup` recursively instead of failing, and the GNU patch messages ran `rebrew library vendor`.
+- `source binding rebind` no longer tomlkit-parses every function row to check the replacement definition against other rows, and the loops that bind every compiled source (source selection, rename) resolve the metadata directory once instead of per row. `source binding retire` no longer scans the target's sources for a prototype check only a replacement needs. On a 25 MB store with 13,000 rows, a rebind apply drops from minutes to seconds.
+
 ## [6.80.0] - 2026-11-25
 
 ### Fixed

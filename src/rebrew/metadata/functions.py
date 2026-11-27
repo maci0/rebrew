@@ -1037,9 +1037,16 @@ def record_function_rows(
 def identity_file(filepath: Path | str, metadata_dir: Path | str) -> str:
     """Path stored in a row's ``file`` field, relative to *metadata_dir*.
 
-    A source outside the metadata root keeps its ``..`` prefix.
+    A source outside the metadata root keeps its ``..`` prefix. A path that
+    only leaves the root lexically, because one side reaches the checkout
+    through a symlink, is compared resolved.
     """
-    return Path(os.path.relpath(filepath, metadata_dir)).as_posix()
+    rel = Path(os.path.relpath(filepath, metadata_dir))
+    if rel.parts[:1] == ("..",):
+        resolved = Path(os.path.relpath(Path(filepath).resolve(), Path(metadata_dir).resolve()))
+        if resolved.parts[:1] != ("..",):
+            return resolved.as_posix()
+    return rel.as_posix()
 
 
 def stored_file_matches(stored: str, rel: str) -> bool:

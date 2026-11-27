@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 242 surfaces: 208 leaf commands and 34 groups, including the
+The CLI exposes 244 surfaces: 210 leaf commands and 34 groups, including the
 root. Run `rebrew <command> --help` (or `-h`) for the installed command's
 arguments, defaults, and examples. See [CLI migration](CLI_MIGRATION.md) for
 renamed routes and [Getting started](GETTING_STARTED.md) for the first match.
@@ -281,6 +281,10 @@ when judging SIZE_MISMATCH edits. They do not prove behavior or operand bindings
 change STATUS, or contribute matched bytes; `match_count` remains positional.
 Promoting test/verify writes the percent as the protected function-row
 `similarity`, with counts in `verification`; `--no-promote` records neither.
+
+When `--va` selects a function with no recorded SIZE, `--no-promote` compares at
+the function inventory's SIZE for that address and says so. A promoting run still
+asks for `--size`, since it would otherwise record an inventory size as metadata.
 
 `test --json --instructions` (one function) adds `instructions`, the
 instruction-level comparison of the target bytes and the rebuild
@@ -1137,6 +1141,7 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 | `rebrew source register` | Register address-only source bindings, or a support file purpose, in metadata. |
 | `rebrew source anchors` | Materialize ADDRESS comments for existing canonical bindings. |
 | `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
+| `rebrew source rename-batch` | Run a list of renames in one process, each line one `rebrew source rename`. |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew source inline-strings` | Inline string-literal globals from the reference binary: s_<hint>_<ADDR> placeholders and g_<hex> externs bound to storage_kind = "literal" data rows. |
 | `rebrew source document-unmatched` | Document unmatched functions as STUB skeletons + blockers. |
@@ -1419,6 +1424,41 @@ or earn STATUS. Reverify all affected definitions and callers in every target.
 The decisions cover C sources and headers. If independent definitions still
 share a native linker symbol, ambiguous response-file references refuse the
 rename; a C reference owner does not establish export or linker ownership.
+
+### `rebrew source rename-batch`
+
+`rebrew source rename-batch [OPTIONS] PLAN_FILE`
+
+Runs many renames in one process. Each line of `PLAN_FILE` holds the arguments
+of one `rebrew source rename`, for example
+`GOLD.0x405000 gm_Init --shared-definition`; blank lines and `#` comments are
+skipped. Lines run in order through the same planner and writer as the single
+command, and each line sees the tree the lines before it left.
+
+A refused line is reported with its message and the lines after it still run;
+the exit code is 1 when any line was refused. A line may not carry `--dry-run`,
+`--json` or `--help`. Every other `rebrew source rename` option applies per
+line, `--target` and `--expected-digest` included, and the rules of the single
+command hold: reviewed reference selections still need their digest.
+
+`--dry-run` previews every line against the unchanged tree, so a line that
+depends on an earlier line of the same plan is refused in the preview.
+
+Each applied line is its own transaction: a failure in one line does not undo
+the lines before it. The process parses each source once and later lines reuse
+the parse caches, where separate commands each read the whole tree again. Each
+line still writes the metadata stores once.
+
+`--json` prints `dry_run`, `renamed`, `refused` and `items`. An item carries its
+plan `line`, its `arguments` and either the change list of
+`rebrew source rename --json` or `error`.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `PLAN_FILE` | path | required | Text file: the arguments of one `rebrew source rename` per line |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) for lines without their own |
 
 ### `rebrew source binding`
 
@@ -1837,6 +1877,13 @@ Signatures exclude trailing x86 `0x90`/`0xCC` alignment bytes only when a bounde
 
 The import writes pure C and records the destination `MODULE.0xVA` row, including `SIZE`. The destination's existing file for that VA is replaced. Only the matched function is emitted: a multi-function source file imports as that one function, so no co-resident functions leak into the destination tree. With `--shared` the destination row names the shared source instead: the one file then serves both targets, still verified before STATUS promotion. A source still living in the per-target tree is moved under `src/shared` first (same as `--promote`), and rows whose `file` named the old path move with it. A matched shared import deletes the destination's old stub file so the VA is claimed once (an unverified shared import leaves the stub in place). Run with `--dry-run` first to review.
 
+The compare masks a relocation operand the destination cannot bind, so an import can verify as
+`RELOC` while its callees and globals still carry the source target's names. Each result lists
+them under `unresolved_relocations` (offset, symbol, kind), and the table output warns. Such a body
+does not link until those names exist in the destination. `--require-resolved` records an import
+only when every operand binds, otherwise the row is `skipped-unresolved` and nothing is written.
+A retired destination row is refused before verification and leaves its metadata untouched.
+
 A destination inventory entry can merge two functions (discovery joins them across `ret` + alignment padding), so a true twin verifies as `SIZE_MISMATCH`. When the compiled body is shorter than the entry, matches every byte of it (relocations masked), and the destination bytes from its end to the next 16-byte boundary are all `0x90`/`0xCC`, the import re-verifies at the body size; on EXACT/RELOC `SIZE` in `rebrew-functions.toml` becomes that body size, and the result message says `destination inventory entry merges functions: sized to the N-byte body`. Any other `SIZE_MISMATCH` remains a nonmatching verdict. The verified symbol is the one `rebrew test` derives from the function definition, including `__stdcall`/`__fastcall` decoration.
 
 | Argument or option | Type | Default | Meaning |
@@ -1851,6 +1898,7 @@ A destination inventory entry can merge two functions (discovery joins them acro
 | `--promote` | flag | `False` | Move the source file into src/shared (preserving relative path) without importing, the manual step before --shared |
 | `--same-va-preview` | flag | `False` | Read-only byte check only: report exact/reloc-equal/differ/unreadable/unavailable per `--va` against the `--from` target's matched function at the same VA (or `--source-va`), relocation-masked from the linked image's own base-relocation table, with an inputs digest. Writes nothing, never registers or imports. A same-VA row missing from the destination inventory is still compared directly; structural search for a destination VA is out of scope |
 | `--interior-preview` | flag | `False` | Read-only interior-entry evidence only: report the containing inventory head (greatest function start at or below the VA), offset, head end, external call/jmp callers outside the head and prologue per `--va`, with an inputs digest. Writes nothing and records no alias |
+| `--require-resolved` | flag | `False` | Record an import only when every relocation operand binds in the destination; otherwise report it as skipped-unresolved and write nothing |
 | `--candidates-only` | flag | `False` | Report only destination functions with a match: the per-function 'no match' rows for the whole inventory are hidden (use with --dry-run to answer 'is this code already reversed in another target, and where?') |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
@@ -3525,7 +3573,7 @@ rebrew metadata restore --file backups/db.sqlite3
 `rebrew metadata reconcile [OPTIONS]`
 
 Catch up recovered metadata replicas and report unavailable destinations.
-`rebrew metadata reconcile --dry-run --json` previews the queued replication.
+`rebrew metadata reconcile --dry-run --json` previews the queued replication. Each item lists `diverged`: the documents whose replica text differs from the reconciled state, for example after a replica file was reset outside rebrew. Reconcile rewrites them; the dry run only lists them.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -3588,7 +3636,9 @@ stores and the project config must parse as TOML; SQLite backups also pass
 database schema and integrity checks. Parsing does not establish TOML
 domain-record validity. The current stores, GA log and baselines, if any, are
 preserved as `.before-restore` sidecars; then the backup, GA log, baselines and
-the rest of the `.rebrew/` extras are installed.
+the rest of the `.rebrew/` extras are installed. With several configured
+read/write backends, the restored backend then replaces the other replicas, so
+the replicas end equal and a later reconcile does not undo the restore.
 
 | Argument or option | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -3811,7 +3861,18 @@ start) through the locked data writer. Pairs named differently on the two sides,
 conflicting names proposed for the same new row, and overlapping existing or
 proposed extents are `conflict`s and are left alone. Each new extent must fit
 one non-code section. Repeated compatible writes are combined. Pairs named on
-neither side are `unnamed`. Instructions must agree in registers, widths,
+neither side are `unnamed` unless `--name-unnamed` is given. That option
+creates the same row in both targets for an unnamed pair whose instructions
+access memory there: the name is `g_` plus the `--from` address in lowercase
+unpadded hex (the label the project's existing address rows use), `size` is the
+widest access among the paired instructions, and `type` is set only when every
+access has one width (`unsigned char`, `unsigned short`, `int`; `float` or
+`double` when all are x87 operands). The pair's `evidence` lists the widths and
+access count. A pair reached only by address-taking instructions (`push offset`,
+`lea`) evidences no extent and stays `unnamed`; an extent that overlaps an existing
+or proposed row on either side is a `conflict`. The row is a layout label, not
+an ownership or type claim: review it, then rename or retype it with `data set`.
+Instructions must agree in registers, widths,
 addressing modes, prefixes and non-data constants. Internal relative branches
 must retain their offsets. External direct calls and branches may target different
 addresses. The JSON report includes a separate `calls` list: each entry has an
@@ -3838,6 +3899,7 @@ rebrew data pair 0x402320 0x401e50 --from a.exe -t b.exe --dry-run --json
 | `--from` | str | none | Target whose rows and addresses the shared source spells |
 | `--size` | int | none | Body size in bytes (default: the --from function row) |
 | `--rewrite` | path | none | Shared C source: replace raw --from address casts with the names |
+| `--name-unnamed` | flag | `False` | Create a g_<--from address> row in both targets for pairs named on neither side, sized from the instructions' access width |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
@@ -4051,6 +4113,7 @@ Use `rebrew types <operation> --help` for exact arguments and examples.
 | --- | --- |
 | `rebrew types check` | Check declared structs against decompiler offset evidence. |
 | `rebrew types bind` | Bind a type to a target layout after sizeof/offsetof compiler checks. |
+| `rebrew types migrate-context` | Rewrite legacy type context digests to the checkout-independent form. |
 | `rebrew types contracts` | Audit declarations, definitions and callers in actual target/include contexts. |
 | `rebrew types reconcile` | Review and apply a canonical subsystem-header signature across targets. |
 | `rebrew types apply` | Rewrite one parameter's type in project C source (recovered types reach the compiler). |
@@ -4200,6 +4263,30 @@ native extent from sizeof.
 | `--extent` | str | `allocation` | Native extent kind: allocation or stride |
 | `--field` | str (repeatable) | `[]` | Compiler-check member=offset (repeatable; no bitfields) |
 | `--cflags` | str | none | Compile flags; defaults to target flags |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
+
+### `rebrew types migrate-context`
+
+`rebrew types migrate-context [OPTIONS]`
+
+```bash
+rebrew types migrate-context --dry-run
+```
+
+The compiler-context digest of a type record spells project paths relative to
+the project root, so evidence stays fresh in a clone at another path. Records
+bound by earlier releases hash absolute paths: `types check` and lint W031
+still accept them in the checkout that recorded them, and report them stale in
+any other location. This command rewrites the context digest of the selected
+target's rows to the portable form, only where the source, headers and binary
+digests still match and the stored digest equals the legacy one at this
+location. Other rows are left for a reviewed rebind. Run it once in the
+checkout that recorded the evidence, then commit the store.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
@@ -6875,7 +6962,9 @@ Show BLOCKER metadata for a function.
 
 `rebrew orphans [OPTIONS] COMMAND [ARGS]…`
 
-`orphans list` reports metadata with neither a live source binding nor a function-list entry. Import slots and named data are excluded. `orphans prune --dry-run` previews removals; EXACT, RELOC, and PROVEN records are held back unless `--include-matched` is supplied. `orphans drop FUNCTION` removes one explicitly selected record through the locked writers. `verify --prune-orphans` uses the same prune owner.
+`orphans list` reports metadata with neither a live source binding nor a function-list entry. Import slots and named data are excluded. `orphans prune --dry-run` previews removals; EXACT, RELOC, and PROVEN records are held back unless `--include-matched` is supplied. `orphans drop FUNCTION` removes one explicitly selected record through the locked writers. `verify --prune-orphans` uses the same prune owner for rows.
+
+A support-file purpose recorded with `rebrew source register FILE --support` is an orphan of its module once FILE no longer exists; source selection walks only existing files and would never see it. `list` reports these under `support_files` (file, module, purpose), and `prune` removes the target module's entries (`pruned_support_files`). `prune` also removes the module's unearned orphan rows, so to retire one support file use `rebrew orphans drop FILE --support --target T` (preview with `--dry-run`): it removes that module's purpose of FILE whether or not FILE still exists.
 
 
 Use `rebrew orphans <operation> --help` for exact arguments and examples.
@@ -6936,6 +7025,7 @@ rebrew orphans drop 0x401000 --dry-run --json
 | --- | --- | --- | --- |
 | `FUNCTION` | str | required | Source file, symbol name, or VA (hex) |
 | `--va` | str | none | Disambiguate VA in a multi-function file (hex) |
+| `--support` | flag | `False` | Drop FILE's support-file purpose for the target's module |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Select a [project target](#selection-flags) |

@@ -1681,17 +1681,33 @@ def collect_enum_definitions(
 
 
 def _typedef_name_and_type(definition: str) -> tuple[str, str] | None:
-    """``(name, underlying_type)`` for a standalone typedef, else None."""
-    text = definition.strip()
-    if not text.startswith("typedef"):
+    """``(name, underlying_type)`` for a plain or pointer typedef with one declarator, else None.
+
+    The name is the declarator's identifier in the C AST. Function-pointer and
+    array typedefs give None: their last identifier is a parameter
+    (``self`` in ``typedef int (__stdcall *Fn)(void *self);``) or part of a
+    hex size (``x106`` in ``typedef char Pad[0x106];``), which the sync
+    exported as a type of that name.
+    """
+    from rebrew.c_parser import node_text, parse_c_source
+
+    tree, raw = parse_c_source(definition.strip())
+    nodes = [node for node in tree.root_node.named_children if node.type != "comment"]
+    if tree.root_node.has_error or len(nodes) != 1 or nodes[0].type != "type_definition":
         return None
-    body = text[len("typedef") :].rstrip().rstrip(";").rstrip()
-    identifiers = _IDENT_RE.findall(body)
-    if not identifiers:
+    declarators = nodes[0].children_by_field_name("declarator")
+    if len(declarators) != 1:
         return None
-    name = identifiers[-1]
-    idx = body.rfind(name)
-    return name, " ".join(body[:idx].split())
+    declarator = declarators[0]
+    while declarator is not None and declarator.type == "pointer_declarator":
+        declarator = declarator.child_by_field_name("declarator")
+    if declarator is None or declarator.type not in {"type_identifier", "primitive_type"}:
+        return None
+    body = raw[nodes[0].start_byte : declarator.start_byte].decode(
+        "utf-8", errors="surrogateescape"
+    )
+    underlying = " ".join(body.split()[1:])
+    return node_text(declarator, raw), underlying
 
 
 def collect_typedef_definitions(

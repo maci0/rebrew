@@ -336,10 +336,14 @@ class _Project:
         library_sources: list[Path] = []
         if getattr(cfg, "root", None) is not None:
             # Include every target's providers so an independent vendor twin still collides.
-            for (module, va), row in load_metadata(self.metadata_dir, deepcopy=False).items():
+            metadata_dir = self.metadata_dir
+            for (module, va), row in load_metadata(metadata_dir, deepcopy=False).items():
                 if row.get("kind") in {"FUNCTION", "LIBRARY"}:
                     entry = bind_compiled_source(
-                        cfg, SourceBinding(module=module, va=va, kind=str(row["kind"])), row
+                        cfg,
+                        SourceBinding(module=module, va=va, kind=str(row["kind"])),
+                        row,
+                        metadata_dir=metadata_dir,
                     )
                     if entry.filepath:
                         library_sources.append((Path(cfg.reversed_dir) / entry.filepath).resolve())

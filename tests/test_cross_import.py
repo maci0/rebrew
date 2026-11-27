@@ -3038,6 +3038,113 @@ class TestMergedInventoryEntry:
         assert row["name"] == "f"
         assert row["symbol"] == "_f"
 
+    @pytest.mark.parametrize("shared", [True, False])
+    def test_retired_destination_row_is_refused_before_any_write(
+        self, tmp_path: Path, monkeypatch, shared: bool
+    ) -> None:
+        """A refused import leaves the row's size and writer alone and never compiles.
+
+        guild-rebrew: a shared import over 130 retired GOLD rows reported each as an
+        error, yet had already rewritten its size (384 to 378) with updated_by
+        cross-import.
+        """
+        from rebrew.metadata.binding_history import change_source_binding
+        from rebrew.metadata.functions import get_entry, record_function_identity
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        if not shared:
+            dst.reversed_dir = tmp_path / "destination"
+            dst.reversed_dir.mkdir()
+        record_function_identity(
+            tmp_path,
+            module="DST",
+            va=_MERGED_VA,
+            file="src/old.c",
+            kind="FUNCTION",
+            name="old",
+            symbol="_old",
+            size=_MERGED_ENTRY,
+        )
+        change_source_binding(tmp_path, "DST", _MERGED_VA, reason="wrong body")
+        before = get_entry(tmp_path, _MERGED_VA, "DST")
+        sizes = self._verify(monkeypatch)
+        importer = ci.import_shared_function if shared else ci.import_function
+        with pytest.raises(ValueError, match="retired source bindings"):
+            importer(dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        after = get_entry(tmp_path, _MERGED_VA, "DST")
+        assert after["size"] == before["size"] == _MERGED_ENTRY
+        assert after.get("updated_by") == before.get("updated_by")
+        assert sizes == []
+
+    def _verify_with_bindings(self, monkeypatch, bindings: list[dict]) -> None:
+        from rebrew.compiler.compile import CompareResult
+
+        def fake_verify(entry, cfg, cache=None, **kw):
+            return CompareResult(
+                matched=True,
+                status="RELOC",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x" * entry.size,
+                reloc_offsets=[4],
+                message="RELOC-NORM MATCH (2 relocs)",
+                relocation_bindings=bindings,
+            )
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+
+    _BINDINGS = (
+        {"offset": 4, "symbol": "_fcn_0043b500", "kind": "rel32", "status": "UNRESOLVED"},
+        {"offset": 9, "symbol": "_known", "kind": "rel32", "status": "VALIDATED"},
+    )
+
+    @pytest.mark.parametrize("shared", [True, False])
+    def test_unresolved_operands_are_listed_on_the_result(
+        self, tmp_path: Path, monkeypatch, shared: bool
+    ) -> None:
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        self._verify_with_bindings(monkeypatch, list(self._BINDINGS))
+        if not shared:
+            dst.reversed_dir = tmp_path / "destination"
+            dst.reversed_dir.mkdir()
+        importer = ci.import_shared_function if shared else ci.import_function
+        result = importer(dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_BODY)
+        assert result["status"] == "RELOC"
+        assert result["unresolved_relocations"] == [
+            {"offset": 4, "symbol": "_fcn_0043b500", "kind": "rel32"}
+        ]
+
+    @pytest.mark.parametrize("shared", [True, False])
+    def test_require_resolved_records_nothing_for_unresolved_operands(
+        self, tmp_path: Path, monkeypatch, shared: bool
+    ) -> None:
+        from rebrew.metadata.functions import get_entry
+
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        self._verify_with_bindings(monkeypatch, list(self._BINDINGS))
+        if not shared:
+            dst.reversed_dir = tmp_path / "destination"
+            dst.reversed_dir.mkdir()
+        importer = ci.import_shared_function if shared else ci.import_function
+        result = importer(dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_BODY, require_resolved=True)
+        assert result["action"] == "skipped-unresolved"
+        assert "_fcn_0043b500" in result["message"]
+        assert get_entry(tmp_path, _MERGED_VA, "DST") == {}
+        assert not (tmp_path / "destination" / "f.c").exists()
+
+    def test_require_resolved_accepts_fully_resolved_operands(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        src, dst = self._cfgs(tmp_path, _merged_pe())
+        self._verify_with_bindings(monkeypatch, list(self._BINDINGS[1:]))
+        result = ci.import_shared_function(
+            dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_BODY, require_resolved=True
+        )
+        assert result["action"] == "imported-shared"
+        assert "unresolved_relocations" not in result
+
     def test_shared_import_uses_selected_function_flags(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.verify as verify
         from rebrew.metadata.functions import record_function_identity

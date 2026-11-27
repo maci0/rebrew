@@ -85,7 +85,12 @@ def reconcile_cmd(
                 if dry_run
                 else "reconciled"
             )
-            console.print(f"{item['backend']}: {state} ({item['documents']} documents)")
+            differ = (
+                f", {len(item['diverged'])} differ: {', '.join(item['diverged'])}"
+                if item["diverged"]
+                else ""
+            )
+            console.print(f"{item['backend']}: {state} ({item['documents']} documents{differ})")
 
 
 @app.command(
@@ -111,9 +116,9 @@ def backup_cmd(
                 "PostgreSQL backups require pg_dump; include the project files separately"
             )
         if getattr(cfg, "metadata_backend", "toml") == "sqlite":
-            dest = backup_metadata_database(Path(cfg.root), dest_dir)
+            dest = backup_metadata_database(Path(cfg.root), dest_dir.resolve())
         else:
-            dest = backup_metadata_toml(Path(cfg.root), dest_dir)
+            dest = backup_metadata_toml(Path(cfg.root), dest_dir.resolve())
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     if json_output:
@@ -133,16 +138,20 @@ def restore_cmd(
 ) -> None:
     """Install a metadata backup; current stores preserved as .before-restore."""
     from rebrew.metadata.sqlite import restore_metadata_database, restore_metadata_toml
+    from rebrew.metadata_transfer import adopt_restored_replicas
 
     cfg = require_config(target=target, json_mode=json_output)
     try:
         if cfg.metadata_backend == "pgsql":
             raise ValueError("PostgreSQL restores require pg_restore or psql")
+        file = file.resolve()
         if file.is_dir():
             dests = restore_metadata_toml(file, Path(cfg.root))
             dest: str = str(dests[0]) if len(dests) == 1 else f"{len(dests)} stores"
+            adopt_restored_replicas(cfg, "toml")
         else:
             dest = str(restore_metadata_database(file, Path(cfg.root)))
+            adopt_restored_replicas(cfg, "sqlite")
     except (OSError, ValueError) as exc:
         error_exit(str(exc), json_mode=json_output)
     if json_output:

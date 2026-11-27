@@ -302,6 +302,38 @@ class TestBindingCommands:
             assert applied.exit_code == 0, applied.output
         assert get_entry(cfg.metadata_dir, 0x402000, "GAME") == original
 
+    def test_retire_skips_the_target_source_scan_that_only_rebind_reads(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.source_binding import app
+
+        cfg = _project(tmp_path)
+        replacement = cfg.reversed_dir / "h.c"
+        replacement.write_text("int h(void) { return 1; }\n")
+        scans: list[str] = []
+
+        def scan(*args: Any, **kwargs: Any) -> tuple[list[Path], list[Path]]:
+            scans.append("scan")
+            return [], []
+
+        with (
+            patch("rebrew.source_binding.require_config", return_value=cfg),
+            patch("rebrew.source_binding.collect_target_sources", side_effect=scan),
+        ):
+            retired = CliRunner().invoke(
+                app, ["retire", "0x401000", "--reason", "wrong", "--dry-run", "--json"]
+            )
+            assert retired.exit_code == 0, retired.output
+            assert scans == []
+            rebound = CliRunner().invoke(
+                app,
+                ["rebind", "0x401000", str(replacement), "--name", "h", "--reason", "proof"]
+                + ["--dry-run", "--json"],
+            )
+            assert rebound.exit_code == 0, rebound.output
+            assert scans == ["scan"]
+        assert cli_payload(rebound)["replacement"]["name"] == "h"
+
     def test_ambiguous_replacement_rejected_without_changes(self, tmp_path: Path) -> None:
         from rebrew.source_binding import app
 
@@ -355,7 +387,10 @@ class TestRebindRejectingControls:
         with patch("rebrew.source_binding.require_config", return_value=cfg):
             result = CliRunner().invoke(app, [*args, "--reason", "twin", "--dry-run", "--json"])
         assert result.exit_code == 2
-        assert "0x00403000" in cli_payload(result)["error"]
+        message = cli_payload(result)["error"]
+        assert "0x00403000" in message
+        assert "`rebrew source rename fcn_00403000 <new name>" in message
+        assert "`--name <new name>`" in message
         assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
 
     def test_name_declared_with_other_types_is_rejected(self, tmp_path: Path) -> None:
@@ -373,7 +408,10 @@ class TestRebindRejectingControls:
         with patch("rebrew.source_binding.require_config", return_value=cfg):
             result = CliRunner().invoke(app, [*args, "--dry-run", "--json"])
         assert result.exit_code == 2
-        assert "src/caller.c" in cli_payload(result)["error"]
+        message = cli_payload(result)["error"]
+        assert "src/caller.c" in message
+        assert "`rebrew source rename fcn_00405000 <new name>" in message
+        assert "`--name <new name>`" in message
 
     def test_unprototyped_declaration_is_compatible(self, tmp_path: Path) -> None:
         """An unspecified list permits int parameters with the same return type and ABI."""

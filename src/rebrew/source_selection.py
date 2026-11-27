@@ -57,7 +57,10 @@ def collect_target_sources(
         }:
             continue
         bound = bind_compiled_source(
-            cfg, SourceBinding(module=module, va=va, kind=str(row["kind"])), row
+            cfg,
+            SourceBinding(module=module, va=va, kind=str(row["kind"])),
+            row,
+            metadata_dir=metadata_dir,
         )
         source = (cfg.reversed_dir / bound.filepath).resolve()
         if not source.is_file():

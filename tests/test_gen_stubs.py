@@ -1899,3 +1899,35 @@ def test_selected_update_refuses_malformed_specials(
     assert result.exit_code == 2, result.exception
     assert problem in cli_payload(result)["error"]
     assert out.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize(
+    ("extra", "named"),
+    [
+        (["--module", "GOLD"], "--module"),
+        (["--reference", "ref.exe"], "--reference"),
+        (["--log", "link.log"], "--log"),
+        (["--footer", "footer.txt"], "--footer"),
+    ],
+)
+def test_selected_update_names_the_conflicting_option(
+    tmp_path: Path, extra: list[str], named: str
+) -> None:
+    out = tmp_path / "stubs.c"
+    out.write_text("int queue[1] = {0};\n", encoding="utf-8")
+    spec = tmp_path / "specials.toml"
+    spec.write_text('[specials.queue]\nimpl = "int queue[10] = {0};"\n', encoding="utf-8")
+    args = ["--output", str(out), "--specials", str(spec), "--update-symbol", "queue", "--dry-run"]
+    result = CliRunner().invoke(gen_stubs.app, [*args, *extra])
+    assert result.exit_code != 0
+    assert f"{named} cannot be combined with --update-symbol" in result.output
+
+
+def test_selected_symbol_update_without_specials_says_so(tmp_path: Path) -> None:
+    out = tmp_path / "stubs.c"
+    out.write_text("int queue[1] = {0};\n", encoding="utf-8")
+    result = CliRunner().invoke(
+        gen_stubs.app, ["--output", str(out), "--update-symbol", "queue", "--dry-run"]
+    )
+    assert result.exit_code != 0
+    assert "--update-symbol requires --specials" in result.output

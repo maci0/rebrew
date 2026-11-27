@@ -5,6 +5,7 @@ from __future__ import annotations
 lazy import hashlib
 lazy import json
 lazy import re
+lazy import shlex
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -162,6 +163,16 @@ def _is_call_target(binary: Path, va: int) -> bool:
     return False
 
 
+def _rename_first_hint(cfg: ProjectConfig, name: str) -> str:
+    """The command that clears a name refusal: rename the replacement definition, then rebind."""
+    target = f" --target {shlex.quote(cfg.target_name)}" if getattr(cfg, "target_name", "") else ""
+    return (
+        f"rename the replacement definition first: `rebrew source rename {name} <new name>{target}"
+        " --dry-run` (rows of other targets bound to that definition follow the rename), then"
+        " repeat the rebind with `--name <new name>`"
+    )
+
+
 def _refuse_generated_name_of_another_function(cfg: ProjectConfig, va: int, name: str) -> None:
     """Refuse *name* when it is the generated name of a different function in this target.
 
@@ -188,7 +199,7 @@ def _refuse_generated_name_of_another_function(cfg: ProjectConfig, va: int, name
     if known:
         raise ValueError(
             f"{name} is the generated name of another {target_module(cfg)} function at "
-            f"0x{named:08x}; rename the replacement definition first"
+            f"0x{named:08x}; {_rename_first_hint(cfg, name)}"
         )
 
 
@@ -250,7 +261,7 @@ def _refuse_conflicting_prototype(
         if other is not None and not compatible:
             raise ValueError(
                 f"{name} is already declared as `{line.strip()}` in "
-                f"{identity_file(path, cfg.root)}; rename the replacement definition first"
+                f"{identity_file(path, cfg.root)}; {_rename_first_hint(cfg, name)}"
             )
 
 
@@ -417,9 +428,12 @@ def _change(
     new_key = _replacement_type_key(identity, source)
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     # A file bound only to another target declares that target's function; the
-    # same placeholder name there is not this binding's caller.
-    _own, foreign = collect_target_sources(cfg, module, sources=sources)
-    foreign_paths = {path.resolve() for path in foreign}
+    # same placeholder name there is not this binding's caller. Only the
+    # prototype check below reads it, and it runs for a replacement alone.
+    foreign_paths: set[Path] = set()
+    if new_key is not None:
+        _own, foreign = collect_target_sources(cfg, module, sources=sources)
+        foreign_paths = {path.resolve() for path in foreign}
     for path in sources:
         text, _ = read_source_text(path)
         if (

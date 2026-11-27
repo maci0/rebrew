@@ -789,7 +789,14 @@ def _import_result(
     message: str,
     relocation_bindings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Per-function import result row for the CLI/JSON report."""
+    """Per-function import result row for the CLI/JSON report.
+
+    Unresolved relocation operands are listed under ``unresolved_relocations``:
+    the compare masks them without proof, and for an import they usually name a
+    callee or global by the source target's spelling, which the destination does
+    not define.
+    """
+    unresolved = _unresolved_operands(relocation_bindings)
     return {
         "dst_va": f"0x{dst_va:08x}",
         "src_va": f"0x{src_va:08x}",
@@ -799,7 +806,36 @@ def _import_result(
         "filepath": filepath,
         "message": message,
         **({"relocation_bindings": relocation_bindings} if relocation_bindings is not None else {}),
+        **({"unresolved_relocations": unresolved} if unresolved else {}),
     }
+
+
+def _unresolved_operands(bindings: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Offset, symbol and kind of each operand the destination could not bind."""
+    return [
+        {"offset": row["offset"], "symbol": row["symbol"], "kind": row["kind"]}
+        for row in bindings or []
+        if row.get("status") == "UNRESOLVED"
+    ]
+
+
+def _unresolved_message(result_message: str, unresolved: list[dict[str, Any]]) -> str:
+    """Skip reason for an import refused because operands stay unresolved."""
+    shown = ", ".join(row["symbol"] for row in unresolved[:5])
+    more = f" and {len(unresolved) - 5} more" if len(unresolved) > 5 else ""
+    return (
+        f"{result_message} ({len(unresolved)} unresolved relocation operand(s): {shown}{more}; "
+        "claim not recorded)"
+    )
+
+
+class _UnresolvedImport(Exception):
+    """A verified import was refused for unresolved operands; the transaction rolls back."""
+
+    def __init__(self, message: str, status: str, bindings: list[dict[str, Any]]) -> None:
+        super().__init__(message)
+        self.status = status
+        self.bindings = bindings
 
 
 def import_shared_function(
@@ -814,6 +850,7 @@ def import_shared_function(
     dry_run: bool = False,
     cache: CacheBackend | None = None,
     name_to_va: dict[str, int] | None = None,
+    require_resolved: bool = False,
 ) -> dict[str, Any]:
     """Import by recording a destination row for the SHARED source file.
 
@@ -912,6 +949,12 @@ def import_shared_function(
                 name, symbol = ann.name, ann.symbol or ("_" + ann.name)
                 break
     prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
+    from rebrew.metadata.binding_history import retired_binding
+
+    if retired_binding(prior):
+        # Refuse before verifying or writing anything: the identity write
+        # would refuse it later, after the size write had already landed.
+        raise ValueError("retired source bindings require an explicit reviewed rebind")
     if prior.get("symbol") and prior["symbol"] != symbol:
         needs_move = True
 
@@ -983,8 +1026,20 @@ def import_shared_function(
             if candidate != text:
                 atomic_write_text(target_path, text, encoding=_encoding)
             raise
-        if not result.matched and candidate != text:
+        unresolved = _unresolved_operands(result.relocation_bindings)
+        unresolved_refused = require_resolved and result.matched and bool(unresolved)
+        if (not result.matched or unresolved_refused) and candidate != text:
             atomic_write_text(target_path, text, encoding=_encoding)
+    if unresolved_refused:
+        return _import_result(
+            dst_va,
+            src_va,
+            action="skipped-unresolved",
+            status=result.status,
+            filepath=rel_dst,
+            message=_unresolved_message(result.message, unresolved),
+            relocation_bindings=result.relocation_bindings,
+        )
     # A failed new claim, and a failed move of an existing claim onto a
     # different body, must not promote STATUS. An existing claim that is
     # already on the source body still records the verify result.
@@ -992,7 +1047,6 @@ def import_shared_function(
     action = "imported-shared" if result.matched else "imported-unverified"
     message = result.message
     if body is not None and not reject:
-        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import")
         message = f"{message} {_merged_entry_note(body)}".strip()
     if reject:
         action = "skipped-unverified"
@@ -1020,6 +1074,10 @@ def import_shared_function(
                 message = (
                     f"{message} (retargeted {module} 0x{dst_va:x} onto the 0x{src_va:x} body)"
                 ).strip()
+        if body is not None:
+            update_field(
+                cfg_dst.metadata_dir, dst_va, "size", body, module, updated_by="cross-import"
+            )
         if cflags and cflags != inherited:
             update_field(
                 cfg_dst.metadata_dir, dst_va, "cflags", cflags, module, updated_by="cross-import"
@@ -1070,6 +1128,7 @@ def import_function(
     dry_run: bool = False,
     cache: CacheBackend | None = None,
     name_to_va: dict[str, int] | None = None,
+    require_resolved: bool = False,
 ) -> dict[str, Any]:
     """Import the matched source function *src_file* into the destination.
 
@@ -1336,6 +1395,14 @@ def import_function(
             )
             result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
             message = result.message
+            if (
+                require_resolved
+                and result.matched
+                and _unresolved_operands(result.relocation_bindings)
+            ):
+                raise _UnresolvedImport(
+                    result.message, result.status, result.relocation_bindings or []
+                )
             if result.matched:
                 record_function_identity(
                     cfg_dst.metadata_dir,
@@ -1353,6 +1420,16 @@ def import_function(
                 )
                 message = f"{message} {_merged_entry_note(body)}".strip()
             apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
+    except _UnresolvedImport as refused:
+        return _import_result(
+            dst_va,
+            src_va,
+            action="skipped-unresolved",
+            status=refused.status,
+            filepath=rel_dst,
+            message=_unresolved_message(str(refused), _unresolved_operands(refused.bindings)),
+            relocation_bindings=refused.bindings,
+        )
     except OSError as exc:
         if published:
             raise
@@ -1796,6 +1873,12 @@ def main(
         "inventory head, offset, head end, external call/jmp callers and "
         "prologue per --va, with an inputs digest. Writes nothing.",
     ),
+    require_resolved: bool = typer.Option(
+        False,
+        "--require-resolved",
+        help="Record an import only when every relocation operand binds in the "
+        "destination; otherwise report it as skipped-unresolved and write nothing",
+    ),
     candidates_only: bool = typer.Option(
         False,
         "--candidates-only",
@@ -2092,6 +2175,7 @@ def main(
                     dry_run=dry_run,
                     cache=cache,
                     name_to_va=name_to_va,
+                    require_resolved=require_resolved,
                 )
                 if shared
                 else import_function(
@@ -2105,6 +2189,7 @@ def main(
                     dry_run=dry_run,
                     cache=cache,
                     name_to_va=name_to_va,
+                    require_resolved=require_resolved,
                 )
             )
         except ValueError as exc:
@@ -2197,6 +2282,16 @@ def main(
             r["filepath"] or "-",
         )
     console.print(table)
+    unresolved_rows = [r["dst_va"] for r in results if r.get("unresolved_relocations")]
+    if unresolved_rows:
+        console.print(
+            f"[yellow]{len(unresolved_rows)} row(s) carry relocation operands unresolved in "
+            f"{cfg.target_name}[/yellow] ({', '.join(unresolved_rows[:5])}"
+            f"{', ...' if len(unresolved_rows) > 5 else ''}): the compare masked them without "
+            f"proof, and the body names callees or globals by {from_target} spelling. They will "
+            "not link until those names exist here; see unresolved_relocations in --json, or "
+            "use --require-resolved to record only fully bound imports."
+        )
     if candidates_only:
         console.print(
             f"[dim]{skipped} destination function(s) had no match above the "

@@ -216,9 +216,7 @@ def run_cached_cl(
             and spec.bits in (None, 32)
         ):
             source, output, includes = command
-            image = toolchain.image_content_id(
-                toolchain.cached_image_digest(spec.image or "", refresh=True)
-            )
+            image = toolchain.image_content_id(toolchain.unshare_image_id(spec.image or ""))
             environment = toolchain.image_environment(image) if image else None
             if environment is not None and not any(
                 value for name, value in environment.items() if name.upper() in {"CL", "_CL_"}

@@ -1949,6 +1949,21 @@ unshare() {
         assert result.stdout.count("set policy") == int(key_exists)
         assert result.stdout.count("probe namespaces") == int(not key_exists or set_exit == 0)
 
+    def test_recipe_messages_quote_no_command_substitution(self) -> None:
+        """A backquote inside a double-quoted recipe echo runs its contents.
+
+        ``echo "so `make setup` needs a JDK"`` ran ``make setup`` from the
+        failure branch of ``ensure-jpype-build``, which ``make setup`` itself
+        depends on, so a host without Ant recursed without end instead of
+        printing the error.
+        """
+        offenders = [
+            f"{number}: {line.strip()}"
+            for number, line in enumerate(MAKEFILE.read_text(encoding="utf-8").splitlines(), 1)
+            if re.search(r'echo "[^"]*`', line)
+        ]
+        assert offenders == []
+
     def test_jpype_preflight_is_silent_when_the_jdk_meets_the_floor(self) -> None:
         """A present JDK must not look like a missing one to ``make doctor``.
 

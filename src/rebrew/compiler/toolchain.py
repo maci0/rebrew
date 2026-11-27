@@ -790,6 +790,8 @@ def invalidate_toolchain_digest(image: str | None = None) -> None:
     instead of serving objects keyed under the pre-swap digest.
     """
     global _toolchain_digest_generation
+    from rebrew.compiler.unshare import forget_image_tag
+
     with _DOCKER_MEMO_LOCK:
         _toolchain_digest_generation += 1
         if image is None:
@@ -798,6 +800,28 @@ def invalidate_toolchain_digest(image: str | None = None) -> None:
             for key in list(_toolchain_digest_cache):
                 if key[1] == image:
                     _toolchain_digest_cache.pop(key, None)
+    forget_image_tag(image)
+
+
+def unshare_image_id(image: str) -> str:
+    """Image id for an unshare compile of tag *image*, or ``""`` when it cannot be admitted.
+
+    A tag whose admitted image is already exported to the unshare cache is
+    answered from that record without the container runtime, so compiles run
+    while Docker is stopped. Otherwise the runtime is asked once and the answer
+    recorded. Retagging through rebrew (pull, swap) drops the record; a tag
+    rebuilt outside rebrew keeps the exported image until
+    ``rebrew toolchain pull`` or ``invalidate_toolchain_digest`` runs.
+    """
+    from rebrew.compiler.unshare import record_image_tag, recorded_image_id
+
+    recorded = recorded_image_id(image)
+    if recorded:
+        return recorded
+    digest = cached_image_digest(image, refresh=True)
+    if digest:
+        record_image_tag(image, digest)
+    return digest
 
 
 def runtime_on_path() -> bool:
@@ -1854,7 +1878,7 @@ def check_experimental_unshare(spec: ToolchainSpec) -> None:
     """Admit the image and probe namespaces before verify can write verdicts."""
     from rebrew.compiler.temp_dirs import remove_temp_dir, writable_temp_dir
 
-    image_id = cached_image_digest(spec.image, refresh=True) if spec.image else None
+    image_id = unshare_image_id(spec.image) if spec.image else None
     workdir = writable_temp_dir("rebrew_unshare_probe_")
     try:
         result = run_toolchain(
@@ -1905,6 +1929,7 @@ __all__ = [
     "swap_toolchain_image",
     "toolchain_from_toml",
     "toolchain_link_candidates",
+    "unshare_image_id",
     "vendored_binary",
     "withdrawn_refusal",
 ]

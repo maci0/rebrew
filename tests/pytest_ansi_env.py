@@ -28,6 +28,12 @@ It also makes every LIEF parse and format check given ``bytes`` (or a
 ``bytes`` argument that spells an existing path as that file and opens it
 (``b"."`` opened the working directory), so rebrew hands LIEF a path string,
 an ``io.BytesIO`` or a list of ints, never bytes.
+
+Every test gets an empty ``XDG_CACHE_HOME`` of its own. Rebrew keeps the unshare
+image-tag record, exported images, its temp dirs, Wine prefixes and the PE layout
+cache there: a test that faked an image digest read the id a real compile had
+recorded in the developer's cache (and recorded its fake id there). A test that
+needs another cache home sets ``XDG_CACHE_HOME`` itself.
 """
 
 from __future__ import annotations
@@ -35,6 +41,9 @@ from __future__ import annotations
 import gc
 import os
 from typing import Any
+lazy from collections.abc import Iterator
+
+import pytest
 
 # Applied at plugin import — before CliRunner tests invoke typer/Rich.
 os.environ["NO_COLOR"] = "1"
@@ -56,6 +65,20 @@ def pytest_collection_finish() -> None:
     """Freeze the collected graph out of cyclic GC passes; see the module docstring."""
     gc.freeze()
     gc.set_threshold(_GC_YOUNG_THRESHOLD, *gc.get_threshold()[1:])
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cache_home(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """An empty per-test user cache; see the module docstring.
+
+    A private ``MonkeyPatch``: requesting the shared ``monkeypatch`` fixture here
+    made it outlive a test's own teardown, which then refreshed the toolchain
+    registry with that test's overlay variable still set.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("XDG_CACHE_HOME", str(tmp_path_factory.mktemp("xdg-cache")))
+        patch.delenv("LOCALAPPDATA", raising=False)
+        yield
 
 
 def _forget_decompiler_states() -> None:

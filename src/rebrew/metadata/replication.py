@@ -426,6 +426,8 @@ class _Session:
         self.pending: set[str] = set()
         self.changed: set[str] = set()
         self.committed = False
+        self.report_divergence = False
+        self.divergence: dict[str, list[str]] | None = None
         self.validator: Callable[[Path, dict[str, Any]], None] | None = None
 
     def open(self, *, transactional: bool = True) -> None:
@@ -479,7 +481,8 @@ class _Session:
         )
         self.changed.add(key)
 
-    def reconcile(self) -> None:
+    def keys(self) -> set[str]:
+        """Every document key any replica, receipt or the journal knows."""
         keys = set(self.records)
         for name, records in self.states.items():
             keys.update(records)
@@ -493,11 +496,64 @@ class _Session:
                     )
                 except OSError, MetadataUnavailableError:
                     self.pending.add(name)
-        for key in sorted(keys):
+        return keys
+
+    def reconcile(self) -> None:
+        for key in sorted(self.keys()):
             if key not in self.changed:
                 record = self.collect(key)
                 if record is not None:
                     self.records[key] = record
+
+    def adopt(self, source: str) -> None:
+        """Make *source*'s documents the state of every replica, whatever the others hold.
+
+        Each adopted record carries a clock above every replica's, so no
+        replica's later reconciliation can win over it.
+        """
+        if source not in self.contexts or source in self.pending:
+            raise MetadataUnavailableError(f"{source} replica is unavailable")
+        for key in sorted(self.keys()):
+            text = self.route.store(source, key).text()
+            candidates = [self.records[key]] if key in self.records else []
+            for name in self.contexts:
+                if name not in self.pending:
+                    seen = _observed(self.route.store(name, key), self.states[name].get(key))
+                    if seen is not None:
+                        candidates.append(seen)
+            digest = _digest(text or "", text is None)
+            if all(c.digest == digest and c.deleted == (text is None) for c in candidates):
+                continue
+            clock: dict[str, int] = {}
+            for candidate in candidates:
+                for node, revision in candidate.clock.items():
+                    clock[node] = max(clock.get(node, 0), revision)
+            self.node = self.node or uuid.uuid4().hex + ":" + self.scope
+            clock[self.node] = clock.get(self.node, 0) + 1
+            newest = max((c.updated_at_ns for c in candidates), default=0)
+            self.records[key] = _Record(
+                clock, max(time.time_ns(), newest + 1), text or "", text is None
+            )
+            self.changed.add(key)
+
+    def diverged(self) -> dict[str, list[str]]:
+        """Per write backend, the documents whose replica text differs from the resolved record."""
+        found: dict[str, list[str]] = {}
+        for name in self.route.write_backends:
+            if name not in self.contexts or name in self.pending:
+                continue
+            differing = []
+            for key, record in sorted(self.records.items()):
+                seen = _observed(self.route.store(name, key), self.states[name].get(key))
+                same = (
+                    record.deleted
+                    if seen is None
+                    else seen.deleted == record.deleted and seen.digest == record.digest
+                )
+                if not same:
+                    differing.append(key)
+            found[name] = differing
+        return found
 
     def validate(self) -> None:
         if self.validator is not None:
@@ -508,6 +564,8 @@ class _Session:
     def finish(self) -> None:
         self.reconcile()
         self.validate()
+        if self.report_divergence:
+            self.divergence = self.diverged()
         if self.records:
             # This local write-ahead journal is the durable commit before replica publication.
             _save(self.journal, self.records, self.node)
@@ -756,17 +814,30 @@ class RoutedStore:
                 session.open(transactional=False)
                 session.reconcile()
                 session.validate()
+                session.divergence = session.diverged()
             finally:
                 session.close()
         else:
             with self.transaction():
                 session = _ACTIVE.sessions[self.root]
                 session.validator = validate
+                session.report_divergence = True
+        diverged = session.divergence or {}
         items = [
-            {"backend": name, "pending": name in session.pending, "documents": len(session.records)}
+            {
+                "backend": name,
+                "pending": name in session.pending,
+                "documents": len(session.records),
+                "diverged": diverged.get(name, []),
+            }
             for name in self.write_backends
         ]
         return {"items": items, "total": len(items), "dry_run": dry_run}
+
+    def adopt(self, source: str) -> None:
+        """Publish *source* backend's documents to every other replica, replacing what they hold."""
+        with self.transaction():
+            _ACTIVE.sessions[self.root].adopt(source)
 
     def write(self, doc: dict[str, Any], description: str) -> None:
         self.write_text(render(doc) or "\n", description)

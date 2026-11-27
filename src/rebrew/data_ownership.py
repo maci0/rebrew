@@ -127,7 +127,8 @@ def parse_link_map(text: str, *, include_imports: bool = False) -> list[LinkSymb
     return symbols
 
 
-def _library_key(name: str) -> str:
+def library_key(name: str) -> str:
+    """Archive identity of a library spec or map library name: its stem, casefolded."""
     return PureWindowsPath(name).stem.casefold()
 
 
@@ -199,7 +200,7 @@ def cached_data_archives(cfg: ProjectConfig) -> dict[str, Path]:
                 path = stock_lib_cache(cfg.root, spec.upper(), cfg.compiler_profile)
                 valid = stock_lib_valid(path)
         if valid:
-            key = _library_key(spec)
+            key = library_key(spec)
             if key in ambiguous:
                 continue
             if key in archives and archives[key] != path:
@@ -306,7 +307,7 @@ def enrich_library_owners(
         if row.library:
             key = library_keys.get(row.library)
             if key is None:
-                key = library_keys[row.library] = _library_key(row.library)
+                key = library_keys[row.library] = library_key(row.library)
             selected.setdefault(key, set()).add(row.member.casefold())
             library_names[key] = row.library
     common_names = {row.name for row in rows if row.common}

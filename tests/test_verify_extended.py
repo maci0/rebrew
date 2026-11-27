@@ -637,7 +637,8 @@ class TestVerifyCli:
         assert reports["g_code"]["status"] == "UNCHECKED"
         rows = load_data_metadata(tmp_path)
         assert rows["SERVER", 0x401000] == old
-        assert rows["SERVER", 0x402000]["status"] == "VERIFIED"
+        # The raw link here is the reference image itself, so the image places g_data.
+        assert rows["SERVER", 0x402000]["status"] == "EXACT"
 
     def test_short_reference_cannot_earn_a_match(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -842,6 +843,28 @@ class TestVerifyCli:
         report = cli_payload(result)
         assert report["functions_checked"] is False
         assert report["summary"]["total"] == 0
+        assert report["data"]["uncached_archives"] == []
+
+    def test_data_names_configured_archives_that_are_not_cached(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Library statics are placed from cached archives only; a missing one must be named."""
+        from bin_util import append_pe_section, make_pe
+
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(
+            tmp_path, external_libs={"LIBCMT": "LIBCMT.lib", "MSVCRT": ""}, compiler_profile="p"
+        )
+        image = append_pe_section(make_pe(b"\xc3"), ".data", bytes(4))
+        cfg.target_binary.write_bytes(image)
+        built = tmp_path / "built.dll"
+        built.write_bytes(image)
+        (tmp_path / "rebrew-data.toml").write_text("format = 2\n")
+        self._patch_flow(monkeypatch, cfg, passed=0)
+        result = CliRunner().invoke(verify_mod.app, ["--data", "--built", str(built), "--json"])
+        assert result.exit_code == 0, result.output
+        assert cli_payload(result)["data"]["uncached_archives"] == ["LIBCMT.lib"]
 
     @pytest.mark.parametrize("selection", [["--functions"], ["src/SERVER/f.c"]])
     def test_data_can_explicitly_include_function_checks(

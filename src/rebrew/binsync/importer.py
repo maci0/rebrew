@@ -300,6 +300,20 @@ def strip_cdecl_prefix(name: str) -> str:
     return c_name_from_symbol(name)
 
 
+def same_function_name(bs_name: str, local_name: str) -> bool:
+    """True when a BinSync name and a local symbol (or C name) name one C function.
+
+    A state written by rebrew carries the C name (``_tr_init``); one written by
+    a decompiler may carry that or the MSVC symbol (``__tr_init``). The local
+    side is the symbol when the row has one. Stripping a cdecl prefix from both
+    sides took one underscore too many from a C name, so ``_tr_init`` against
+    ``__tr_init`` read as a rename conflict. Names are compared NFC-casefolded.
+    """
+
+    local = fold_ident(strip_cdecl_prefix(local_name))
+    return local in {fold_ident(bs_name), fold_ident(strip_cdecl_prefix(bs_name))}
+
+
 def _inside_project(fp: Path, cfg: Any) -> bool:
     """True when *fp* is a project source (reversed dir or shared tree).
 
@@ -814,7 +828,6 @@ def import_state(
         # Resolve BinSync name to a local symbol form (strip cdecl prefix for comparison)
         # BinSync names are typically "_foo" (cdecl) — local symbol is also "_foo"
         bs_stripped = strip_cdecl_prefix(bs_name)
-        local_stripped = strip_cdecl_prefix(local_name)
 
         # A remote prototype that names the local types differently
         # (LPVOID for void *, other parameter names, an explicit __cdecl) or
@@ -936,7 +949,7 @@ def import_state(
         # on another, so the same symbol arrives NFC from Windows and NFD from
         # a macOS volume.  A byte comparison calls that a rename conflict and
         # --accept-binsync rewrites every occurrence to the other spelling.
-        if fold_ident(bs_stripped) == fold_ident(local_stripped):
+        if same_function_name(bs_name, local_name):
             continue
 
         # If local is generic and BinSync is meaningful → safe to apply.

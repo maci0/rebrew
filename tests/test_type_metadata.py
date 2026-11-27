@@ -635,3 +635,124 @@ class TestTypeCLI:
                 "cflags": "/O2",
             },
         )
+
+
+def _located_project(root: Path) -> Any:
+    """A project whose include and shared directories are absolute paths under *root*."""
+    (root / "inc").mkdir(exist_ok=True)
+    (root / "src").mkdir(exist_ok=True)
+    cfg = _project(root)
+    cfg.compiler_includes = root / "inc"
+    cfg.shared_dir = root / "src"
+    cfg.defines = []
+    return cfg
+
+
+def _legacy_context_hash(cfg: Any) -> str:
+    """The digest earlier releases stored: absolute paths were hashed verbatim."""
+    import hashlib
+    import json
+
+    context = {
+        key: str(getattr(cfg, key, ""))
+        for key in (
+            "compiler_profile",
+            "base_cflags",
+            "compiler_includes",
+            "shared_dir",
+            "defines",
+            "compiler_command",
+            "compiler_runner",
+            "recompile_url",
+        )
+    }
+    context["cflags"] = cfg.cflags
+    return hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()
+
+
+def _bind_item(cfg: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    from rebrew.type_metadata import bind_type
+
+    monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
+    bind_type(cfg, "engine.item", Path("types.h"), "ITEM", 4, 4, "allocation", "native", {})
+
+
+def _store_legacy_context(root: Path, digest: str) -> None:
+    from rebrew.type_metadata import load_types
+
+    path = root / "rebrew-types.toml"
+    current = load_types(root)[0]["context_hash"]
+    path.chmod(0o644)
+    path.write_text(path.read_text().replace(current, digest))
+    path.chmod(0o444)
+
+
+class TestTypeContextPortability:
+    def test_evidence_stays_fresh_in_a_moved_checkout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import shutil
+
+        from rebrew.type_metadata import check_types
+
+        first = tmp_path / "first"
+        first.mkdir()
+        _bind_item(_located_project(first), monkeypatch)
+        second = tmp_path / "second"
+        shutil.copytree(first, second)
+        assert check_types(_located_project(first)) == []
+        assert check_types(_located_project(second)) == []
+
+    def test_legacy_absolute_hash_is_honoured_in_place_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import shutil
+
+        from rebrew.type_metadata import check_types
+
+        first = tmp_path / "first"
+        first.mkdir()
+        cfg = _located_project(first)
+        _bind_item(cfg, monkeypatch)
+        _store_legacy_context(first, _legacy_context_hash(cfg))
+        second = tmp_path / "second"
+        shutil.copytree(first, second)
+        assert check_types(cfg) == []
+        assert "stale" in check_types(_located_project(second))[0]["issue"]
+
+    def test_migrate_context_rewrites_only_rows_that_still_match(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.type_metadata import check_types, load_types
+        from rebrew.types_cli import app
+
+        cfg = _located_project(tmp_path)
+        cfg.reversed_dir = tmp_path
+        monkeypatch.setattr("rebrew.types_cli.require_config", lambda **kwargs: cfg)
+        _bind_item(cfg, monkeypatch)
+        portable = load_types(tmp_path)[0]["context_hash"]
+        legacy = _legacy_context_hash(cfg)
+        assert legacy != portable
+        _store_legacy_context(tmp_path, legacy)
+        runner = CliRunner()
+
+        preview = runner.invoke(app, ["migrate-context", "--dry-run", "--json"])
+        assert preview.exit_code == 0, preview.output
+        assert cli_payload(preview)["migrated"] == ["engine.item"]
+        assert load_types(tmp_path)[0]["context_hash"] == legacy
+
+        done = runner.invoke(app, ["migrate-context", "--json"])
+        assert done.exit_code == 0, done.output
+        assert cli_payload(done)["migrated"] == ["engine.item"]
+        assert load_types(tmp_path)[0]["context_hash"] == portable
+        assert check_types(cfg) == []
+
+        again = runner.invoke(app, ["migrate-context", "--json"])
+        assert cli_payload(again)["migrated"] == []
+
+        cfg.base_cflags = "/Zp1"
+        _store_legacy_context(tmp_path, _legacy_context_hash(_located_project(tmp_path)))
+        stale = runner.invoke(app, ["migrate-context", "--json"])
+        assert cli_payload(stale)["migrated"] == []

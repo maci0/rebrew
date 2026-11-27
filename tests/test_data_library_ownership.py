@@ -93,14 +93,14 @@ def test_library_keys_are_normalized_once_per_spelling_per_call(
         " 0003:00000004 _b 10000004 CRT.lib:two.obj\n"
         " 0003:00000008 _c 10000008 crt.LIB:three.obj\n"
     )
-    original = data_ownership._library_key
+    original = data_ownership.library_key
     calls = []
 
     def key(name: str) -> str:
         calls.append(name)
         return original(name)
 
-    monkeypatch.setattr(data_ownership, "_library_key", key)
+    monkeypatch.setattr(data_ownership, "library_key", key)
     monkeypatch.setattr(data_ownership, "cached_data_archives", lambda cfg: {})
     cfg = _cfg(tmp_path)
     for _ in range(2):

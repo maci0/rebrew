@@ -539,7 +539,7 @@ def _unshare_run(
     spec: ToolchainSpec, mode: str, args: list[str], *, image_id: str | None = None
 ) -> int:
     """Run CMake tools in a private image overlay, retaining host project paths."""
-    from rebrew.compiler.toolchain import cached_image_digest, run_toolchain
+    from rebrew.compiler.toolchain import run_toolchain, unshare_image_id
 
     root = walk_up_to_root(Path.cwd())
     assert root is not None  # driver_main validated the project root
@@ -558,7 +558,7 @@ def _unshare_run(
             command,
             workdir=root,
             project_cwd=Path.cwd(),
-            image_id=image_id or cached_image_digest(spec.image, refresh=True),
+            image_id=image_id or unshare_image_id(spec.image),
             execution_backend="unshare",
             timeout=3600,
         )

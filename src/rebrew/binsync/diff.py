@@ -22,7 +22,7 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-lazy from rebrew.binsync.importer import is_meaningful, resolve_state_dir, strip_cdecl_prefix
+lazy from rebrew.binsync.importer import is_meaningful, resolve_state_dir, same_function_name
 lazy from rebrew.binsync.serial import require_declib
 lazy from rebrew.binsync.state import (
     index_local_and_catalog,
@@ -145,9 +145,7 @@ def main(
         # Same C name, including vectorcall ``name@@N`` and fastcall
         # ``@name@N``, then NFC + casefold. One leading ``_`` left
         # ``hook@@12`` looking different from ``_hook``.
-        bs_stripped = strip_cdecl_prefix(bs_name)
-        local_stripped = strip_cdecl_prefix(local_name)
-        if fold_ident(bs_stripped) == fold_ident(local_stripped):
+        if same_function_name(bs_name, local_name):
             continue
         if not is_meaningful(local_name):
             divergences.append(

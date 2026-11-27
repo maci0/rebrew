@@ -1068,3 +1068,72 @@ def test_failed_seed_cleans_private_bundle(monkeypatch: pytest.MonkeyPatch, tmp_
     with pytest.raises(unshare.UnshareError, match="wineboot failed"):
         unshare._initialize_wineprefix(rootfs, _info(), tmp_path / "runner")
     assert len(configs) == 1 and not configs[0].parent.exists()
+
+
+class TestRecordedImageTag:
+    """An exported admission is reused without asking the container runtime."""
+
+    TAG = "rebrew/msvc:6.0-win32"
+
+    def _export(self, cache: Path, tags: list[str]) -> None:
+        directory = cache / "images-v2" / _IMAGE_ID.removeprefix("sha256:")
+        (directory / "rootfs").mkdir(parents=True)
+        (directory / "image.json").write_text(json.dumps(_info() | {"RepoTags": tags}))
+
+    def _setup(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
+        from rebrew.compiler import toolchain
+
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        monkeypatch.setattr(unshare, "_cache_root", lambda: cache)
+        asked: list[str] = []
+
+        def runtime(image: str, **_: Any) -> str:
+            asked.append(image)
+            return _IMAGE_ID
+
+        monkeypatch.setattr(toolchain, "cached_image_digest", runtime)
+        return asked
+
+    def test_exported_tag_needs_no_runtime(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from rebrew.compiler.toolchain import unshare_image_id
+
+        asked = self._setup(monkeypatch, tmp_path)
+        self._export(tmp_path / "cache", [self.TAG])
+        assert unshare_image_id(self.TAG) == _IMAGE_ID
+        assert unshare_image_id(self.TAG) == _IMAGE_ID
+        assert asked == [self.TAG]
+
+    def test_record_without_export_asks_the_runtime(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from rebrew.compiler.toolchain import unshare_image_id
+
+        asked = self._setup(monkeypatch, tmp_path)
+        unshare.record_image_tag(self.TAG, _IMAGE_ID)
+        assert unshare_image_id(self.TAG) == _IMAGE_ID
+        assert asked == [self.TAG]
+
+    def test_export_of_another_tag_is_not_reused(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        asked = self._setup(monkeypatch, tmp_path)
+        self._export(tmp_path / "cache", ["rebrew/msvc:other-win32"])
+        unshare.record_image_tag(self.TAG, _IMAGE_ID)
+        assert unshare.recorded_image_id(self.TAG) == ""
+        assert asked == []
+
+    def test_retag_through_rebrew_forgets_the_record(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from rebrew.compiler.toolchain import invalidate_toolchain_digest, unshare_image_id
+
+        asked = self._setup(monkeypatch, tmp_path)
+        self._export(tmp_path / "cache", [self.TAG])
+        unshare_image_id(self.TAG)
+        invalidate_toolchain_digest(self.TAG)
+        assert unshare.recorded_image_id(self.TAG) == ""
+        unshare_image_id(self.TAG)
+        assert asked == [self.TAG, self.TAG]

@@ -605,6 +605,44 @@ class TestPlacement:
         assert res["unplaced"] == 1
         assert res["matched"] == 3
 
+    def test_identical_image_places_records_the_map_does_not_name(self, tmp_path: Path) -> None:
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(meta, self.META)
+        same = {0x1000: b"\x01\x02\x03\x04", 0x2000: bytes(4), 0x3000: b"\x05\x06\x07\x08"}
+        res = verify_data_bytes(
+            metadata_path=meta,
+            expected=same,
+            actual=dict(same),
+            sizes={0x1000: 4, 0x2000: 4, 0x3000: 4},
+            built_symbols={"_g_init": 0x1000, "_g_zero": 0x33AC},
+            image_identical=True,
+        )
+        rows = {r["name"]: r for r in res["results"]}
+        assert rows["g_unmapped"]["status"] == "EXACT"
+        assert rows["g_unmapped"]["placement_method"] == "identical-image"
+        # A map that places a name elsewhere still wins over the image.
+        assert rows["g_zero"]["status"] == "DISPLACED"
+        assert (res["exact"], res["unplaced"]) == (2, 0)
+
+    def test_identical_image_without_a_map_places_every_verified_record(
+        self, tmp_path: Path
+    ) -> None:
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(meta, self.META)
+        same = {0x1000: b"\x01\x02\x03\x04", 0x2000: bytes(4), 0x3000: b"\x05\x06\x07\x08"}
+        res = verify_data_bytes(
+            metadata_path=meta,
+            expected=same,
+            actual=dict(same),
+            sizes={0x1000: 4, 0x2000: 4, 0x3000: 4},
+            image_identical=True,
+        )
+        assert {r["status"] for r in res["results"]} == {"EXACT"}
+
     @pytest.mark.parametrize("explicit_present", [True, False])
     def test_only_the_recorded_link_symbol_can_prove_placement(
         self, tmp_path: Path, explicit_present: bool

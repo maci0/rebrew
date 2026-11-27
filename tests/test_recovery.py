@@ -750,6 +750,28 @@ def test_restore_from_a_reused_backup_only_installs_manifest_files(
     assert not (restored / relative).exists()
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "toml"])
+def test_backup_and_restore_accept_relative_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    config = _project(project, backend)
+    metadata_store(project / "rebrew-functions.toml", backend=backend, root=project).write(
+        {"format": 3}, "test"
+    )
+    monkeypatch.setattr("rebrew.metadata_cli.require_config", lambda **kwargs: config)
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    made = runner.invoke(app, ["metadata", "backup", "--dir", "off-tree", "--json"])
+    assert made.exit_code == 0, made.output
+    backup = Path(json.loads(made.output)["file"])
+    assert backup.is_absolute() and backup.exists()
+    relative = backup.relative_to(tmp_path)
+    restored = runner.invoke(app, ["metadata", "restore", "--file", str(relative), "--json"])
+    assert restored.exit_code == 0, restored.output
+
+
 class TestBackupManifest:
     """The bundle manifest proves a backup is complete before restore."""
 

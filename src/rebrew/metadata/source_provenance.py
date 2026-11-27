@@ -50,6 +50,7 @@ __all__ = [
     "load_source_files",
     "load_source_provenance",
     "plan_source_rehome",
+    "remove_source_files",
     "rename_source_provenance",
     "replace_source_metadata",
     "set_source_file",
@@ -346,6 +347,29 @@ def set_source_file(directory: Path, file: str, module: str, purpose: str) -> No
         modules[preset_module_key(module)] = {"purpose": purpose}
         validate_source_metadata(doc)
         metadata_store(path).write(store, "function metadata")
+
+
+def remove_source_files(directory: Path, entries: Sequence[tuple[str, str]]) -> int:
+    """Remove support-file purposes ``(file, module)`` in one locked write; return the count.
+
+    A file left with no module purpose loses its entry. Absent entries are no-ops.
+    """
+    path = directory / SOURCE_PROVENANCE_FILENAME
+    with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
+        store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
+        files = store.get("source", {}).get("files", {})
+        removed = 0
+        for file, module in entries:
+            modules = files.get(file)
+            if modules is None or modules.pop(preset_module_key(module), None) is None:
+                continue
+            removed += 1
+            if not modules:
+                del files[file]
+        if removed:
+            validate_source_metadata(store["source"])
+            metadata_store(path).write(store, "function metadata")
+        return removed
 
 
 def plan_source_rehome(

@@ -527,3 +527,99 @@ class TestCorruptInventoryFailClosed:
         assert res.exit_code != 0
         # Earned STATUS must survive — prune must not run.
         assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "EXACT"
+
+
+class TestSupportFileOrphans:
+    """A support-file purpose whose file is gone is an orphan of its own module."""
+
+    def _register(self, tmp_path: Path) -> None:
+        from rebrew.metadata.source_provenance import set_source_file
+
+        (tmp_path / "reversed" / "shim.c").write_text("int shim;\n", encoding="utf-8")
+        set_source_file(tmp_path, "reversed/shim.c", "SERVER", "native link layout")
+        set_source_file(tmp_path, "reversed/gone.c", "SERVER", "evidence only")
+        set_source_file(tmp_path, "reversed/gone.c", "GOLD", "evidence only")
+
+    def _purposes(self, tmp_path: Path) -> set[tuple[str, str]]:
+        from rebrew.metadata.source_provenance import load_source_files
+
+        return {(r.file, r.module) for r in load_source_files(tmp_path)}
+
+    def test_list_reports_a_missing_support_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        _write_project(tmp_path)
+        self._register(tmp_path)
+        res = CliRunner().invoke(app, ["list", "--json"])
+        assert res.exit_code == 0, res.output
+        assert cli_payload(res)["support_files"] == [
+            {"file": "reversed/gone.c", "module": "SERVER", "purpose": "evidence only"}
+        ]
+        text = CliRunner().invoke(app, ["list"])
+        assert "orphan support file reversed/gone.c (SERVER)" in text.output
+
+    def test_dry_run_keeps_and_prune_removes_only_this_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        _write_project(tmp_path)
+        self._register(tmp_path)
+        before = self._purposes(tmp_path)
+        preview = CliRunner().invoke(app, ["prune", "--dry-run", "--json"])
+        assert preview.exit_code == 0, preview.output
+        assert cli_payload(preview)["pruned_support_files"] == 0
+        assert self._purposes(tmp_path) == before
+
+        res = CliRunner().invoke(app, ["prune", "--json"])
+        assert res.exit_code == 0, res.output
+        assert cli_payload(res)["pruned_support_files"] == 1
+        assert self._purposes(tmp_path) == {
+            ("reversed/shim.c", "SERVER"),
+            ("reversed/gone.c", "GOLD"),
+        }
+
+    def test_drop_support_removes_one_purpose_of_an_existing_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        _write_project(tmp_path)
+        self._register(tmp_path)
+        shim = str(tmp_path / "reversed" / "shim.c")
+        before = self._purposes(tmp_path)
+        preview = CliRunner().invoke(app, ["drop", shim, "--support", "--dry-run", "--json"])
+        assert preview.exit_code == 0, preview.output
+        assert cli_payload(preview)["dropped"] == 0
+        assert self._purposes(tmp_path) == before
+
+        res = CliRunner().invoke(app, ["drop", shim, "--support", "--json"])
+        assert res.exit_code == 0, res.output
+        assert cli_payload(res) == {
+            "file": "reversed/shim.c",
+            "module": "SERVER",
+            "purpose": "native link layout",
+            "dropped": 1,
+            "dry_run": False,
+        }
+        assert self._purposes(tmp_path) == before - {("reversed/shim.c", "SERVER")}
+        assert (tmp_path / "reversed" / "shim.c").exists()
+
+    def test_drop_support_refuses_a_file_without_a_purpose_in_this_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        _write_project(tmp_path)
+        self._register(tmp_path)
+        foo = str(tmp_path / "reversed" / "foo.c")
+        res = CliRunner().invoke(app, ["drop", foo, "--support", "--json"])
+        assert res.exit_code == 2, res.output
+        assert "No support-file purpose for reversed/foo.c in SERVER" in cli_payload(res)["error"]
+        assert ("reversed/gone.c", "GOLD") in self._purposes(tmp_path)
