@@ -794,6 +794,48 @@ class TestPruneStaleStubs:
         assert prune_stale_stubs(tmp_path, src_dir, "TARGET", [(0x401000, 32, "valid_fn")]) == 1
         assert not stale.exists()
 
+    def test_prune_reads_the_function_table_once(self, tmp_path: Path, monkeypatch) -> None:
+        """Each stale stub used to copy its metadata row; the table is read once."""
+        from rebrew.intake import prune_stale_stubs
+        from rebrew.metadata import functions as metadata
+
+        src_dir = tmp_path / "src" / "target"
+        src_dir.mkdir(parents=True)
+        meta_dir = tmp_path / "src"
+        for va in (0x401010, 0x401020, 0x401030):
+            write_source(
+                src_dir / f"fcn_{va:08X}.c",
+                f"/* ADDRESS: TARGET 0x{va:08X} */\n\nvoid fcn_{va:08X}(void)\n"
+                "{\n    /* reason */\n}\n",
+                metadata_fields={f"TARGET.0x{va:08X}": {"kind": "STUB", "blocker": "reason"}},
+                metadata_dir=meta_dir,
+            )
+        loads = 0
+        entry_reads = 0
+        real_load = metadata.load_metadata
+        real_entry = metadata.get_entry
+
+        def counted(directory, *, deepcopy=True):
+            nonlocal loads
+            loads += 1
+            return real_load(directory, deepcopy=deepcopy)
+
+        def counted_entry(*args, **kwargs):
+            nonlocal entry_reads
+            entry_reads += 1
+            return real_entry(*args, **kwargs)
+
+        monkeypatch.setattr(metadata, "load_metadata", counted)
+        monkeypatch.setattr(metadata, "get_entry", counted_entry)
+        assert (
+            prune_stale_stubs(
+                tmp_path, src_dir, "TARGET", [(0x401000, 32, "valid_fn")], metadata_dir=meta_dir
+            )
+            == 3
+        )
+        assert loads == 1
+        assert entry_reads == 0
+
 
 class TestLinkToolchain:
     """_link_toolchain creates parent directories and is safe to re-run."""

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 lazy import filecmp
@@ -457,7 +458,7 @@ def prune_stale_stubs(
     """
     from rebrew.config import address_comments_for_file
     from rebrew.metadata.anchors import address_comment
-    from rebrew.metadata.functions import delete_entries_batch, get_entry, identity_file
+    from rebrew.metadata.functions import delete_entries_batch, identity_file, load_metadata
 
     previous = _read_prior_inventory(src_dir) if prior_inventory is None else prior_inventory
     if isinstance(previous, _UnreadableInventory):
@@ -482,6 +483,10 @@ def prune_stale_stubs(
 
     valid_vas = {va for va, _size, _name in funcs}
     meta_base = metadata_dir if metadata_dir is not None else project / "src"
+    # One read of the function table. get_entry copies its row, so a stub
+    # each paid for a copy of fields this loop only compares.
+    metadata = load_metadata(meta_base, deepcopy=False)
+    module_key = unicodedata.normalize("NFC", target_module_name)
     stale: list[tuple[Path, int]] = []
     for path in sorted(src_dir.glob("fcn_*.c")):
         filename = _AUTO_STUB_FILE_RE.fullmatch(path.name)
@@ -504,7 +509,7 @@ def prune_stale_stubs(
         syntax = address_comments_for_file(path, module=target_module_name)
         if header != address_comment(target_module_name, va, syntax=syntax):
             continue
-        entry = get_entry(meta_base, va, target_module_name)
+        entry = metadata.get((module_key, va)) or {}
         if entry.get("status_history") or entry.get("binding_history"):
             continue
         placeholder = _AUTO_STUB_BODY_RE.fullmatch(body)

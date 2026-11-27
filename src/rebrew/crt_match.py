@@ -161,10 +161,43 @@ _MSVC6_ASM_FUNCTIONS: set[str] = {
 _ASM_PROC_RE = re.compile(r"^\s*(\w+)\s+PROC\b", re.MULTILINE)
 
 
-def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
+class CrtIndex(list[CrtSourceEntry]):
+    """A CRT source index with name lookups.
+
+    ``match_function`` asks for one binary name. Walking every entry to find
+    it repeated the whole directory for every library function.
+    """
+
+    def __init__(self, entries: list[CrtSourceEntry] | None = None) -> None:
+        super().__init__(entries or [])
+        self._raw: dict[tuple[str, str], tuple[CrtSourceEntry, ...]] | None = None
+        self._norm: dict[tuple[str, str], tuple[CrtSourceEntry, ...]] | None = None
+        self._built_for = -1
+
+    def hits(
+        self, module_upper: str, binary_raw: str, binary_norm: str
+    ) -> tuple[tuple[CrtSourceEntry, ...], tuple[CrtSourceEntry, ...]]:
+        """Entries of *module_upper* whose raw or normalized name matches."""
+        if self._raw is None or self._built_for != len(self):
+            raw: dict[tuple[str, str], list[CrtSourceEntry]] = {}
+            norm: dict[tuple[str, str], list[CrtSourceEntry]] = {}
+            for entry in self:
+                raw.setdefault((entry.module_upper, entry.name_raw), []).append(entry)
+                norm.setdefault((entry.module_upper, entry.name_norm), []).append(entry)
+            self._raw = {key: tuple(items) for key, items in raw.items()}
+            self._norm = {key: tuple(items) for key, items in norm.items()}
+            self._built_for = len(self)
+        assert self._norm is not None
+        return (
+            self._raw.get((module_upper, binary_raw), ()),
+            self._norm.get((module_upper, binary_norm), ()),
+        )
+
+
+def build_crt_index(source_dir: Path, module: str) -> CrtIndex:
     """Build an index of C and ASM functions from a reference source directory."""
     if not source_dir.exists() or not source_dir.is_dir():
-        return []
+        return CrtIndex()
 
     entries: list[CrtSourceEntry] = []
 
@@ -227,7 +260,7 @@ def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
                     )
                 )
 
-    return entries
+    return CrtIndex(entries)
 
 
 _ASM_FUNCTIONS_NORMALIZED = {normalize_name(name) for name in _MSVC6_ASM_FUNCTIONS}
@@ -254,57 +287,57 @@ def match_function(
     module_upper = preset_module_key(module)
 
     matches: list[CrtMatch] = []
-    for source_entry in index:
-        if source_entry.module_upper != module_upper:
+    # A real function definition (line != 0) that exactly matches is the
+    # strongest signal.  Filename-derived entries (line == 0) cap at the
+    # weaker "filename-based" confidence below — the name came from the
+    # file name, not a parsed function.
+    if isinstance(index, CrtIndex):
+        raw_hits, norm_hits = index.hits(module_upper, binary_raw, binary_norm)
+    else:
+        raw_hits = tuple(
+            entry
+            for entry in index
+            if entry.module_upper == module_upper and entry.name_raw == binary_raw
+        )
+        norm_hits = tuple(
+            entry
+            for entry in index
+            if entry.module_upper == module_upper and entry.name_norm == binary_norm
+        )
+    for source_entry in raw_hits:
+        if source_entry.line == 0:
             continue
-
-        source_raw = source_entry.name_raw
-        source_norm = source_entry.name_norm
-
-        # A real function definition (line != 0) that exactly matches is the
-        # strongest signal.  Filename-derived entries (line == 0) cap at the
-        # weaker "filename-based" confidence below — the name came from the
-        # file name, not a parsed function.
-        if source_raw == binary_raw and source_entry.line != 0:
-            matches.append(
-                CrtMatch(
-                    va=va,
-                    binary_name=name,
-                    binary_size=size,
-                    source=source_entry,
-                    confidence=0.95,
-                    reason=_match_reason("exact name match", asm_only),
-                    is_asm_only=asm_only,
-                )
+        matches.append(
+            CrtMatch(
+                va=va,
+                binary_name=name,
+                binary_size=size,
+                source=source_entry,
+                confidence=0.95,
+                reason=_match_reason("exact name match", asm_only),
+                is_asm_only=asm_only,
             )
-            continue
-
-        if source_norm == binary_norm and source_entry.line != 0:
-            matches.append(
-                CrtMatch(
-                    va=va,
-                    binary_name=name,
-                    binary_size=size,
-                    source=source_entry,
-                    confidence=0.90,
-                    reason=_match_reason("normalized name match", asm_only),
-                    is_asm_only=asm_only,
-                )
+        )
+    for source_entry in norm_hits:
+        if source_entry.line != 0:
+            if source_entry.name_raw == binary_raw:
+                continue
+            confidence = 0.90
+            reason = "normalized name match"
+        else:
+            confidence = 0.85
+            reason = "filename-based source match"
+        matches.append(
+            CrtMatch(
+                va=va,
+                binary_name=name,
+                binary_size=size,
+                source=source_entry,
+                confidence=confidence,
+                reason=_match_reason(reason, asm_only),
+                is_asm_only=asm_only,
             )
-            continue
-
-        if source_entry.line == 0 and source_norm == binary_norm:
-            matches.append(
-                CrtMatch(
-                    va=va,
-                    binary_name=name,
-                    binary_size=size,
-                    source=source_entry,
-                    confidence=0.85,
-                    reason=_match_reason("filename-based source match", asm_only),
-                    is_asm_only=asm_only,
-                )
-            )
+        )
 
     return sorted(matches, key=lambda item: (item.confidence, item.source.line), reverse=True)
 

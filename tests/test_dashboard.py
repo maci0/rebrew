@@ -51,6 +51,7 @@ from rebrew.coverage.toml import (
     CoverageSnapshot,
     CoverageTomlError,
     Function,
+    Global,
     snapshot_from_document,
 )
 from rebrew.status_style import STATUS_HEX
@@ -363,6 +364,51 @@ class TestQueryLayer:
         assert dashboard.functions("t", offset=2)["functions"][0][1] == "last"
         assert dashboard.functions("t", q="data")["total"] == 0
         assert scans == 0
+
+    def test_global_pages_reuse_snapshot_order(self, tmp_path: Path) -> None:
+        scans = 0
+
+        class CountedGlobals(tuple[Global, ...]):
+            __slots__ = ()
+
+            @override
+            def __iter__(self) -> Iterator[Global]:
+                nonlocal scans
+                scans += 1
+                return super().__iter__()
+
+            @override
+            def __getitem__(self, index: Any) -> Any:
+                if isinstance(index, slice):
+                    raw = tuple.__getitem__(self, index)
+                    return tuple(raw[i] for i in range(len(raw)))
+                return tuple.__getitem__(self, index)
+
+        snapshot = snapshot_from_document(
+            tmp_path,
+            {
+                "version": 1,
+                "target": "t",
+                "globals": [
+                    {"va": 30, "name": "last"},
+                    {"va": 10, "name": "first"},
+                    {"va": 10, "name": "second"},
+                    {"va": 20, "name": "middle"},
+                ],
+            },
+            "t",
+        )
+        object.__setattr__(snapshot, "ordered_globals", CountedGlobals(snapshot.ordered_globals))
+        dashboard = Dashboard(tmp_path, load=lambda _: {"t": snapshot})
+        scans = 0
+
+        for _ in range(3):
+            page = dashboard.globals("t", limit=2)
+            assert page["total"] == 4
+            assert [row[1] for row in page["globals"]] == ["first", "second"]
+        assert dashboard.globals("t", offset=2, limit=2)["globals"][0][1] == "middle"
+        assert scans == 0
+        assert [row[1] for row in dashboard.globals("t", q="last")["globals"]] == ["last"]
 
     def test_targets(self, dashboard: Dashboard) -> None:
         assert dashboard.targets() == ["server_dll"]

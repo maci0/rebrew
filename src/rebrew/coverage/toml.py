@@ -1155,6 +1155,9 @@ class CoverageSnapshot:
     functions_by_va: Mapping[int, Function] = field(init=False)
     #: VA-ordered code rows, including distinct rows that share a VA.
     code_functions: tuple[Function, ...] = field(init=False, repr=False, compare=False)
+    #: VA order of ``globals``, equal addresses keeping their document order.
+    #: The globals page slices this tuple instead of sorting on every request.
+    ordered_globals: tuple[Global, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -1169,6 +1172,9 @@ class CoverageSnapshot:
                     key=lambda fn: fn.va,
                 )
             ),
+        )
+        object.__setattr__(
+            self, "ordered_globals", tuple(sorted(self.globals, key=lambda item: item.va))
         )
 
 

@@ -2105,7 +2105,7 @@ def _folded_globals(snapshot: CoverageSnapshot) -> tuple[str, ...]:
         hit = _FOLDED_GLOBALS.get(key)
         if hit is not None and hit[0]() is snapshot:
             return hit[1]
-    folded = tuple(_fold(item.name) for item in snapshot.globals)
+    folded = tuple(_fold(item.name) for item in snapshot.ordered_globals)
     reference = weakref.ref(snapshot)
     with _FOLD_CACHE_LOCK:
         raced = _FOLDED_GLOBALS.get(key)
@@ -2478,18 +2478,19 @@ class Dashboard:
         offset: int = 0,
     ) -> dict[str, Any]:
         snapshot = self.snapshots().get(target)
-        rows: list[Global] = []
-        if snapshot is not None:
+        rows: Sequence[Global] = snapshot.ordered_globals if snapshot is not None else ()
+        if snapshot is not None and (module is not None or q):
             needle = _fold(q) if q else ""
             wanted_va = _va_query(q) if q else None
             folds = _folded_globals(snapshot) if q else ()
-            for index, item in enumerate(snapshot.globals):
+            filtered: list[Global] = []
+            for index, item in enumerate(rows):
                 if module is not None and preset_module_key(item.module) != module:
                     continue
                 if q and not _folded_match(needle, wanted_va, item.va, folds[index]):
                     continue
-                rows.append(item)
-        rows.sort(key=lambda item: item.va)
+                filtered.append(item)
+            rows = filtered
         page = rows[offset : offset + limit]
         return {
             "target": target,
