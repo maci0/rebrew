@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Fixed
+
+- BinSync export takes a typedef's name from its C declarator. It took the last identifier, so `typedef int (__stdcall *Fn)(void *self);` exported a type named `self` and `typedef char Pad[0x106];` one named `x106`. On one project such names (`self`, `a3`, `char`) collided and were dropped, and others (`b`, `n`, `ptr`, `total`) reached the state. Function-pointer, array and multi-declarator typedefs are now left out of the export.
+- `rebrew binsync diff`, `pull`, `summary` and `overlay` match a BinSync C name such as `_tr_init` with the local symbol `__tr_init`. They stripped a cdecl prefix from both and reported every library function whose C name starts with an underscore as a rename conflict (136 on one project's server).
+
 ## [6.82.0] - 2026-11-27
 
 ### Changed

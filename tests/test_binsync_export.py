@@ -1113,6 +1113,24 @@ class TestBinsyncEnumsAndTypedefs:
         assert str(payload["enums_file"]).endswith("enums.toml")
         assert str(payload["typedefs_file"]).endswith("typedefs.toml")
 
+    def test_typedef_name_is_the_declarator_not_its_last_identifier(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A parameter or part of a hex size is never exported as a typedef name."""
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        (tmp_path / "src" / "types.h").write_text(
+            "typedef int(__stdcall* Fn1)(void* self);\n"
+            "typedef void (__cdecl* Cb)(int a0, int a3);\n"
+            "typedef char Pad[0x106];\n"
+            "typedef unsigned char *PBYTE;\n"
+            "typedef const char* LPCSTR;\n",
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        typedefs = {t.name: t.type for t in _load_artifacts(outdir / "typedefs.toml", "typedef")}
+        assert typedefs == {"PBYTE": "unsigned char *", "LPCSTR": "const char*"}
+
     def test_ambiguous_scoped_and_unknown_enums_are_omitted(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

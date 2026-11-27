@@ -22,7 +22,7 @@ _VA = 0x401000
 _FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def _project(tmp_path: Path, body: str) -> None:
+def _project(tmp_path: Path, body: str, **fields: str) -> None:
     (tmp_path / "rebrew-project.toml").write_text(
         "[project]\nname = 'probe'\ndefault_target = 'A'\n"
         "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
@@ -37,7 +37,7 @@ def _project(tmp_path: Path, body: str) -> None:
         src / "fn.c",
         f"/* ADDRESS: A 0x{_VA:08x} */\n{body}\n",
         encoding="utf-8",
-        metadata_fields={f"A.0x{_VA:08x}": {"kind": "FUNCTION"}},
+        metadata_fields={f"A.0x{_VA:08x}": {"kind": "FUNCTION", **fields}},
     )
 
 
@@ -98,4 +98,16 @@ class TestDecoratedDiffName:
     def test_cdecl_prefix_still_matches(self, tmp_path: Path, monkeypatch) -> None:
         _project(tmp_path, "void bar(void) {}")
         payload = _diff(tmp_path, monkeypatch, _state(tmp_path, "_bar"))
+        assert _name_items(payload) == []
+
+    def test_underscore_c_name_matches_its_decorated_symbol(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The C name ``_tr_init`` an export writes is the row whose symbol is ``__tr_init``.
+
+        Stripping a cdecl prefix from both sides compared ``tr_init`` with
+        ``_tr_init`` and reported every such library function as a conflict.
+        """
+        _project(tmp_path, "void _tr_init(void) {}", symbol="__tr_init")
+        payload = _diff(tmp_path, monkeypatch, _state(tmp_path, "_tr_init"))
         assert _name_items(payload) == []
