@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.88.0] - 2026-11-27
+
 ### Fixed
 
 - Definition scans (`rebrew library bind-source`, source-provenance definition hashes and `function_signatures`) find K&R definitions whose declarator is a pointer, such as zlib's `const char * ZEXPORT zError(err) int err; {...}`. The grammar parsed those as a declaration followed by a top-level block, so `bind-source` refused them as missing.
