@@ -4,9 +4,11 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew import data_scan, todo, verify_cache
-from rebrew import test as test_module
+from rebrew import todo
+from rebrew.data import scan as data_scan
 from rebrew.metadata import document
+from rebrew.verify import cache as verify_cache
+from rebrew.verify import test as test_module
 
 
 class TestJsonCacheNumericLimits:

@@ -212,7 +212,7 @@ class TestCallerCounts:
         source per scan made the caller-count loop walk the filesystem per file.
         """
         import rebrew.todo as todo
-        from rebrew.sources import scan_files
+        from rebrew.source.discovery import scan_files
 
         cfg = _make_cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -373,7 +373,7 @@ class TestCollectors:
 
     @pytest.mark.parametrize("status", ["COMPILE_ERROR", "EXTRACT_ERROR"])
     def test_cached_exact_supersedes_durable_error(self, status: str) -> None:
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entry = VerifyCacheEntry(
             source_hash="",
@@ -392,7 +392,7 @@ class TestCollectors:
 
     @pytest.mark.parametrize("status", ["COMPILE_ERROR", "EXTRACT_ERROR"])
     def test_proven_precedence_applies_to_cached_errors(self, status: str) -> None:
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entry = VerifyCacheEntry(
             source_hash="",
@@ -413,7 +413,7 @@ class TestCollectors:
 
     def test_active_functions_compile_error(self, tmp_path: Path) -> None:
         _cfg = _make_cfg(tmp_path)
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -439,7 +439,7 @@ class TestCollectors:
         sweep cannot fix a missing symbol.  Regression: guild-rebrew's
         EXTRACT_ERROR stubs showed up as fix-delta with ROI 85."""
         _cfg = _make_cfg(tmp_path)
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -472,7 +472,7 @@ class TestCollectors:
         """A measured NEAR_MATCHING result still carrying the default FUN_
         label is matched work — it must use the verify-driven lanes, not
         the skeleton lane."""
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -555,7 +555,7 @@ class TestCollectors:
         extracted) — it must NOT appear as a '0B diff' fix-delta quick-win.
         Regression: smygb's intake-documented stubs showed as 0B-diff while
         rebrew test refused them with 'Invalid SIZE: 0'."""
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -603,7 +603,7 @@ class TestCollectors:
     def test_zero_delta_requires_retest(
         self, status: str, cached: bool, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         existing = {0x1000: {"status": status, "symbol": "func_a", "blocker_delta": "0"}}
         entries = {"0x00001000": VerifyCacheEntry(status=status, delta=0)} if cached else {}
@@ -632,7 +632,7 @@ class TestCollectors:
         ],
     )
     def test_failed_comparison_has_no_metrics(self, status: str) -> None:
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {"0x00001000": VerifyCacheEntry(status=status, delta=0, match_percent=0.0)}
         existing = {0x1000: {"status": "PROVEN", "symbol": "func_a", "blocker_delta": "3"}}
@@ -647,7 +647,7 @@ class TestCollectors:
         fix-delta (regression: smygb's 0x00404a90 stayed a '20B diff — try
         flag sweep' item after the sweep already ran and near-diag said
         STRUCTURAL)."""
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -679,7 +679,7 @@ class TestCollectors:
     def test_active_functions_register_blocker_stays_fix_delta(self) -> None:
         """A register-class blocker is still a flag-sweep quick-win — only
         STRUCTURAL verdicts demote."""
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -763,7 +763,7 @@ class TestCollectors:
         existing = {
             0x1000: {"status": "NEAR_MATCHING", "symbol": "func_a", "blocker": "register swap"}
         }
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -798,7 +798,7 @@ class TestCollectors:
                 ),
             }
         }
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -1473,7 +1473,7 @@ class TestLoadVerifyEntries:
         entries — a SERVER run produced phantom fix-delta items for CLIENT)."""
 
         from rebrew.todo import load_verify_entries
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         d = tmp_path / ".rebrew"
         d.mkdir()
@@ -1512,7 +1512,7 @@ class TestLoadVerifyEntries:
         same file (the old guard accepted any empty `target`)."""
 
         from rebrew.todo import load_verify_entries
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         d = tmp_path / ".rebrew"
         d.mkdir()
@@ -1992,7 +1992,7 @@ class TestTodoCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """99.6% with an 8-byte delta is not a match; the table must not round it to 100%."""
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         entry = VerifyCacheEntry(
             source_hash="",
@@ -2853,7 +2853,7 @@ class TestMissingManagedBindings:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_present: bool, status: str
     ) -> None:
         from rebrew.metadata.functions import record_function_identity, update_statuses_batch
-        from rebrew.verify_cache import VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCacheEntry
 
         cfg = _make_cfg(tmp_path)
         cfg.reversed_dir.mkdir()

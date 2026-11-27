@@ -418,7 +418,7 @@ class TestConcurrentCompilesReportTheirOwn:
         has finished, the order a busy worker can take.
         """
         from rebrew.compiler.compile import compile_and_compare
-        from rebrew.test import build_result_dict_from_compare
+        from rebrew.verify.test import build_result_dict_from_compare
 
         root = tmp_path / "project"
         bundled = _project(root)
@@ -574,7 +574,7 @@ class TestTheReachedHeaderDigestAgreesWithTheBundle:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         from rebrew.compiler.compile import effective_compile_flags, remote_include_bundle
-        from rebrew.verify_hash import entry_headers_fp
+        from rebrew.verify.hash import entry_headers_fp
 
         cfg, source = self._tree(tmp_path)
         cfg.shared_dir = None

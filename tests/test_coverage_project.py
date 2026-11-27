@@ -13,8 +13,8 @@ from cli_json import cli_payload
 from source_util import write_source
 from tree_snapshot import project_files
 
-from rebrew import coverage_project
-from rebrew.coverage_project import ProjectCoverageError, load_project_coverage
+from rebrew.coverage import project as coverage_project
+from rebrew.coverage.project import ProjectCoverageError, load_project_coverage
 from rebrew.metadata.functions import update_source_status
 
 
@@ -70,8 +70,8 @@ class TestTrustedVerdict:
 class TestLiveProjectCoverage:
     def test_trusted_near_match_uses_verified_byte_count(self, tmp_path: Path) -> None:
         from rebrew.config import load_config
+        from rebrew.coverage.report import generate_decomp_dev_report
         from rebrew.metadata.functions import update_field
-        from rebrew.report import generate_decomp_dev_report
         from rebrew.workspace.status import TrustedCoverage, TrustedVerification
 
         _project(tmp_path)
@@ -94,9 +94,9 @@ class TestLiveProjectCoverage:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.config import load_config
-        from rebrew.coverage_project import trusted_project_coverage
+        from rebrew.coverage.project import trusted_project_coverage
+        from rebrew.coverage.report import generate_decomp_dev_report, generate_report
         from rebrew.metadata.data import set_data_field
-        from rebrew.report import generate_decomp_dev_report, generate_report
         from rebrew.status import collect_status
         from rebrew.workspace.status import TrustedCoverage, TrustedVerification
 
@@ -144,7 +144,8 @@ class TestLiveProjectCoverage:
             },
         }
         monkeypatch.setattr(
-            "rebrew.report.build_graph", lambda *_args, **_kwargs: (nodes, [("good", "forged")], [])
+            "rebrew.coverage.report.build_graph",
+            lambda *_args, **_kwargs: (nodes, [("good", "forged")], []),
         )
         assert (
             generate_report(cfg, site, trusted=empty)["summary"]["status_counts"].get("EXACT", 0)
@@ -178,7 +179,7 @@ class TestLiveProjectCoverage:
         verified, with its bytes, whatever STATUS the project wrote.
         """
         from rebrew.config import load_config
-        from rebrew.report import generate_decomp_dev_report
+        from rebrew.coverage.report import generate_decomp_dev_report
         from rebrew.workspace.status import TrustedCoverage, TrustedVerification
 
         _project(tmp_path)
@@ -320,7 +321,7 @@ class TestLiveProjectCoverage:
     def test_live_dashboard_reports_failed_siblings(self, tmp_path: Path) -> None:
         import json
 
-        from rebrew.dashboard import Dashboard
+        from rebrew.coverage.dashboard import Dashboard
 
         _project(tmp_path, extra='[targets.bad]\nbinary = "bad.exe"\narch = "invalid-arch"\n')
         dashboard = Dashboard(tmp_path)
@@ -409,8 +410,8 @@ class TestPortableHistoryMigration:
 
         from typer.testing import CliRunner
 
-        from rebrew.coverage_history import app
-        from rebrew.coverage_toml import render_coverage_toml
+        from rebrew.coverage.history import app
+        from rebrew.coverage.toml import render_coverage_toml
         from rebrew.metadata.functions import load_status_history
 
         _project(tmp_path)
@@ -442,7 +443,7 @@ class TestPortableHistoryMigration:
         assert load_status_history(tmp_path, "GOOD") == [event]
 
     def test_export_refuses_to_overwrite_unimported_history(self, tmp_path: Path) -> None:
-        from rebrew.coverage_toml import render_coverage_toml, write_coverage_toml
+        from rebrew.coverage.toml import render_coverage_toml, write_coverage_toml
 
         _project(tmp_path)
         portable = tmp_path / "portable"
@@ -464,7 +465,7 @@ class TestPortableHistoryMigration:
             )
         )
         before = path.read_bytes()
-        from rebrew.coverage_toml import CoverageTomlError
+        from rebrew.coverage.toml import CoverageTomlError
 
         with pytest.raises(CoverageTomlError, match="import-history"):
             write_coverage_toml(tmp_path, portable, target="good")

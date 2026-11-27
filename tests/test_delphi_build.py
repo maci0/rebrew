@@ -24,7 +24,7 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace
         bin_dir=tmp_path / "bin",
         target_binary=reference,
     )
-    monkeypatch.setattr("rebrew.delphi_build.require_config", lambda **_kw: cfg)
+    monkeypatch.setattr("rebrew.buildsys.delphi.require_config", lambda **_kw: cfg)
     return cfg
 
 
@@ -44,7 +44,7 @@ class TestDelphiBuild:
             assert kwargs["map_file"] is True
             return Delphi16Result(made, log="compiled", map_path=mapping)
 
-        monkeypatch.setattr("rebrew.delphi_build.compile_ne", build)
+        monkeypatch.setattr("rebrew.buildsys.delphi.compile_ne", build)
         output, map_output = tmp_path / "out.exe", tmp_path / "out.map"
         result = CliRunner().invoke(
             app,
@@ -76,7 +76,7 @@ class TestDelphiBuild:
         def fail(*_a: object, **_kw: object) -> Delphi16Result:
             raise Delphi16Error("compile failed")
 
-        monkeypatch.setattr("rebrew.delphi_build.compile_ne", fail)
+        monkeypatch.setattr("rebrew.buildsys.delphi.compile_ne", fail)
         result = CliRunner().invoke(
             app, ["build", "delphi", str(tmp_path / "HELLO.DPR"), "--output", str(output), "--json"]
         )

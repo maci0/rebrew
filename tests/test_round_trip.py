@@ -715,7 +715,7 @@ class TestCollectSpliceSet:
         SIZE/CFLAGS may live in either, mirroring production layouts.
         """
 
-        from rebrew.rename_ops import c_name_from_symbol
+        from rebrew.source.rename_ops import c_name_from_symbol
 
         path = cfg.reversed_dir / f"{symbol}.c"
         fields = {"status": status, "size": size, "symbol": symbol}

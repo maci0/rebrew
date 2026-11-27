@@ -377,7 +377,7 @@ def global_name_and_type(
     """Resolve a canonical data identity to its actual C declaration."""
     from rebrew.c_parser import find_extern_variables
     from rebrew.metadata.bindings import DATA_KINDS, read_source_bindings
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
     from rebrew.utils import read_source_text
 
     directory = getattr(cfg, "reversed_dir", None)
@@ -422,7 +422,7 @@ def resolve_global_types(
     Uses :func:`rebrew.c_parser.find_extern_variables` on the C declaration
     bound to each data row, which is the authoritative source (also handles
     non-extern DATA declarations).  Falls back to
-    :func:`rebrew.data_scan.scan_globals` name→type index when the direct
+    :func:`rebrew.data.scan.scan_globals` name→type index when the direct
     parse finds no extern.
     """
     va_to_type: dict[int, str] = {}
@@ -432,7 +432,7 @@ def resolve_global_types(
     # Build a name→type index from scan_globals as a supplementary source
     name_to_type: dict[str, str] = {}
     try:
-        from rebrew.data_scan import scan_globals as _scan_globals
+        from rebrew.data.scan import scan_globals as _scan_globals
 
         scan = _scan_globals(cfg.reversed_dir, cfg=cfg)
         for ge in scan.globals.values():
@@ -555,7 +555,7 @@ def normalize_sync_value(field: str, value: Any, *, kind: str = "function") -> A
         if kind == "function":
             # The sync name is the linker symbol. ``hook@@12`` and ``_hook``
             # are one C function; stripping one ``_`` left the decoration.
-            from rebrew.rename_ops import c_name_from_symbol
+            from rebrew.source.rename_ops import c_name_from_symbol
 
             text = c_name_from_symbol(text)
         return fold_ident(text)
@@ -634,7 +634,7 @@ def local_sync_records(
             fields["name"] = fields.get("name") or names.get(va) or f"g_{va:08x}"
             fields["type"] = fields.get("type") or types.get(va) or "char"
         else:
-            from rebrew.rename_ops import c_name_from_symbol
+            from rebrew.source.rename_ops import c_name_from_symbol
 
             # The linker symbol's C name: undecorated for Ghidra (``_x@4`` is
             # ``x``), the decorated spelling stays local.
@@ -986,8 +986,8 @@ def sync_health(
     stale_origins: list[dict[str, str]] = []
     from rebrew.metadata.data import data_definition_hash, load_data_metadata
     from rebrew.metadata.functions import load_metadata
-    from rebrew.sources import contained_path, source_roots
-    from rebrew.verify_hash import compiler_config_hash, entry_fingerprint, source_hash
+    from rebrew.source.discovery import contained_path, source_roots
+    from rebrew.verify.hash import compiler_config_hash, entry_fingerprint, source_hash
 
     function_entries: dict[tuple[str, int], dict[str, Any]] | None = None
     data_entries: dict[tuple[str, int], dict[str, Any]] | None = None
@@ -1587,7 +1587,7 @@ def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
         return []
-    from rebrew.sources import iter_sources_and_headers
+    from rebrew.source.discovery import iter_sources_and_headers
 
     try:
         files = iter_sources_and_headers(Path(reversed_dir), cfg)

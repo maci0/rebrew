@@ -378,7 +378,7 @@ class TestProveCLIStatusGuard:
         metadata while the cache said NEAR_MATCHING, so prove refused them."""
 
         from rebrew.config import load_config
-        from rebrew.verify_hash import compiler_config_hash, headers_hash
+        from rebrew.verify.hash import compiler_config_hash, headers_hash
 
         proj_dir, src = self._make_project(tmp_path, "STUB")
         # Write an identity-matching verify cache claiming NEAR_MATCHING for the
@@ -1781,7 +1781,7 @@ class TestPromoteAlreadyMatched:
     def test_updates_metadata_and_verify_cache(self, tmp_path: Path) -> None:
 
         from rebrew.prove import _promote_already_matched
-        from rebrew.verify_hash import (
+        from rebrew.verify.hash import (
             DEFAULT_TOOLCHAIN,
             comparison_inputs,
             compiler_config_hash,

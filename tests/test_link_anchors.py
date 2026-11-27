@@ -7,8 +7,8 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
+from rebrew.buildsys.link_anchors import anchor_symbols, app
 from rebrew.config import load_config
-from rebrew.link_anchors import anchor_symbols, app
 from rebrew.metadata.functions import record_function_identity
 
 
@@ -17,10 +17,11 @@ class TestLinkAnchors:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            "rebrew.link_anchors.require_config", lambda **_kwargs: SimpleNamespace(root=tmp_path)
+            "rebrew.buildsys.link_anchors.require_config",
+            lambda **_kwargs: SimpleNamespace(root=tmp_path),
         )
         monkeypatch.setattr(
-            "rebrew.link_anchors.anchor_symbols",
+            "rebrew.buildsys.link_anchors.anchor_symbols",
             lambda *_args: {
                 "target": "server",
                 "functions": 1,
@@ -38,10 +39,11 @@ class TestLinkAnchors:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(
-            "rebrew.link_anchors.require_config", lambda **_kwargs: SimpleNamespace(root=tmp_path)
+            "rebrew.buildsys.link_anchors.require_config",
+            lambda **_kwargs: SimpleNamespace(root=tmp_path),
         )
         monkeypatch.setattr(
-            "rebrew.link_anchors.anchor_symbols",
+            "rebrew.buildsys.link_anchors.anchor_symbols",
             lambda *_args: {
                 "target": "server",
                 "functions": 1,

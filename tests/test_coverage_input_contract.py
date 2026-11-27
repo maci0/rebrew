@@ -4,7 +4,7 @@ import hashlib
 
 import pytest
 
-from rebrew.coverage_input_contract import (
+from rebrew.coverage.input_contract import (
     CoverageInputError,
     canonical_coverage_input,
     coverage_input_digest,
@@ -237,7 +237,7 @@ def _project_without_shared(root):
 
 
 def test_readset_of_a_project_without_shared_sources_ignores_the_absent_shared_dir(tmp_path):
-    from rebrew.coverage_input_contract import plan_coverage_readset, rebrew_coverage_paths
+    from rebrew.coverage.input_contract import plan_coverage_readset, rebrew_coverage_paths
 
     _project_without_shared(tmp_path)
     required = rebrew_coverage_paths(tmp_path, "A")
@@ -252,7 +252,7 @@ def test_readset_of_a_project_without_shared_sources_ignores_the_absent_shared_d
 
 
 def test_readset_gains_shared_sources_when_src_shared_appears(tmp_path):
-    from rebrew.coverage_input_contract import rebrew_coverage_paths
+    from rebrew.coverage.input_contract import rebrew_coverage_paths
 
     _project_without_shared(tmp_path)
     before = rebrew_coverage_paths(tmp_path, "A")
@@ -262,7 +262,7 @@ def test_readset_gains_shared_sources_when_src_shared_appears(tmp_path):
 
 
 def test_plan_coverage_config_reports_snapshot_relative_paths_and_sources(tmp_path):
-    from rebrew.coverage_input_contract import plan_coverage_config
+    from rebrew.coverage.input_contract import plan_coverage_config
 
     _project_without_shared(tmp_path)
     (tmp_path / "src" / "A").mkdir()
@@ -298,7 +298,7 @@ def test_plan_coverage_config_reports_snapshot_relative_paths_and_sources(tmp_pa
 
 
 def test_plan_coverage_config_refuses_a_binary_outside_the_snapshot(tmp_path):
-    from rebrew.coverage_input_contract import plan_coverage_config
+    from rebrew.coverage.input_contract import plan_coverage_config
 
     root = tmp_path / "snapshot"
     root.mkdir()

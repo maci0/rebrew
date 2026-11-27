@@ -104,7 +104,7 @@ def write_source(
             ):
                 default_name = definitions[0][0]
         if not default_name and fields.get("symbol"):
-            from rebrew.rename_ops import c_name_from_symbol
+            from rebrew.source.rename_ops import c_name_from_symbol
 
             default_name = c_name_from_symbol(str(fields["symbol"]))
         name = fields.pop("name", default_name)

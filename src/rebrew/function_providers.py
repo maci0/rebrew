@@ -17,7 +17,7 @@ lazy from rebrew.metadata.functions import (
     stored_file_matches,
     validate_identity_file,
 )
-lazy from rebrew.sources import contained_path, source_roots
+lazy from rebrew.source.discovery import contained_path, source_roots
 lazy from rebrew.utils import preset_module_key, rel_display_path
 
 
@@ -277,7 +277,7 @@ def resolve_library_providers(
     prebuilt provider; an archive name alone does not mean it was prebuilt.
     An unmatched declaration stays unresolved; its name or VA is not evidence.
     """
-    from rebrew.data_ownership import parse_link_map
+    from rebrew.data.ownership import parse_link_map
 
     rows: dict[int, dict[str, Any]] = {
         va: {"va": f"0x{va:08x}", "name": row.get("name", ""), "provider": "unresolved"}

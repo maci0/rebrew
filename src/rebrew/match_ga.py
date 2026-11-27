@@ -278,7 +278,7 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
     """
     try:
         from rebrew.matcher import parse_c_ast
-        from rebrew.rename_ops import c_name_from_symbol
+        from rebrew.source.rename_ops import c_name_from_symbol
     except Exception as exc:  # tree-sitter unavailable: no scoping
         log.warning(
             "tree-sitter unavailable (%s); GA mutations are scored against the whole file",

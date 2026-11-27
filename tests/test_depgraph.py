@@ -8,7 +8,7 @@ import pytest
 from cli_json import cli_payload
 from source_util import write_source
 
-from rebrew.data_scan import DispatchEntry, DispatchTable
+from rebrew.data.scan import DispatchEntry, DispatchTable
 from rebrew.depgraph import (
     NodeInfo,
     _extract_callees,

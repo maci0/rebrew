@@ -291,8 +291,8 @@ class TestExtractSingleFunction:
                 message="RELOC",
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr(ci_mod, "_source_flags", lambda *a, **k: "")
 
         res = ci_mod.import_function(cfg_dst, cfg_src, 0x601000, 0x401000, "shared.c", 11)
@@ -569,7 +569,7 @@ class TestImportMechanics:
         from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
+            "rebrew.verify.cli.verify_entry",
             lambda entry, cfg, cache=None, **kw: CompareResult(
                 matched=True,
                 status="EXACT",
@@ -580,7 +580,7 @@ class TestImportMechanics:
                 message="EXACT MATCH",
             ),
         )
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda fixes, cfg: None)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda fixes, cfg: None)
 
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "Units/vfs/f1.c", 11)
         assert res["action"] == "imported"
@@ -625,10 +625,10 @@ class TestImportMechanics:
                 message="EXACT MATCH",
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
         applied: list[Any] = []
         monkeypatch.setattr(
-            "rebrew.verify.apply_status_updates",
+            "rebrew.verify.cli.apply_status_updates",
             lambda fixes, cfg: applied.append((fixes, cfg)),
         )
 
@@ -677,8 +677,8 @@ class TestImportMechanics:
                 message="EXACT MATCH",
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda fixes, cfg: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda fixes, cfg: None)
         symbols = {"_g": 0x500000}
         ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, name_to_va=symbols)
         assert seen["name_to_va"] is symbols
@@ -695,7 +695,7 @@ class TestImportMechanics:
         from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
+            "rebrew.verify.cli.verify_entry",
             lambda entry, cfg, cache=None, **kw: CompareResult(
                 matched=True,
                 status="EXACT",
@@ -706,7 +706,7 @@ class TestImportMechanics:
                 message="EXACT MATCH",
             ),
         )
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda fixes, cfg: None)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda fixes, cfg: None)
 
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="f1.c")
         assert res["status"] == "EXACT"
@@ -728,7 +728,7 @@ class TestImportMechanics:
         )
 
         monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
+            "rebrew.verify.cli.verify_entry",
             lambda *a, **k: (_ for _ in ()).throw(AssertionError("verify must not run")),
         )
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dry_run=True)
@@ -793,8 +793,8 @@ class TestImportMechanics:
             metadata_fields={"DST.0x401040": {"kind": "FUNCTION"}},
         )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
 
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="f1.c")
         assert res["action"] == "imported"
@@ -839,7 +839,7 @@ class TestImportMechanics:
             assert b"return 1" in destination.read_bytes()
             raise OSError("verification interrupted")
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fail_verify)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fail_verify)
         with pytest.raises(OSError, match="verification interrupted"):
             ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="f1.c")
 
@@ -880,9 +880,9 @@ class TestImportMechanics:
                 message="NEAR",
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
         monkeypatch.setattr(
-            "rebrew.verify.apply_status_updates",
+            "rebrew.verify.cli.apply_status_updates",
             lambda fixes, cfg: applied.append(fixes),
         )
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
@@ -912,8 +912,8 @@ class TestImportMechanics:
             symbol="_f1",
             size=11,
         )
-        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 13)
         assert res["action"] == "imported"
         assert (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8").endswith(body)
@@ -1416,8 +1416,8 @@ class TestSharedImport:
         dst_rev.mkdir(parents=True)
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
@@ -1704,8 +1704,8 @@ class TestPromoteToShared:
         dst_rev.mkdir(parents=True)
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
@@ -1822,8 +1822,8 @@ class TestSharedSupersede:
 
     def _ok_verify(self, monkeypatch) -> None:
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
     def test_matched_shared_import_deletes_stub(self, tmp_path: Path, monkeypatch) -> None:
@@ -1857,10 +1857,10 @@ class TestSharedSupersede:
             "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
             metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
-        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _near_verify_entry)
         applied: list[Any] = []
         monkeypatch.setattr(
-            "rebrew.verify.apply_status_updates",
+            "rebrew.verify.cli.apply_status_updates",
             lambda *a, **k: applied.append(a),
         )
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
@@ -2073,7 +2073,7 @@ class TestSharedSupersede:
         )
         update_field(tmp_path, 0x401040, "cflags", "/G5", "DST")
         update_source_status(tmp_path, "EXACT", "DST", 0x401040)
-        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _near_verify_entry)
         # Real apply_status_updates: the rollback must make it a no-op.
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
@@ -2102,8 +2102,8 @@ class TestSharedSupersede:
             "/* ADDRESS: DST 0x401040 */\n\nint f1(void){ return 0; }\n",
             metadata_fields={"DST.0x401040": {"kind": "FUNCTION", "size": 0}},
         )
-        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _near_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
         assert res["action"] == "skipped-unverified"
@@ -2142,9 +2142,9 @@ class TestSharedSupersede:
         )
         update_field(tmp_path, B_F1, "cflags", "/G5", "DST")
         applied: list[Any] = []
-        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _near_verify_entry)
         monkeypatch.setattr(
-            "rebrew.verify.apply_status_updates",
+            "rebrew.verify.cli.apply_status_updates",
             lambda fixes, cfg: applied.append(fixes),
         )
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
@@ -2195,9 +2195,9 @@ class TestSharedSupersede:
         )
         update_field(tmp_path, B_F1, "cflags", "/G5", "DST")
         applied: list[Any] = []
-        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _near_verify_entry)
         monkeypatch.setattr(
-            "rebrew.verify.apply_status_updates",
+            "rebrew.verify.cli.apply_status_updates",
             lambda fixes, cfg: applied.append(fixes),
         )
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
@@ -2261,8 +2261,8 @@ class TestSharedCflagsPortable:
         )
         cfg_dst = _dst_cfg(tmp_path, dst_rev)
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
 
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "Units/vfs/f1.c", 11)
         assert res["action"] == "imported-shared"
@@ -2393,8 +2393,8 @@ class TestUnifiedTreeMarkerMove:
                 "DST.0x401040": {"kind": "FUNCTION", "size": 3},
             },
         )
-        monkeypatch.setattr("rebrew.verify.verify_entry", _exact_verify_entry)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11)
@@ -2449,10 +2449,10 @@ class TestUnifiedTreeMarkerMove:
                 "DST.0x401040": {"kind": "FUNCTION", "size": 3},
             },
         )
-        monkeypatch.setattr("rebrew.verify.verify_entry", _near_verify_entry)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _near_verify_entry)
         applied: list[Any] = []
         monkeypatch.setattr(
-            "rebrew.verify.apply_status_updates",
+            "rebrew.verify.cli.apply_status_updates",
             lambda *a, **k: applied.append(a),
         )
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
@@ -2624,8 +2624,8 @@ class TestVerifiedSymbolFollowsTheBlock:
                 message="EXACT MATCH",
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(cfg_dst, cfg_src, 0x401040, 0x401010, "f.c", 13)
@@ -2750,8 +2750,8 @@ class TestVerifiedSymbolShapes:
                 message="EXACT MATCH",
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
         return seen
 
@@ -2909,8 +2909,8 @@ class TestMergedInventoryEntry:
                 full_obj_bytes=b"x" * obj_size,
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
         return sizes
 
@@ -2969,7 +2969,7 @@ class TestMergedInventoryEntry:
     ) -> None:
         import hashlib
 
-        import rebrew.verify as verify
+        import rebrew.verify.cli as verify
         from rebrew.formats.binary_loader import extract_raw_bytes
         from rebrew.metadata.functions import get_entry
 
@@ -3091,8 +3091,8 @@ class TestMergedInventoryEntry:
                 relocation_bindings=bindings,
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
 
     _BINDINGS = (
@@ -3146,7 +3146,7 @@ class TestMergedInventoryEntry:
         assert "unresolved_relocations" not in result
 
     def test_shared_import_uses_selected_function_flags(self, tmp_path: Path, monkeypatch) -> None:
-        import rebrew.verify as verify
+        import rebrew.verify.cli as verify
         from rebrew.metadata.functions import record_function_identity
 
         src, dst = self._cfgs(tmp_path, _merged_pe())
@@ -3193,7 +3193,7 @@ class TestMergedInventoryEntry:
     def test_failed_body_retry_keeps_original_comparison_inputs(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        import rebrew.verify as verify
+        import rebrew.verify.cli as verify
         from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.bindings import SourceBinding
 
@@ -3281,7 +3281,7 @@ class TestMergedInventoryEntry:
     def test_failed_managed_retarget_preserves_entire_prior_record(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        import rebrew.verify as verify
+        import rebrew.verify.cli as verify
         from rebrew.metadata.functions import (
             get_entry,
             record_function_identity,

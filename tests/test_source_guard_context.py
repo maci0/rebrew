@@ -4,7 +4,7 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.source_guard_context import guard_contexts
+from rebrew.source.guard_context import guard_contexts
 
 
 def test_exact_nested_and_else_directives_preserve_source(tmp_path: Path) -> None:
@@ -55,15 +55,15 @@ def test_digest_guard_rejects_stale_plan(tmp_path: Path, monkeypatch: pytest.Mon
     from typer.testing import CliRunner
 
     from rebrew.config import ProjectConfig
-    from rebrew.source_organize import app
+    from rebrew.source.organize import app
 
     source = tmp_path / "a.c"
     source.write_text("int f(void) { return 1; }\n")
     cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
-    monkeypatch.setattr("rebrew.source_organize.require_config", lambda **kwargs: cfg)
-    monkeypatch.setattr("rebrew.source_organize.organization_configs", lambda cfg: [cfg])
+    monkeypatch.setattr("rebrew.source.organize.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.organize.organization_configs", lambda cfg: [cfg])
     monkeypatch.setattr(
-        "rebrew.source_organize.review_organization",
+        "rebrew.source.organize.review_organization",
         lambda *a, **kw: {"input_digest": "current", "unknown": [], "problems": []},
     )
     result = CliRunner().invoke(
@@ -79,20 +79,20 @@ def test_guards_refuse_config_change_during_target_loading(
     from typer.testing import CliRunner
 
     from rebrew.config import ProjectConfig
-    from rebrew.source_organize import app
+    from rebrew.source.organize import app
 
     config = tmp_path / "rebrew-project.toml"
     config.write_text('[metadata]\nbackend = "toml"\n')
     source = tmp_path / "a.c"
     source.write_text("int f(void) { return 1; }\n")
     cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
-    monkeypatch.setattr("rebrew.source_organize.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.organize.require_config", lambda **kwargs: cfg)
 
     def change_config(context: ProjectConfig) -> list[ProjectConfig]:
         config.write_text('[metadata]\nbackend = "toml"\n# changed\n')
         return [context]
 
-    monkeypatch.setattr("rebrew.source_organize.organization_configs", change_config)
+    monkeypatch.setattr("rebrew.source.organize.organization_configs", change_config)
     result = CliRunner().invoke(app, ["guards", str(source), "--json"])
     assert result.exit_code != 0 and "config changed" in result.output
 

@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-import rebrew.verify as verify_mod
+import rebrew.verify.cli as verify_mod
 
 
 class TestWatchFiles:
@@ -180,7 +180,7 @@ class TestVerifyWatchCli:
             ),
         )
         discovered: list[Path] = [Path("/tmp/a.c"), Path("/tmp/b.c")]
-        monkeypatch.setattr("rebrew.sources.iter_sources", lambda _d, _c: list(discovered))
+        monkeypatch.setattr("rebrew.source.discovery.iter_sources", lambda _d, _c: list(discovered))
 
         def fake_watch(paths: list[Path], retest: object, **kwargs: object) -> None:
             seen["paths"] = paths

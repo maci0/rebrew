@@ -24,7 +24,7 @@ import pytest
 from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
-from rebrew.splat_config import SUPPORTED_PLATFORM, SplatConfig, parse_splat_config
+from rebrew.buildsys.splat_config import SUPPORTED_PLATFORM, SplatConfig, parse_splat_config
 
 # ---------------------------------------------------------------------------
 # Strategies: a splat config, drawn line by line

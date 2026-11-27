@@ -23,8 +23,9 @@ lazy from collections.abc import Callable
 
 import pytest
 
-from rebrew import coverage_toml, utils
-from rebrew.coverage_db import (
+from rebrew import utils
+from rebrew.coverage import toml as coverage_toml
+from rebrew.coverage.db import (
     HISTORY_RETENTION,
     KNOWN_CELL_STATES,
     clamp_nonneg_int,
@@ -32,7 +33,7 @@ from rebrew.coverage_db import (
     normalize_cell_row,
     parse_int,
 )
-from rebrew.coverage_toml import (
+from rebrew.coverage.toml import (
     _FUNCTION_COLUMNS,
     _GLOBAL_COLUMNS,
     _TOML_VERSION,
@@ -180,7 +181,7 @@ def write(
     Only ``load_coverage_datasets`` is replaced, so the db_dir resolution, the
     previous-file read, the atomic write and every normalization stay on the
     path under test.  The seam is patched where it is used: the module imports
-    the helper by name, so patching ``rebrew.build_db`` would leave this
+    the helper by name, so patching ``rebrew.coverage.build_db`` would leave this
     module's binding alone.
     """
     (tmp_path / "db").mkdir()
@@ -1508,7 +1509,7 @@ class TestReaderFailures:
         write_coverage_toml(tmp_path, tmp_path / "db")
         (tmp_path / "db" / "coverage-other.dll.toml").write_text("not = = toml\n", encoding="utf-8")
 
-        with caplog.at_level(logging.WARNING, logger="rebrew.coverage_toml"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.toml"):
             snapshots = load_all_coverage_from(tmp_path / "db")
         # Two of three targets beats a 500: the healthy one still loads.
         assert sorted(snapshots) == [TARGET]
@@ -1538,7 +1539,7 @@ def test_lone_surrogate_in_a_name_still_renders_a_parsable_document() -> None:
     ``json.dumps`` escapes U+DC80 as ``\\udc80``, which TOML has no escape for,
     so the document would be written and then rejected by every reader.
     """
-    from rebrew.coverage_toml import render_coverage_toml
+    from rebrew.coverage.toml import render_coverage_toml
 
     data = copy.deepcopy(SAMPLE_DATA)
     fns = data["functions"]

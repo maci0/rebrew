@@ -80,7 +80,7 @@ def _project(tmp_path: Path, pe: bytes, functions: str) -> Path:
 
 
 def _invoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str):
-    from rebrew.layout_map import app
+    from rebrew.buildsys.layout_map import app
 
     monkeypatch.chdir(tmp_path)
     with warnings.catch_warnings():
@@ -210,7 +210,7 @@ class TestLayoutMapCli:
         assert cli_payload(result)["error"]
 
     def test_help_lists_options(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.layout_map import app
+        from rebrew.buildsys.layout_map import app
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--help"])
@@ -289,7 +289,7 @@ class TestGapLengthFormatting:
         nonsense byte length there reads as a corrupt file rather than as the
         overlap the manifest already labels.
         """
-        from rebrew.layout_map import _GAP_CLASSES, write_text_map
+        from rebrew.buildsys.layout_map import _GAP_CLASSES, write_text_map
 
         manifest = {
             "target": "game.exe",
@@ -320,7 +320,7 @@ class TestPeHeaderTimestamp:
         """PE TimeDateStamp is a DWORD; layout_map must mask like pe_info."""
         from types import SimpleNamespace
 
-        from rebrew.layout_map import _pe_header
+        from rebrew.buildsys.layout_map import _pe_header
 
         pe = SimpleNamespace(
             header=SimpleNamespace(

@@ -186,7 +186,7 @@ def bench_catalog_grid() -> dict[str, Any]:
 
 def bench_verify_cache() -> dict[str, Any]:
     """VerifyCache save + load round-trip with 500 entries."""
-    from rebrew.verify_cache import VerifyCache, VerifyCacheEntry
+    from rebrew.verify.cache import VerifyCache, VerifyCacheEntry
 
     entries: dict[str, VerifyCacheEntry] = {}
     for i in range(500):
@@ -452,7 +452,7 @@ def bench_verify_cached() -> dict[str, Any]:
     """The incremental verify cache-hit check over 500 sources (source hash +
     header fingerprint — the per-entry cost of an incremental `rebrew verify`)."""
     from rebrew.config import ProjectConfig
-    from rebrew.verify_hash import entry_headers_fp, source_hash
+    from rebrew.verify.hash import entry_headers_fp, source_hash
 
     with tempfile.TemporaryDirectory() as d:
         src_dir = Path(d) / "src"

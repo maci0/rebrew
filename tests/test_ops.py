@@ -40,9 +40,9 @@ from bin_util import append_pe_section, le32, make_import_call_pe
 from recompile_stub import serve_recompile
 from session_cache import build_once
 
+from rebrew.coverage.report import SITE_DATA_KINDS
 from rebrew.discover import DISCOVERY_RULE
 from rebrew.ops import COMPILING_OPS, OPS, WorkerConfig, dispatch, target_name
-from rebrew.report import SITE_DATA_KINDS
 
 FIXTURES = Path(__file__).parent / "fixtures"
 BINARY = FIXTURES / "mini_pe.exe"
@@ -191,7 +191,7 @@ def _refusal_sites(*modules: str) -> dict[str, _Definition]:
     from rebrew import ops
 
     constants = {name: value for name, value in vars(ops).items() if isinstance(value, str)}
-    src = Path(ops.__file__).parent
+    src = Path(ops.__file__).parent.parent
     sites: dict[str, _Definition] = {}
     paths = [src / f"{module}.py" for module in modules] or sorted(src.rglob("*.py"))
     for path in paths:
@@ -415,8 +415,8 @@ class TestContract:
         """A caller validating against the schema sees exactly what the op refuses others of."""
         from rebrew import ops
         from rebrew.metadata.bindings import DATA_KINDS
+        from rebrew.ops.snapshot_mutations import OPERATIONS
         from rebrew.security_scan import SEVERITY_ORDER
-        from rebrew.snapshot_mutations import OPERATIONS
 
         enforced = {
             ("rebrew.retained_source_operation", "operation"): OPERATIONS,
@@ -441,7 +441,7 @@ class TestContract:
 
     def test_the_report_manifest_publishes_its_kinds(self) -> None:
         """A consumer withholds a site file by its kinds; the schema names the set."""
-        from rebrew.report import SITE_DATA_KINDS
+        from rebrew.coverage.report import SITE_DATA_KINDS
 
         entry = _CONTRACT["ops"]["rebrew.report"]["response"]["properties"]["manifest"]["items"]
         assert entry["required"] == ["path", "size", "digest", "kinds"]
@@ -472,7 +472,7 @@ class TestContract:
         """The backend renders a nullable as ``oneOf``; it has no ``type`` array."""
         from typing import TypedDict
 
-        from rebrew.ops_replies import json_schema
+        from rebrew.ops.replies import json_schema
 
         class Reply(TypedDict):
             hash: str | None
@@ -487,7 +487,7 @@ class TestContract:
         """The backend omits an empty ``required``."""
         from typing import TypedDict
 
-        from rebrew.ops_replies import json_schema
+        from rebrew.ops.replies import json_schema
 
         class Reply(TypedDict, total=False):
             code: str
@@ -515,7 +515,7 @@ class TestContract:
         :data:`rebrew.ops._FINAL_RECOMPILE_REFUSALS` counts each code that table holds."""
         from rebrew import ops
 
-        sites = _refusal_sites("ops", "snapshot_mutations")
+        sites = _refusal_sites("ops/__init__", "ops/snapshot_mutations")
         table = {code for code, _detail in ops._FINAL_RECOMPILE_REFUSALS.values()}
 
         def reached(name: str) -> set[str]:
@@ -549,9 +549,9 @@ class TestContract:
             }
 
     def test_a_workspace_path_member_is_marked_by_its_format(self) -> None:
-        """Each member :data:`rebrew.ops_replies.WORKSPACE_PATHS` names, and no other, is a
+        """Each member :data:`rebrew.ops.replies.WORKSPACE_PATHS` names, and no other, is a
         string of ``format`` ``workspace-path``."""
-        from rebrew.ops_replies import WORKSPACE_PATHS
+        from rebrew.ops.replies import WORKSPACE_PATHS
 
         handle = {"format": "workspace-path", "type": "string"}
 
@@ -589,7 +589,7 @@ class TestContract:
     def test_a_compile_records_execution_is_recompiles_provenance(self) -> None:
         """``execution`` is declared as recompile states it: every field of its
         ``ExecutionProvenance``, with recompile's types and closed sets."""
-        from rebrew.ops_replies import ExecutionProvenance, json_schema
+        from rebrew.ops.replies import ExecutionProvenance, json_schema
 
         pinned = json.loads((FIXTURES / "recompile" / "execution-provenance.json").read_text())
         schema = json_schema(ExecutionProvenance)
@@ -1325,12 +1325,12 @@ class TestProjectOps:
         self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.ops as ops
-        from rebrew.coverage_project import load_project_coverage
+        from rebrew.coverage.project import load_project_coverage
 
         _config, project = world
         view = load_project_coverage(project, refresh=True)
         monkeypatch.setattr(
-            "rebrew.coverage_project.load_project_coverage", lambda *args, **kwargs: view
+            "rebrew.coverage.project.load_project_coverage", lambda *args, **kwargs: view
         )
         resolved: list[Path] = []
         resolve = Path.resolve
@@ -1360,7 +1360,7 @@ class TestProjectOps:
     def test_import_project_from_snapshots(
         self, world: tuple[WorkerConfig, Path], tmp_path: Path
     ) -> None:
-        from rebrew.coverage_db import write_coverage
+        from rebrew.coverage.db import write_coverage
 
         config, project = world
         assert config.workspace is not None
@@ -2121,7 +2121,7 @@ def _retained_coverage_request(
     Returns the worker configuration over *tmp_path*, the request, the analyse
     reply (its ``project`` names the copy) and the coverage envelope.
     """
-    from rebrew.coverage_input_contract import coverage_input_digest, plan_coverage_readset
+    from rebrew.coverage.input_contract import coverage_input_digest, plan_coverage_readset
     from rebrew.ops import RetainedFile, retained_target_snapshot
 
     config, project = _copy_analysed(fresh_analysis, tmp_path)
@@ -2211,7 +2211,7 @@ class TestReconstructionOps:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from rebrew.coverage_input_contract import (
+        from rebrew.coverage.input_contract import (
             coverage_input_digest,
             verification_records_digest,
         )
@@ -2437,7 +2437,7 @@ class TestReconstructionOps:
     ) -> None:
         config, request, _analysed, _envelope = _retained_coverage_request(fresh_analysis, tmp_path)
         monkeypatch.setattr(
-            "rebrew.report.generate_report",
+            "rebrew.coverage.report.generate_report",
             lambda _cfg, out, **_k: {"out": str(out), "pages": [], "summary": {}, "kinds": {}},
         )
         site = {**request, "binary_id": 1, "output_dir": "reports/generated/" + "c" * 32}
@@ -2820,7 +2820,7 @@ class TestReconstructionOps:
         status, _ = dispatch(config, "rebrew.build", json.dumps(request).encode())
         assert status == 400
 
-        from rebrew import report
+        from rebrew.coverage import report
 
         def render(_cfg: Any, out: Path) -> dict[str, Any]:
             (out / "index.html").write_text("safe report")
@@ -2904,7 +2904,7 @@ class TestReconstructionOps:
     def test_import_project_reads_portable_coverage_documents(
         self, world: tuple[WorkerConfig, Path]
     ) -> None:
-        from rebrew.coverage_toml import write_coverage_toml
+        from rebrew.coverage.toml import write_coverage_toml
 
         config, project = world
         assert config.workspace is not None
@@ -3967,7 +3967,7 @@ class TestOpDeadlines:
             advance_op_clock(2)
             return dict(_EXACT_VERIFY)
 
-        monkeypatch.setattr("rebrew.test.run_test", outlives_the_deadline)
+        monkeypatch.setattr("rebrew.verify.test.run_test", outlives_the_deadline)
         source = min((project / "src" / "mini").glob("*.c")).relative_to(project).as_posix()
         body = json.dumps({"project_dir": str(project), "source": source, "no_promote": True})
         status, reply = dispatch(config, "rebrew.verify_function", body.encode())

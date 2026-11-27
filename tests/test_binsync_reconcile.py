@@ -298,7 +298,7 @@ class TestDurableEvidence:
     ) -> None:
         from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.bindings import SourceBinding
-        from rebrew.verify import run_verification, verify_entry
+        from rebrew.verify.cli import run_verification, verify_entry
 
         cfg = _project(tmp_path)
         source = cfg.reversed_dir / "foo.c"

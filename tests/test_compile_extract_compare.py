@@ -95,7 +95,7 @@ class TestExtractAndCompare:
         from types import SimpleNamespace
 
         from rebrew.compiler.compile import CompareResult, compile_and_compare
-        from rebrew.test import build_result_dict_from_compare
+        from rebrew.verify.test import build_result_dict_from_compare
 
         obj = b"\x90" * 4 + (4).to_bytes(4, "little")
         native = b"\x90" * 4 + (0x1204).to_bytes(4, "little")

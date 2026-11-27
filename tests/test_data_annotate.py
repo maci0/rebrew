@@ -6,7 +6,7 @@ lazy from pathlib import Path
 
 from source_util import SourceFixture, write_source, write_store_fixture
 
-from rebrew.data_annotate import annotate_globals
+from rebrew.data.annotate import annotate_globals
 
 
 def _mk(src: Path) -> None:
@@ -277,8 +277,8 @@ def test_cli_data_annotation_uses_the_selected_targets_file_scope(tmp_path, monk
     from cli_json import cli_payload
     from typer.testing import CliRunner
 
-    from rebrew import data
     from rebrew.config import ProjectConfig
+    from rebrew.data import cli as data
     from rebrew.metadata.data import load_data_metadata
 
     src = tmp_path / "src" / "SERVER"
@@ -315,7 +315,7 @@ def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:
     """
     from types import SimpleNamespace
 
-    from rebrew.data_annotate import gen_globals_header
+    from rebrew.data.annotate import gen_globals_header
     from rebrew.metadata.data import set_data_field
 
     src = tmp_path / "src" / "SERVER"
@@ -354,7 +354,7 @@ def test_gen_header_drops_type_that_ends_the_declaration(tmp_path) -> None:
     """
     from types import SimpleNamespace
 
-    from rebrew.data_annotate import gen_globals_header
+    from rebrew.data.annotate import gen_globals_header
     from rebrew.metadata.data import set_data_field
 
     src = tmp_path / "src" / "SERVER"

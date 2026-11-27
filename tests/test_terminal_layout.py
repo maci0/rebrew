@@ -120,7 +120,7 @@ class TestReports:
     def test_verification_keeps_measured_values(
         self, monkeypatch: pytest.MonkeyPatch, width: int
     ) -> None:
-        import rebrew.verify as verify
+        import rebrew.verify.cli as verify
 
         buffer = StringIO()
         monkeypatch.setattr(

@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import atheris
 
-from rebrew.splat_config import (
+from rebrew.buildsys.splat_config import (
     SUPPORTED_PLATFORM,
     SplatConfig,
     parse_splat_text,
@@ -113,7 +113,7 @@ def TestOneInput(data: bytes) -> None:
     again = parse_splat_text(text, _ANCHOR)
     assert again == cfg
     # The file-path entry point agrees with the text entry point.
-    from rebrew.splat_config import parse_splat_config
+    from rebrew.buildsys.splat_config import parse_splat_config
 
     try:
         via_file = parse_splat_config(_ANCHOR)

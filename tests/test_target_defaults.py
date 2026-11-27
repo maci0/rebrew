@@ -147,8 +147,9 @@ class TestTargetOptionContract:
 
     def test_batch_tools_declare_all_targets(self) -> None:
         """The batch tools carry the --all-targets escape hatch."""
-        from rebrew import lint, status, todo, verify
-        from rebrew import test as testmod
+        from rebrew import lint, status, todo
+        from rebrew.verify import cli as verify
+        from rebrew.verify import test as testmod
 
         for mod in (verify, testmod, lint, status, todo):
             assert "all_targets" in inspect.signature(mod.main).parameters, mod.__name__
@@ -274,7 +275,7 @@ class TestVerifyPlacementDefaults:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """--built defaults to build/<target>, not one hardcoded binary."""
-        from rebrew.verify_placement import app as vp_app
+        from rebrew.verify.placement import app as vp_app
 
         root = _project(tmp_path)
         write_store_fixture(root / "rebrew-data.toml", "", encoding="utf-8")
@@ -385,11 +386,11 @@ class TestSourceTargetScope:
     @pytest.mark.parametrize(
         "module, args",
         [
-            ("rebrew.test", ["--source-targets", "--va", "0x401000"]),
-            ("rebrew.test", ["--source-targets", "--size", "0"]),
-            ("rebrew.verify", ["--source-targets", "--data"]),
-            ("rebrew.verify", ["--all-targets", "--link-map", "one.map"]),
-            ("rebrew.data", ["list", "--all-targets", "--link-map", "one.map"]),
+            ("rebrew.verify.test", ["--source-targets", "--va", "0x401000"]),
+            ("rebrew.verify.test", ["--source-targets", "--size", "0"]),
+            ("rebrew.verify.cli", ["--source-targets", "--data"]),
+            ("rebrew.verify.cli", ["--all-targets", "--link-map", "one.map"]),
+            ("rebrew.data.cli", ["list", "--all-targets", "--link-map", "one.map"]),
         ],
     )
     def test_pinned_overrides_rejected_before_config(self, module: str, args: list[str]) -> None:

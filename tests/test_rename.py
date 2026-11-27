@@ -9,8 +9,8 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 from tree_snapshot import snapshot, top_level_snapshot
 
-from rebrew import rename_ops
-from rebrew.rename_ops import rename_function_everywhere
+from rebrew.source import rename_ops
+from rebrew.source.rename_ops import rename_function_everywhere
 
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
@@ -24,7 +24,7 @@ def _src(tmp_path: Path, name: str, content: str) -> Path:
 
 
 def _patch_sources(monkeypatch: pytest.MonkeyPatch, files: list[Path]) -> None:
-    monkeypatch.setattr("rebrew.rename_ops.iter_sources_and_headers", lambda _d, _c: files)
+    monkeypatch.setattr("rebrew.source.rename_ops.iter_sources_and_headers", lambda _d, _c: files)
 
 
 @pytest.mark.parametrize("backend", ["toml", "sqlite"])
@@ -801,7 +801,7 @@ class TestRenameEdgeCases:
         made the preview under-report and the run silently leave the tree
         split, so both now stop.
         """
-        from rebrew.rename_ops import RenameError, rename_function_everywhere
+        from rebrew.source.rename_ops import RenameError, rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -820,7 +820,7 @@ class TestRenameEdgeCases:
         old code warned and half-applied the rename)."""
         import pytest
 
-        from rebrew.rename_ops import rename_function_everywhere
+        from rebrew.source.rename_ops import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -836,7 +836,7 @@ class TestRenameEdgeCases:
         assert "old_fn" in sibling.read_text(encoding="utf-8")
 
     def test_extern_oserror_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.rename_ops import RenameError, rename_function_everywhere
+        from rebrew.source.rename_ops import RenameError, rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -864,7 +864,7 @@ class TestRenameEdgeCases:
         assert "old_fn" in bad.read_text(encoding="utf-8")
 
     def test_new_filename_absolute_path(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.rename_ops import rename_function_everywhere
+        from rebrew.source.rename_ops import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -879,7 +879,7 @@ class TestRenameEdgeCases:
         assert not primary.exists()
 
     def test_stem_not_matching_keeps_file(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.rename_ops import rename_function_everywhere
+        from rebrew.source.rename_ops import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -1007,7 +1007,7 @@ class TestRenameCli:
     ) -> Any:
         from typer.testing import CliRunner
 
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
@@ -1018,13 +1018,13 @@ class TestRenameCli:
             metadata_dir=tmp_path,
             source_ext=".c",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         if entries is None:
             entries = [
                 SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000)
             ]
         monkeypatch.setattr(
-            "rebrew.rename.scan_reversed_dir",
+            "rebrew.source.rename.scan_reversed_dir",
             lambda d, cfg=None, similarity=True: entries,
         )
         return CliRunner().invoke(app, list(args))
@@ -1059,14 +1059,14 @@ class TestRenameCli:
         them; the CLI reported only the message, which named the operation but
         not the files.
         """
-        from rebrew.rename_ops import RenameError
+        from rebrew.source.rename_ops import RenameError
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
         stale = src / "stale.c"
         stale.write_text("extern int old_fn(void);\n", encoding="utf-8")
         monkeypatch.setattr(
-            "rebrew.rename.plan_symbol_rename",
+            "rebrew.source.rename.plan_symbol_rename",
             lambda *a, **kw: (_ for _ in ()).throw(
                 RenameError("call sites not rewritten", files=[stale])
             ),
@@ -1079,13 +1079,13 @@ class TestRenameCli:
     def test_failure_output_stays_within_the_file_cap(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.rename import _RENAME_FAILURE_FILE_LIMIT
-        from rebrew.rename_ops import RenameError
+        from rebrew.source.rename import _RENAME_FAILURE_FILE_LIMIT
+        from rebrew.source.rename_ops import RenameError
 
         src = tmp_path / "src" / "SERVER"
         many = [src / f"f{i:03d}.c" for i in range(_RENAME_FAILURE_FILE_LIMIT + 5)]
         monkeypatch.setattr(
-            "rebrew.rename.plan_symbol_rename",
+            "rebrew.source.rename.plan_symbol_rename",
             lambda *a, **kw: (_ for _ in ()).throw(
                 RenameError("call sites not rewritten", files=many)
             ),
@@ -1145,7 +1145,7 @@ class TestRenameCli:
     def test_multiple_matches_errors(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
@@ -1156,9 +1156,9 @@ class TestRenameCli:
             metadata_dir=tmp_path,
             source_ext=".c",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.rename.scan_reversed_dir",
+            "rebrew.source.rename.scan_reversed_dir",
             lambda d, cfg=None, similarity=True: [
                 SimpleNamespace(name="dup", symbol="_dup", filepath="a.c", va=0x1000),
                 SimpleNamespace(name="dup", symbol="_dup", filepath="b.c", va=0x2000),
@@ -1173,7 +1173,7 @@ class TestRenameCli:
         otherwise two functions share one name (duplicate definition)."""
         from typer.testing import CliRunner
 
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
@@ -1184,9 +1184,9 @@ class TestRenameCli:
             metadata_dir=tmp_path,
             source_ext=".c",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.rename.scan_reversed_dir",
+            "rebrew.source.rename.scan_reversed_dir",
             lambda d, cfg=None, similarity=True: [
                 SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000),
                 SimpleNamespace(name="taken", symbol="_taken", filepath="taken.c", va=0x2000),
@@ -1203,7 +1203,7 @@ class TestRenameCli:
         plain-name check must not miss it."""
         from typer.testing import CliRunner
 
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
@@ -1214,9 +1214,9 @@ class TestRenameCli:
             metadata_dir=tmp_path,
             source_ext=".c",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.rename.scan_reversed_dir",
+            "rebrew.source.rename.scan_reversed_dir",
             lambda d, cfg=None, similarity=True: [
                 SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000),
                 SimpleNamespace(name="taken2", symbol="_taken2@8", filepath="taken2.c", va=0x2000),
@@ -1237,7 +1237,7 @@ class TestRenameCli:
         """
         from typer.testing import CliRunner
 
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True)
@@ -1248,7 +1248,7 @@ class TestRenameCli:
             metadata_dir=tmp_path,
             source_ext=".c",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
 
         def scan_for(symbol: str):
             return lambda d, cfg=None, similarity=True: [
@@ -1257,12 +1257,12 @@ class TestRenameCli:
             ]
 
         for symbol in ("taken2@@12", "@taken2@4"):
-            monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for(symbol))
+            monkeypatch.setattr("rebrew.source.rename.scan_reversed_dir", scan_for(symbol))
             result = CliRunner().invoke(app, ["--json", "old_fn", "taken2"])
             assert result.exit_code != 0
             assert "duplicate symbol" in result.output
 
-        monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for("taken2@@12"))
+        monkeypatch.setattr("rebrew.source.rename.scan_reversed_dir", scan_for("taken2@@12"))
         result = CliRunner().invoke(app, ["--json", "old_fn", "taken"])
         assert "duplicate symbol" not in result.output
 
@@ -1356,13 +1356,13 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
 
         self._project(tmp_path)
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_new"
@@ -1374,10 +1374,10 @@ class TestRenameData:
         import typer
         from typer.testing import CliRunner
 
-        from rebrew.rename import main
+        from rebrew.source.rename import main
 
         self._project(tmp_path)
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         app = typer.Typer()
         app.command()(main)
         runner = CliRunner()
@@ -1403,14 +1403,14 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main
+        from rebrew.source.rename import main
 
         self._project(tmp_path)
         store = tmp_path / "rebrew-data.toml"
         store.write_text(
             store.read_text() + '\n["CLIENT.0x3000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n'
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         (tmp_path / "stubs").mkdir()
         scaffold = tmp_path / "stubs" / "symbols.c"
         scaffold.write_text("int g_old;\n")
@@ -1458,12 +1458,12 @@ class TestRenameData:
         import typer
         from typer.testing import CliRunner
 
-        from rebrew.rename import main
+        from rebrew.source.rename import main
 
         self._project(tmp_path)
         (tmp_path / "stubs").mkdir()
         (tmp_path / "stubs" / "symbols.c").write_text(body)
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         app = typer.Typer()
         app.command()(main)
         result = CliRunner().invoke(
@@ -1479,7 +1479,7 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main
+        from rebrew.source.rename import main
 
         self._project(tmp_path)
         store = tmp_path / "rebrew-data.toml"
@@ -1490,7 +1490,7 @@ class TestRenameData:
         (tmp_path / "stubs").mkdir()
         scaffold = tmp_path / "stubs" / "symbols.c"
         scaffold.write_text("int g_old;\n")
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         app = typer.Typer()
         app.command()(main)
         runner = CliRunner()
@@ -1519,7 +1519,7 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
@@ -1529,7 +1529,7 @@ class TestRenameData:
         write_store_fixture(
             store, store.read_text(encoding="utf-8") + 'link_symbol = "_g_old"\n', encoding="utf-8"
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("link_symbol") == "_g_new"
@@ -1539,14 +1539,14 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
 
         self._project(tmp_path)
         (tmp_path / "src" / "g.h").write_text("extern int g_old;\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
         assert res.exit_code == 0, res.output
         header = (tmp_path / "src" / "g.h").read_text(encoding="utf-8")
@@ -1557,13 +1557,13 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
 
         self._project(tmp_path)
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data", "--dry-run"])
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
@@ -1576,18 +1576,18 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
 
         self._project(tmp_path)
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
 
         def _boom(_path: Path) -> tuple[str, str]:
             raise OSError(13, "Permission denied")
 
-        monkeypatch.setattr("rebrew.rename_ops.read_source_text", _boom)
+        monkeypatch.setattr("rebrew.source.rename_ops.read_source_text", _boom)
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
         assert res.exit_code != 0
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
@@ -1598,7 +1598,7 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
@@ -1616,7 +1616,7 @@ class TestRenameData:
             'format = 2\n["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["0x313fc", "g_100313fc", "--data"])
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x313FC, "SERVER").get("name") == "g_100313fc"
@@ -1628,7 +1628,7 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
@@ -1646,7 +1646,7 @@ class TestRenameData:
             'format = 2\n["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["$SG18890", "g_100313fc", "--data", "--dry-run"])
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x313FC, "SERVER").get("name") == "$SG18890"
@@ -1664,7 +1664,7 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
@@ -1684,7 +1684,7 @@ class TestRenameData:
             'format = 2\n["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         real_read = rename_ops.read_source_text
 
         def _read(path: Path) -> tuple[str, str]:
@@ -1711,7 +1711,7 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
@@ -1729,8 +1729,8 @@ class TestRenameData:
                 is_data=True,
             )
         ]
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
-        monkeypatch.setattr("rebrew.rename.scan_reversed_dir", lambda *a, **kw: entries)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.scan_reversed_dir", lambda *a, **kw: entries)
         res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
         assert res.exit_code != 0
         assert "escapes the source roots" in res.output
@@ -1742,13 +1742,13 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
 
         self._project(tmp_path)
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["g_old", "f", "--data"])
         assert res.exit_code == 2
         assert "would create a duplicate symbol" in res.output
@@ -1767,7 +1767,7 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
@@ -1779,7 +1779,7 @@ class TestRenameData:
             'format = 2\n["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
         data = SimpleNamespace(
             name="g_old", symbol="g_old", filepath="g.c", va=0x2000, module="SERVER", is_data=True
         )
@@ -1798,13 +1798,13 @@ class TestRenameData:
             ]
 
         for symbol in ("_hook@8", "hook@@12", "@hook@4"):
-            monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for(symbol))
+            monkeypatch.setattr("rebrew.source.rename.scan_reversed_dir", scan_for(symbol))
             res = CliRunner().invoke(app, ["g_old", "hook", "--data"])
             assert res.exit_code == 2
             assert "would create a duplicate symbol" in res.output
             assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
 
-        monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for("hook@@12"))
+        monkeypatch.setattr("rebrew.source.rename.scan_reversed_dir", scan_for("hook@@12"))
         res = CliRunner().invoke(app, ["g_old", "hoo", "--data", "--dry-run"])
         assert res.exit_code == 0
         assert "duplicate symbol" not in res.output
@@ -1822,7 +1822,7 @@ class TestRenameData:
         from typer.testing import CliRunner
 
         from rebrew.metadata.data import get_data_entry
-        from rebrew.rename import main as _rename_main
+        from rebrew.source.rename import main as _rename_main
 
         app = _typer.Typer()
         app.command()(_rename_main)
@@ -1834,7 +1834,7 @@ class TestRenameData:
             'format = 2\n["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: self._cfg(tmp_path))
 
         def scan_for(symbol: str):
             return lambda d, cfg=None, similarity=True: [
@@ -1849,13 +1849,13 @@ class TestRenameData:
             ]
 
         for symbol in ("_hook", "_hook@8", "hook@@12", "@hook@4"):
-            monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for(symbol))
+            monkeypatch.setattr("rebrew.source.rename.scan_reversed_dir", scan_for(symbol))
             res = CliRunner().invoke(app, ["g_old", "hook", "--data"])
             assert res.exit_code == 2, symbol
             assert "would create a duplicate symbol" in res.output
             assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
 
-        monkeypatch.setattr("rebrew.rename.scan_reversed_dir", scan_for("hook@@12"))
+        monkeypatch.setattr("rebrew.source.rename.scan_reversed_dir", scan_for("hook@@12"))
         res = CliRunner().invoke(app, ["g_old", "hoo", "--data", "--dry-run"])
         assert res.exit_code == 0
         assert "duplicate symbol" not in res.output
@@ -1887,7 +1887,7 @@ class TestProtectedSpans:
         A raw-text substitution rewrote ``puts("foo")``, changing the data a
         byte-matched function emits.
         """
-        from rebrew.c_rename import ORDINARY_ROLES, ParsedSource, occurrences, rewrite
+        from rebrew.source.c_rename import ORDINARY_ROLES, ParsedSource, occurrences, rewrite
 
         src = ParsedSource.parse(
             "int foo(void) { return 1; }\n"
@@ -1903,7 +1903,7 @@ class TestProtectedSpans:
 
     def test_word_boundary_is_unicode(self) -> None:
         """A non-ASCII letter is part of the word: ``éfoo`` is not ``foo``."""
-        from rebrew.c_rename import ParsedSource, occurrences
+        from rebrew.source.c_rename import ParsedSource, occurrences
 
         src = ParsedSource.parse("int éfoo; int foo(void);\n")
         assert [o.column for o in occurrences(src, "foo")] == [15]
@@ -1989,13 +1989,13 @@ class TestReferenceBindingDigest:
         )
         cfg = _cfg(tmp_path)
         cfg.root, cfg.module, cfg.source_ext = tmp_path, "CLIENT", ".c"
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         return cfg
 
     def _invoke(self, *args: str) -> Any:
         from typer.testing import CliRunner
 
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         return CliRunner().invoke(app, ["--json", *args, "placeholder", "CLIENT.0x1000"])
 
@@ -2066,7 +2066,7 @@ class TestFunctionReferenceBinding:
         from typer.testing import CliRunner
 
         from rebrew.metadata.functions import record_function_identity
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         source_dir = tmp_path / "src"
         source_dir.mkdir()
@@ -2123,7 +2123,7 @@ class TestFunctionReferenceBinding:
             "CLIENT",
             ".c",
         )
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         before = snapshot(tmp_path)
         result = CliRunner().invoke(
             app, ["--json", *(["--dry-run"] if preview else []), "placeholder", "CLIENT.0x1000"]
@@ -2165,7 +2165,7 @@ class TestFunctionReferenceBinding:
         from typer.testing import CliRunner
 
         from rebrew.metadata.functions import record_function_identity
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         header = _src(tmp_path, "library_crt.h", header_text)
         caller = _src(
@@ -2185,7 +2185,7 @@ class TestFunctionReferenceBinding:
         )
         cfg = _cfg(tmp_path)
         cfg.root, cfg.module, cfg.source_ext = tmp_path, "CLIENT", ".c"
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         original = caller.read_bytes()
         metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
         result = CliRunner().invoke(
@@ -2207,7 +2207,7 @@ class TestFunctionReferenceBinding:
         from typer.testing import CliRunner
 
         from rebrew.metadata.functions import record_function_identity
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         if conflict != "missing-header":
             _src(
@@ -2234,7 +2234,7 @@ class TestFunctionReferenceBinding:
         )
         cfg = _cfg(tmp_path)
         cfg.root, cfg.module, cfg.source_ext = tmp_path, "CLIENT", ".c"
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         metadata = (tmp_path / "rebrew-functions.toml").read_bytes()
         result = CliRunner().invoke(app, ["--json", "placeholder", "CLIENT.0x1000"])
         assert result.exit_code == 2, result.output
@@ -2248,7 +2248,7 @@ class TestFunctionReferenceBinding:
         from typer.testing import CliRunner
 
         from rebrew.metadata.functions import record_function_identity
-        from rebrew.rename import app
+        from rebrew.source.rename import app
 
         record_function_identity(
             tmp_path,
@@ -2263,7 +2263,7 @@ class TestFunctionReferenceBinding:
         cfg.root = tmp_path
         cfg.module = "CLIENT"
         cfg.source_ext = ".c"
-        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.source.rename.require_config", lambda **kw: cfg)
         return CliRunner().invoke(app, ["--json", *args, "placeholder", "CLIENT.0x1000"])
 
     def test_preview_and_apply_preserve_destination_and_metadata(
@@ -2442,7 +2442,7 @@ class TestFunctionReferenceBinding:
         ],
     )
     def test_declarator_classification(self, declaration: str, kind: str) -> None:
-        from rebrew.c_rename import ParsedSource, definitions
+        from rebrew.source.c_rename import ParsedSource, definitions
 
         assert [d.kind for d in definitions(ParsedSource.parse(declaration), "name")] == [kind]
 

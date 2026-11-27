@@ -11,7 +11,7 @@ from source_util import write_source, write_store_fixture
 from status_util import accept_status_batch, refuse_status_batch
 
 from rebrew.compiler.compile import CompareResult
-from rebrew.test import (
+from rebrew.verify.test import (
     _expand_reloc_offsets,
     _select_annotation_for_va,
     build_result_dict_from_compare,
@@ -228,7 +228,7 @@ class TestSizePersistence:
         )
 
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=False,
                 status="SIZE_MISMATCH",
@@ -271,7 +271,7 @@ class TestSizePersistence:
 
         from typer.testing import CliRunner
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.app.main import app as umbrella
         from rebrew.compiler.compile import CompareResult
         from rebrew.metadata.functions import get_entry
@@ -306,7 +306,7 @@ class TestSizePersistence:
                 reloc_offsets=[],
             )
 
-        monkeypatch.setattr("rebrew.test.compile_and_compare", _fake_compile)
+        monkeypatch.setattr("rebrew.verify.test.compile_and_compare", _fake_compile)
         size_writes: list[int] = []
         update_field = testmod.update_field
 
@@ -368,7 +368,7 @@ class TestSizePersistence:
         )
 
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=True,
                 status="EXACT",
@@ -419,7 +419,7 @@ class TestSizePersistence:
         )
 
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=True,
                 status="EXACT",
@@ -499,16 +499,16 @@ class TestFixSize:
 
         from typer.testing import CliRunner
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: self._size_mismatch_result(100.0),
         )
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes",
+            "rebrew.verify.test.extract_raw_bytes",
             lambda binpath, va, size: self._real_binary_bytes()[:size],
         )
         size_writer = Mock(wraps=testmod.update_field)
@@ -542,11 +542,11 @@ class TestFixSize:
         self._project(tmp_path, monkeypatch)
         # 90% common-prefix match: real byte differences → --fix-sizes no-op.
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: self._size_mismatch_result(90.0),
         )
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes",
+            "rebrew.verify.test.extract_raw_bytes",
             lambda binpath, va, size: self._real_binary_bytes()[:size],
         )
         result = CliRunner().invoke(
@@ -575,11 +575,11 @@ class TestFixSize:
 
         self._project(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: self._size_mismatch_result(100.0),
         )
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes",
+            "rebrew.verify.test.extract_raw_bytes",
             lambda binpath, va, size: self._real_binary_bytes()[:size],
         )
         result = CliRunner().invoke(
@@ -626,11 +626,11 @@ class TestFixSize:
             metadata_fields={"A.0x1000": {"kind": "FUNCTION"}, "B.0x2000": {"kind": "FUNCTION"}},
         )
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: self._size_mismatch_result(100.0),
         )
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes",
+            "rebrew.verify.test.extract_raw_bytes",
             lambda binpath, va, size: self._real_binary_bytes()[:size],
         )
         result = CliRunner().invoke(
@@ -689,7 +689,7 @@ class TestUnchangedStatusCachePatch:
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=False,
                 status="NEAR_MATCHING",
@@ -700,12 +700,13 @@ class TestUnchangedStatusCachePatch:
             ),
         )
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes", lambda binpath, va, size: b"\x90\x90\x90\x90"[:size]
+            "rebrew.verify.test.extract_raw_bytes",
+            lambda binpath, va, size: b"\x90\x90\x90\x90"[:size],
         )
-        monkeypatch.setattr("rebrew.test.update_source_status", lambda *a, **k: True)
+        monkeypatch.setattr("rebrew.verify.test.update_source_status", lambda *a, **k: True)
         patched: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
         monkeypatch.setattr(
-            "rebrew.test._patch_verify_cache",
+            "rebrew.verify.test._patch_verify_cache",
             lambda *a, **k: patched.append((a, k)),
         )
 
@@ -732,7 +733,7 @@ class TestMultiUnchangedStatusCachePatch:
 
         import typer
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.metadata.bindings import SourceBinding
 
         write_source(
@@ -808,7 +809,7 @@ class TestRefusedPromotionSkipsCache:
     ) -> None:
         from types import SimpleNamespace as NS
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.metadata.bindings import SourceBinding
 
         write_source(
@@ -884,7 +885,7 @@ class TestCflagsPersistence:
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=True,
                 status="EXACT",
@@ -942,7 +943,7 @@ class TestCliSizeLintSuppression:
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=True,
                 status="EXACT",
@@ -981,7 +982,7 @@ class TestMultiFixSize:
     def test_fixes_size_in_multi_path(self, tmp_path: Path, monkeypatch: Any) -> None:
         from types import SimpleNamespace as NS
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
 
         write_source(
             tmp_path / "f.c",
@@ -1064,7 +1065,7 @@ class TestMultiFixSize:
     def test_no_fix_without_flag(self, tmp_path: Path, monkeypatch: Any) -> None:
         from types import SimpleNamespace as NS
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
 
         write_source(
             tmp_path / "f.c",
@@ -1147,7 +1148,7 @@ class TestMultiFixSize:
         the pre-truncation lengths."""
         from types import SimpleNamespace as NS
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
 
         write_source(
             tmp_path / "f.c",
@@ -1213,7 +1214,7 @@ class TestFixSizeEvidence:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, native_address: int, expected: bool
     ) -> None:
         from rebrew.coff_reloc import CoffRelocRecord, relocation_binding_evidence
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
         cfg = self._cfg(tmp_path)
         cfg.check_known_bindings = True
@@ -1223,8 +1224,8 @@ class TestFixSizeEvidence:
         evidence = relocation_binding_evidence(
             obj, target, [CoffRelocRecord(4, 6, "_known")], {"_known": 0x1000}
         )
-        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *_args: native)
-        monkeypatch.setattr("rebrew.test.build_iat_region", lambda _cfg: frozenset())
+        monkeypatch.setattr("rebrew.verify.test.extract_raw_bytes", lambda *_args: native)
+        monkeypatch.setattr("rebrew.verify.test.build_iat_region", lambda _cfg: frozenset())
         assert (
             _fix_size_evidence_ok(
                 cfg,
@@ -1246,10 +1247,10 @@ class TestFixSizeEvidence:
     def test_extension_tail_matches(self, tmp_path: Path, monkeypatch: Any) -> None:
         (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00")
         # compiled 12B > annotated 9B; tail (ret 4) matches the binary.
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes",
+            "rebrew.verify.test.extract_raw_bytes",
             lambda binpath, va, size: Path(binpath).read_bytes()[:size],
         )
         ok = _fix_size_evidence_ok(
@@ -1265,10 +1266,10 @@ class TestFixSizeEvidence:
         # The annotated slice cut the function short AND the tail differs —
         # fixing the size would hide unreproduced code.
         (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xeb\x05\x00")
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes",
+            "rebrew.verify.test.extract_raw_bytes",
             lambda binpath, va, size: Path(binpath).read_bytes()[:size],
         )
         ok = _fix_size_evidence_ok(
@@ -1283,7 +1284,7 @@ class TestFixSizeEvidence:
     def test_annotation_extra_padding_allowed(self, tmp_path: Path) -> None:
         # SourceBinding 12B > compiled 9B; extra bytes are int3 padding.
         (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xcc\xcc\xcc")
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
         ok = _fix_size_evidence_ok(
             self._cfg(tmp_path),
@@ -1298,7 +1299,7 @@ class TestFixSizeEvidence:
         # SourceBinding 12B > compiled 9B; extra bytes are REAL code (partial
         # reproduction hazard — shrinking the size would false-EXACT).
         (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xe8\x00\x00")
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
         ok = _fix_size_evidence_ok(
             self._cfg(tmp_path),
@@ -1311,7 +1312,7 @@ class TestFixSizeEvidence:
 
     def test_equal_lengths_trivially_ok(self, tmp_path: Path) -> None:
         (tmp_path / "x.bin").write_bytes(b"\x55\x8b\xec")
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
         assert (
             _fix_size_evidence_ok(self._cfg(tmp_path), 0x1000, b"\x55\x8b\xec", b"\x55\x8b\xec", [])
@@ -1327,14 +1328,14 @@ class TestFixSizeDisasmFallback:
     def test_merged_boundary_allowed_when_extent_matches(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes",
+            "rebrew.verify.test.extract_raw_bytes",
             lambda binpath, va, size: b"",
         )
         monkeypatch.setattr(
-            "rebrew.test._disasm_extent",
+            "rebrew.verify.test._disasm_extent",
             lambda cfg, va: 10,  # matches compiled
         )
         from types import SimpleNamespace as NS
@@ -1349,14 +1350,14 @@ class TestFixSizeDisasmFallback:
     def test_merged_boundary_refused_when_extent_mismatches(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
         monkeypatch.setattr(
-            "rebrew.test.extract_raw_bytes",
+            "rebrew.verify.test.extract_raw_bytes",
             lambda binpath, va, size: b"",
         )
         monkeypatch.setattr(
-            "rebrew.test._disasm_extent",
+            "rebrew.verify.test._disasm_extent",
             lambda cfg, va: 22,  # function continues
         )
         from types import SimpleNamespace as NS
@@ -1367,10 +1368,10 @@ class TestFixSizeDisasmFallback:
         assert ok is False
 
     def test_extent_none_refuses(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.test import _fix_size_evidence_ok
+        from rebrew.verify.test import _fix_size_evidence_ok
 
-        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"")
-        monkeypatch.setattr("rebrew.test._disasm_extent", lambda cfg, va: None)
+        monkeypatch.setattr("rebrew.verify.test.extract_raw_bytes", lambda *a, **k: b"")
+        monkeypatch.setattr("rebrew.verify.test._disasm_extent", lambda cfg, va: None)
         from types import SimpleNamespace as NS
 
         cfg = NS(target_binary=str(tmp_path / "x.bin"))
@@ -1390,7 +1391,7 @@ class TestMultiCachePatchDelta:
     def test_multi_patch_receives_the_byte_delta(self, tmp_path: Path, monkeypatch: Any) -> None:
         from types import SimpleNamespace as NS
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.metadata.bindings import SourceBinding
 
         write_source(
@@ -1492,7 +1493,7 @@ class TestRunTest:
         from rebrew.compiler.compile import CompareResult
 
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=False,
                 status="NEAR_MATCHING",
@@ -1511,7 +1512,7 @@ class TestRunTest:
 
         from rebrew.app.main import app as umbrella
         from rebrew.config import load_config
-        from rebrew.test import run_test
+        from rebrew.verify.test import run_test
 
         root = self._project(tmp_path, monkeypatch)
         self._stub_compare(monkeypatch)
@@ -1528,7 +1529,7 @@ class TestRunTest:
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         from rebrew.config import load_config
-        from rebrew.test import run_test
+        from rebrew.verify.test import run_test
 
         root = self._project(tmp_path, monkeypatch)
         source = root / "src/x/f.c"
@@ -1557,7 +1558,7 @@ class TestRunTest:
                 reloc_offsets=[],
             )
 
-        monkeypatch.setattr("rebrew.test.compile_and_compare", record)
+        monkeypatch.setattr("rebrew.verify.test.compile_and_compare", record)
         run_test(load_config(root), "src/x/f.c", no_promote=True, json_output=True)
         assert captured and captured[0][0] == "@f@12"
 
@@ -1614,7 +1615,7 @@ class TestRunTest:
                 reloc_offsets=[],
             )
 
-        monkeypatch.setattr("rebrew.test.compile_and_compare", record)
+        monkeypatch.setattr("rebrew.verify.test.compile_and_compare", record)
         cli = CliRunner().invoke(
             umbrella,
             [
@@ -1646,7 +1647,7 @@ class TestRunTest:
 
     def test_no_promote_writes_no_metadata(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.config import load_config
-        from rebrew.test import run_test
+        from rebrew.verify.test import run_test
 
         root = self._project(tmp_path, monkeypatch)
         self._stub_compare(monkeypatch)
@@ -1730,9 +1731,9 @@ class TestMissingSizeHint:
             extracted.append((va, size))
             return b"\x90" * size
 
-        monkeypatch.setattr("rebrew.test.extract_raw_bytes", extract)
+        monkeypatch.setattr("rebrew.verify.test.extract_raw_bytes", extract)
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=True,
                 status="EXACT",
@@ -1757,7 +1758,7 @@ class TestPrintTestSummary:
     def test_transitions_follow_promotion_policy(self, capsys: pytest.CaptureFixture[str]) -> None:
         from types import SimpleNamespace as NS
 
-        from rebrew.test import print_test_summary
+        from rebrew.verify.test import print_test_summary
 
         deferred = [
             (NS(status="PROVEN"), "EXACT", 0),
@@ -1779,7 +1780,7 @@ class TestSizeMismatchMatchPercentNone:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from rebrew.compiler.compile import CompareResult
-        from rebrew.test import _print_compare_result
+        from rebrew.verify.test import _print_compare_result
 
         cmp = CompareResult(
             matched=False,
@@ -1800,7 +1801,7 @@ class TestSizeMismatchMatchPercentNone:
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
         from rebrew.compiler.compile import CompareResult
-        from rebrew.test import _print_compare_result
+        from rebrew.verify.test import _print_compare_result
 
         cmp = CompareResult(
             matched=False,
@@ -1860,7 +1861,7 @@ class TestMultiBlockerSource:
     ) -> None:
         from types import SimpleNamespace as NS
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.metadata.bindings import SourceBinding
 
         source = tmp_path / "nested" / "f.c"
@@ -1917,7 +1918,7 @@ class TestMultiRemoteRefusalIsNotRun:
         import json
         from types import SimpleNamespace as NS
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.compiler.recompile_client import RecompileError
         from rebrew.metadata.bindings import SourceBinding
 

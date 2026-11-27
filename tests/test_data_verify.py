@@ -21,7 +21,7 @@ class TestCoverageReporting:
     """
 
     def test_full_coverage(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -40,7 +40,7 @@ class TestCoverageReporting:
 
     def test_symbol_with_no_file_bytes_is_counted_not_hidden(self, tmp_path: Path) -> None:
         """The guild-rebrew case: 2 named, 1 comparable, so coverage is 50%."""
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -60,7 +60,7 @@ class TestCoverageReporting:
 
     def test_out_of_scope_section_counted_in_total(self, tmp_path: Path) -> None:
         """A .rdata symbol under sections=('.data',) is not comparable either."""
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -78,7 +78,7 @@ class TestCoverageReporting:
         assert (res["compared"], res["total"], res["not_comparable"]) == (1, 2, 1)
 
     def test_empty_metadata_does_not_divide_by_zero(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(meta, "format = 2\n")
@@ -88,7 +88,7 @@ class TestCoverageReporting:
 
     def test_unnamed_symbol_not_counted(self, tmp_path: Path) -> None:
         """Unnamed inventory cannot be attributed, so it is not in the total."""
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(meta, 'format = 2\n["SERVER.0x1000"]\nsize = 2\nsection = ".data"\n')
@@ -109,7 +109,7 @@ class TestVerifyDataBytes:
     def test_unresolved_extent_cannot_verify_a_matching_prefix(
         self, tmp_path: Path, type_str: str
     ) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
         from rebrew.metadata.data import set_data_fields_batch
 
         meta = tmp_path / "rebrew-data.toml"
@@ -143,7 +143,7 @@ class TestVerifyDataBytes:
         assert report["results"][0]["status"] == "DRIFT"
 
     def test_duplicate_key_spellings_count_as_one_symbol(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -161,7 +161,7 @@ class TestVerifyDataBytes:
             )
 
     def test_equal_truncated_bytes_cannot_verify_a_larger_symbol(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(meta, 'format = 2\n["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n')
@@ -182,7 +182,7 @@ class TestVerifyDataBytes:
     def test_module_va_identity_survives_name_and_address_aliases(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
         from rebrew.metadata.data import set_data_fields_batch
 
         set_data_fields_batch(
@@ -226,7 +226,7 @@ class TestVerifyDataBytes:
         }
 
     def test_matching_symbols_verify(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -244,7 +244,7 @@ class TestVerifyDataBytes:
         assert res["missing"] == []
 
     def test_content_mismatch_attributed_per_symbol(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -263,7 +263,7 @@ class TestVerifyDataBytes:
         assert res["mismatched"][0]["first_diff"] == 3
 
     def test_missing_symbol_reported(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -282,7 +282,7 @@ class TestVerifyDataBytes:
 
 class TestSectionFilter:
     def test_rdata_only_symbol_skipped_for_data(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         write_store_fixture(
@@ -303,7 +303,7 @@ class TestSectionFilter:
         assert (res["compared"], res["total"]) == (0, 1)
 
     def test_unsectioned_symbol_skipped(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         write_store_fixture(
@@ -326,7 +326,7 @@ class TestSectionSymbolBytesBounds:
     SIZE is an error, not a silent cross-section read."""
 
     def test_alias_read_keeps_the_largest_extent(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.data_verify import section_symbol_bytes
+        from rebrew.data.verify import section_symbol_bytes
 
         self._fake_info(monkeypatch, size=16, raw_size=16, data=b"abcdefghijklmnop")
         meta = tmp_path / "rebrew-data.toml"
@@ -369,7 +369,7 @@ class TestSectionSymbolBytesBounds:
         import pytest
 
         pytest.importorskip("lief")
-        from rebrew.data_verify import section_symbol_bytes
+        from rebrew.data.verify import section_symbol_bytes
 
         self._fake_info(monkeypatch, size=0x20, raw_size=0x20, data=bytes(range(0x20)))
         by_va, sizes = section_symbol_bytes(
@@ -386,7 +386,7 @@ class TestSectionSymbolBytesBounds:
         import pytest
 
         pytest.importorskip("lief")
-        from rebrew.data_verify import section_symbol_bytes
+        from rebrew.data.verify import section_symbol_bytes
 
         # Symbol runs 8 bytes past the .data mapped extent: must raise,
         # never read the neighbor section's bytes.
@@ -404,7 +404,7 @@ class TestSectionSymbolBytesBounds:
         import pytest
 
         pytest.importorskip("lief")
-        from rebrew.data_verify import section_symbol_bytes
+        from rebrew.data.verify import section_symbol_bytes
 
         # Inside the mapped extent but past raw_size: the loader supplies
         # zeros, and that is what the compare sees.
@@ -427,7 +427,7 @@ class TestSectionSymbolBytesBounds:
         import pytest
 
         pytest.importorskip("lief")
-        from rebrew.data_verify import section_symbol_bytes
+        from rebrew.data.verify import section_symbol_bytes
 
         # Declared size runs past a built image whose VirtualSize is shorter
         # than the reference. The symbol starts in the zero-fill tail, so
@@ -448,7 +448,7 @@ class TestSectionSymbolBytesBounds:
         import pytest
 
         pytest.importorskip("lief")
-        from rebrew.data_verify import section_symbol_bytes
+        from rebrew.data.verify import section_symbol_bytes
 
         self._fake_info(monkeypatch, size=0x20, raw_size=0x10, data=bytes(range(0x10)))
         by_va, sizes = section_symbol_bytes(
@@ -468,7 +468,7 @@ class TestSectionSymbolBytesBounds:
         import pytest
 
         pytest.importorskip("lief")
-        from rebrew.data_verify import section_symbol_bytes
+        from rebrew.data.verify import section_symbol_bytes
 
         info = SimpleNamespace(
             sections={
@@ -504,7 +504,7 @@ def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:
     """
     from types import SimpleNamespace
 
-    from rebrew import data_verify
+    from rebrew.data import verify as data_verify
 
     meta = tmp_path / "rebrew-data.toml"
     _write(
@@ -530,7 +530,7 @@ class TestUncoveredZeroFill:
     def test_unmapped_reference_storage_is_missing(self, tmp_path: Path, monkeypatch) -> None:
         from types import SimpleNamespace
 
-        from rebrew.data_verify import section_symbol_bytes, verify_data_bytes
+        from rebrew.data.verify import section_symbol_bytes, verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -571,7 +571,7 @@ class TestPlacement:
     META = 'format = 2\n["SERVER.0x1000"]\nname = "g_init"\nsize = 4\nsection = ".data"\n["SERVER.0x2000"]\nname = "g_zero"\nsize = 4\nsection = ".bss"\n["SERVER.0x3000"]\nname = "g_unmapped"\nsize = 4\nsection = ".data"\n'
 
     def _run(self, tmp_path: Path, built_symbols: dict[str, int] | None) -> dict:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(meta, self.META)
@@ -606,7 +606,7 @@ class TestPlacement:
         assert res["matched"] == 3
 
     def test_identical_image_places_records_the_map_does_not_name(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(meta, self.META)
@@ -629,7 +629,7 @@ class TestPlacement:
     def test_identical_image_without_a_map_places_every_verified_record(
         self, tmp_path: Path
     ) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(meta, self.META)
@@ -647,7 +647,7 @@ class TestPlacement:
     def test_only_the_recorded_link_symbol_can_prove_placement(
         self, tmp_path: Path, explicit_present: bool
     ) -> None:
-        from rebrew.data_verify import verify_data_bytes
+        from rebrew.data.verify import verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(
@@ -668,7 +668,7 @@ class TestPlacement:
         assert res["unplaced"] == (0 if explicit_present else 1)
 
     def test_link_map_symbols_includes_import_slots_but_not_functions(self) -> None:
-        from rebrew.data_verify import link_map_symbols
+        from rebrew.data.verify import link_map_symbols
 
         text = (
             "  Address         Publics by Value              Rva+Base     Lib:Object\n"
@@ -684,7 +684,7 @@ class TestPlacement:
         }
 
     def test_import_slot_outside_reference_va_is_displaced(self, tmp_path: Path) -> None:
-        from rebrew.data_verify import link_map_symbols, verify_data_bytes
+        from rebrew.data.verify import link_map_symbols, verify_data_bytes
 
         meta = tmp_path / "rebrew-data.toml"
         _write(

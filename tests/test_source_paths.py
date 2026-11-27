@@ -2,7 +2,7 @@
 
 lazy from pathlib import Path
 
-from rebrew.source_paths import rebase_includes
+from rebrew.source.paths import rebase_includes
 
 
 def test_real_directives_move_without_touching_comments_or_strings(tmp_path: Path) -> None:

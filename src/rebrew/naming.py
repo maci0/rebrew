@@ -29,7 +29,7 @@ lazy from rebrew.metadata.bindings import (
     min_valid_va_for,
     read_source_bindings,
 )
-lazy from rebrew.sources import iter_library_headers, iter_sources, source_exts
+lazy from rebrew.source.discovery import iter_library_headers, iter_sources, source_exts
 lazy from rebrew.utils import (
     RESERVED_WINDOWS_STEMS,
     clip_span,
@@ -263,7 +263,7 @@ def load_data(
     - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol, source, module, kind}
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
 
-    *tree* is a :func:`rebrew.sources.scan_files` result for ``cfg.reversed_dir``.
+    *tree* is a :func:`rebrew.source.discovery.scan_files` result for ``cfg.reversed_dir``.
     Both the source pass and the library-header pass below are whole-tree
     walks, so a caller that already holds the traversal passes it here instead
     of paying for both walks again.
@@ -370,7 +370,7 @@ def load_data(
         }
         covered_vas[entry.va] = entry.filepath
 
-    from rebrew.verify_hash import current_similarity
+    from rebrew.verify.hash import current_similarity
 
     for va, values in existing.items():
         row = metadata.get((values.get("module", ""), va), {})

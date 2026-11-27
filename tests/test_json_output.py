@@ -17,8 +17,8 @@ from status_util import accept_status_batch
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
 from rebrew.compiler.compile import CompareResult
 from rebrew.matcher.scoring import diff_functions
-from rebrew.test import build_result_dict_from_compare
-from rebrew.test import emit_test_batch as _run_all_batch
+from rebrew.verify.test import build_result_dict_from_compare
+from rebrew.verify.test import emit_test_batch as _run_all_batch
 
 # ---------------------------------------------------------------------------
 # diff_functions(as_dict=True)
@@ -326,7 +326,7 @@ class TestRebrewTestBatchJson:
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
 
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *args, **kwargs: ([], 0, 0, [], [], 0, [], [], [], {}, 0),
         )
 
@@ -391,9 +391,11 @@ class TestRebrewTestBatchJson:
                 0,
             )
 
-        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
-        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], [], []))
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.prepare_entries", _fake_entries)
+        monkeypatch.setattr(
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 1, [], [], [])
+        )
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
 
         with pytest.raises(typer.Exit) as exc:
             _run_all_batch(
@@ -429,9 +431,9 @@ class TestRebrewTestBatchJson:
                 0,
             )
 
-        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr("rebrew.verify.cli.prepare_entries", _fake_entries)
         monkeypatch.setattr(
-            "rebrew.verify.run_verification",
+            "rebrew.verify.cli.run_verification",
             lambda *a, **k: (
                 0,
                 1,
@@ -440,7 +442,7 @@ class TestRebrewTestBatchJson:
                 [],
             ),
         )
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
 
         with pytest.raises(typer.Exit) as exc:
             _run_all_batch(
@@ -590,7 +592,7 @@ class TestRebrewTestBatchDir:
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
         from rebrew.metadata.bindings import SourceBinding
-        from rebrew.test import emit_test_batch as _run_all_batch
+        from rebrew.verify.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
@@ -616,12 +618,12 @@ class TestRebrewTestBatchDir:
                 0,
             )
 
-        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr("rebrew.verify.cli.prepare_entries", _fake_entries)
         monkeypatch.setattr(
-            "rebrew.verify.run_verification",
+            "rebrew.verify.cli.run_verification",
             lambda *a, **k: (0, 0, [], [], []),
         )
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
 
         # Dry-run JSON lists the filtered candidates: only the reversed_dir-
         # relative "Units" entry survives.
@@ -643,7 +645,7 @@ class TestRebrewTestBatchDir:
         """`Units` must not match the sibling `Units_extra` (a raw string
         prefix did)."""
         from rebrew.metadata.bindings import SourceBinding
-        from rebrew.test import emit_test_batch as _run_all_batch
+        from rebrew.verify.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
@@ -671,9 +673,11 @@ class TestRebrewTestBatchDir:
                 0,
             )
 
-        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
-        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.prepare_entries", _fake_entries)
+        monkeypatch.setattr(
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 0, [], [], [])
+        )
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
 
         _run_all_batch(
             cfg,
@@ -692,7 +696,7 @@ class TestRebrewTestBatchDir:
     ) -> None:
         """A `..`-bearing root still matches after resolution."""
         from rebrew.metadata.bindings import SourceBinding
-        from rebrew.test import emit_test_batch as _run_all_batch
+        from rebrew.verify.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
@@ -716,9 +720,11 @@ class TestRebrewTestBatchDir:
                 0,
             )
 
-        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
-        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.prepare_entries", _fake_entries)
+        monkeypatch.setattr(
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 0, [], [], [])
+        )
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
 
         _run_all_batch(
             cfg,
@@ -739,11 +745,11 @@ class TestRebrewTestBatchDryRunJson:
     ) -> None:
         import json
 
-        from rebrew.test import emit_test_batch as _run_all_batch
+        from rebrew.verify.test import emit_test_batch as _run_all_batch
 
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *args, **kwargs: ([], 0, 0, [], [], 0, [], [], [], {}, 0),
         )
         _run_all_batch(
@@ -764,7 +770,7 @@ class TestRebrewTestBatchDryRunJson:
         import json
         from types import SimpleNamespace
 
-        from rebrew.test import emit_test_batch as _run_all_batch
+        from rebrew.verify.test import emit_test_batch as _run_all_batch
 
         entries = [
             SimpleNamespace(va=0x2000, name="z_fn", filepath="z.c", status="STUB"),
@@ -772,7 +778,7 @@ class TestRebrewTestBatchDryRunJson:
         ]
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *args, **kwargs: (entries, 0, 0, [], [], 0, [], [], [], {}),
         )
         _run_all_batch(
@@ -794,7 +800,7 @@ class TestRebrewTestBatchDryRunJson:
         import json
         from types import SimpleNamespace
 
-        from rebrew.test import emit_test_batch as _run_all_batch
+        from rebrew.verify.test import emit_test_batch as _run_all_batch
 
         entry = SimpleNamespace(
             va=0x10001130,
@@ -804,7 +810,7 @@ class TestRebrewTestBatchDryRunJson:
         )
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *args, **kwargs: ([entry], 0, 0, [], [], 0, [], [], [], {}),
         )
         _run_all_batch(
@@ -840,7 +846,7 @@ class TestRebrewTestBatchCachePatch:
 
         import typer
 
-        from rebrew.test import emit_test_batch as _run_all_batch
+        from rebrew.verify.test import emit_test_batch as _run_all_batch
 
         entries = [
             SimpleNamespace(va=0x1000, name="a", filepath="a.c", status="STUB"),
@@ -848,11 +854,11 @@ class TestRebrewTestBatchCachePatch:
         ]
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *a, **k: (entries, 0, 0, [], [], 0, [], [], [], {}, 0),
         )
         monkeypatch.setattr(
-            "rebrew.verify.run_verification",
+            "rebrew.verify.cli.run_verification",
             lambda *a, **k: (
                 1,
                 1,
@@ -864,10 +870,10 @@ class TestRebrewTestBatchCachePatch:
                 [],
             ),
         )
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
         captured: list[list[dict[str, Any]]] = []
         monkeypatch.setattr(
-            "rebrew.verify_cache.patch_verify_cache_entries",
+            "rebrew.verify.cache.patch_verify_cache_entries",
             lambda cfg_, patches: captured.append(patches),
         )
 
@@ -914,10 +920,12 @@ class TestForceStatus:
         )
         update_source_status(cfg.metadata_dir, seed, "SERVER", 0x1000)
 
-        monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
-        monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
-        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg, **_kw: {})
-        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
+        monkeypatch.setattr(
+            "rebrew.verify.test.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.verify.test.require_source_arg", lambda cfg, s, **_kw: s)
+        monkeypatch.setattr("rebrew.verify.test.build_name_to_va", lambda cfg, **_kw: {})
+        monkeypatch.setattr("rebrew.verify.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
         ann = SourceBinding(
             va=0x1000,
             name="my_func",
@@ -929,7 +937,7 @@ class TestForceStatus:
             filepath="my_func.c",
             cflags="",
         )
-        monkeypatch.setattr("rebrew.test.read_source_bindings", lambda *a, **k: [ann])
+        monkeypatch.setattr("rebrew.verify.test.read_source_bindings", lambda *a, **k: [ann])
         cmp = CompareResult(
             matched=False,
             status=result_status,
@@ -939,8 +947,8 @@ class TestForceStatus:
             reloc_offsets=[],
             message="9B diff",
         )
-        monkeypatch.setattr("rebrew.test.compile_and_compare", lambda *a, **k: cmp)
-        monkeypatch.setattr("rebrew.test._patch_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.test.compile_and_compare", lambda *a, **k: cmp)
+        monkeypatch.setattr("rebrew.verify.test._patch_verify_cache", lambda *a, **k: None)
         return cfg
 
     @pytest.mark.parametrize("byte_status", ["STUB", "NEAR_MATCHING"])
@@ -950,7 +958,7 @@ class TestForceStatus:
         from typer.testing import CliRunner
 
         from rebrew.metadata.functions import get_entry
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
         cfg = self._patch(monkeypatch, tmp_path, byte_status)
         src = cfg.reversed_dir / "my_func.c"
@@ -963,7 +971,7 @@ class TestForceStatus:
         from typer.testing import CliRunner
 
         from rebrew.metadata.functions import get_entry
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
         cfg = self._patch(monkeypatch, tmp_path, "STUB", seed="SKIP")
         src = cfg.reversed_dir / "my_func.c"
@@ -977,7 +985,7 @@ class TestForceStatus:
     def test_force_status_rejected_in_batch(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
         self._patch(monkeypatch, tmp_path, "STUB")
         result = CliRunner().invoke(app, ["--all", "--force-status", "--json"])
@@ -988,7 +996,7 @@ class TestForceStatus:
         from typer.testing import CliRunner
 
         from rebrew.metadata.functions import get_entry
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
         cfg = self._patch(monkeypatch, tmp_path, "STUB")
         src = cfg.reversed_dir / "my_func.c"
@@ -1006,7 +1014,7 @@ class TestForceStatus:
         STATUS unconditionally. dry_run must preview and not write there too."""
         from pathlib import Path
 
-        import rebrew.test as test_mod
+        import rebrew.verify.test as test_mod
         from rebrew.metadata.bindings import SourceBinding
 
         cfg = SimpleNamespace(
@@ -1039,10 +1047,13 @@ class TestForceStatus:
                 cflags="",
             ),
         ]
-        monkeypatch.setattr("rebrew.test.compile_to_obj", lambda *a, **k: (Path("fake.obj"), ""))
-        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
         monkeypatch.setattr(
-            "rebrew.test.parse_obj_symbol_and_relocs", lambda *a, **k: (b"\x55\x8b\xec", {}, [])
+            "rebrew.verify.test.compile_to_obj", lambda *a, **k: (Path("fake.obj"), "")
+        )
+        monkeypatch.setattr("rebrew.verify.test.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec")
+        monkeypatch.setattr(
+            "rebrew.verify.test.parse_obj_symbol_and_relocs",
+            lambda *a, **k: (b"\x55\x8b\xec", {}, []),
         )
         calls: list[list[dict[str, Any]]] = []
 
@@ -1057,8 +1068,8 @@ class TestForceStatus:
                 status_outcomes[:] = [True] * len(updates)
             return len(updates)
 
-        monkeypatch.setattr("rebrew.test.update_statuses_batch", _capture_status_batch)
-        monkeypatch.setattr("rebrew.test._patch_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.test.update_statuses_batch", _capture_status_batch)
+        monkeypatch.setattr("rebrew.verify.test._patch_verify_cache", lambda *a, **k: None)
 
         test_mod._test_multi(
             cfg, "multi.c", anns, None, no_promote=False, dry_run=True, json_output=False
@@ -1078,7 +1089,7 @@ class TestSinglePathExitCodes:
     (epilog): EXTRACT_ERROR exits 2 like COMPILE_ERROR, not 1."""
 
     def _cfg(self, tmp_path: Path, monkeypatch: Any, cmp: CompareResult) -> None:
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
 
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.bin",
@@ -1098,14 +1109,18 @@ class TestSinglePathExitCodes:
             metadata_fields={"X.0x1000": {"kind": "FUNCTION"}},
             metadata_dir=tmp_path,
         )
-        monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
-        monkeypatch.setattr("rebrew.test.require_source_arg", lambda cfg, s, **_kw: s)
-        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg, **_kw: {"_f": 0x1000})
-        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr(
+            "rebrew.verify.test.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.verify.test.require_source_arg", lambda cfg, s, **_kw: s)
+        monkeypatch.setattr(
+            "rebrew.verify.test.build_name_to_va", lambda cfg, **_kw: {"_f": 0x1000}
+        )
+        monkeypatch.setattr("rebrew.verify.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr(
             "rebrew.compiler.overrides.resolve_compile_overrides", lambda *a, **k: (None, "/O2")
         )
-        monkeypatch.setattr("rebrew.test.compile_and_compare", lambda *a, **k: cmp)
+        monkeypatch.setattr("rebrew.verify.test.compile_and_compare", lambda *a, **k: cmp)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
 
     def _cmp(self, status: str) -> CompareResult:
@@ -1126,7 +1141,7 @@ class TestSinglePathExitCodes:
     def test_exit_code(self, tmp_path: Path, monkeypatch: Any, status: str, exit_code: int) -> None:
         import typer
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
 
         self._cfg(tmp_path, monkeypatch, self._cmp(status))
         with pytest.raises(typer.Exit) as exc:
@@ -1160,7 +1175,7 @@ class TestSinglePathExitCodes:
         exits 2, never crashing with a traceback."""
         import typer
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.metadata.bindings import SourceBinding
 
         cfg = SimpleNamespace(
@@ -1199,7 +1214,7 @@ class TestSinglePathExitCodes:
         """--target-bin runs resolve section_va from the FUNCTION marker so
         REL32 call targets are validated, not silently masked."""
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
 
         captured: dict[str, Any] = {}
         cmp = CompareResult(
@@ -1220,7 +1235,7 @@ class TestSinglePathExitCodes:
         blob = tmp_path / "t.bin"
         blob.write_bytes(b"\x90" * 8)
         self._cfg(tmp_path, monkeypatch, self._cmp("EXACT"))
-        monkeypatch.setattr("rebrew.test.compile_and_compare", _capture)
+        monkeypatch.setattr("rebrew.verify.test.compile_and_compare", _capture)
         # By keyword: a positional call shifts onto whatever option is added before
         # --json (it read --instructions as True and --json as None).  The options
         # left out arrive as typer OptionInfo and must read as their defaults.
@@ -1266,7 +1281,7 @@ class TestRebrewTestBatchDirShared:
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
         from rebrew.metadata.bindings import SourceBinding
-        from rebrew.test import emit_test_batch as _run_all_batch
+        from rebrew.verify.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "Units").mkdir(parents=True)
@@ -1298,12 +1313,12 @@ class TestRebrewTestBatchDirShared:
                 0,
             )
 
-        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr("rebrew.verify.cli.prepare_entries", _fake_entries)
         monkeypatch.setattr(
-            "rebrew.verify.run_verification",
+            "rebrew.verify.cli.run_verification",
             lambda *a, **k: (0, 0, [], [], []),
         )
-        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
 
         _run_all_batch(
             cfg,

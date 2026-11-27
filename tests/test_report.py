@@ -11,8 +11,8 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
+from rebrew.coverage.report import app
 from rebrew.formats.import_table import parse_import_table
-from rebrew.report import app
 from rebrew.status_style import (
     STATUS_HEX,
     STATUS_LEGEND_ORDER,
@@ -147,7 +147,7 @@ class TestReportCli:
         assert "max-width: 40rem" in index  # narrow-viewport reflow (1.4.10)
         # The dashboard's narrow-viewport card rule, verbatim: one card per row
         # pushed a seven-card summary seven rows down a phone before the table.
-        from rebrew.dashboard import _INDEX_HTML
+        from rebrew.coverage.dashboard import _INDEX_HTML
 
         rule = ".card { min-width: 0; flex: 1 1 6rem; padding: .4rem .6rem; }"
         assert rule in index
@@ -318,7 +318,7 @@ class TestAdjacencyListLabels:
         not a title tooltip that keyboard and touch users cannot open."""
         from types import SimpleNamespace
 
-        from rebrew.report import _string_row
+        from rebrew.coverage.report import _string_row
 
         long_text = "A" * 100
         xrefs = [SimpleNamespace(from_va=0x1000 + i) for i in range(7)]
@@ -337,7 +337,7 @@ class TestAdjacencyListLabels:
     def test_short_string_cells_stay_plain(self) -> None:
         from types import SimpleNamespace
 
-        from rebrew.report import _string_row
+        from rebrew.coverage.report import _string_row
 
         row = _string_row(
             SimpleNamespace(va=0x2000, section=".rdata", kind="ascii", text="a<b"),
@@ -353,7 +353,7 @@ class TestAdjacencyListLabels:
         """A failed xref scan must not render as '0 refs' (a faked healthy zero)."""
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
+        import rebrew.coverage.report as report_mod
 
         (tmp_path / "game.exe").write_bytes(b"MZ")
         monkeypatch.setattr(report_mod, "load_binary", lambda path: SimpleNamespace())
@@ -385,7 +385,7 @@ class TestAdjacencyListLabels:
         """
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
+        import rebrew.coverage.report as report_mod
 
         (tmp_path / "game.exe").write_bytes(b"MZ")
         monkeypatch.setattr(report_mod, "load_binary", lambda path: SimpleNamespace())
@@ -414,7 +414,7 @@ class TestAdjacencyListLabels:
         ride in the intro the way the index and imports pages carry theirs."""
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
+        import rebrew.coverage.report as report_mod
 
         (tmp_path / "game.exe").write_bytes(b"MZ")
         monkeypatch.setattr(report_mod, "load_binary", lambda path: SimpleNamespace())
@@ -443,7 +443,7 @@ class TestAdjacencyListLabels:
     def test_prints_symbols_not_internal_keys(self) -> None:
         """Node keys are `va:0x…`/`sym:…` internal identifiers; the adjacency
         fallback must print the symbol (mermaid/dot already do)."""
-        from rebrew.report import _adjacency_list
+        from rebrew.coverage.report import _adjacency_list
 
         nodes = {
             "va:0x00001000": {"symbol": "func_a", "status": "EXACT", "va": 0x1000},
@@ -459,7 +459,7 @@ class TestAdjacencyListLabels:
         nodes (`va:0x…`), not `fcn_…` (phantom nodes)."""
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
+        import rebrew.coverage.report as report_mod
 
         monkeypatch.setattr(
             "rebrew.formats.ne_loader.enumerate_ne_functions",
@@ -474,7 +474,7 @@ class TestDecompDevUnitNames:
         `pool.c` under different directories collided in report.json."""
         from types import SimpleNamespace
 
-        from rebrew.report import generate_decomp_dev_report
+        from rebrew.coverage.report import generate_decomp_dev_report
 
         src = tmp_path / "src"
         (src / "engine").mkdir(parents=True)
@@ -514,7 +514,7 @@ class TestLibraryHeaderRows:
         """`identify-library` writes library_*.h entries that the summary cards
         count (collect_status scans the headers), but the function table only
         scanned iter_sources, so they were missing from it."""
-        from rebrew.report import _collect_functions
+        from rebrew.coverage.report import _collect_functions
 
         cfg = _write_library_header_project(tmp_path)
         rows = _collect_functions(cfg)
@@ -566,7 +566,7 @@ class TestReportPayloadShape:
     ) -> None:
         """Index pages beyond _TABLE_PAGE_SIZE spill to index-pN.html for first paint."""
         from rebrew.config import load_config
-        from rebrew.report import _TABLE_PAGE_SIZE, generate_report
+        from rebrew.coverage.report import _TABLE_PAGE_SIZE, generate_report
 
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         src = tmp_path / "src"
@@ -627,7 +627,7 @@ class TestReportPayloadShape:
         assert "reversed functions." in page2
 
     def test_pager_offers_first_and_last_on_middle_pages(self) -> None:
-        from rebrew.report import _TABLE_PAGE_SIZE, _page_va_span, _pager_nav
+        from rebrew.coverage.report import _TABLE_PAGE_SIZE, _page_va_span, _pager_nav
 
         total = _TABLE_PAGE_SIZE * 5
         middle = _pager_nav("index", 3, 5, total, "functions")
@@ -657,7 +657,7 @@ class TestReportPayloadShape:
 
     def test_write_static_drops_sidecar_that_no_longer_shrinks(self, tmp_path: Path) -> None:
         """A page that stops compressing must not keep the previous sidecar."""
-        from rebrew.report import _write_static
+        from rebrew.coverage.report import _write_static
 
         path = tmp_path / "page.html"
         declared: dict[str, Any] = {}
@@ -682,7 +682,7 @@ class TestReportPayloadShape:
         import gzip
 
         from rebrew.config import load_config
-        from rebrew.report import generate_report
+        from rebrew.coverage.report import generate_report
 
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         monkeypatch.chdir(tmp_path)
@@ -714,8 +714,8 @@ class TestReportPayloadShape:
         """A long import table does not land entirely on imports.html."""
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
-        from rebrew.report import _TABLE_PAGE_SIZE
+        import rebrew.coverage.report as report_mod
+        from rebrew.coverage.report import _TABLE_PAGE_SIZE
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
@@ -753,7 +753,7 @@ class TestReportPayloadShape:
         """
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
+        import rebrew.coverage.report as report_mod
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
@@ -774,8 +774,8 @@ class TestReportPayloadShape:
         """Stubs past the row budget move to import-stubs.html."""
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
-        from rebrew.report import _TABLE_PAGE_SIZE
+        import rebrew.coverage.report as report_mod
+        from rebrew.coverage.report import _TABLE_PAGE_SIZE
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
@@ -799,7 +799,7 @@ class TestReportPayloadShape:
         """A call graph over the inline budget is a sibling file, not the HTML."""
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
+        import rebrew.coverage.report as report_mod
 
         src = tmp_path / "src"
         src.mkdir()
@@ -828,7 +828,7 @@ class TestReportPayloadShape:
         """Both graph pages report nodes and edges; a spilled source is not a reason to drop them."""
         from types import SimpleNamespace
 
-        import rebrew.report as report_mod
+        import rebrew.coverage.report as report_mod
 
         src = tmp_path / "src"
         src.mkdir()
@@ -864,7 +864,7 @@ class TestReportPayloadShape:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A one-row table reads "1 imported API", not "1 imported APIs"."""
-        from rebrew.report import _count_phrase
+        from rebrew.coverage.report import _count_phrase
 
         assert _count_phrase(1, "imported API", "imported APIs") == "1 imported API"
         assert _count_phrase(0, "imported API", "imported APIs") == "0 imported APIs"
@@ -890,7 +890,7 @@ class TestSummaryCards:
 
     def test_code_account_card_names_its_measure(self) -> None:
         """The code-account card is that percentage. Byte-matched stays a count."""
-        from rebrew.report import _render_index
+        from rebrew.coverage.report import _render_index
         from rebrew.status import StatusReport
 
         known = StatusReport(
@@ -1147,7 +1147,7 @@ class TestChromeTokens:
         the 14px cell font its line box sat on the 24px threshold
         (WCAG 2.2 SC 2.5.8), so the minimum is pinned rather than incidental.
         """
-        from rebrew.report import _CSS
+        from rebrew.coverage.report import _CSS
 
         assert (
             "td summary { cursor: pointer; padding: 0.35rem 0; min-height: 2.75rem; display: flex;"
@@ -1155,8 +1155,8 @@ class TestChromeTokens:
         )
 
     def test_tokens_resolve_in_the_report_css(self) -> None:
-        from rebrew.dashboard import _INDEX_HTML
-        from rebrew.report import _CSS
+        from rebrew.coverage.dashboard import _INDEX_HTML
+        from rebrew.coverage.report import _CSS
         from rebrew.theme import TOKENS
 
         for shell in (_CSS, _INDEX_HTML):
@@ -1175,8 +1175,8 @@ class TestChromeTokens:
         """
         import re
 
-        from rebrew.dashboard import _INDEX_HTML
-        from rebrew.report import _CSS
+        from rebrew.coverage.dashboard import _INDEX_HTML
+        from rebrew.coverage.report import _CSS
         from rebrew.status_style import STATUS_HEX
         from rebrew.theme import TOKENS
 
@@ -1194,8 +1194,8 @@ class TestChromeTokens:
         whitespace or a stray quote would paint the cell with a mark it does
         not name. The dashboard validates its token the same way.
         """
-        from rebrew.dashboard import _APP_JS_WIRE
-        from rebrew.report import _function_rows_html
+        from rebrew.coverage.dashboard import _APP_JS_WIRE
+        from rebrew.coverage.report import _function_rows_html
 
         def row(status: str) -> dict[str, object]:
             return {
@@ -1227,7 +1227,7 @@ def _strings_page() -> str:
     """
     from types import SimpleNamespace
 
-    from rebrew.report import _data_table, _page, _string_row
+    from rebrew.coverage.report import _data_table, _page, _string_row
 
     def entry(va: int, text: str) -> SimpleNamespace:
         return SimpleNamespace(va=va, section=".rdata", kind="ascii", text=text)
@@ -1267,7 +1267,7 @@ class TestGeneratedMarkup:
         from html_validate import assert_valid
 
         from rebrew.config import load_config
-        from rebrew.report import _TABLE_PAGE_SIZE, _graph_body, _page, generate_report
+        from rebrew.coverage.report import _TABLE_PAGE_SIZE, _graph_body, _page, generate_report
 
         code = b"\x90" * 16 + b"REBREW-LONG-STRING-" + b"S" * 90 + b"\x00" * 8
         _write_project(tmp_path, pe_bytes=make_pe(code, imports=[("KERNEL32.dll", ["HeapCreate"])]))
@@ -1323,8 +1323,8 @@ class TestDisplayName:
         and it turned ``__foo`` into ``foo``. A stored name wins. A missing
         symbol still uses the file stem.
         """
+        from rebrew.coverage.report import _display_name
         from rebrew.metadata.bindings import SourceBinding
-        from rebrew.report import _display_name
 
         src = Path("hook.c")
         assert _display_name(SourceBinding(name="", symbol="hook@@12"), src) == "hook"
@@ -1343,7 +1343,7 @@ class TestSiteDataKinds:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.config import load_config
-        from rebrew.report import generate_report
+        from rebrew.coverage.report import generate_report
 
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         monkeypatch.chdir(tmp_path)
@@ -1357,8 +1357,8 @@ class TestSiteDataKinds:
     def test_an_undeclared_page_fails_the_build(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import report as report_mod
         from rebrew.config import load_config
+        from rebrew.coverage import report as report_mod
 
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         monkeypatch.chdir(tmp_path)
@@ -1373,7 +1373,7 @@ class TestSiteDataKinds:
 
     @pytest.mark.parametrize("kinds", [(), ("none", "call_graph")])
     def test_none_stands_alone(self, tmp_path: Path, kinds: Any) -> None:
-        from rebrew.report import _write_static
+        from rebrew.coverage.report import _write_static
 
         with pytest.raises(ValueError, match="kinds"):
             _write_static(tmp_path / "page.html", "x", kinds, {})

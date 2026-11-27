@@ -34,7 +34,7 @@ from rebrew.cli import (
 from rebrew.naming import normalize_name
 lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings, set_binding_field
-lazy from rebrew.sources import iter_library_headers, iter_sources, scan_files
+lazy from rebrew.source.discovery import iter_library_headers, iter_sources, scan_files
 lazy from rebrew.utils import TerminalTable, fold_ident, preset_module_key
 
 log = logging.getLogger(__name__)

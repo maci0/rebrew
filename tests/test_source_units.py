@@ -8,7 +8,7 @@ lazy from pathlib import Path
 from bin_util import append_pe_section, make_pe
 
 from rebrew.formats.binary_loader import load_binary
-from rebrew.source_units import source_unit_evidence
+from rebrew.source.units import source_unit_evidence
 
 
 def _image(tmp_path: Path, code: bytes) -> Any:

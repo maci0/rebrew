@@ -853,7 +853,7 @@ def _collect_functions(
     """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
 
     if functions and (all_funcs or filter_substr):
         others: list[str] = []
@@ -975,7 +975,7 @@ def recover_project_structs(
     # Existing structs in the project, for the merge report.  Library headers
     # are included too — name_decomp.py scans them and recover_structs must
     # agree, or its "new" structs would duplicate ones already defined.
-    from rebrew.sources import iter_library_headers, iter_sources, scan_files
+    from rebrew.source.discovery import iter_library_headers, iter_sources, scan_files
 
     tree = scan_files(cfg.reversed_dir)
     sources = list(iter_sources(cfg.reversed_dir, cfg, scanned=tree))

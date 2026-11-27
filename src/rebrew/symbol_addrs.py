@@ -61,7 +61,7 @@ from rebrew.cli import (
 from rebrew.formats.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
 lazy from rebrew.config import target_module
 lazy from rebrew.metadata.bindings import iter_source_bindings
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 lazy from rebrew.utils import atomic_write_text, parse_int_literal
 
 #: Trailing-comment markers the rich format uses inside ``// ...`` comments.

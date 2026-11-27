@@ -80,7 +80,7 @@ def test_fuzz_an_accepted_string_is_stable_plain_tokens(text: str) -> None:
 
 def test_a_remote_compile_reports_its_flags_and_execution_in_the_test_result() -> None:
     from rebrew.compiler.compile import CompareResult
-    from rebrew.test import build_result_dict_from_compare
+    from rebrew.verify.test import build_result_dict_from_compare
 
     def result(remote: dict[str, object] | None) -> dict[str, object]:
         cmp = CompareResult(

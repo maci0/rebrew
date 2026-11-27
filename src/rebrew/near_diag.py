@@ -239,7 +239,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
     from rebrew.metadata.functions import load_metadata
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_module(cfg)

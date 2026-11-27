@@ -215,7 +215,7 @@ def test_a_batch_on_replicated_stores_matches_one_rename_command_per_line(
     for item, line in zip(items, _DEPENDENT_PLAN.splitlines(), strict=True):
         # A fresh process per line: no record, split or digest cache carries over.
         single = subprocess.run(
-            [sys.executable, "-m", "rebrew.rename", *shlex.split(line), "--json"],
+            [sys.executable, "-m", "rebrew.source.rename", *shlex.split(line), "--json"],
             cwd=separate,
             capture_output=True,
             text=True,

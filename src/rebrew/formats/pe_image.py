@@ -2,9 +2,9 @@
 
 Sections, exports, imports, and the header fields that map onto LINK
 options (``/BASE``, ``/ALIGN``, ``/SUBSYSTEM``, ``/STACK``, ``/HEAP``).
-This stays out of :mod:`rebrew.gen_layout` so a caller can parse a
+This stays out of :mod:`rebrew.buildsys.gen_layout` so a caller can parse a
 reference binary without importing that Typer command — and the CLI
-graph under it.  :func:`rebrew.layout_meta.extract_layout` walks the
+graph under it.  :func:`rebrew.buildsys.layout_meta.extract_layout` walks the
 same export and import tables for the text layout package; the two
 agree on exports and on resolved imports.
 """

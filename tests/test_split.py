@@ -9,11 +9,11 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
-from rebrew.split import app
+from rebrew.source.split import app
 
 
 def test_source_layout_preserves_closing_brace_after_inline_asm() -> None:
-    from rebrew.source_layout import source_layout
+    from rebrew.source.layout import source_layout
 
     raw, spans = source_layout("int f(void) { __asm mov eax, 1 }\nint g(void) { return 2; }\n")
     functions = [span for span in spans if span.kind == "function"]
@@ -38,7 +38,7 @@ def _write(path: Path, content: str) -> Path:
 
 def test_cdecl_function_declaration_is_not_storage() -> None:
     """`__cdecl` between the type and the name is still a function declaration."""
-    from rebrew.split import source_layout
+    from rebrew.source.split import source_layout
 
     raw, spans = source_layout(
         "void __cdecl gm_KillSpieler(unsigned int, int);\n"
@@ -55,7 +55,7 @@ def test_cdecl_function_declaration_is_not_storage() -> None:
 
 def test_cdecl_definition_with_a_typedef_return_type_is_a_function() -> None:
     """`Record* __cdecl f(...) {...}` parsed as an error and the function was lost."""
-    from rebrew.split import source_layout
+    from rebrew.source.split import source_layout
 
     _raw, spans = source_layout(
         "typedef struct Record Record;\n"
@@ -70,7 +70,7 @@ def test_cdecl_definition_with_a_typedef_return_type_is_a_function() -> None:
 
 def test_inline_asm_does_not_hide_a_function() -> None:
     """MSVC `__asm` bodies are not C; the function around them is still a function."""
-    from rebrew.split import source_layout
+    from rebrew.source.split import source_layout
 
     _raw, spans = source_layout(
         "int __cdecl with_block(int a)\n{\n\t__asm {\n\t\tmov eax, a\n\t\tL1:\n\t\tjmp L1\n\t}\n\treturn a;\n}\n"
@@ -86,7 +86,7 @@ def test_inline_asm_does_not_hide_a_function() -> None:
 
 def test_preamble_struct_keeps_its_semicolon() -> None:
     """`struct t {...};` is a bare specifier plus a `;` token the named walk never visits."""
-    from rebrew.split import shared_preamble, source_layout
+    from rebrew.source.split import shared_preamble, source_layout
 
     raw, spans = source_layout(
         "struct t {\n\tint a;\n};\n#pragma pack(push, 1)\nstruct u {\n\tint b;\n};\n"
@@ -126,7 +126,7 @@ def _invoke(
     """Run the split CLI, returning (result, source path)."""
     src = tmp_path / name
     monkeypatch.setattr(
-        "rebrew.split.require_config",
+        "rebrew.source.split.require_config",
         lambda target=None, json_mode=False: _make_cfg(tmp_path),
     )
     result = runner.invoke(app, [*args, str(src)])
@@ -139,7 +139,7 @@ class TestSplitExtensionHandling:
         src = tmp_path / "multi.cpp"
         _write(src, _multi_two())
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
                 module="SERVER",
                 source_ext=".c,.cpp",
@@ -157,7 +157,7 @@ class TestSplitExtensionHandling:
         src = tmp_path / "MULTI.C"
         _write(src, _multi_two())
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
                 module="SERVER",
                 source_ext=".c",
@@ -357,7 +357,7 @@ class TestSplitBasic:
     def test_json_output_structure(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr("rebrew.split.json_print", lambda data: payloads.append(data))
+        monkeypatch.setattr("rebrew.source.split.json_print", lambda data: payloads.append(data))
 
         result, src = _invoke(tmp_path, monkeypatch, "--force", "--json")
         assert result.exit_code == 0
@@ -538,7 +538,7 @@ class TestSplitExtractVA:
         """--va --json should produce correct structured output."""
         _write(tmp_path / "multi.c", _multi_two())
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr("rebrew.split.json_print", lambda data: payloads.append(data))
+        monkeypatch.setattr("rebrew.source.split.json_print", lambda data: payloads.append(data))
 
         result, src = _invoke(tmp_path, monkeypatch, "--json", "--va", "0x10001000", "--force")
         assert result.exit_code == 0
@@ -583,7 +583,7 @@ class TestSplitExtractVA:
 
 class TestSplitHelpers:
     def test_output_name_from_symbol(self) -> None:
-        from rebrew.split import _build_output_name
+        from rebrew.source.split import _build_output_name
 
         assert _build_output_name("_my_func", 0x1000, ".c") == "_my_func.c"
 
@@ -592,14 +592,14 @@ class TestSplitHelpers:
 
         ``lstrip("_")`` stored both as ``foo.c``, the same file as ``foo``.
         """
-        from rebrew.split import _build_output_name
+        from rebrew.source.split import _build_output_name
 
         assert _build_output_name("_foo", 0x1000, ".c") == "_foo.c"
         assert _build_output_name("__foo", 0x2000, ".c") == "__foo.c"
         assert _build_output_name("foo", 0x3000, ".c") == "foo.c"
 
     def test_output_name_non_ascii_symbol_is_ascii(self) -> None:
-        from rebrew.split import _build_output_name
+        from rebrew.source.split import _build_output_name
 
         # NFC and NFD spellings must not yield two different filenames.
         nfc = _build_output_name("Stra\u00dfe_caf\u00e9", 0x1000, ".c")
@@ -608,7 +608,7 @@ class TestSplitHelpers:
         assert nfc == nfd == "Stra_e_caf_.c"
 
     def test_output_name_fallback_va(self) -> None:
-        from rebrew.split import _build_output_name
+        from rebrew.source.split import _build_output_name
 
         assert _build_output_name("", 0x1000, ".c") == "func_00001000.c"
 
@@ -616,7 +616,7 @@ class TestSplitHelpers:
 class TestSplitCliErrors:
     def test_missing_source_argument(self, tmp_path: Path, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(app, [])
@@ -626,7 +626,7 @@ class TestSplitCliErrors:
 
     def test_source_not_found(self, tmp_path: Path, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(app, ["nope.c"])
@@ -635,7 +635,7 @@ class TestSplitCliErrors:
 
     def test_extension_mismatch(self, tmp_path: Path, monkeypatch: Any) -> None:
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         _write(tmp_path / "multi.txt", "int x;\n")
@@ -646,7 +646,7 @@ class TestSplitCliErrors:
     def test_split_requires_two_matching_blocks(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Two FUNCTION blocks, but only one matches the configured marker."""
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path, module="SERVER"),
         )
         content = SourceFixture(
@@ -665,7 +665,7 @@ class TestSplitCliErrors:
     def test_va_json_requires_force(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--va in --json mode refuses destructive extraction without --force."""
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         _write(tmp_path / "multi.c", _multi_two())
@@ -676,7 +676,7 @@ class TestSplitCliErrors:
     def test_va_json_force_extracts(self, tmp_path: Path, monkeypatch: Any) -> None:
 
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         _write(tmp_path / "multi.c", _multi_two())
@@ -762,7 +762,7 @@ class TestSplitStackedMarkers:
     def _invoke_marker(self, tmp_path: Path, monkeypatch: Any, module: str, *args: str) -> Any:
         src = _write(tmp_path / "common.c", self._stacked())
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path, module),
         )
         return runner.invoke(app, [*args, str(src)])
@@ -816,7 +816,7 @@ def _invoke_meta(
 ) -> tuple[Any, Path]:
     src = tmp_path / name
     monkeypatch.setattr(
-        "rebrew.split.require_config",
+        "rebrew.source.split.require_config",
         lambda target=None, json_mode=False: _meta_cfg(tmp_path),
     )
     return runner.invoke(app, [*args, str(src)]), src
@@ -1194,7 +1194,7 @@ class TestMarkerlessSplit:
         def _boom(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("disk full")
 
-        monkeypatch.setattr("rebrew.split.record_function_rows", _boom)
+        monkeypatch.setattr("rebrew.source.split.record_function_rows", _boom)
         result, src = _invoke_meta(tmp_path, monkeypatch, "--va", "0x10001000", "--force")
         assert result.exit_code != 0
         assert "restored" in result.output

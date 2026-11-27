@@ -22,7 +22,7 @@ from source_util import write_source
 
 from rebrew.coff_reloc import relocation_binding_evidence, smart_reloc_compare
 from rebrew.config import load_config
-from rebrew.test import _lint_preamble
+from rebrew.verify.test import _lint_preamble
 
 _PROJECT_TOML = """\
 [project]
@@ -126,7 +126,7 @@ def _measured_preamble(
 ) -> tuple[dict[str, int], int, int]:
     """Run the shipped preamble and count C parses and global scans."""
     import rebrew.c_parser as c_parser
-    import rebrew.data_scan as data_scan
+    import rebrew.data.scan as data_scan
 
     parses = 0
     scans = 0
@@ -159,7 +159,7 @@ class TestSingleFileNameMap:
     ) -> None:
         """A warm or disk hit on a large tree parses what a small project does,
         and after one file is edited the rescan reparses it and reuses the rest."""
-        import rebrew.test as test_mod
+        import rebrew.verify.test as test_mod
         from rebrew.coff_reloc import build_name_to_va
 
         small = tmp_path / "small"
@@ -236,7 +236,7 @@ class TestSingleFileNameMap:
     def test_unrelated_file_does_not_rebuild(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.test as test_mod
+        import rebrew.verify.test as test_mod
 
         _project(tmp_path)
         first = _preamble(tmp_path, "caller.c")
@@ -253,7 +253,7 @@ class TestSingleFileNameMap:
     def test_source_token_map_tracks_restored_mtime_rewrite(self, tmp_path: Path) -> None:
         """A same-size rewrite that restores mtime is still a new parse input."""
         from rebrew.config import load_config
-        from rebrew.test import _source_token_map
+        from rebrew.verify.test import _source_token_map
 
         _project(tmp_path)
         cfg = load_config(tmp_path)
@@ -282,7 +282,7 @@ class TestSingleFileNameMap:
     def test_metadata_change_rebuilds(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.test as test_mod
+        import rebrew.verify.test as test_mod
 
         _project(tmp_path)
         _preamble(tmp_path, "caller.c")
@@ -325,7 +325,7 @@ class TestSingleFileNameMap:
     def test_disk_hit_does_not_rebuild(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.test as test_mod
+        import rebrew.verify.test as test_mod
 
         _project(tmp_path)
         first = _preamble(tmp_path, "caller.c")
@@ -345,7 +345,7 @@ class TestSingleFileNameMap:
     def test_other_target_cache_is_not_reused(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.test as test_mod
+        import rebrew.verify.test as test_mod
 
         _project(tmp_path)
         other = _preamble(tmp_path, "foreign.c", target="other")
@@ -383,7 +383,7 @@ class TestSingleFileNameMap:
     def test_bool_va_in_the_disk_cache_is_rebuilt(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.test as test_mod
+        import rebrew.verify.test as test_mod
 
         _project(tmp_path)
         _preamble(tmp_path, "caller.c")

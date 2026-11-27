@@ -15,7 +15,7 @@ from rebrew.compiler.cache import include_specs, scan_include_closure
 from rebrew.compiler.image_headers import ImageHeaders
 from rebrew.config import ProjectConfig
 from rebrew.metadata.functions import record_function_identity
-from rebrew.source_contracts import contract_contexts
+from rebrew.source.contracts import contract_contexts
 
 IMAGE = "sha256:" + "a" * 64
 
@@ -352,7 +352,7 @@ class TestContractImageHeaders:
         return cfg
 
     def test_audit_opt_in_resolves_sdk_and_normalizes_report(self, tmp_path, runtime):
-        from rebrew.source_contracts import audit_contracts
+        from rebrew.source.contracts import audit_contracts
 
         state, _ = runtime
         state["archive"] = archive({"sdk.h": b"int sdk_value;\n"})
@@ -366,7 +366,7 @@ class TestContractImageHeaders:
         assert "rebrew-image-headers-" not in str(first)
 
     def test_reconcile_stable_digest_and_changed_header_refusal(self, tmp_path, runtime):
-        from rebrew.source_contracts import reconcile_contract
+        from rebrew.source.contracts import reconcile_contract
 
         state, _ = runtime
         state["archive"] = archive({"sdk.h": b"int sdk_value;\n"})
@@ -388,7 +388,7 @@ class TestContractImageHeaders:
     def test_image_is_rechecked_under_publication_lock(self, tmp_path, runtime, monkeypatch):
         from contextlib import contextmanager
 
-        import rebrew.source_contracts as contracts
+        import rebrew.source.contracts as contracts
 
         state, _ = runtime
         state["archive"] = archive({"sdk.h": b"int sdk_value;\n"})
@@ -453,7 +453,7 @@ from unittest.mock import patch
 sys.path.insert(0, "tests")
 from test_image_headers import archive, IMAGE
 from rebrew.config import ProjectConfig
-from rebrew.source_contracts import reconcile_contract
+from rebrew.source.contracts import reconcile_contract
 import subprocess
 root = Path(sys.argv[1])
 def run(args, **kwargs):

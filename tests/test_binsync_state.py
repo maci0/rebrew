@@ -338,7 +338,7 @@ class TestDefinitionFileScan:
 
     @staticmethod
     def _count_walks(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
-        import rebrew.sources as sources
+        import rebrew.source.discovery as sources
 
         real = sources.scan_files
         walks: list[Any] = []

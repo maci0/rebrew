@@ -10,8 +10,8 @@ from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
-from rebrew.data_ownership import enrich_library_owners, parse_link_map
-from rebrew.data_scan import GlobalEntry, ScanResult
+from rebrew.data.ownership import enrich_library_owners, parse_link_map
+from rebrew.data.scan import GlobalEntry, ScanResult
 
 
 def _cfg(root: Path, **kwargs: object) -> SimpleNamespace:
@@ -85,7 +85,7 @@ def test_map_matches_symbol_name_even_if_reference_va_drifted(tmp_path: Path) ->
 def test_library_keys_are_normalized_once_per_spelling_per_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rebrew import data_ownership
+    from rebrew.data import ownership as data_ownership
 
     link_map = tmp_path / "server.map"
     link_map.write_text(
@@ -117,7 +117,7 @@ def test_library_keys_are_normalized_once_per_spelling_per_call(
 def test_library_key_collision_keeps_last_map_spelling_for_common_owner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rebrew import data_ownership
+    from rebrew.data import ownership as data_ownership
 
     archive = tmp_path / "crt.lib"
     archive.write_bytes(b"archive")
@@ -206,7 +206,7 @@ def test_data_cli_exposes_explicit_library_owners(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
 
-    import rebrew.data as cli
+    import rebrew.data.cli as cli
 
     src = tmp_path / "src"
     src.mkdir()
@@ -309,7 +309,7 @@ def test_unmapped_explicit_archive_symbol_needs_selected_unique_provider(
 ) -> None:
     import hashlib
 
-    from rebrew import data_ownership
+    from rebrew.data import ownership as data_ownership
 
     archive = tmp_path / "crt.lib"
     original = make_lib_archive([("runtime.obj", _common_object("_private", 4))])

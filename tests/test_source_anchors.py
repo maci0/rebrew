@@ -12,7 +12,7 @@ from rebrew.metadata.functions import (
     set_fields,
     update_source_status,
 )
-from rebrew.source_anchors import materialize_anchors
+from rebrew.source.anchors import materialize_anchors
 
 
 def _project(tmp_path: Path) -> tuple[ProjectConfig, Path]:
@@ -129,7 +129,7 @@ def test_cli_preview_and_apply(
 
     from typer.testing import CliRunner
 
-    from rebrew.source_anchors import app
+    from rebrew.source.anchors import app
 
     cfg, source = _project(tmp_path)
     if custom_syntax:
@@ -142,7 +142,7 @@ def test_cli_preview_and_apply(
             encoding="utf-8",
         )
     anchor = b"/* NATIVE A@0x00401000 */" if custom_syntax else b"/* ADDRESS: A 0x00401000 */"
-    monkeypatch.setattr("rebrew.source_anchors.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.anchors.require_config", lambda **kwargs: cfg)
     runner = CliRunner()
     result = runner.invoke(app, [str(source), "--dry-run", "--json"])
     assert result.exit_code == 0, result.output
@@ -166,7 +166,7 @@ def test_cli_preview_keeps_an_existing_lowercase_module_anchor(
 
     from typer.testing import CliRunner
 
-    from rebrew.source_anchors import app
+    from rebrew.source.anchors import app
 
     source = tmp_path / "unit.c"
     original = "/* ADDRESS: mobile 0x00401000 */\nint f(void) { return 1; }\n"
@@ -181,7 +181,7 @@ def test_cli_preview_keeps_an_existing_lowercase_module_anchor(
         symbol="_f",
         kind="FUNCTION",
     )
-    monkeypatch.setattr("rebrew.source_anchors.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.anchors.require_config", lambda **kwargs: cfg)
     result = CliRunner().invoke(app, [str(source), "--dry-run", "--json"])
     assert result.exit_code == 0, result.output
     preview = json.loads(result.output)
@@ -217,7 +217,7 @@ def test_source_provenance_is_byte_exact_after_anchors(tmp_path: Path, stale: bo
 def test_second_write_failure_restores_sources_and_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import rebrew.rename_ops as rename_ops
+    import rebrew.source.rename_ops as rename_ops
 
     cfg, source = _project(tmp_path)
     second = source.with_name("z.c")

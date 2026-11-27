@@ -122,7 +122,7 @@ lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 lazy from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 lazy from rebrew.metadata.functions import canonical_status
-lazy from rebrew.sources import contained_path, source_roots
+lazy from rebrew.source.discovery import contained_path, source_roots
 lazy from rebrew.utils import (
     atomic_write_bytes,
     container_runtime,

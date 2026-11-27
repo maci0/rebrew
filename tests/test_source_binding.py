@@ -140,7 +140,7 @@ class TestSourceBindingHistory:
     def test_retired_tu_is_inactive_and_history_is_not_pruned(self, tmp_path: Path) -> None:
         from rebrew.lint import lint_file
         from rebrew.orphans import split_prunable
-        from rebrew.source_selection import collect_target_sources
+        from rebrew.source.selection import collect_target_sources
 
         cfg = _project(tmp_path)
         change_source_binding(cfg.metadata_dir, "GAME", 0x401000, reason="wrong identity")
@@ -274,7 +274,7 @@ class TestSourceBindingHistory:
 
 class TestBindingCommands:
     def test_preview_then_guarded_apply_and_counterpart_preservation(self, tmp_path: Path) -> None:
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         original = get_entry(cfg.metadata_dir, 0x402000, "GAME")
@@ -287,7 +287,7 @@ class TestBindingCommands:
             "0x402000",
             "--json",
         ]
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             preview = CliRunner().invoke(app, [*args, "--dry-run"])
             assert preview.exit_code == 0, preview.output
             digest = cli_payload(preview)["input_digest"]
@@ -305,7 +305,7 @@ class TestBindingCommands:
     def test_retire_skips_the_target_source_scan_that_only_rebind_reads(
         self, tmp_path: Path
     ) -> None:
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         replacement = cfg.reversed_dir / "h.c"
@@ -317,8 +317,8 @@ class TestBindingCommands:
             return [], []
 
         with (
-            patch("rebrew.source_binding.require_config", return_value=cfg),
-            patch("rebrew.source_binding.collect_target_sources", side_effect=scan),
+            patch("rebrew.source.binding.require_config", return_value=cfg),
+            patch("rebrew.source.binding.collect_target_sources", side_effect=scan),
         ):
             retired = CliRunner().invoke(
                 app, ["retire", "0x401000", "--reason", "wrong", "--dry-run", "--json"]
@@ -335,13 +335,13 @@ class TestBindingCommands:
         assert cli_payload(rebound)["replacement"]["name"] == "h"
 
     def test_ambiguous_replacement_rejected_without_changes(self, tmp_path: Path) -> None:
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         source = cfg.reversed_dir / "bad.c"
         source.write_text("int f(void){return 1;}\nint f(void){return 2;}\n")
         before = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 ["rebind", "0x401000", str(source), "--name", "f", "--reason", "proof", "--json"],
@@ -374,7 +374,7 @@ class TestRebindRejectingControls:
         from another binary must not take that name for 0x401000."""
         import json
 
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         (cfg.reversed_dir / "function_structure.json").write_text(
@@ -384,7 +384,7 @@ class TestRebindRejectingControls:
         source.write_text("int fcn_00403000(void) { return 1; }\n")
         before = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
         args = ["rebind", "0x401000", str(source), "--name", "fcn_00403000"]
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(app, [*args, "--reason", "twin", "--dry-run", "--json"])
         assert result.exit_code == 2
         message = cli_payload(result)["error"]
@@ -396,7 +396,7 @@ class TestRebindRejectingControls:
     def test_name_declared_with_other_types_is_rejected(self, tmp_path: Path) -> None:
         """A caller already declares the name with other parameters: binding the
         twin's definition to it would break that file (MSVC C2198)."""
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         (cfg.reversed_dir / "caller.c").write_text(
@@ -405,7 +405,7 @@ class TestRebindRejectingControls:
         source = cfg.reversed_dir / "twin.c"
         source.write_text("int __cdecl fcn_00405000(int a, float b) { return a; }\n")
         args = ["rebind", "0x401000", str(source), "--name", "fcn_00405000", "--reason", "twin"]
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(app, [*args, "--dry-run", "--json"])
         assert result.exit_code == 2
         message = cli_payload(result)["error"]
@@ -415,7 +415,7 @@ class TestRebindRejectingControls:
 
     def test_unprototyped_declaration_is_compatible(self, tmp_path: Path) -> None:
         """An unspecified list permits int parameters with the same return type and ABI."""
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         (cfg.reversed_dir / "caller.c").write_text(
@@ -424,14 +424,14 @@ class TestRebindRejectingControls:
         source = cfg.reversed_dir / "twin.c"
         source.write_text("void __cdecl fcn_00405000(int a) { }\n")
         args = ["rebind", "0x401000", str(source), "--name", "fcn_00405000", "--reason", "twin"]
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(app, [*args, "--dry-run", "--json"])
         assert result.exit_code == 0, result.output
 
     def test_direct_call_target_is_a_function(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
 
-        from rebrew.source_binding import _is_call_target
+        from rebrew.source.binding import _is_call_target
 
         # call 0x403000 from 0x401000: rel32 = 0x403000 - 0x401005
         code = b"\x90" + bytes.fromhex("e8fb1f0000") + b"\xc3"
@@ -449,13 +449,13 @@ class TestRebindRejectingControls:
         assert not _is_call_target(Path("x.exe"), 0x403004)
 
     def test_undiscoverable_destination_is_rejected(self, tmp_path: Path) -> None:
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         source = cfg.root / "outside.c"
         source.write_text("int f(void) { return 1; }\n")
         before = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app, ["rebind", "0x401000", str(source), "--reason", "proof", "--json"]
             )
@@ -464,8 +464,8 @@ class TestRebindRejectingControls:
         assert (cfg.metadata_dir / "rebrew-functions.toml").read_bytes() == before
 
     def test_rebind_after_retire_keeps_library_ancestry(self, tmp_path: Path) -> None:
-        from rebrew.source_binding import app
-        from rebrew.source_selection import collect_target_sources
+        from rebrew.source.binding import app
+        from rebrew.source.selection import collect_target_sources
 
         cfg = _project(tmp_path)
         record_function_identity(
@@ -481,7 +481,7 @@ class TestRebindRejectingControls:
         source = cfg.root / "vendor/native.c"
         source.parent.mkdir()
         source.write_text("int f(void) { return 2; }\n")
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -504,7 +504,7 @@ class TestRebindRejectingControls:
     def test_rebind_of_a_retired_library_claim_to_game_source_is_a_function(
         self, tmp_path: Path
     ) -> None:
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         record_function_identity(
@@ -518,7 +518,7 @@ class TestRebindRejectingControls:
         )
         change_source_binding(cfg.metadata_dir, "GAME", 0x401000, reason="not that library body")
         (cfg.reversed_dir / "game.c").write_text("int game_f(void) { return 2; }\n")
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -538,7 +538,7 @@ class TestRebindRejectingControls:
 
     def test_another_targets_declaration_of_the_name_does_not_block(self, tmp_path: Path) -> None:
         """OTHER's file declares its own function under the same placeholder name."""
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         change_source_binding(cfg.metadata_dir, "GAME", 0x401000, reason="wrong claim")
@@ -557,7 +557,7 @@ class TestRebindRejectingControls:
             kind="FUNCTION",
         )
         (cfg.reversed_dir / "game.c").write_text("float fcn_00401000(float x) { return x; }\n")
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -575,7 +575,7 @@ class TestRebindRejectingControls:
         assert get_entry(cfg.metadata_dir, 0x401000, "GAME")["file"] == "src/game.c"
 
     def test_change_between_parse_and_hash_is_rejected(self, tmp_path: Path) -> None:
-        import rebrew.source_binding as command
+        import rebrew.source.binding as command
 
         cfg = _project(tmp_path)
         source = cfg.reversed_dir / "replacement.c"
@@ -589,8 +589,8 @@ class TestRebindRejectingControls:
             return result
 
         with (
-            patch("rebrew.source_binding.require_config", return_value=cfg),
-            patch("rebrew.source_binding.function_definition_hashes", changing_definitions),
+            patch("rebrew.source.binding.require_config", return_value=cfg),
+            patch("rebrew.source.binding.function_definition_hashes", changing_definitions),
         ):
             result = CliRunner().invoke(
                 command.app,
@@ -603,14 +603,14 @@ class TestRebindRejectingControls:
 
 class TestStaticDefinitionScope:
     def test_distinct_static_symbols_in_separate_tus_can_rebind(self, tmp_path: Path) -> None:
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         existing = cfg.reversed_dir / "g.c"
         existing.write_text("static int g(void) { return 1; }\n")
         replacement = cfg.reversed_dir / "replacement.c"
         replacement.write_text("static int g(void) { return 2; }\n")
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -629,13 +629,13 @@ class TestStaticDefinitionScope:
         assert get_entry(cfg.metadata_dir, 0x402000, "GAME")["file"] == "src/g.c"
 
     def test_duplicate_external_symbol_in_separate_tus_rejected(self, tmp_path: Path) -> None:
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         replacement = cfg.reversed_dir / "replacement.c"
         replacement.write_text("int g(void) { return 2; }\n")
         before = (cfg.metadata_dir / "rebrew-functions.toml").read_bytes()
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -661,7 +661,7 @@ class TestCanonicalDefinitionCollision:
     ) -> None:
         from source_util import write_store_fixture
 
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
         (cfg.reversed_dir / "alias.c").symlink_to("g.c")
@@ -669,7 +669,7 @@ class TestCanonicalDefinitionCollision:
         text = metadata.read_text().replace('file = "src/g.c"', f'file = "{stored}"')
         write_store_fixture(metadata, text)
         before = metadata.read_bytes()
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             result = CliRunner().invoke(
                 app,
                 [
@@ -704,14 +704,14 @@ class TestCanonicalDefinitionCollision:
 
 
 def test_guarded_binding_accepts_variadic_pointer_payload(tmp_path: Path) -> None:
-    from rebrew.source_binding import app
+    from rebrew.source.binding import app
 
     cfg = _project(tmp_path)
     source = cfg.reversed_dir / "replacement.c"
     source.write_text(
         "#include <stdarg.h>\nchar* replacement(int id, ...) { va_list ap; char* p; va_start(ap,id); p=va_arg(ap,char*); va_end(ap); return p; }\n"
     )
-    with patch("rebrew.source_binding.require_config", return_value=cfg):
+    with patch("rebrew.source.binding.require_config", return_value=cfg):
         args = [
             "rebind",
             "0x401000",
@@ -733,7 +733,7 @@ def test_guarded_binding_accepts_variadic_pointer_payload(tmp_path: Path) -> Non
 
 
 def test_kr_export_rebind_preview_accepts_the_named_definition(tmp_path: Path) -> None:
-    from rebrew.source_binding import app
+    from rebrew.source.binding import app
 
     cfg = _project(tmp_path)
     source = cfg.reversed_dir / "unzip.c"
@@ -746,7 +746,7 @@ def test_kr_export_rebind_preview_accepts_the_named_definition(tmp_path: Path) -
         "extern int ZEXPORT unzeof (file)\n\tunzFile file;\n{ return 0; }\n"
     )
     before = get_entry(cfg.metadata_dir, 0x401000, "GAME")
-    with patch("rebrew.source_binding.require_config", return_value=cfg):
+    with patch("rebrew.source.binding.require_config", return_value=cfg):
         preview = CliRunner().invoke(
             app,
             [
@@ -813,13 +813,13 @@ def test_kr_export_rebind_preview_accepts_the_named_definition(tmp_path: Path) -
 def test_kr_rebind_refuses_unbounded_or_mismatched_names(
     tmp_path: Path, text: str, name: str, symbol: str
 ) -> None:
-    from rebrew.source_binding import app
+    from rebrew.source.binding import app
 
     cfg = _project(tmp_path)
     source = cfg.reversed_dir / "unzip.c"
     source.write_text(text)
     before = get_entry(cfg.metadata_dir, 0x401000, "GAME")
-    with patch("rebrew.source_binding.require_config", return_value=cfg):
+    with patch("rebrew.source.binding.require_config", return_value=cfg):
         result = CliRunner().invoke(
             app,
             [
@@ -842,13 +842,13 @@ def test_kr_rebind_refuses_unbounded_or_mismatched_names(
 
 
 def test_malformed_va_arg_binding_preserves_previous_identity(tmp_path: Path) -> None:
-    from rebrew.source_binding import app
+    from rebrew.source.binding import app
 
     cfg = _project(tmp_path)
     source = cfg.reversed_dir / "replacement.c"
     source.write_text("void replacement(int id, ...) { va_arg(ap,char* +); }\n")
     before = get_entry(cfg.metadata_dir, 0x401000, "GAME")
-    with patch("rebrew.source_binding.require_config", return_value=cfg):
+    with patch("rebrew.source.binding.require_config", return_value=cfg):
         result = CliRunner().invoke(
             app,
             [
@@ -1039,12 +1039,12 @@ class TestBatchBindingChanges:
     ],
 )
 def test_binding_storage_macro_definition(tmp_path: Path, source_text: str, accepted: bool) -> None:
-    from rebrew.source_binding import app
+    from rebrew.source.binding import app
 
     cfg = _project(tmp_path)
     source = cfg.reversed_dir / "replacement.c"
     source.write_text(source_text)
-    with patch("rebrew.source_binding.require_config", return_value=cfg):
+    with patch("rebrew.source.binding.require_config", return_value=cfg):
         result = CliRunner().invoke(
             app,
             [
@@ -1065,14 +1065,14 @@ def test_binding_storage_macro_definition(tmp_path: Path, source_text: str, acce
 def test_binding_conditional_storage_macro_does_not_bypass_external_collision(
     tmp_path: Path,
 ) -> None:
-    from rebrew.source_binding import app
+    from rebrew.source.binding import app
 
     cfg = _project(tmp_path)
     source = cfg.reversed_dir / "replacement.c"
     source.write_text(
         "#ifndef local\n#define local static\n#endif\nlocal int g(a) int a; { return a; }\n"
     )
-    with patch("rebrew.source_binding.require_config", return_value=cfg):
+    with patch("rebrew.source.binding.require_config", return_value=cfg):
         result = CliRunner().invoke(
             app,
             [
@@ -1112,7 +1112,7 @@ def test_apply_parses_metadata_only_under_lock(tmp_path: Path, batch: bool) -> N
 
 def test_target_selection_loads_the_function_store_once(tmp_path: Path) -> None:
     """The whole-tree scan preloads the store instead of probing it per source."""
-    from rebrew import source_selection
+    from rebrew.source import selection as source_selection
 
     cfg = _project(tmp_path)
     for index in range(4):
@@ -1164,10 +1164,10 @@ class TestRetargetReferences:
     def test_same_c_name_retargets_the_decorated_linker_symbol(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
         cfg = _project(tmp_path)
-        monkeypatch.setattr("rebrew.source_binding.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.source.binding.require_config", lambda **kwargs: cfg)
         replacement = cfg.reversed_dir / "replacement.c"
         replacement.write_text("int __stdcall f(void) { return 2; }\n", encoding="utf-8")
         response = tmp_path / "layout" / (cfg.target_name or cfg.target_binary.name) / "link.rsp"
@@ -1210,9 +1210,9 @@ class TestRetargetReferences:
         return cfg, twin, caller
 
     def invoke(self, cfg, twin, *extra):
-        from rebrew.source_binding import app
+        from rebrew.source.binding import app
 
-        with patch("rebrew.source_binding.require_config", return_value=cfg):
+        with patch("rebrew.source.binding.require_config", return_value=cfg):
             return CliRunner().invoke(
                 app,
                 [

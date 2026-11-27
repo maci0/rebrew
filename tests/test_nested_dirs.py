@@ -12,11 +12,11 @@ import pytest
 from source_util import SourceFixture, write_source
 
 from rebrew.config import ProjectConfig
-from rebrew.data_scan import scan_data_annotations, scan_globals
+from rebrew.data.scan import scan_data_annotations, scan_globals
 from rebrew.lint import lint_file
 from rebrew.match_batch import find_all_stubs, find_near_miss
 from rebrew.naming import load_existing_vas
-from rebrew.sources import iter_sources
+from rebrew.source.discovery import iter_sources
 from rebrew.utils import rel_display_path
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ def _make_c(
     filepath = directory / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)
     sym = symbol or f"_func_{va:08x}"
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     fields = {"status": status, "size": size, "cflags": "/O2 /Gd", "symbol": sym}
     if blocker:

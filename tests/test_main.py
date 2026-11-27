@@ -304,11 +304,11 @@ class TestSingleDomainSubcommandEntry:
             check=True,
         )
         loaded = set(json.loads(proc.stdout))
-        assert "rebrew.cmake_tc" in loaded
+        assert "rebrew.buildsys.cmake_tc" in loaded
         for sibling in (
-            "rebrew.delphi_build",
+            "rebrew.buildsys.delphi",
             "rebrew.round_trip",
-            "rebrew.postlink",
-            "rebrew.link_sweep",
+            "rebrew.buildsys.postlink",
+            "rebrew.buildsys.link_sweep",
         ):
             assert sibling not in loaded, f"unexpected sibling module imported: {sibling}"

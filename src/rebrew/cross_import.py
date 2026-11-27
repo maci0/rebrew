@@ -45,7 +45,7 @@ lazy from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 lazy from rebrew.catalog import RegistryEntry
 lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
 lazy from rebrew.similar import disasm_signature, similarity_score
-lazy from rebrew.sources import contained_path, iter_sources, source_roots
+lazy from rebrew.source.discovery import contained_path, iter_sources, source_roots
 lazy from rebrew.utils import (
     TerminalTable,
     atomic_write_text,
@@ -361,7 +361,7 @@ def _verify_import(
     replaced by :func:`_merged_entry_body_size` (``None`` otherwise).  A
     re-verify that does not match keeps the original result.
     """
-    from rebrew.verify import verify_entry
+    from rebrew.verify.cli import verify_entry
 
     result = verify_entry(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
     body = _merged_entry_body_size(cfg_dst, entry.va, entry.size, result)
@@ -415,7 +415,7 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     """
     from rebrew.metadata.bindings import library_inventory_bindings, read_source_bindings
     from rebrew.metadata.functions import load_metadata
-    from rebrew.sources import iter_library_headers
+    from rebrew.source.discovery import iter_library_headers
 
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
@@ -501,7 +501,7 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
 
 def _extract_function_text(text: str, name: str) -> str | None:
     """Copy one C definition, its shared declarations and static dependencies."""
-    from rebrew.split import shared_preamble, source_layout, span_extent
+    from rebrew.source.split import shared_preamble, source_layout, span_extent
 
     raw, spans = source_layout(text)
     functions = [span for span in spans if span.kind == "function"]
@@ -976,7 +976,7 @@ def import_shared_function(
 
     from rebrew.metadata.bindings import SourceBinding
     from rebrew.metadata.functions import remove_field, update_field
-    from rebrew.verify import apply_status_updates
+    from rebrew.verify.cli import apply_status_updates
 
     src_flags = _source_flags(cfg_src, target_path, src_va)
     # No source-dir /I here (unlike the copy path): the shared file moves
@@ -1238,7 +1238,7 @@ def import_function(
     dst_encoding = src_encoding
     if dst_path.exists():
         from rebrew.metadata.bindings import source_bindings
-        from rebrew.source_layout import source_layout
+        from rebrew.source.layout import source_layout
 
         try:
             dst_text, dst_encoding = read_source_text(dst_path)
@@ -1345,7 +1345,7 @@ def import_function(
     # stays but is not promoted as matched.
     from rebrew.metadata.bindings import SourceBinding
     from rebrew.metadata.functions import update_field
-    from rebrew.verify import apply_status_updates
+    from rebrew.verify.cli import apply_status_updates
 
     # The copy compiles where the source did, so it needs the source's flags
     # and, because the destination tree does not carry the source's headers,

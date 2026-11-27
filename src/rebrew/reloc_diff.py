@@ -43,7 +43,7 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-lazy from rebrew.data_scan import classify_section
+lazy from rebrew.data.scan import classify_section
 lazy from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary, section_dict
 lazy from rebrew.formats.binary_model import BinaryInfo
 
@@ -99,7 +99,7 @@ class NameIndex:
 
 def link_map_index(text: str) -> NameIndex:
     """Every public and static symbol of an MSVC link map, code and data."""
-    from rebrew.data_ownership import parse_link_map
+    from rebrew.data.ownership import parse_link_map
 
     return NameIndex([(s.va, 0, s.name) for s in parse_link_map(text)])
 

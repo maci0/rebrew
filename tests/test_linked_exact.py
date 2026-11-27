@@ -74,13 +74,13 @@ def _compare(*_args: Any, **_kwargs: Any) -> CompareResult:
 
 
 def _mock(monkeypatch: pytest.MonkeyPatch, *, placed: bool = True) -> None:
-    from rebrew.verify_hash import expected_text_functions
+    from rebrew.verify.hash import expected_text_functions
 
     _VERDICT["status"] = "RELOC"
-    # rebrew.test binds compile_and_compare lazily, on first access, and
+    # rebrew.verify.test binds compile_and_compare lazily, on first access, and
     # monkeypatch reads it to save the original: patched second, it saved and
     # later restored this stand-in, which every later test in the process used.
-    monkeypatch.setattr("rebrew.test.compile_and_compare", _compare)
+    monkeypatch.setattr("rebrew.verify.test.compile_and_compare", _compare)
     monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", _compare)
     monkeypatch.setattr("rebrew.compiler.compile.precompile_batch", lambda *a, **k: {})
     monkeypatch.setattr(
@@ -91,7 +91,7 @@ def _mock(monkeypatch: pytest.MonkeyPatch, *, placed: bool = True) -> None:
 
 def _verify(root: Path, *args: str) -> dict[str, Any]:
     from rebrew.metadata.functions import clear_metadata_cache
-    from rebrew.verify import app
+    from rebrew.verify.cli import app
 
     clear_metadata_cache()
     result = CliRunner().invoke(app, [*args, "--json", "--root", str(root)])
@@ -341,12 +341,12 @@ class TestStickiness:
         assert _stored(tmp_path)["status"] == "EXACT"
         obj = tmp_path / "foo.obj"
         obj.write_bytes(b"")
-        monkeypatch.setattr("rebrew.test.compile_to_obj", lambda *a, **k: (str(obj), ""))
+        monkeypatch.setattr("rebrew.verify.test.compile_to_obj", lambda *a, **k: (str(obj), ""))
         monkeypatch.setattr(
-            "rebrew.test.parse_obj_symbol_and_relocs", lambda *a, **k: (_CODE, {}, {})
+            "rebrew.verify.test.parse_obj_symbol_and_relocs", lambda *a, **k: (_CODE, {}, {})
         )
         monkeypatch.setattr(
-            "rebrew.test.smart_reloc_compare",
+            "rebrew.verify.test.smart_reloc_compare",
             lambda obj_bytes, *a, **k: (True, len(obj_bytes), len(obj_bytes), [1], []),
         )
         monkeypatch.chdir(tmp_path)
@@ -394,7 +394,7 @@ class TestLinkMapPlacement:
 class TestImageHashMemo:
     def test_hash_memo_is_bounded(self, tmp_path: Path) -> None:
         """Rebuilt images must not retain one digest per revision forever."""
-        import rebrew.linked_exact as linked_exact
+        import rebrew.buildsys.linked_exact as linked_exact
 
         linked_exact._hash_memo.clear()
         paths = []
@@ -410,7 +410,7 @@ class TestImageHashMemo:
 
     def test_in_place_rewrite_with_restored_mtime_rehashes(self, tmp_path: Path) -> None:
         """Same size, inode and restored mtime still means new bytes."""
-        import rebrew.linked_exact as linked_exact
+        import rebrew.buildsys.linked_exact as linked_exact
 
         path = tmp_path / "image.bin"
         path.write_bytes(b"AAAA")

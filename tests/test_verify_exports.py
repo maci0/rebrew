@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
 from rebrew.formats.binary_loader import ExportParseError, parse_exports
-from rebrew.verify_exports import app, compare_exports
+from rebrew.verify.exports import app, compare_exports
 
 
 class _Fn:
@@ -55,7 +55,7 @@ class TestParseExports:
 
 class TestCompareExports:
     def test_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.verify_exports as exports_mod
+        import rebrew.verify.exports as exports_mod
 
         monkeypatch.setattr(exports_mod, "parse_exports", lambda p: ["A", "B"])
         r = compare_exports(Path("orig.dll"), Path("recomp.dll"))
@@ -65,7 +65,7 @@ class TestCompareExports:
         assert r["original_count"] == r["recompiled_count"] == 2
 
     def test_missing_and_added(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.verify_exports as exports_mod
+        import rebrew.verify.exports as exports_mod
 
         def _parse(p: Path) -> list[str]:
             return ["A", "B"] if "orig" in str(p) else ["A", "C"]
@@ -85,14 +85,14 @@ class TestCli:
         result: dict,
         recomp_name: str = "recomp.dll",
     ) -> Path:
-        import rebrew.verify_exports as exports_mod
+        import rebrew.verify.exports as exports_mod
 
         target = tmp_path / "orig.dll"
         target.write_bytes(b"MZfake")
         recomp = tmp_path / recomp_name
         recomp.write_bytes(b"MZfake")
         cfg = SimpleNamespace(target_binary=target)
-        monkeypatch.setattr("rebrew.verify_exports.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.exports.require_config", lambda **kw: cfg)
         full = {
             "original": str(target),
             "recompiled": str(recomp),
@@ -137,7 +137,7 @@ class TestCli:
         target = tmp_path / "orig.dll"
         target.write_bytes(b"MZfake")
         cfg = SimpleNamespace(target_binary=target)
-        monkeypatch.setattr("rebrew.verify_exports.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.exports.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, [str(tmp_path / "nope.dll")])
         assert result.exit_code == EXIT_ERROR
         assert "not found" in result.output
@@ -145,13 +145,13 @@ class TestCli:
     def test_unparseable_binary_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.verify_exports as exports_mod
+        import rebrew.verify.exports as exports_mod
 
         recomp = tmp_path / "recomp.dll"
         recomp.write_bytes(b"MZfake")
         cfg = SimpleNamespace(target_binary=tmp_path / "orig.dll")
         cfg.target_binary.write_bytes(b"MZfake")
-        monkeypatch.setattr("rebrew.verify_exports.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.exports.require_config", lambda **kw: cfg)
 
         def _boom(o: Path, r: Path) -> dict:
             raise ExportParseError(f"cannot parse exports of {o}: truncated")

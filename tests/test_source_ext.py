@@ -13,7 +13,7 @@ from source_util import write_source
 
 from rebrew.config import ProjectConfig
 from rebrew.formats.binary_loader import detect_source_language
-from rebrew.sources import (
+from rebrew.source.discovery import (
     files_with_ext,
     iter_headers,
     iter_library_headers,
@@ -33,7 +33,7 @@ def test_sources_public_all() -> None:
     literal mirrors that declaration so dropping it narrows the surface
     visibly.
     """
-    import rebrew.sources as sources
+    import rebrew.source.discovery as sources
 
     assert sources.__all__ == [
         "EXCLUDE_DIRS",
@@ -51,7 +51,7 @@ def test_sources_public_all() -> None:
     for name in sources.__all__:
         assert getattr(sources, name, None) is not None, name
     ns: dict[str, Any] = {}
-    exec("from rebrew.sources import *", ns)  # noqa: S102
+    exec("from rebrew.source.discovery import *", ns)  # noqa: S102
     exported = {k for k in ns if not k.startswith("_")}
     assert exported == set(sources.__all__)
 
@@ -116,7 +116,7 @@ class TestScanFiles:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A caller that already walked the tree hands the result over, not a second walk."""
-        import rebrew.sources as sources
+        import rebrew.source.discovery as sources
 
         src = self._tree(tmp_path)
         scanned = scan_files(src)
@@ -396,7 +396,7 @@ class TestContainedPath:
     """``file`` is a path, not a label: it must not reach outside the trees."""
 
     def test_relative_inside_root_resolves(self, tmp_path: Path) -> None:
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         rev = tmp_path / "src_SERVER"
         rev.mkdir()
@@ -406,7 +406,7 @@ class TestContainedPath:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Containment is a parts compare. The parents walk is not the check."""
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         rev = tmp_path / "src_SERVER"
         rev.mkdir()
@@ -420,14 +420,14 @@ class TestContainedPath:
         assert contained_path(rev, "../outside.c") is None
 
     def test_parent_escape_refused(self, tmp_path: Path) -> None:
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         rev = tmp_path / "src_SERVER"
         rev.mkdir()
         assert contained_path(rev, "../../.bashrc") is None
 
     def test_absolute_refused(self, tmp_path: Path) -> None:
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         rev = tmp_path / "src_SERVER"
         rev.mkdir()
@@ -435,7 +435,7 @@ class TestContainedPath:
 
     def test_absolute_inside_root_refused(self, tmp_path: Path) -> None:
         """Host code must not splice an absolute path into a project join."""
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         rev = tmp_path / "src_SERVER"
         rev.mkdir()
@@ -444,18 +444,18 @@ class TestContainedPath:
         assert contained_path(rev, (rev / "f.c").as_posix()) is None
 
     def test_empty_refused(self, tmp_path: Path) -> None:
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         assert contained_path(tmp_path, "") is None
 
     def test_no_roots_refused(self, tmp_path: Path) -> None:
         """A config with no reversed_dir, shared_dir, or root names no root at all."""
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         assert contained_path((), "pool/f.c") is None
 
     def test_symlink_out_of_root_refused(self, tmp_path: Path) -> None:
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         rev = tmp_path / "src_SERVER"
         rev.mkdir()
@@ -466,7 +466,7 @@ class TestContainedPath:
 
     def test_shared_relative_path_accepted(self, tmp_path: Path) -> None:
         """A shared source is recorded with ``..`` from reversed_dir; that is not an escape."""
-        from rebrew.sources import contained_path, source_roots
+        from rebrew.source.discovery import contained_path, source_roots
 
         rev = tmp_path / "src_SERVER"
         shared = tmp_path / "src" / "shared"
@@ -477,7 +477,7 @@ class TestContainedPath:
         assert resolved == (shared / "f.c").resolve()
 
     def test_source_roots_order(self, tmp_path: Path) -> None:
-        from rebrew.sources import source_roots
+        from rebrew.source.discovery import source_roots
 
         cfg = ProjectConfig(
             root=tmp_path,
@@ -491,7 +491,7 @@ class TestContainedPath:
         )
 
     def test_source_roots_without_shared(self, tmp_path: Path) -> None:
-        from rebrew.sources import source_roots
+        from rebrew.source.discovery import source_roots
 
         cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path / "src_SERVER")
         assert source_roots(cfg) == (tmp_path / "src_SERVER", tmp_path)

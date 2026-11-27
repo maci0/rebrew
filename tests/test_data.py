@@ -8,8 +8,8 @@ import pytest
 from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 
-from rebrew.data import _generate_bss_fix
-from rebrew.data_scan import (
+from rebrew.data.cli import _generate_bss_fix
+from rebrew.data.scan import (
     BssGap,
     BssReport,
     classify_section,
@@ -785,7 +785,7 @@ class TestFindDispatchTables:
 
 class TestEstimateTypeSize:
     def test_scalar_types(self) -> None:
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
 
         assert estimate_type_size("int") == 4
         assert estimate_type_size("char") == 1
@@ -793,7 +793,7 @@ class TestEstimateTypeSize:
         assert estimate_type_size("double") == 8
 
     def test_array_and_pointer(self) -> None:
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
 
         assert estimate_type_size("char[32]") == 32
         assert estimate_type_size("int *") == 4
@@ -804,7 +804,7 @@ class TestEstimateTypeSize:
 
         ``char (*)[4]`` was sized as 16. An array of pointers stays an array.
         """
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
 
         assert estimate_type_size("char (*)[4]") == 4
         assert estimate_type_size("char (**)[4]") == 4
@@ -817,7 +817,7 @@ class TestEstimateTypeSize:
 
         ``int[sizeof(char (*)[4])]`` was 4. ``char[sizeof(char *[2])]`` was 1.
         """
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
 
         assert estimate_type_size("int[sizeof(char (*)[4])]") == 16
         assert estimate_type_size("char[sizeof(char *[2])]") == 8
@@ -831,7 +831,7 @@ class TestEstimateTypeSize:
         as a single pointer. ``int (*)[4]`` stays one pointer.
         ``sizeof`` of the abstract form is the whole array.
         """
-        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.data.layout import data_symbol_size, estimate_type_size
         from rebrew.types import type_size
 
         assert estimate_type_size("int (*[4])") == 16
@@ -852,7 +852,7 @@ class TestEstimateTypeSize:
         was sized as one pointer. ``int (*table[4])`` is four pointers.
         ``int (*[2])[3]`` stays two, and ``char (*)[4]`` stays one.
         """
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
         from rebrew.types import type_size
 
         assert estimate_type_size("extern int (*table[2])[3];") == 8
@@ -873,7 +873,7 @@ class TestEstimateTypeSize:
         was 16 bytes. ``int (*table[2])[3]`` stays two pointers, and a
         ``(*)`` inside a bound stays that bound.
         """
-        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.data.layout import data_symbol_size, estimate_type_size
         from rebrew.types import type_size
 
         assert estimate_type_size("extern char (*row)[4];") == 4
@@ -893,7 +893,7 @@ class TestEstimateTypeSize:
         unknown. ``char (*row)[4]`` stays one pointer. A function
         pointer stays unknown. An explicit size still wins.
         """
-        from rebrew.data_layout import data_symbol_size
+        from rebrew.data.layout import data_symbol_size
 
         assert data_symbol_size({"type": "int (*table[2])[3]"}) == 8
         assert data_symbol_size({"type": "char (**rows[2])[4]"}) == 8
@@ -911,7 +911,7 @@ class TestEstimateTypeSize:
         int. ``int (table[2][3])`` is six ints. ``int (*table[4])`` stays
         four pointers, and a ``sizeof`` bound stays that bound.
         """
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
 
         assert estimate_type_size("extern int (table[4]);") == 16
         assert estimate_type_size("int (table[2][3])") == 24
@@ -928,7 +928,7 @@ class TestEstimateTypeSize:
         ``char (* const row)[4]`` stays one pointer.
         """
         from rebrew.c_parser import array_type_shape
-        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.data.layout import data_symbol_size, estimate_type_size
         from rebrew.types import type_size
 
         assert estimate_type_size("int (* const table[2])[3]") == 8
@@ -953,7 +953,7 @@ class TestEstimateTypeSize:
         and the declaration was one int. ``int[sizeof(int (*[2])[3])]``
         stays eight ints.
         """
-        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.data.layout import data_symbol_size, estimate_type_size
         from rebrew.types import type_size
 
         assert estimate_type_size("int[sizeof(int (*table[2])[3])]") == 32
@@ -971,7 +971,7 @@ class TestEstimateTypeSize:
         and the declaration was one int. ``char (*row)[4]`` stays one
         pointer. ``int[sizeof(char (*)[4])]`` stays four ints.
         """
-        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.data.layout import data_symbol_size, estimate_type_size
         from rebrew.types import type_size
 
         assert estimate_type_size("int[sizeof(char (*row)[4])]") == 16
@@ -991,7 +991,7 @@ class TestEstimateTypeSize:
         ``void (__cdecl *cbs[4])(int)`` is four function pointers.
         """
         from rebrew.c_parser import array_type_shape
-        from rebrew.data_layout import data_symbol_size, estimate_type_size
+        from rebrew.data.layout import data_symbol_size, estimate_type_size
         from rebrew.types import type_size
 
         assert estimate_type_size("int (__cdecl *table[2])[3]") == 8
@@ -1025,34 +1025,34 @@ class TestEstimateTypeSize:
         assert array_type_shape("int (__cdecl *[4])") == ("int __cdecl *", (4,))
 
     def test_zero_array_counts_as_one_element(self) -> None:
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
 
         # Flexible ``T[0]`` must not report a zero-byte extent.
         assert estimate_type_size("char[0]") == 1
         assert estimate_type_size("int[0]") == 4
 
     def test_unknown_defaults_int(self) -> None:
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
 
         assert estimate_type_size("my_custom_t") == 4
 
 
 class TestVerifyBssLayoutGaps:
     def _scan(self, globals_list: list) -> SimpleNamespace:
-        from rebrew.data_scan import ScanResult
+        from rebrew.data.scan import ScanResult
 
         g = {e.va: e for e in globals_list}
         return ScanResult(globals=g, data_annotations=[])
 
     def test_no_bss_section(self) -> None:
-        from rebrew.data_scan import verify_bss_layout
+        from rebrew.data.scan import verify_bss_layout
 
         report = verify_bss_layout(self._scan([]), {})
         assert report.bss_va == 0
         assert report.gaps == []
 
     def test_start_gap_detected(self) -> None:
-        from rebrew.data_scan import GlobalEntry, verify_bss_layout
+        from rebrew.data.scan import GlobalEntry, verify_bss_layout
 
         g = GlobalEntry(name="g_first", va=0x2010, type_str="int", declared_in=["a.c"])
         report = verify_bss_layout(self._scan([g]), {".bss": {"va": 0x2000, "size": 0x100}})
@@ -1061,7 +1061,7 @@ class TestVerifyBssLayoutGaps:
         assert report.gaps[0].size == 0x10
 
     def test_between_entry_gap_detected(self) -> None:
-        from rebrew.data_scan import GlobalEntry, verify_bss_layout
+        from rebrew.data.scan import GlobalEntry, verify_bss_layout
 
         g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])  # 4 bytes
         g2 = GlobalEntry(name="g_b", va=0x2010, type_str="int", declared_in=["a.c"])
@@ -1072,7 +1072,7 @@ class TestVerifyBssLayoutGaps:
         assert report.gaps[0].size == 0x10 - 4  # gap after g_a's 4-byte hint
 
     def test_small_gaps_ignored(self) -> None:
-        from rebrew.data_scan import GlobalEntry, verify_bss_layout
+        from rebrew.data.scan import GlobalEntry, verify_bss_layout
 
         g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])
         g2 = GlobalEntry(name="g_b", va=0x2002, type_str="int", declared_in=["a.c"])
@@ -1080,7 +1080,7 @@ class TestVerifyBssLayoutGaps:
         assert report.gaps == []  # 2-byte overlap/alignment, < 4 threshold
 
     def test_coverage_sum(self) -> None:
-        from rebrew.data_scan import GlobalEntry, verify_bss_layout
+        from rebrew.data.scan import GlobalEntry, verify_bss_layout
 
         g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])
         g2 = GlobalEntry(name="g_b", va=0x2004, type_str="char", declared_in=["a.c"])
@@ -1090,8 +1090,8 @@ class TestVerifyBssLayoutGaps:
 
 class TestBssFixDryRun:
     def test_dry_run_does_not_write(self, tmp_path: Path) -> None:
-        from rebrew.data import _generate_bss_fix
-        from rebrew.data_scan import BssReport
+        from rebrew.data.cli import _generate_bss_fix
+        from rebrew.data.scan import BssReport
 
         report = BssReport(
             gaps=[type("Gap", (), {"offset": 0x5000, "size": 0x100, "before": "a", "after": "b"})()]
@@ -1101,8 +1101,8 @@ class TestBssFixDryRun:
         assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_fix_writes(self, tmp_path: Path) -> None:
-        from rebrew.data import _generate_bss_fix
-        from rebrew.data_scan import BssReport
+        from rebrew.data.cli import _generate_bss_fix
+        from rebrew.data.scan import BssReport
 
         report = BssReport(
             gaps=[type("Gap", (), {"offset": 0x5000, "size": 0x100, "before": "a", "after": "b"})()]
@@ -1125,8 +1125,8 @@ class TestBssFixDryRun:
     def test_fix_rerun_keeps_existing_arrays(self, tmp_path: Path) -> None:
         """A second run must preserve the first run's array: regenerating from
         scratch deletes declarations its own metadata still claims."""
-        from rebrew.data import _generate_bss_fix
-        from rebrew.data_scan import BssReport
+        from rebrew.data.cli import _generate_bss_fix
+        from rebrew.data.scan import BssReport
 
         def _report(offset: int) -> BssReport:
             return BssReport(
@@ -1174,7 +1174,7 @@ class TestBuildDispatchKnownFunctions:
         )
 
     def test_source_annotations_take_precedence(self, tmp_path: Path) -> None:
-        from rebrew.data_scan import build_dispatch_known_functions
+        from rebrew.data.scan import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
         src = cfg.reversed_dir / "f.c"
@@ -1190,7 +1190,7 @@ class TestBuildDispatchKnownFunctions:
         assert known[0x1000]["status"] == "STUB"  # no STATUS line in the block
 
     def test_registry_names_merged(self, tmp_path: Path) -> None:
-        from rebrew.data_scan import build_dispatch_known_functions
+        from rebrew.data.scan import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
         known = build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
@@ -1199,7 +1199,7 @@ class TestBuildDispatchKnownFunctions:
         assert known[0x2000]["status"] == ""
 
     def test_missing_function_list_tolerated(self, tmp_path: Path) -> None:
-        from rebrew.data_scan import build_dispatch_known_functions
+        from rebrew.data.scan import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir = tmp_path / "empty_src"
@@ -1213,8 +1213,8 @@ class TestBssFixMessage:
     verify (zero annotated BSS globals)."""
 
     def test_no_gaps_with_known_entries_perfect(self, tmp_path: Path, capsys) -> None:
-        from rebrew.data import _generate_bss_fix
-        from rebrew.data_scan import BssEntry, BssReport
+        from rebrew.data.cli import _generate_bss_fix
+        from rebrew.data.scan import BssEntry, BssReport
 
         report = BssReport(
             bss_va=0x1000,
@@ -1225,8 +1225,8 @@ class TestBssFixMessage:
         assert "Layout is perfect" in capsys.readouterr().err
 
     def test_no_gaps_without_entries_not_perfect(self, tmp_path: Path, capsys) -> None:
-        from rebrew.data import _generate_bss_fix
-        from rebrew.data_scan import BssReport
+        from rebrew.data.cli import _generate_bss_fix
+        from rebrew.data.scan import BssReport
 
         report = BssReport(bss_va=0x1000, bss_size=0x100)
         _generate_bss_fix(report, tmp_path, "TEST")
@@ -1245,7 +1245,7 @@ class TestFindDispatchTablesSparse:
     _DATA_VA = 0x10010000
 
     def test_sparse_table_within_stride(self) -> None:
-        from rebrew.data_scan import find_dispatch_tables
+        from rebrew.data.scan import find_dispatch_tables
 
         # 3 pointers at slots 0, 8, 16 with garbage (0) at 4 and 12, stride=8.
         data = bytearray(64)
@@ -1267,7 +1267,7 @@ class TestFindDispatchTablesSparse:
         assert tables[0].num_entries == 3
 
     def test_entries_beyond_stride_split_runs(self) -> None:
-        from rebrew.data_scan import find_dispatch_tables
+        from rebrew.data.scan import find_dispatch_tables
 
         # Two groups of 3 pointers, 0x40 apart (> stride) — two tables.
         data = bytearray(128)
@@ -1293,7 +1293,7 @@ def test_data_combines_metadata_mutations(monkeypatch, tmp_path: Path) -> None:
 
     from typer.testing import CliRunner
 
-    from rebrew.data import app
+    from rebrew.data.cli import app
     from rebrew.metadata.data import get_data_entry
 
     cfg = SimpleNamespace(
@@ -1303,7 +1303,7 @@ def test_data_combines_metadata_mutations(monkeypatch, tmp_path: Path) -> None:
         target_binary=tmp_path / "reference.dll",
         module="SERVER",
     )
-    monkeypatch.setattr("rebrew.data.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.data.cli.require_config", lambda **kwargs: cfg)
     result = CliRunner().invoke(
         app,
         ["set", "--json", "--type", "0x10001000=char[260]", "--size", "0x10001000=260"],
@@ -1315,7 +1315,7 @@ def test_data_combines_metadata_mutations(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_bss_aliases_do_not_create_gaps_inside_backing_allocations() -> None:
-    from rebrew.data_scan import GlobalEntry, ScanResult, verify_bss_layout
+    from rebrew.data.scan import GlobalEntry, ScanResult, verify_bss_layout
 
     scan = ScanResult(
         globals={

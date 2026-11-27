@@ -1,6 +1,6 @@
 """Tests for rebrew verify_placement — .data VA comparison against data metadata.
 
-The link pipeline is faked at the ``rebrew.data_layout`` boundary (link
+The link pipeline is faked at the ``rebrew.data.layout`` boundary (link
 objects + per-object symbol offsets) so the test exercises the placement
 arithmetic: per-TU .data contributions accumulate in link order onto the
 built ``.data`` base VA, then each symbol's computed VA is compared with the
@@ -38,7 +38,7 @@ libs = ""
 
 
 def test_data_shift_scores_prefers_zero_on_equal_tails() -> None:
-    from rebrew.verify_placement import data_shift_scores
+    from rebrew.verify.placement import data_shift_scores
 
     tail = b"\x01\x02\x03\x04" * 4
     scores = data_shift_scores(tail, tail, step=4, shifts=1)
@@ -65,8 +65,8 @@ def _patch_layout(
     expected: dict[str, int] | None = None,
     fail: Exception | None = None,
 ) -> None:
-    import rebrew.data_layout as dl
-    import rebrew.verify_placement as vp
+    import rebrew.data.layout as dl
+    import rebrew.verify.placement as vp
 
     monkeypatch.setattr(vp, "built_data_va", lambda _dll: FAKE_DATA_VA)
     if expected is None:
@@ -89,7 +89,7 @@ def _patch_layout(
 
 class TestVerifyPlacement:
     def test_missing_metadata_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         root = _project(tmp_path)
         monkeypatch.chdir(root)
@@ -98,7 +98,7 @@ class TestVerifyPlacement:
         assert "data metadata not found" in result.output
 
     def test_missing_dll_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
@@ -117,7 +117,7 @@ class TestVerifyPlacement:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """No guessed binary name: an unreadable project must say so."""
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(tmp_path)
         (tmp_path / "src").mkdir()
@@ -133,8 +133,8 @@ class TestVerifyPlacement:
         (e.g. notepad's np_recompiled.exe) instead of hardcoded
         build/server.dll — regression: the tool errored 'build/server.dll not
         found' on any project whose built binary had another name."""
-        import rebrew.verify_placement as vp
-        from rebrew.verify_placement import app
+        import rebrew.verify.placement as vp
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(_project(tmp_path))
         (tmp_path / "build" / "other.dll").write_bytes(b"MZ")
@@ -153,7 +153,7 @@ class TestVerifyPlacement:
     def test_custom_built_missing_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(_project(tmp_path))
         result = CliRunner().invoke(app, ["--built", "build/nope.dll"])
@@ -167,7 +167,7 @@ class TestVerifyPlacement:
     def test_object_inventory_failure_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(_project(tmp_path))
         _patch_layout(monkeypatch, fail=RuntimeError("objdump exploded"))
@@ -178,7 +178,7 @@ class TestVerifyPlacement:
     def test_misplaced_symbol_detected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(_project(tmp_path))
         # sym_a lands exactly where the metadata says; sym_b drifts by -8.
@@ -201,7 +201,7 @@ class TestVerifyPlacement:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A page of misplaced symbols names the remainder instead of dropping it."""
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(_project(tmp_path))
         _patch_layout(
@@ -228,7 +228,7 @@ class TestVerifyPlacement:
     def test_all_correct_reports_zero_misplaced(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(_project(tmp_path))
         # sym_b is at offset 16 of TU #2 → base + 0x10 (TU#1 size) + 0x10.
@@ -247,7 +247,7 @@ class TestVerifyPlacement:
     def test_terminal_output_lists_misplaced(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(_project(tmp_path))
         _patch_layout(monkeypatch, objects=[(16, {"sym_a": 0}), (16, {"sym_b": 8})])
@@ -263,7 +263,7 @@ class TestVerifyPlacement:
     def test_negative_drift_mean_delta(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         monkeypatch.chdir(_project(tmp_path))
         # TU#0: sym_a misplaced by +1, sym_b misplaced by -2 -> delta_sum = -1, misplaced = 2
@@ -281,7 +281,7 @@ class TestVerifyPlacement:
 
 def test_data_symbols_keeps_only_the_requested_module(tmp_path: Path) -> None:
     """A project with several binaries stores one address per name per target."""
-    from rebrew.data_layout import data_symbols
+    from rebrew.data.layout import data_symbols
 
     toml = tmp_path / "rebrew-data.toml"
     write_store_fixture(
@@ -304,8 +304,8 @@ class TestMetadataPathSelection:
         from_subdirectory: bool,
         metadata_subdirectory: str,
     ) -> None:
-        import rebrew.data_layout as dl
-        from rebrew.verify_placement import app
+        import rebrew.data.layout as dl
+        from rebrew.verify.placement import app
 
         root = _project(tmp_path)
         metadata_dir = root / metadata_subdirectory
@@ -331,8 +331,8 @@ class TestMetadataPathSelection:
     def test_explicit_metadata_path_is_honored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, absolute: bool
     ) -> None:
-        import rebrew.data_layout as dl
-        from rebrew.verify_placement import app
+        import rebrew.data.layout as dl
+        from rebrew.verify.placement import app
 
         root = _project(tmp_path)
         write_store_fixture(root / "rebrew-data.toml", "format = 2\n")
@@ -355,7 +355,7 @@ class TestMetadataPathSelection:
     def test_missing_explicit_path_does_not_fall_back_to_existing_store(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_placement import app
+        from rebrew.verify.placement import app
 
         root = _project(tmp_path)
         write_store_fixture(root / "rebrew-data.toml", "format = 2\n")

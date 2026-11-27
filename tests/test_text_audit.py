@@ -1,6 +1,6 @@
 """Tests for rebrew text_audit — .text VA comparison against source markers.
 
-The link pipeline is faked at the ``rebrew.data_layout`` boundary (link
+The link pipeline is faked at the ``rebrew.data.layout`` boundary (link
 objects + per-object symbol offsets) so the tests exercise the placement
 arithmetic: per-TU .text contributions accumulate in link order onto the
 built ``.text`` base VA, then each function's computed VA is compared with
@@ -63,7 +63,7 @@ def _patch_layout(
     objects: list[tuple[int, dict[str, int]]] | None = None,
     fail: Exception | None = None,
 ) -> None:
-    import rebrew.data_layout as dl
+    import rebrew.data.layout as dl
     import rebrew.text_audit as ta
 
     monkeypatch.setattr(ta, "built_text_va", lambda _dll: text_base)
@@ -124,7 +124,7 @@ class TestTextAuditCli:
     @pytest.mark.parametrize("marker", ["DATA", "GLOBAL", "STRING", "VTABLE"])
     def test_function_inventory_excludes_data_markers(self, tmp_path: Path, marker: str) -> None:
         from rebrew.config import load_config
-        from rebrew.verify_hash import expected_text_functions
+        from rebrew.verify.hash import expected_text_functions
 
         _project(
             tmp_path,
@@ -296,7 +296,7 @@ class TestTextAuditCli:
     def test_sibling_map_in_other_build_directory_precedes_objects(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.data_layout as dl
+        import rebrew.data.layout as dl
         from rebrew.text_audit import app
 
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
@@ -414,7 +414,7 @@ class TestExportFallback:
     def test_fallback_used_when_no_objects(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.data_layout as dl
+        import rebrew.data.layout as dl
         import rebrew.text_audit as ta
 
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C}))
@@ -427,7 +427,7 @@ class TestExportFallback:
         assert actual == {"alpha": 0x401000}
 
     def test_obj_text_offsets_read_text_section(self, tmp_path: Path) -> None:
-        from rebrew.data_layout import obj_text_symbol_offsets
+        from rebrew.data.layout import obj_text_symbol_offsets
 
         obj = tmp_path / "a.obj"
         obj.write_bytes(
@@ -510,11 +510,11 @@ class TestDecoratedTextSymbols:
         ``hook@@12`` stayed decorated. The C names are ``_foo``, ``foo``,
         and ``hook``, in the object, the export table, and the marker map.
         """
-        import rebrew.data_layout as dl
+        import rebrew.data.layout as dl
         import rebrew.text_audit as ta
         from rebrew.config import load_config
-        from rebrew.data_layout import obj_text_symbol_offsets
-        from rebrew.verify_hash import expected_text_functions
+        from rebrew.data.layout import obj_text_symbol_offsets
+        from rebrew.verify.hash import expected_text_functions
 
         obj = tmp_path / "a.obj"
         obj.write_bytes(

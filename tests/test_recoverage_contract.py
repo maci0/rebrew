@@ -4,7 +4,7 @@ Recoverage (the sibling dashboard) is a pure consumer of
 ``db/coverage-<target>.toml`` written by ``rebrew coverage export``, which scans the
 project in-process.  This test runs the real pipeline on the
 checked-in fixture binary and asserts the document still carries every fact the
-dashboard reads, through the same reader (``rebrew.coverage_toml``) the
+dashboard reads, through the same reader (``rebrew.coverage.toml``) the
 dashboard uses — so a rebrew change that silently breaks it is caught here,
 without importing the sibling package.
 
@@ -37,8 +37,8 @@ from source_util import write_source
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
-from rebrew.coverage_db import FUNCTION_DB_STATUSES, write_coverage
-from rebrew.coverage_toml import load_coverage_from
+from rebrew.coverage.db import FUNCTION_DB_STATUSES, write_coverage
+from rebrew.coverage.toml import load_coverage_from
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -198,7 +198,7 @@ class TestRecoverageContract:
 
     def test_verify_results_carry_their_measurement_columns(self, tmp_path, monkeypatch) -> None:
         """The dashboard's verify rows come from .rebrew/verify_cache.toml."""
-        import rebrew.verify_cache as vc
+        import rebrew.verify.cache as vc
         from rebrew.config import load_config
         from rebrew.metadata.bindings import SourceBinding
 

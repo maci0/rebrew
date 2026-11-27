@@ -228,7 +228,7 @@ def test_refuses_parser_import_failure_during_scan(
 def test_refuses_unscanned_retained_file(
     scan_request: tuple[WorkerConfig, dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import rebrew.sources as sources
+    import rebrew.source.discovery as sources
 
     config, req = scan_request
     monkeypatch.setattr(sources, "iter_sources", lambda *_args: [])

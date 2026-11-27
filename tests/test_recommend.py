@@ -483,7 +483,7 @@ class TestHygieneBatchInputs:
 
     def test_reuses_the_batch_scan(self, tmp_path: Any, monkeypatch: Any) -> None:
         import rebrew.recommend as rec
-        import rebrew.sources as sources
+        import rebrew.source.discovery as sources
 
         (tmp_path / "caller.c").write_text("extern int foo(void);\n", encoding="utf-8")
         tree = sources.scan_files(tmp_path)

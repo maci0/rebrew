@@ -221,7 +221,7 @@ class TestVocabularyCoverage:
         assert not missing, f"statuses without page mark: {missing}"
 
     def test_gate_ranks_cover_known_statuses(self) -> None:
-        from rebrew.verify import _STATUS_ORDER, _STATUS_RANK
+        from rebrew.verify.cli import _STATUS_ORDER, _STATUS_RANK
         from rebrew.workspace.status import KNOWN_STATUSES
 
         # INTERNAL_ERROR is deliberately absent from metadata (verify never

@@ -257,7 +257,7 @@ def _read_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Coverage, named decompilation and verification of the retained target read the applied name."""
-    from rebrew.coverage_input_contract import coverage_input_digest, plan_coverage_readset
+    from rebrew.coverage.input_contract import coverage_input_digest, plan_coverage_readset
 
     capture = reanalysed["analysis_capture"]
     target = capture["target"]
@@ -367,7 +367,7 @@ def _read_names(
         from typer.testing import CliRunner
 
         from rebrew.compiler import compile as compiler
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         def compare(
             cfg: Any, source: Path, symbol: str, target_bytes: bytes, *rest: Any, **named: Any

@@ -29,7 +29,7 @@ lazy from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.source.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import (
     atomic_write_text,
     fold_ident,

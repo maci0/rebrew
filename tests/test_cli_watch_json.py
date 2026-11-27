@@ -12,11 +12,11 @@ class TestWatchOutputContract:
     @pytest.mark.parametrize(
         "module, route",
         [
-            ("test", ["test", "f.c"]),
+            ("verify.test", ["test", "f.c"]),
             ("diff", ["diff", "f.c"]),
             ("prove", ["prove", "f.c"]),
             ("match", ["match", "run", "f.c"]),
-            ("verify", ["verify"]),
+            ("verify.cli", ["verify"]),
         ],
     )
     def test_json_watch_fails_before_config_dependencies_or_monitoring(
@@ -34,7 +34,7 @@ class TestWatchOutputContract:
         monkeypatch.setattr("rebrew.utils.watch_files", _unexpected)
         if module == "prove":
             monkeypatch.setattr(owner, "_require_angr", _unexpected)
-        if module == "test":
+        if module == "verify.test":
             monkeypatch.setattr(owner, "_watch_loop", _unexpected)
         if module == "match":
             monkeypatch.setattr(owner, "run_single_ga", _unexpected)

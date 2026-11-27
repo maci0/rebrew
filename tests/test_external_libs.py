@@ -89,7 +89,7 @@ class TestCmakeSources:
     def test_emits_external_libs_in_config_order(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.cmake_sources import app as cs_app
+        from rebrew.buildsys.cmake_sources import app as cs_app
 
         root = _project(tmp_path)
         monkeypatch.chdir(root)

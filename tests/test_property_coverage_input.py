@@ -1,6 +1,6 @@
 """Property-based fuzz tests for the coverage input contract validators.
 
-``rebrew.coverage_input_contract.canonical_coverage_input`` and
+``rebrew.coverage.input_contract.canonical_coverage_input`` and
 ``canonical_verification_records`` are the trust-boundary codecs for the
 retained coverage path: both take untrusted Python values decoded from an
 ops request body (``ReportRequest.coverage_input`` /
@@ -28,7 +28,7 @@ from typing import Any
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.coverage_input_contract import (
+from rebrew.coverage.input_contract import (
     CoverageInputError,
     canonical_coverage_input,
     canonical_verification_records,
@@ -247,7 +247,7 @@ class TestNamedSnapshotManifestTypes:
         import pytest
 
         from rebrew import ops
-        from rebrew.named_snapshot import _capture_files, _validate_manifest
+        from rebrew.ops.named_snapshot import _capture_files, _validate_manifest
 
         def fake_req(**kw: Any) -> Any:
             base: dict[str, Any] = {

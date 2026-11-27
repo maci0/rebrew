@@ -1,7 +1,7 @@
-"""Tests for the pure helpers in :mod:`rebrew.build_db`.
+"""Tests for the pure helpers in :mod:`rebrew.coverage.build_db`.
 
 ``build_db`` no longer has a storage engine: the document writer in
-:mod:`rebrew.coverage_toml` imports every normalizer below rather than
+:mod:`rebrew.coverage.toml` imports every normalizer below rather than
 restating it, so these are the one implementation of "what does this catalog
 value mean".  A clamp that moves here moves for both writers or neither.
 
@@ -16,7 +16,7 @@ import logging
 
 import pytest
 
-from rebrew.coverage_db import (
+from rebrew.coverage.db import (
     _clamp_verify_similarity,
     clamp_nonneg_int,
     clamp_unit_interval,
@@ -213,7 +213,7 @@ def test_normalized_cells_are_the_documents_row_shape() -> None:
     so a column added here without it there is the drift that module exists to
     prevent.  Pinned here because this is where the row is built.
     """
-    from rebrew.coverage_toml import _CELL_COLUMNS
+    from rebrew.coverage.toml import _CELL_COLUMNS
 
     row = normalize_cell_row("T", ".text", {"start": 0, "end": 8, "label": "x"})
     assert len(row) - 1 == len(_CELL_COLUMNS)

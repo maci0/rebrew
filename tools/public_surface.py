@@ -520,13 +520,19 @@ def _resolve_reexports(surface: dict[str, dict[str, tuple[str, ...]]]) -> None:
     for _ in range(_MAX_REEXPORT_HOPS):
         resolved = 0
         for names in surface.values():
-            for name, descriptor in names.items():
+            for name, descriptor in list(names.items()):
                 if not descriptor[0].startswith(_REEXPORT):
                     continue
-                origin = surface.get(descriptor[0][len(_REEXPORT) :], {}).get(name)
+                origin_mod = surface.get(descriptor[0][len(_REEXPORT) :], {})
+                origin = origin_mod.get(name)
                 if origin is None or origin[0].startswith(_REEXPORT):
                     continue
                 names[name] = origin
+                if origin[0].startswith("class "):
+                    prefix = f"{name}."
+                    for member, member_desc in origin_mod.items():
+                        if member.startswith(prefix) and member not in names:
+                            names[member] = member_desc
                 resolved += 1
         if not resolved:
             return
@@ -810,7 +816,8 @@ def _blobs_at_ref(ref: str, names: list[str], cwd: Path) -> dict[str, str]:
 # --- dashboard routes -----------------------------------------------------
 
 #: Module holding the dashboard's route table, read for the paths it serves.
-DASHBOARD_MODULE = Path("src") / "rebrew" / "dashboard.py"
+DASHBOARD_MODULE = Path("src") / "rebrew" / "coverage" / "dashboard.py"
+_LEGACY_DASHBOARD_MODULE = Path("src") / "rebrew" / "dashboard.py"
 
 #: Name of the module-level set of every path ``Dashboard.handle`` serves.
 _KNOWN_ROUTES = "_KNOWN_ROUTES"
@@ -898,10 +905,11 @@ def dashboard_routes(source: str) -> frozenset[str] | None:
 
 def routes_at_ref(ref: str, cwd: Path = Path(".")) -> frozenset[str] | None:
     """The dashboard routes as of *ref*, or ``None`` outside a checkout."""
-    blob = _git("show", f"{ref}:{DASHBOARD_MODULE}", cwd=cwd)
-    if blob.returncode != 0:
-        return None
-    return dashboard_routes(blob.stdout)
+    for candidate in (DASHBOARD_MODULE, _LEGACY_DASHBOARD_MODULE):
+        blob = _git("show", f"{ref}:{candidate}", cwd=cwd)
+        if blob.returncode == 0:
+            return dashboard_routes(blob.stdout)
+    return None
 
 
 def surface_at_ref(

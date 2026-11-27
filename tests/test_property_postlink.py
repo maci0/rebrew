@@ -46,9 +46,9 @@ from test_postlink import (
     write_pkg,
 )
 
+from rebrew.buildsys.layout_meta import LayoutMetadata, SectionMeta
+from rebrew.buildsys.postlink import FIXER_ORDER as FIXER_NAMES
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
-from rebrew.layout_meta import LayoutMetadata, SectionMeta
-from rebrew.postlink import FIXER_ORDER as FIXER_NAMES
 
 _u16 = st.integers(min_value=0, max_value=0xFFFF)
 _u32 = st.integers(min_value=0, max_value=0xFFFFFFFF)
@@ -175,7 +175,7 @@ def test_map_coverage_counts_are_well_formed(
     """Fuzz: a forged layout package against an arbitrary built image.  The
     mapper never raises on a dword it cannot read, and every counter it
     returns is bounded by the number of entries it was asked about."""
-    from rebrew.postlink import map_coverage
+    from rebrew.buildsys.postlink import map_coverage
 
     built, meta, info = data
     op_ok, op_total, call_ok, call_total = map_coverage(built, meta, info)
@@ -191,7 +191,7 @@ def test_map_coverage_skips_unreadable_dwords(built_size: int, slack: int) -> No
     """Every layout-map entry whose dword starts at or past the end of the
     built image is skipped, so a package full of out-of-range offsets scores
     zero rather than raising or counting a read it never made."""
-    from rebrew.postlink import map_coverage
+    from rebrew.buildsys.postlink import map_coverage
 
     built = bytes(built_size)
     off = built_size + slack
@@ -206,7 +206,7 @@ def test_map_coverage_validates_a_call_context(built: bytes, pre: int, suf: int)
     not hold the reference value still validates when the two-byte context the
     package recorded really sits either side of it, and does not when the
     preceding byte is not a call opcode."""
-    from rebrew.postlink import map_coverage
+    from rebrew.buildsys.postlink import map_coverage
 
     off = 3
     val = 0xDEADBEEF
@@ -229,7 +229,7 @@ def test_check_text_alignment_agrees_with_coverage(
     """``check_text_alignment`` breaks the build on exactly the ratios below the
     published floor, and stays silent on a package with no layout-map entries
     at all."""
-    from rebrew.postlink import MIN_LAYOUT_MAP_COVERAGE, check_text_alignment, map_coverage
+    from rebrew.buildsys.postlink import MIN_LAYOUT_MAP_COVERAGE, check_text_alignment, map_coverage
 
     built, meta, info = data
     op_ok, op_total, call_ok, call_total = map_coverage(built, meta, info)
@@ -312,7 +312,7 @@ def test_run_fixers_reports_only_valueerror(
     size field must not size an allocation either: the chain runs under an
     address-space cap, so one that does fails as ``MemoryError``.
     """
-    from rebrew.postlink import run_fixers
+    from rebrew.buildsys.postlink import run_fixers
 
     with tempfile.TemporaryDirectory() as td:
         built_path = Path(td) / "built.dll"
@@ -339,7 +339,7 @@ def test_map_coverage_refuses_a_textless_image(blob: bytes) -> None:
     """A built image with no ``.text`` section is a ``ValueError``, not a
     ``KeyError``: the section name comes from the file, so a corrupted table
     removes it, and every caller of the mapper catches ``ValueError``."""
-    from rebrew.postlink import map_coverage
+    from rebrew.buildsys.postlink import map_coverage
 
     meta, info = _meta_and_info(0, len(blob), {}, {})
     info.sections = {}  # the built image declares no section at all
@@ -448,9 +448,9 @@ def test_forged_package_exits_cleanly(pristine_pkg: Path, edits: list[PackageEdi
     exactly when it succeeds, and neither touches the built image."""
     from typer.testing import CliRunner
 
+    from rebrew.buildsys.postlink import app as postlink_app
+    from rebrew.buildsys.residue import app as residue_app
     from rebrew.cli import EXIT_ERROR
-    from rebrew.postlink import app as postlink_app
-    from rebrew.residue import app as residue_app
 
     seed = _OPERAND_SEED
     runner = CliRunner()

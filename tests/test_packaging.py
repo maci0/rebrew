@@ -119,22 +119,23 @@ def _last_tag() -> str:
     return proc.stdout.strip()
 
 
-def _at_ref(last_tag: str, path: str) -> str:
-    """The contents of ``path`` at ``last_tag``, or skip when it cannot be read."""
+def _at_ref(last_tag: str, *paths: str) -> str:
+    """The contents of the first existing ``path`` at ``last_tag``, or skip."""
     import subprocess
 
-    show = subprocess.run(
-        ["git", "show", f"{last_tag}:{path}"],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if show.returncode != 0:
-        pytest.skip(f"cannot read {path} at {last_tag}")
-    return show.stdout
+    for path in paths:
+        show = subprocess.run(
+            ["git", "show", f"{last_tag}:{path}"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if show.returncode == 0:
+            return show.stdout
+    pytest.skip(f"cannot read {' or '.join(paths)} at {last_tag}")
 
 
 def _notes_block(last_tag: str, subject: str) -> str:
@@ -502,16 +503,17 @@ class TestPackagingMetadata:
         in 2.4.0.  The format moved from a SQLite ``coverage.db`` (whose
         ``_CURRENT_DB_VERSION`` this gate pinned) to one clear-text
         ``coverage-<target>.toml`` per target, versioned by
-        :data:`rebrew.coverage_toml._TOML_VERSION`; the policy is unchanged,
+        :data:`rebrew.coverage.toml._TOML_VERSION`; the policy is unchanged,
         because a reader that cannot read yesterday's file still has to be told
         so in the notes.  ``coverage_toml.py`` is newer than the last tag, so
         this skips until a tag carries the format it guards.
         """
-        from rebrew.coverage_toml import _TOML_VERSION
+        from rebrew.coverage.toml import _TOML_VERSION
 
         last_tag = _last_tag()
         tagged = re.search(
-            r"_TOML_VERSION\s*=\s*(\d+)", _at_ref(last_tag, "src/rebrew/coverage_toml.py")
+            r"_TOML_VERSION\s*=\s*(\d+)",
+            _at_ref(last_tag, "src/rebrew/coverage/toml.py", "src/rebrew/coverage_toml.py"),
         )
         if tagged is None:
             pytest.skip(f"no _TOML_VERSION at {last_tag}")

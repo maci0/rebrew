@@ -1,4 +1,4 @@
-"""Property-based fuzz tests for ``rebrew.source_preprocessed``.
+"""Property-based fuzz tests for ``rebrew.source.preprocessed``.
 
 ``parse_msvc_preprocessed`` takes MSVC ``/P`` preprocessor output — bytes
 produced by a compiler, never by rebrew itself — and derives an
@@ -37,7 +37,7 @@ import re
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
-from rebrew.source_preprocessed import parse_msvc_preprocessed
+from rebrew.source.preprocessed import parse_msvc_preprocessed
 
 _LINE = re.compile(rb"(?m)^[ \t]*#line[ \t]+[0-9]+[ \t]+\"((?:\\.|[^\"\\])*)\"[^\r\n]*")
 _MODIFIER = re.compile(rb"\b(?:_inline|_cdecl|_stdcall|_fastcall)\b")

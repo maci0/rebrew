@@ -17,7 +17,7 @@ import shlex
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from rebrew.verify_hash import cflags_equivalent
+from rebrew.verify.hash import cflags_equivalent
 
 #: A CFLAGS string with an arbitrary tail: the tail is what decides whether
 #: shlex can tokenize the whole string (quotes, controls, truncation).

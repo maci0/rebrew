@@ -1,0 +1,1732 @@
+"""data_scan.py – Global data scanning library behind ``rebrew data list``.
+
+Joins dedicated data metadata with optional ADDRESS anchors and AST-derived
+``extern`` declarations, detects dispatch
+tables / vtables in data sections, and verifies ``.bss`` layout.  Holds no CLI
+code, so compile-time callers (``coff_reloc``) and analysis commands import it
+without pulling in the ``rebrew data list`` Typer app (``rebrew.data.cli``).
+"""
+
+import logging
+import re
+import threading
+from dataclasses import dataclass, field
+from typing import Any
+lazy import json
+lazy import struct
+lazy import unicodedata
+lazy import warnings
+lazy from collections import defaultdict
+lazy from collections.abc import Sequence
+lazy from itertools import combinations
+lazy from pathlib import Path
+lazy from types import SimpleNamespace
+
+lazy from rebrew.config import (
+    ProjectConfig,
+    arch_byte_order,
+    arch_pointer_size,
+    inventory_path_for,
+)
+lazy from rebrew.metadata.data import module_visible_to_target
+lazy from rebrew.utils import (
+    atomic_write_text,
+    floor_pct,
+    merged_span_bytes,
+    read_source_text,
+    rel_display_path,
+)
+
+log = logging.getLogger(__name__)
+
+#: struct code per pointer width, for the dispatch-table scan.
+_PTR_FMT = {2: "H", 4: "I", 8: "Q"}
+
+#: Width assumed for a pointer-sized table slot when the loader says nothing.
+_DEFAULT_PTR_SIZE = 4
+
+
+def _target_pointer_size(info: Any) -> int:
+    """Pointer width for a target's data sections, from *info* when it carries one.
+
+    An NE far pointer is always 4 bytes (segment:offset), whatever the
+    segment model's nominal word size, so NE falls back to 4 rather than to
+    the arch preset.
+    """
+    if info is None:
+        return _DEFAULT_PTR_SIZE
+    if getattr(info, "format", "") == "ne":
+        return 4
+    size = int(getattr(info, "pointer_size", 0) or 0)
+    if size in _PTR_FMT:
+        return size
+    arch = str(getattr(info, "arch", "") or "")
+    return arch_pointer_size(arch) if arch else _DEFAULT_PTR_SIZE
+
+
+@dataclass
+class GlobalEntry:
+    """A single discovered global variable."""
+
+    name: str
+    va: int = 0  # Unbound declarations use 0 and leave annotated false.
+    type_str: str = ""
+    section: str = ""  # .data, .rdata, .bss, or ""
+    declared_in: list[str] = field(default_factory=list)
+    defined_in: list[str] = field(default_factory=list)
+    referenced_in: list[str] = field(default_factory=list)
+    library_owners: list[dict[str, str]] = field(default_factory=list)
+    annotated: bool = False  # True if bound through canonical metadata or an address
+    module: str = ""
+    declaration: str = ""
+    storage_kind: str = "object"
+    size: int | None = None
+    backing: str = ""
+    link_symbol: str = ""
+    generated_owners: list[str] = field(default_factory=list)
+    conflict: bool = False  # True if files declare this name with different types
+    _declared: set[str] = field(default_factory=set, repr=False, compare=False)
+
+    def declare(self, fname: str) -> None:
+        """Record *fname* as a declarer, once, in first-seen order.
+
+        ``declared_in`` stays a list (it is indexed and serialized in order);
+        the companion set keeps the membership test O(1) so a global declared
+        in N files costs N appends instead of N² scans.
+        """
+        if fname not in self._declared:
+            self._declared.add(fname)
+            self.declared_in.append(fname)
+
+    @property
+    def has_address(self) -> bool:
+        """A stored binding can explicitly name address zero."""
+        return self.annotated or self.va != 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict for JSON output."""
+        d: dict[str, Any] = {"name": self.name, "type": self.type_str}
+        if self.has_address:
+            d["va"] = f"0x{self.va:08x}"
+        if self.section:
+            d["section"] = self.section
+        d["declared_in"] = self.declared_in
+        d["defined_in"] = self.defined_in
+        d["referenced_in"] = self.referenced_in
+        d["library_owners"] = self.library_owners
+        d["storage_kind"] = self.storage_kind
+        d["size"] = self.size
+        d["backing"] = self.backing
+        d["link_symbol"] = self.link_symbol
+        d["generated_owners"] = self.generated_owners
+        d["annotated"] = self.annotated
+        if self.conflict:
+            d["conflict"] = True
+        return d
+
+
+@dataclass
+class ScanResult:
+    """Aggregated global scan results."""
+
+    globals: dict[str, GlobalEntry] = field(default_factory=dict)
+    data_annotations: list[dict[str, Any]] = field(default_factory=list)  # data bindings
+    type_conflicts: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize scan results to a plain dict for JSON output."""
+        annotated = unannotated = multiple_definitions = library_owned = 0
+        for g in self.globals.values():
+            if g.annotated:
+                annotated += 1
+            else:
+                unannotated += 1
+            if len(g.defined_in) > 1:
+                multiple_definitions += 1
+            if g.library_owners:
+                library_owned += 1
+        return {
+            "globals": {k: v.to_dict() for k, v in sorted(self.globals.items())},
+            "data_annotations": self.data_annotations,
+            "type_conflicts": self.type_conflicts,
+            "summary": {
+                "total": len(self.globals),
+                "annotated": annotated,
+                "unannotated": unannotated,
+                "data_entries": len(self.data_annotations),
+                "conflicts": len(self.type_conflicts),
+                "multiple_definitions": multiple_definitions,
+                "library_owned": library_owned,
+            },
+        }
+
+
+@dataclass
+class DispatchEntry:
+    """A single entry in a dispatch table."""
+
+    target_va: int
+    name: str = ""  # resolved function name, or ""
+    status: str = ""  # EXACT / RELOC / NEAR_MATCHING / STUB / UNKNOWN / ""
+
+
+@dataclass
+class DispatchTable:
+    """A dispatch table (contiguous function pointer array) in a data section."""
+
+    va: int
+    section: str
+    entries: list[DispatchEntry] = field(default_factory=list)
+
+    @property
+    def num_entries(self) -> int:
+        """Total number of entries in this dispatch table."""
+        return len(self.entries)
+
+    @property
+    def resolved(self) -> int:
+        """Number of entries with a resolved function name."""
+        return sum(1 for e in self.entries if e.name)
+
+    @property
+    def coverage(self) -> float:
+        """Fraction of entries that have been resolved (0.0–1.0)."""
+        return self.resolved / self.num_entries if self.num_entries else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict for JSON output."""
+        return {
+            "va": f"0x{self.va:08x}",
+            "section": self.section,
+            "num_entries": self.num_entries,
+            "resolved": self.resolved,
+            # Floored, like every other coverage figure: 199 of 200 resolved
+            # is 99.5%, which rounds to a "100%" that claims a full table.
+            "coverage": f"{floor_pct(self.resolved, self.num_entries, 0):.0f}%",
+            "entries": [
+                {
+                    "target_va": f"0x{e.target_va:08x}",
+                    "name": e.name,
+                    "status": e.status,
+                }
+                for e in self.entries
+            ],
+        }
+
+
+# ---------------------------------------------------------------------------
+# Section classification
+# ---------------------------------------------------------------------------
+
+
+def _section_ranges(sections: dict[str, dict[str, Any]]) -> list[tuple[int, int, str]]:
+    """``(start, end, name)`` section intervals for repeated VA lookups."""
+    return [
+        (sec.get("va", 0), sec.get("va", 0) + sec.get("size", 0), sec_name)
+        for sec_name, sec in sections.items()
+    ]
+
+
+def _classify_in_ranges(va: int, ranges: list[tuple[int, int, str]]) -> str:
+    for start, end, sec_name in ranges:
+        if start <= va < end:
+            return sec_name
+    return ""
+
+
+def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
+    """Determine which binary section a VA belongs to."""
+    return _classify_in_ranges(va, _section_ranges(sections))
+
+
+# ---------------------------------------------------------------------------
+# Scanning
+# ---------------------------------------------------------------------------
+
+
+def _source_visible_to_target(
+    text: str, cfg: ProjectConfig | None, stored_modules: tuple[str, ...] = ()
+) -> bool:
+    """Target visibility follows stored identities and address-only source bindings.
+
+    *text* is the source as read, so the anchors come from the cache the
+    source's bindings filled.
+    """
+    from rebrew.metadata.anchors import parse_address_anchors
+
+    modules = {
+        *stored_modules,
+        *(
+            a.module
+            for a in parse_address_anchors(text, syntax=getattr(cfg, "address_comments", None))
+        ),
+    }
+    return cfg is None or not modules or any(module_visible_to_target(m, cfg) for m in modules)
+
+
+def _bind_stored_data_rows(
+    *,
+    cfg: ProjectConfig | None,
+    bindings: list[Any],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+    fname: str,
+    is_header: bool,
+    extern_vars: dict[str, Any],
+    annotated_names: set[str],
+    by_key: dict[tuple[str, int | None], GlobalEntry],
+    remember: Any,
+    type_by_name: dict[str, dict[str, list[str]]],
+    mark: Any,
+) -> None:
+    """Attach ``rebrew-data.toml`` rows for the bindings scanned from this file.
+
+    Called only when the source has no address-bound data declaration.  Names are added
+    to *annotated_names* before the extern pass so a ``(name, None)`` entry is
+    not created for a global the store already placed.  An existing
+    ``(name, None)`` entry is adopted.  A header does not take a ``.c`` row,
+    and it does not become the reference type.
+    """
+    for binding in bindings:
+        if not binding.is_data:
+            continue
+        module, va = binding.module, binding.va
+        if cfg is not None and not module_visible_to_target(module, cfg):
+            continue
+        entry = {**data_entries.get((module, va), {}), "name": binding.name}
+        name = str(entry.get("name") or "")
+        declared = extern_vars.get(name) if name else None
+        if data_entries.get((module, va), {}).get("name") not in {None, "", name}:
+            entry.pop("size", None)
+            entry["type"] = declared.type_str if declared is not None else ""
+        type_str = str(entry.get("type") or "")
+        if not type_str and declared is not None and declared.type_str:
+            type_str = declared.type_str
+        if not name:
+            warnings.warn(
+                f"{fname}: data row {module}.0x{va:08x} matches this file but has no name",
+                stacklevel=3,
+            )
+            name = "unknown"
+        annotated_names.add(name)
+        key = (name, va)
+        bound = by_key.get(key)
+        if bound is None:
+            bound = by_key.pop((name, None), None)
+            if bound is not None:
+                bound.va = va
+                bound.annotated = True
+                remember(bound, key)
+            else:
+                bound = GlobalEntry(name=name, va=va, type_str=type_str, annotated=True)
+                remember(bound, key)
+        else:
+            bound.annotated = True
+        bound.declare(fname)
+        bound.module = module
+        if "size" in entry:
+            bound.size = entry.get("size")
+        bound.storage_kind = str(entry.get("storage_kind") or "object")
+        bound.backing = str(entry.get("backing") or "")
+        bound.link_symbol = str(entry.get("link_symbol") or "")
+        if declared is not None and declared.declaration:
+            bound.declaration = declared.declaration
+        if type_str and not bound.type_str:
+            bound.type_str = type_str
+        if type_str:
+            type_by_name[name][type_str].append(fname)
+            if not is_header:
+                mark(name, type_str)
+
+
+def _scan_fact_key(path: Path) -> str:
+    """Stable cache key for one source. A path that cannot be resolved stays spelled as given."""
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def _usable_scan_fact(facts: object) -> bool:
+    """True when *facts* is a per-file parse record this scan can apply."""
+    if not isinstance(facts, dict) or not isinstance(facts.get("apply"), bool):
+        return False
+    if not facts["apply"]:
+        return "fname" not in facts or isinstance(facts.get("fname"), str)
+    return (
+        isinstance(facts.get("fname"), str)
+        and isinstance(facts.get("header"), bool)
+        and isinstance(facts.get("bindings"), list)
+        and isinstance(facts.get("externs"), list)
+    )
+
+
+_ADDRESS_VA_RE = re.compile(r"ADDRESS:\s+(\S+)\s+(0x[0-9a-fA-F]+)")
+
+
+def _store_names_the_file(
+    text: str,
+    cfile: Path,
+    rows: list[tuple[str, int, dict[str, Any]]],
+    function_entries: dict[tuple[str, int], dict[str, Any]],
+) -> bool:
+    """True when the stores already name every address this file can add.
+
+    The reloc name map only needs those names. A file with no address comment
+    and no data row contributes none. A comment whose address is already
+    stored does not need another C parse to repeat the name. *rows* are the
+    file's data rows.
+    """
+    from rebrew.config import DEFAULT_ADDRESS_COMMENT_REGEX, address_comments_for_file
+
+    if address_comments_for_file(cfile).regex != DEFAULT_ADDRESS_COMMENT_REGEX:
+        return False
+
+    if any(not (entry.get("name") or entry.get("link_symbol")) for _, _, entry in rows):
+        return False
+    for module, hex_va in _ADDRESS_VA_RE.findall(text):
+        try:
+            va = int(hex_va, 16)
+        except ValueError:
+            return False
+        module_name = unicodedata.normalize("NFC", module)
+        stored = function_entries.get((module_name, va))
+        if isinstance(stored, dict) and (stored.get("name") or stored.get("symbol")):
+            continue
+        if any(
+            row_module == module_name
+            and row_va == va
+            and (entry.get("name") or entry.get("link_symbol"))
+            for row_module, row_va, entry in rows
+        ):
+            continue
+        return False
+    return True
+
+
+# Process-local cover of files whose stored names already answer the reloc
+# map. The disk file is what the next process reads; this dict only avoids
+# parsing that JSON again inside one process. Bounded: each entry keeps one
+# stat per source, so a process that visits many roots must not retain them all.
+_NAME_COVER_CACHE: dict[str, dict[str, Any]] = {}
+_NAME_COVER_CACHE_MAX = 8
+#: Guarded: one process can scan several targets at once (parallel ``match``
+#: targets, the batch catalog built for a GA pool), and the bounded insert is a
+#: multi-step next(iter)+pop on the shared dict.
+_NAME_COVER_CACHE_LOCK = threading.Lock()
+#: Bump when the cover rule or the recorded shape changes.  The store
+#: fingerprint only says the metadata did not change; a cache written by older
+#: coverage semantics must not keep a source out of the reloc-name parse.
+_NAME_COVER_VERSION = 3
+
+
+def _path_key(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except OSError:
+        return str(path)
+
+
+def _source_stamp(path: Path) -> list[int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return [stat.st_mtime_ns, stat.st_size, stat.st_ino, stat.st_ctime_ns]
+
+
+def _stamp_list(value: object) -> list[int] | None:
+    if (
+        not isinstance(value, list)
+        or len(value) != 4
+        or any(type(part) is not int for part in value)
+    ):
+        return None
+    return value
+
+
+def _store_stamp(metadata_dir: Path) -> list[list[object]]:
+    """Fingerprint both stores, including drop-in fragments."""
+    from rebrew.config import METADATA_FILENAME
+    from rebrew.metadata.data import DATA_METADATA_FILENAME
+    from rebrew.metadata.storage import metadata_store
+    from rebrew.workspace.config import walk_up_to_root
+
+    stamp: list[list[object]] = []
+    for name in (METADATA_FILENAME, DATA_METADATA_FILENAME):
+        for part in metadata_store(metadata_dir / name).fingerprint():
+            stamp.append(list(part))
+    root = walk_up_to_root(metadata_dir)
+    if root is not None:
+        stamp.append(
+            [str(root / "rebrew-project.toml"), _source_stamp(root / "rebrew-project.toml")]
+        )
+    return stamp
+
+
+def _begin_name_cover(metadata_dir: Path) -> dict[str, Any]:
+    """Load the cover for *metadata_dir* when the store fingerprint matches."""
+    key = _path_key(metadata_dir)
+    stamp = _store_stamp(metadata_dir)
+    with _NAME_COVER_CACHE_LOCK:
+        cached = _NAME_COVER_CACHE.get(key)
+    if cached is not None and cached["stamp"] == stamp:
+        return cached
+    files: dict[str, list[int]] = {}
+    cache_path = metadata_dir / ".rebrew" / "name-map-cover.json"
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        if cache_path.exists():
+            log.warning("Ignoring unreadable name-map cover cache %s: %s", cache_path, exc)
+        payload = None
+    stored_files = payload.get("files") if isinstance(payload, dict) else None
+    stamp_matches = (
+        isinstance(payload, dict)
+        and payload.get("version") == _NAME_COVER_VERSION
+        and payload.get("stamp") == stamp
+    )
+    if stamp_matches and isinstance(stored_files, dict):
+        for path_key, raw in stored_files.items():
+            parsed = _stamp_list(raw)
+            if isinstance(path_key, str) and parsed is not None:
+                files[path_key] = parsed
+    # One lock per record: concurrent scans of one metadata root share this
+    # object, and its file map is mutated by a scan while its flush serializes
+    # it.  The outer dict lock only guards the bounded insert and the
+    # re-check: a caller that missed the first lookup left the lock to read the
+    # same cache file, and publishing its own record would replace the map a
+    # peer is already filling, so both scans would flush a different partial
+    # map.
+    record = {
+        "dir": metadata_dir,
+        "stamp": stamp,
+        "files": files,
+        "dirty": False,
+        "lock": threading.Lock(),
+    }
+    with _NAME_COVER_CACHE_LOCK:
+        existing = _NAME_COVER_CACHE.get(key)
+        if existing is not None and existing["stamp"] == stamp:
+            return existing
+        if len(_NAME_COVER_CACHE) >= _NAME_COVER_CACHE_MAX:
+            _NAME_COVER_CACHE.pop(next(iter(_NAME_COVER_CACHE)), None)
+        _NAME_COVER_CACHE[key] = record
+    return record
+
+
+def _name_cover_hit(cover: dict[str, Any], cfile: Path) -> bool:
+    stamp = _source_stamp(cfile)
+    if stamp is None:
+        return False
+    with cover["lock"]:
+        return bool(cover["files"].get(_path_key(cfile)) == stamp)
+
+
+def _name_cover_remember(cover: dict[str, Any], cfile: Path, stamp: list[int] | None) -> None:
+    if stamp is None or stamp != _source_stamp(cfile):
+        return
+    key = _path_key(cfile)
+    with cover["lock"]:
+        if cover["files"].get(key) == stamp:
+            return
+        cover["files"][key] = stamp
+        cover["dirty"] = True
+
+
+def _flush_name_cover(cover: dict[str, Any]) -> None:
+    """Write the cover for the next process. A failure leaves the scan result.
+
+    The whole snapshot-and-write runs under the record lock: a remember that
+    lands between the payload build and ``dirty = False`` would otherwise be
+    dropped from the file and marked clean, so the next process re-parses a
+    file this one already did.
+    """
+    with cover["lock"]:
+        if not cover.get("dirty"):
+            return
+        cache_path = Path(cover["dir"]) / ".rebrew" / "name-map-cover.json"
+        payload = {
+            "version": _NAME_COVER_VERSION,
+            "stamp": cover["stamp"],
+            "files": cover["files"],
+        }
+        try:
+            # A cache needs no fsync: the rename keeps it whole, and a copy a crash loses or garbles
+            # is refused by its stamp check and rebuilt.
+            atomic_write_text(
+                cache_path,
+                json.dumps(payload, separators=(",", ":")),
+                encoding="utf-8",
+                durable=False,
+            )
+        except OSError:
+            return
+        cover["dirty"] = False
+
+
+# Bump when the recorded fact shape or the parser inputs change.
+_ROLE_FACT_VERSION = 3
+# Bounded: one entry holds per-file parse facts for every source under one
+# target identity, so `data list --all-targets` must not retain every target's
+# facts until the process exits.
+_ROLE_FACT_CACHE: dict[str, dict[str, Any]] = {}
+_ROLE_FACT_CACHE_MAX = 8
+#: Same bounded-insert hazard as :data:`_NAME_COVER_CACHE_LOCK`.
+_ROLE_FACT_CACHE_LOCK = threading.Lock()
+
+
+def _role_identity(cfg: ProjectConfig | None) -> str:
+    """Target identity baked into cached visibility. An unconfigured scan is empty."""
+    if cfg is None:
+        return ""
+    module = str(getattr(cfg, "module", "") or "")
+    target = str(getattr(cfg, "target_name", "") or "")
+    return f"{module}\n{target}"
+
+
+def _usable_role_facts(facts: object) -> bool:
+    """True when *facts* can rebuild definitions, declarations, and uses."""
+    if not _usable_scan_fact(facts):
+        return False
+    assert isinstance(facts, dict)
+    if not facts["apply"]:
+        return True
+    roles = facts.get("roles")
+    if not isinstance(roles, list) or len(roles) != 3:
+        return False
+    return all(
+        isinstance(part, list) and all(isinstance(name, str) for name in part) for part in roles
+    )
+
+
+def _role_file_record(raw: object) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    stamp = _stamp_list(raw.get("stamp"))
+    facts = raw.get("facts")
+    if stamp is None or not _usable_role_facts(facts):
+        return None
+    return {"stamp": stamp, "facts": facts}
+
+
+def _begin_role_cache(metadata_dir: Path, cfg: ProjectConfig | None) -> dict[str, Any]:
+    """Load role facts when the store fingerprint and target identity still match."""
+    identity = _role_identity(cfg)
+    key = _path_key(metadata_dir) + "\n" + identity
+    stamp = _store_stamp(metadata_dir)
+    with _ROLE_FACT_CACHE_LOCK:
+        cached = _ROLE_FACT_CACHE.get(key)
+    if (
+        cached is not None
+        and cached["stamp"] == stamp
+        and cached["identity"] == identity
+        and cached["version"] == _ROLE_FACT_VERSION
+    ):
+        return cached
+    files: dict[str, dict[str, Any]] = {}
+    cache_path = metadata_dir / ".rebrew" / "data-scan-roles.json"
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError) as exc:
+        if cache_path.exists():
+            log.warning("Ignoring unreadable data-scan role cache %s: %s", cache_path, exc)
+        payload = None
+    stored_files = payload.get("files") if isinstance(payload, dict) else None
+    if (
+        isinstance(payload, dict)
+        and payload.get("version") == _ROLE_FACT_VERSION
+        and payload.get("stamp") == stamp
+        and payload.get("identity") == identity
+        and isinstance(stored_files, dict)
+    ):
+        for path_key, raw in stored_files.items():
+            parsed = _role_file_record(raw)
+            if isinstance(path_key, str) and parsed is not None:
+                files[path_key] = parsed
+    record: dict[str, Any] = {
+        "dir": metadata_dir,
+        "stamp": stamp,
+        "identity": identity,
+        "version": _ROLE_FACT_VERSION,
+        "files": files,
+        "dirty": False,
+        "lock": threading.Lock(),
+    }
+    # Same re-check as the name cover: share the record a racing scan already
+    # published instead of replacing the map it is filling.
+    with _ROLE_FACT_CACHE_LOCK:
+        existing = _ROLE_FACT_CACHE.get(key)
+        if (
+            existing is not None
+            and existing["stamp"] == stamp
+            and existing["identity"] == identity
+            and existing["version"] == _ROLE_FACT_VERSION
+        ):
+            return existing
+        if len(_ROLE_FACT_CACHE) >= _ROLE_FACT_CACHE_MAX:
+            _ROLE_FACT_CACHE.pop(next(iter(_ROLE_FACT_CACHE)), None)
+        _ROLE_FACT_CACHE[key] = record
+    return record
+
+
+def _role_cache_facts(cache: dict[str, Any], cfile: Path) -> dict[str, Any] | None:
+    stamp = _source_stamp(cfile)
+    if stamp is None:
+        return None
+    with cache["lock"]:
+        record = cache["files"].get(_path_key(cfile))
+        if not isinstance(record, dict) or record.get("stamp") != stamp:
+            return None
+        facts = record.get("facts")
+        return facts if isinstance(facts, dict) else None
+
+
+def _restore_roles(
+    facts: dict[str, Any], file_roles: dict[str, tuple[set[str], set[str], set[str]]]
+) -> bool:
+    """Rebuild the role side table from cached facts. False means the record is unusable."""
+    if not facts.get("apply"):
+        return True
+    roles = facts.get("roles")
+    fname = facts.get("fname")
+    if not isinstance(fname, str) or not isinstance(roles, list) or len(roles) != 3:
+        return False
+    file_roles[fname] = (set(roles[0]), set(roles[1]), set(roles[2]))
+    return True
+
+
+def _role_cache_remember(
+    cache: dict[str, Any], cfile: Path, facts: dict[str, Any], stamp: list[int] | None
+) -> None:
+    if stamp is None or stamp != _source_stamp(cfile) or not _usable_role_facts(facts):
+        return
+    key = _path_key(cfile)
+    with cache["lock"]:
+        current = cache["files"].get(key)
+        if (
+            isinstance(current, dict)
+            and current.get("stamp") == stamp
+            and current.get("facts") == facts
+        ):
+            return
+        cache["files"][key] = {"stamp": stamp, "facts": facts}
+        cache["dirty"] = True
+
+
+def _flush_role_cache(cache: dict[str, Any]) -> None:
+    """Write role facts for the next process. A failure leaves this scan's result.
+
+    Snapshot and write share the record lock so a remember that lands during
+    the write cannot be marked clean without reaching the file.
+    """
+    with cache["lock"]:
+        if not cache.get("dirty"):
+            return
+        cache_path = Path(cache["dir"]) / ".rebrew" / "data-scan-roles.json"
+        payload = {
+            "version": cache["version"],
+            "stamp": cache["stamp"],
+            "identity": cache["identity"],
+            "files": cache["files"],
+        }
+        try:
+            # A cache needs no fsync: the rename keeps it whole, and a copy a crash loses or garbles
+            # is refused by its stamp check and rebuilt.
+            atomic_write_text(
+                cache_path,
+                json.dumps(payload, separators=(",", ":")),
+                encoding="utf-8",
+                durable=False,
+            )
+        except OSError:
+            return
+        cache["dirty"] = False
+
+
+def _collect_scan_file_facts(
+    cfile: Path,
+    src_dir: Path,
+    cfg: ProjectConfig | None,
+    *,
+    metadata_dir: Path,
+    function_entries: dict[tuple[str, int], dict[str, Any]],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+    data_index: dict[str, list[tuple[str, int, dict[str, Any]]]],
+    inactive_sources: set[Path],
+    record_roles: bool,
+    file_roles: dict[str, tuple[set[str], set[str], set[str]]],
+    declarations: bool = True,
+    name_cover: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Parse *cfile* into the facts :func:`_apply_scan_file_facts` replays.
+
+    ``None`` means the file could not be read. Callers retry that file next
+    time instead of remembering an empty contribution. *function_entries*,
+    *data_entries* and *data_index* are the scan's store snapshot.
+    """
+    is_header = cfile.suffix.lower() == ".h"
+    # The reloc name map already has this file's names. A later process
+    # stats the file instead of reading it while the store fingerprint holds.
+    if name_cover is not None and _name_cover_hit(name_cover, cfile):
+        return {
+            "apply": False,
+            "fname": rel_display_path(cfile, src_dir),
+            "header": is_header,
+        }
+    from rebrew.c_parser import (
+        find_c_function_definitions,
+        find_extern_variables,
+        find_variable_roles,
+    )
+    from rebrew.metadata.bindings import function_rows_for_file, source_bindings
+    from rebrew.metadata.data import data_rows_for_path
+
+    cover_stamp = _source_stamp(cfile) if name_cover is not None else None
+    try:
+        # Tolerant read: a legacy-encoded source must not have its
+        # non-ASCII bytes silently deleted, which would corrupt string
+        # literals, comments, and address-binding scans.
+        text, _ = read_source_text(cfile)
+    except OSError as exc:
+        # The scan still returns an inventory, just one missing every
+        # binding in this file, so say which file and why rather than
+        # reporting a short list as the whole tree.
+        log.warning("skipping unreadable source %s: %s", cfile, exc)
+        return None
+
+    fname = rel_display_path(cfile, src_dir)
+    data_rows = data_rows_for_path(metadata_dir, cfile, index=data_index)
+    if not declarations and _store_names_the_file(text, cfile, data_rows, function_entries):
+        if name_cover is not None:
+            _name_cover_remember(name_cover, cfile, cover_stamp)
+        return {"apply": False, "fname": fname, "header": is_header}
+    stored_modules = tuple(
+        module
+        for module, _, _ in (
+            function_rows_for_file(
+                cfile,
+                metadata_dir,
+                function_entries,
+                project_root=getattr(cfg, "root", None),
+            )
+            + data_rows
+        )
+    )
+    if not stored_modules and not is_header and cfile.resolve() in inactive_sources:
+        return {"apply": False}
+    try:
+        visible = _source_visible_to_target(text, cfg, stored_modules)
+    except ValueError as exc:
+        display = rel_display_path(cfile, getattr(cfg, "root", None) or src_dir)
+        raise ValueError(f"{display}: {exc}") from exc
+    if not visible:
+        return {"apply": False, "fname": fname, "header": is_header}
+
+    bindings = source_bindings(
+        text,
+        cfile,
+        None,
+        None,
+        metadata_dir,
+        with_prototypes=False,
+        project_root=getattr(cfg, "root", None),
+        function_entries=function_entries,
+        preloaded_data_rows=data_rows,
+        data_entries=data_entries,
+    )
+    function_modules: dict[str, set[str]] = defaultdict(set)
+    data_modules: dict[str, set[str]] = defaultdict(set)
+    anchored_data_names: set[str] = set()
+    for binding in bindings:
+        if binding.is_data:
+            # Migrated data identities have no source line, but still scope declarations.
+            data_modules[binding.name].add(binding.module)
+            if binding.line:
+                anchored_data_names.add(binding.name)
+        else:
+            function_modules[binding.name].add(binding.module)
+    by_line = {line: name for name, line in find_c_function_definitions(text)}
+
+    def function_visible(
+        line: int,
+        *,
+        names: dict[int, str] = by_line,
+        modules_by_name: dict[str, set[str]] = function_modules,
+    ) -> bool:
+        modules = modules_by_name.get(names.get(line, ""), set())
+        return cfg is None or not modules or any(module_visible_to_target(m, cfg) for m in modules)
+
+    parsed_vars = find_extern_variables(
+        text, include_definitions=True, function_filter=function_visible
+    )
+
+    def variable_visible(
+        name: str,
+        is_definition: bool,
+        *,
+        modules_by_name: dict[str, set[str]] = data_modules,
+        anchored_names: set[str] = anchored_data_names,
+    ) -> bool:
+        modules = modules_by_name.get(name, set())
+        return (
+            cfg is None
+            or not modules
+            or not (is_definition or name in anchored_names)
+            or any(module_visible_to_target(m, cfg) for m in modules)
+        )
+
+    roles: tuple[set[str], set[str], set[str]] | None = None
+    if record_roles:
+        roles = find_variable_roles(
+            text, function_filter=function_visible, variable_filter=variable_visible
+        )
+        file_roles[fname] = roles
+
+    visible_vars = [v for v in parsed_vars if variable_visible(v.name, v.is_definition)]
+    facts: dict[str, Any] = {
+        "apply": True,
+        "fname": fname,
+        "header": is_header,
+        "bindings": [
+            {
+                "data": bool(binding.is_data),
+                "name": binding.name,
+                "module": binding.module,
+                "va": int(binding.va),
+                "line": int(binding.line or 0),
+            }
+            for binding in bindings
+        ],
+        "externs": [
+            {
+                "name": ev.name,
+                "type": ev.type_str,
+                "definition": bool(ev.is_definition),
+                "declaration": ev.declaration,
+            }
+            for ev in visible_vars
+        ],
+    }
+    if roles is not None:
+        facts["roles"] = [sorted(part) for part in roles]
+    return facts
+
+
+def _apply_scan_file_facts(
+    facts: dict[str, Any],
+    *,
+    cfg: ProjectConfig | None,
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+    by_key: dict[tuple[str, int | None], GlobalEntry],
+    by_name: dict[str, GlobalEntry],
+    entries_by_name: dict[str, list[GlobalEntry]],
+    remember: Any,
+    type_by_name: dict[str, dict[str, list[str]]],
+    mark: Any,
+    header_files: set[str],
+) -> None:
+    """Apply one file's cached parse facts to the running global inventory."""
+    fname = str(facts["fname"])
+    is_header = bool(facts["header"])
+    bindings = [
+        SimpleNamespace(
+            is_data=bool(row.get("data")),
+            name=str(row.get("name") or ""),
+            module=str(row.get("module") or ""),
+            va=int(address),
+            line=int(row.get("line") or 0),
+        )
+        for row in facts["bindings"]
+        if isinstance(row, dict) and (address := row.get("va")) is not None
+    ]
+    extern_vars = {
+        str(row.get("name") or ""): SimpleNamespace(
+            name=str(row.get("name") or ""),
+            type_str=str(row.get("type") or ""),
+            is_definition=bool(row.get("definition")),
+            declaration=str(row.get("declaration") or ""),
+        )
+        for row in facts["externs"]
+        if isinstance(row, dict)
+    }
+    annotated_names: set[str] = set()
+    _bind_stored_data_rows(
+        cfg=cfg,
+        bindings=bindings,
+        data_entries=data_entries,
+        fname=fname,
+        is_header=is_header,
+        extern_vars=extern_vars,
+        annotated_names=annotated_names,
+        by_key=by_key,
+        remember=remember,
+        type_by_name=type_by_name,
+        mark=mark,
+    )
+    for ev_name, ev in extern_vars.items():
+        if ev_name in annotated_names:
+            # The binding already named it. Keep that spelling when it
+            # parsed a type: a second form in the same file (`[88]` and
+            # `[0x58]`) is one object. Fill the type only when no bound
+            # declaration spelled one, so a header's `T[]` cannot become the
+            # size.
+            if not is_header and ev.type_str:
+                known = type_by_name[ev_name]
+                c_known = [
+                    t
+                    for t, files in known.items()
+                    if any(path not in header_files for path in files)
+                ]
+                if not c_known:
+                    type_by_name[ev_name][ev.type_str].append(fname)
+                    mark(ev_name, ev.type_str)
+                    for typed_entry in entries_by_name.get(ev_name, ()):
+                        if not typed_entry.type_str:
+                            typed_entry.type_str = ev.type_str
+            continue
+
+        key = (ev_name, None)
+        entry = by_key.get(key)
+        if entry is None:
+            # An earlier file may already hold this name as an annotated
+            # entry whose VA is known. Reuse it: creating a duplicate
+            # ``(name, None)`` key would make the final pass overwrite the
+            # annotated entry with the valueless one (order-dependent:
+            # an extern-only file sorted after the annotated one lost it).
+            entry = by_name.get(ev_name)
+        if entry is None:
+            entry = GlobalEntry(name=ev_name, type_str=ev.type_str)
+            remember(entry, key)
+
+        entry.declare(fname)
+
+        if ev.type_str:
+            type_by_name[ev_name][ev.type_str].append(fname)
+
+
+def scan_globals(
+    src_dir: Path,
+    cfg: ProjectConfig | None = None,
+    *,
+    record_roles: bool = True,
+    declarations: bool = True,
+    fact_cache: dict[str, dict[str, Any]] | None = None,
+    facts_out: dict[str, dict[str, Any]] | None = None,
+    scanned: Sequence[Path] | None = None,
+) -> ScanResult:
+    """Scan reversed source files for global declarations.
+
+    Join canonical data identities with declarations and optional ADDRESS
+    anchors. Externs are declarations; definitions and linked-library owners
+    are recorded separately. Target filtering excludes identities and source
+    contexts belonging only to a different configured target.
+
+    Returns a ScanResult with discovered globals and type conflicts;
+    every entry of a conflicting name has ``conflict`` set.
+
+    Headers are scanned after sources. A header redeclaration does not
+    conflict with a ``.c`` declaration of the same name, and the ``.c``
+    type is the one kept for size: ``extern int g[]`` in a header beside
+    ``unsigned int g[4]`` in a source is one global. Two headers that
+    disagree, with no ``.c`` declaration, still conflict, and so do two
+    ``.c`` bindings that spell the same global differently.
+
+    *record_roles* fills ``defined_in`` and ``referenced_in``. The reloc
+    name map only reads names and VAs, so it passes False and skips that walk.
+    """
+    from rebrew.c_parser import array_type_shape
+    from rebrew.metadata.functions import load_metadata
+    from rebrew.source.discovery import iter_sources_and_headers
+
+    result = ScanResult()
+    # Track all type declarations per name for conflict detection
+    type_by_name: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    # Globals key by (name, va): the same name bound at two VAs in two
+    # files is two globals (a TU-local collision), not one entry whose
+    # second binding is skipped.
+    by_key: dict[tuple[str, int | None], GlobalEntry] = {}
+    # Name → one entry with that name (same as former linear scan over values).
+    by_name: dict[str, GlobalEntry] = {}
+    # Name → every entry (for conflict marking without rescanning by_key).
+    entries_by_name: dict[str, list[GlobalEntry]] = defaultdict(list)
+
+    if not src_dir.exists():
+        return result
+
+    def _remember(entry: GlobalEntry, key: tuple[str, int | None]) -> None:
+        by_key[key] = entry
+        by_name[entry.name] = entry
+        bucket = entries_by_name[entry.name]
+        if not any(e is entry for e in bucket):
+            bucket.append(entry)
+
+    # Types spelled on a .c data binding's own declaration line, in file
+    # order.  These are the reference descriptions of the global, and the first
+    # is the one the size ruler uses.  A spelling from a declaration with no
+    # binding (a link stand-in, or a header's incomplete redeclaration) is not
+    # compared against them: it is not a second description of the object.
+    marked_types: dict[str, list[str]] = {}
+
+    def _mark(name: str, type_str: str) -> None:
+        spelled = marked_types.setdefault(name, [])
+        if type_str not in spelled:
+            spelled.append(type_str)
+
+    header_files: set[str] = set()
+    file_roles: dict[str, tuple[set[str], set[str], set[str]]] = {}
+    metadata_dir = getattr(cfg, "metadata_dir", None) or src_dir
+    from rebrew.metadata.data import data_file_index, load_data_metadata
+
+    # One read-only snapshot of both stores for the whole walk.  The scan
+    # merges rows into its own result, so it needs no clone, and every source
+    # joins against it: each store read fingerprints the store, which opens a
+    # SQLite database.
+    data_entries = load_data_metadata(metadata_dir, deepcopy=False)
+    data_index = data_file_index(metadata_dir)
+    function_entries = load_metadata(metadata_dir, deepcopy=False) if metadata_dir else {}
+    from rebrew.metadata.binding_history import historical_source_files
+    from rebrew.workspace.config import walk_up_to_root
+
+    project_root = getattr(cfg, "root", None) or walk_up_to_root(metadata_dir) or metadata_dir
+    inactive_sources: set[Path] = set()
+    for row in function_entries.values():
+        # An empty history cannot name a retired file. Skip the validate-and-copy.
+        if not row.get("binding_history"):
+            continue
+        inactive_sources.update(historical_source_files(row, metadata_dir, project_root))
+    # The reloc name map passes record_roles False and reuses declaration
+    # facts. Role scans keep their own stamped cache, which stores the roles.
+    use_facts = not record_roles
+    cached_facts = fact_cache if use_facts else None
+    recorded_facts = facts_out if use_facts else None
+    # declarations=False is the reloc name map. It records files the stores
+    # already name so the next process does not read them again.
+    name_cover = _begin_name_cover(metadata_dir) if not declarations else None
+    # The data inventory records roles. A later process with the same store
+    # fingerprint, target, and source stamp replays those facts and does not
+    # parse the file again. The reloc map keeps its own name cover.
+    role_cache = _begin_role_cache(metadata_dir, cfg) if record_roles else None
+    for cfile in iter_sources_and_headers(src_dir, cfg, scanned=scanned):
+        # A cover hit has no names to add. Callers that keep per-file facts
+        # still take the collect path; verify preparation does not.
+        if (
+            name_cover is not None
+            and cached_facts is None
+            and recorded_facts is None
+            and _name_cover_hit(name_cover, cfile)
+        ):
+            continue
+        fact_key = _scan_fact_key(cfile)
+        facts = _role_cache_facts(role_cache, cfile) if role_cache is not None else None
+        if facts is not None and not _restore_roles(facts, file_roles):
+            facts = None
+        if facts is None:
+            facts = cached_facts.get(fact_key) if cached_facts is not None else None
+        if not _usable_scan_fact(facts):
+            role_stamp = _source_stamp(cfile) if role_cache is not None else None
+            facts = _collect_scan_file_facts(
+                cfile,
+                src_dir,
+                cfg,
+                metadata_dir=metadata_dir,
+                function_entries=function_entries,
+                data_entries=data_entries,
+                data_index=data_index,
+                inactive_sources=inactive_sources,
+                record_roles=record_roles,
+                file_roles=file_roles,
+                declarations=declarations,
+                name_cover=name_cover,
+            )
+            if role_cache is not None and facts is not None:
+                _role_cache_remember(role_cache, cfile, facts, role_stamp)
+        if facts is None:
+            continue
+        if recorded_facts is not None:
+            recorded_facts[fact_key] = facts
+        if facts.get("header") and isinstance(facts.get("fname"), str):
+            header_files.add(facts["fname"])
+        if not facts["apply"]:
+            continue
+        _apply_scan_file_facts(
+            facts,
+            cfg=cfg,
+            data_entries=data_entries,
+            by_key=by_key,
+            by_name=by_name,
+            entries_by_name=entries_by_name,
+            remember=_remember,
+            type_by_name=type_by_name,
+            mark=_mark,
+            header_files=header_files,
+        )
+    if name_cover is not None:
+        _flush_name_cover(name_cover)
+    if role_cache is not None:
+        _flush_role_cache(role_cache)
+
+    for (name, va), entry in by_key.items():
+        if va is not None and name in result.globals and result.globals[name] is not entry:
+            result.globals[f"{name}@0x{va:x}"] = entry
+        else:
+            result.globals[name] = entry
+
+    # An annotation and an extern are address/declaration facts, not owners.
+    # Only actual source definitions contribute owners. Linked archive ownership
+    # requires separate link evidence and is deliberately not guessed here.
+    for fname, (definitions, _declarations, uses) in file_roles.items():
+        for name in definitions | uses:
+            for entry in entries_by_name.get(name, ()):
+                # For TU-local names at distinct VAs, associate only that TU's facts.
+                if len(entries_by_name[name]) > 1 and fname not in entry.declared_in:
+                    continue
+                if name in definitions and fname in entry.declared_in:
+                    entry.defined_in.append(fname)
+                if name in uses:
+                    entry.referenced_in.append(fname)
+
+    # Metadata is keyed by VA, so its relationship may describe an alternate
+    # label at the allocation's first byte. One explicit annotated source
+    # definition owns that identity; the other annotated names are views.
+    owners_by_va: dict[int, list[GlobalEntry]] = defaultdict(list)
+    for entry in result.globals.values():
+        if entry.has_address and entry.defined_in:
+            owners_by_va[entry.va].append(entry)
+    for entry in result.globals.values():
+        owners = owners_by_va.get(entry.va, [])
+        if len(owners) != 1:
+            continue
+        owner = owners[0]
+        if entry is owner:
+            if entry.storage_kind in {"alias", "span"}:
+                entry.storage_kind = "object"
+                entry.backing = ""
+        elif entry.annotated:
+            from rebrew.data.layout import estimate_type_size
+
+            entry.storage_kind = "alias"
+            entry.backing = owner.name
+            # A field at offset zero does not acquire the backing array's
+            # complete extent merely because they share a metadata key.
+            entry.size = estimate_type_size(entry.type_str)
+
+    # Compare type shapes; preserve the source spellings in each report.
+    int_bits = 16 if arch_pointer_size(getattr(cfg, "arch", "x86_32")) == 2 else 32
+
+    def _header_only(files: list[str]) -> bool:
+        return all(path in header_files for path in files)
+
+    for name, types in type_by_name.items():
+        # A header is a redeclaration. It must not invent a conflict against
+        # the .c definition, and it must not replace that definition's type.
+        # The same goes for an unbound definition: the ADDRESS-bound
+        # declaration is the reference description, the other file is often a
+        # link stand-in with a different bound.  Two .c bindings that disagree
+        # are a real conflict, and the first one in file order is the reported
+        # type.
+        marked = marked_types.get(name)
+        if marked:
+            for entry in entries_by_name.get(name, ()):
+                entry.type_str = marked[0]
+            compared = {type_str: types.get(type_str, []) for type_str in marked}
+        else:
+            c_types = {t: files for t, files in types.items() if not _header_only(files)}
+            compared = c_types or types
+            if c_types:
+                for entry in entries_by_name.get(name, ()):
+                    if entry.type_str not in c_types:
+                        entry.type_str = next(iter(c_types))
+        shapes = (
+            [array_type_shape(t, int_bits=int_bits) for t in compared] if len(compared) > 1 else []
+        )
+        if any(
+            left_base != right_base
+            or len(left_dims) != len(right_dims)
+            or any(
+                a != b and (i != 0 or (a is not None and b is not None))
+                for i, (a, b) in enumerate(zip(left_dims, right_dims, strict=True))
+            )
+            for (left_base, left_dims), (right_base, right_dims) in combinations(shapes, 2)
+        ):
+            conflict = {
+                "name": name,
+                "types": dict(compared),
+            }
+            result.type_conflicts.append(conflict)
+            for entry in entries_by_name.get(name, ()):
+                entry.conflict = True
+
+    return result
+
+
+def scan_data_annotations(
+    src_dir: Path,
+    cfg: ProjectConfig | None = None,
+    *,
+    scanned: Sequence[Path] | None = None,
+) -> list[dict[str, Any]]:
+    """Scan for data bindings (ADDRESS anchors + ``rebrew-data.toml`` rows).
+
+    These describe standalone global data objects for tracking in the catalog.
+    SIZE/SECTION/NOTE are overlaid from ``rebrew-data.toml`` metadata if present.
+    Returns a list of dicts with: va, name, size, section, note, filepath.
+    """
+    from rebrew.config import target_module
+    from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.data import load_data_metadata, merge_into_data_binding
+    from rebrew.metadata.functions import load_metadata
+    from rebrew.source.discovery import iter_sources_and_headers
+    from rebrew.utils import rel_display_path
+
+    entries: list[dict[str, Any]] = []
+    if not src_dir.exists():
+        return entries
+    # The store root does not move while the scan runs. ``metadata_dir``
+    # probes the ancestors for the store on every access, and this loop
+    # visits every source and header twice.
+    metadata_dir = cfg.metadata_dir if cfg else src_dir
+    target = target_module(cfg)
+    project_root = getattr(cfg, "root", None)
+    # One read-only load for the whole walk: the per-annotation lookup below
+    # otherwise re-stats and deep-copies the row for every data binding.
+    data_entries = load_data_metadata(metadata_dir, deepcopy=False)
+    # Same for the function store: read_source_bindings re-reads and
+    # re-fingerprints it once per file unless the batch hands it over.
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
+    for cfile in iter_sources_and_headers(src_dir, cfg, scanned=scanned):
+        rel_name = rel_display_path(cfile, src_dir)
+        for ann in read_source_bindings(
+            cfile,
+            target_name=target,
+            metadata_dir=metadata_dir,
+            project_root=project_root,
+            # The data list records identity, size, and section. Calling
+            # conventions are a function-verify concern.
+            with_prototypes=False,
+            function_entries=function_entries,
+        ):
+            if ann.is_data:
+                # Metadata root is cfg.metadata_dir; cfile.parent would
+                # silently no-op the overlay when the two dirs differ.
+                merge_into_data_binding(ann, metadata_dir, entries=data_entries)
+                entries.append(
+                    {
+                        "va": f"0x{ann.va:08x}",
+                        "name": ann.name or cfile.stem,
+                        "size": ann.size,
+                        "section": ann.section,
+                        "note": ann.note,
+                        "filepath": ann.filepath or rel_name,
+                    }
+                )
+    return entries
+
+
+def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> None:
+    """Classify each annotated global into its binary section."""
+    ranges = _section_ranges(sections)
+    for entry in scan.globals.values():
+        if entry.has_address:
+            entry.section = _classify_in_ranges(entry.va, ranges)
+
+
+# ---------------------------------------------------------------------------
+# Dispatch table detection
+# ---------------------------------------------------------------------------
+
+
+def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int, dict[str, str]]:
+    """Map VA -> {"name", "status"} from the reversed source files under *src_dir*.
+
+    A source with no name falls back to its path relative to *src_dir*, so
+    every annotation is named even before the catalog fills the gaps.
+    """
+    from rebrew.config import target_module
+    from rebrew.metadata.bindings import read_source_bindings
+    from rebrew.metadata.functions import load_metadata
+    from rebrew.source.discovery import iter_sources
+    from rebrew.utils import rel_display_path
+
+    known_functions: dict[int, dict[str, str]] = {}
+    metadata_dir = getattr(cfg, "metadata_dir", None)
+    target = target_module(cfg)
+    project_root = getattr(cfg, "root", None)
+    # One read-only load for the walk, as in the other whole-tree scans here.
+    function_entries = (
+        load_metadata(metadata_dir, deepcopy=False) if metadata_dir is not None else None
+    )
+    for cfile in iter_sources(src_dir, cfg):
+        for entry in read_source_bindings(
+            cfile,
+            target_name=target,
+            metadata_dir=metadata_dir,
+            project_root=project_root,
+            function_entries=function_entries,
+        ):
+            known_functions[entry.va] = {
+                "name": entry.name or rel_display_path(cfile, src_dir),
+                "status": entry.status,
+            }
+    return known_functions
+
+
+def build_dispatch_known_functions(
+    cfg: ProjectConfig, src_dir: Path, *, strict: bool = False
+) -> dict[int, dict[str, str]]:
+    """Map VA -> {"name", "status"} for dispatch-table naming.
+
+    Source-file annotations take precedence; the function list / Ghidra
+    structure registry then fills in targets no source file covers (e.g.
+    FLIRT-identified CRT functions).  A "0% resolved" table is misleading
+    when the catalog already knows the names.
+
+    Shared by ``rebrew data dispatch`` and ``rebrew binary analyze``'s dossier, so
+    both report the same resolution count.
+    """
+    known_functions = build_source_known_functions(cfg, src_dir)
+
+    try:
+        from rebrew.catalog import build_function_registry, cached_function_list
+
+        funcs = cached_function_list(cfg)
+        registry = build_function_registry(
+            funcs, cfg, inventory_path_for(cfg.reversed_dir, cfg), cfg.target_binary
+        )
+        for va, reg_entry in registry.items():
+            name = reg_entry.get("list_name") or reg_entry.get("ghidra_name")
+            if name and va not in known_functions:
+                known_functions[va] = {"name": name, "status": ""}
+    except (OSError, ValueError, KeyError, AttributeError) as exc:
+        if strict:
+            raise
+        # Registry is best-effort enrichment (function names from the catalog
+        # list); a failure must be visible so a name-less data scan is not
+        # mistaken for a complete one.
+        log.warning("Function registry unavailable — names/dispatch context omitted: %s", exc)
+    return known_functions
+
+
+def find_dispatch_tables(
+    binary_data: bytes,
+    sections: dict[str, dict[str, Any]],
+    known_functions: dict[int, dict[str, str]],
+    ptr_size: int | None = None,
+    min_entries: int = 3,
+    max_stride: int | None = None,
+    info: Any = None,
+) -> list[DispatchTable]:
+    """Detect dispatch tables / vtables in data sections.
+
+    Scans data sections for contiguous pointer-sized entries that all point
+    into code sections.  Groups consecutive entries into tables.
+
+    Entries are read at the target's own pointer width, so a 64-bit table is
+    not mis-strided at 4 bytes.
+
+    For 16-bit NE binaries (*info* provided, ``format == "ne"``), the code
+    sections are the code segments (probe-classified) and the data sections
+    the rest; a far pointer ``seg:off`` stored little-endian as 4 bytes
+    decodes to the synthetic flat VA ``((seg - 1) << 16) | off``, which is
+    the format the NE loader assigns in the zero-based VA space, so the
+    pointer-into-code check works unchanged.  This finds Borland Delphi VMTs
+    (arrays of far pointers to methods).
+
+    Args:
+        binary_data: Raw binary file bytes.
+        sections: Section dict from binary_loader ({name: {va, size, file_offset, raw_size}}).
+        known_functions: Map of VA -> {"name": str, "status": str} for reversed funcs.
+        ptr_size: Pointer size in bytes.  ``None`` (default) takes it from
+            *info* (its ``pointer_size``, else ``arch_pointer_size(info.arch)``)
+            and falls back to 4 when *info* says nothing.
+        min_entries: Minimum entries to qualify as a dispatch table.
+        max_stride: Maximum byte distance between consecutive pointer-sized slots to still
+            be considered part of the same table.  Defaults to ``ptr_size`` (contiguous).
+        info: Optional BinaryInfo; enables NE-aware section selection, sets the
+            pointer width, and decodes pointers in the image's byte order
+            (``info.endian``), falling back to the architecture's default when
+            the header does not say.
+
+    """
+    if ptr_size is None:
+        ptr_size = _target_pointer_size(info)
+    stride = max_stride if max_stride is not None else ptr_size
+
+    is_ne = info is not None and info.format == "ne"
+    if is_ne:
+        ne_segs = info.ne_segments
+        code_names = [f"SEG{s.index}" for s in ne_segs if s.is_code]
+        data_names = [f"SEG{s.index}" for s in ne_segs if not s.is_code]
+        code_ranges = [
+            (sections[n]["va"], sections[n]["va"] + sections[n]["size"])
+            for n in code_names
+            if n in sections
+        ]
+        data_sections = [(n, sections[n]) for n in data_names if n in sections]
+    else:
+        text_sec = sections.get(".text")
+        if not text_sec:
+            return []
+        code_ranges = [(text_sec["va"], text_sec["va"] + text_sec["size"])]
+        data_sections = [
+            (name, sec) for name, sec in sections.items() if name in (".data", ".rdata")
+        ]
+
+    # The image header's own byte order wins; an unknown one falls back to the
+    # arch default, so a big-endian target is not read little-endian.
+    image_endian = getattr(info, "endian", "") or "" if info is not None else ""
+    byte_order = arch_byte_order(str(getattr(info, "arch", "") or ""), image_endian)
+    fmt = byte_order + _PTR_FMT.get(ptr_size, "Q")
+    tables: list[DispatchTable] = []
+
+    for sec_name, sec in data_sections:
+        sec_offset = sec.get("file_offset", 0)
+        sec_raw_size = sec.get("raw_size", sec.get("size", 0))
+        sec_va = sec["va"]
+
+        # Borland NE data segments carry the 2-byte [index\x00] marker
+        # before their content — the VMT far pointers start after it.  MSVC
+        # 16-bit NE segments (e.g. the 1991 SkiFree) have no marker, so the
+        # skip is applied only when the marker is actually present.
+        if info is not None and info.format == "ne":
+            from rebrew.formats.ne_loader import has_borland_marker
+
+            seg_index = int(sec_name[3:]) if sec_name.startswith("SEG") else 0
+            if has_borland_marker(binary_data, sec_offset, seg_index):
+                sec_offset += 2
+                sec_raw_size = max(0, sec_raw_size - 2)
+                sec_va += 2
+
+        if sec_offset + sec_raw_size > len(binary_data):
+            continue
+
+        sec_bytes = binary_data[sec_offset : sec_offset + sec_raw_size]
+
+        # Walk every pointer-sized slot.  *stride* bounds the maximum allowed
+        # gap between consecutive entries of one table — it must not be the
+        # scan step: advancing by `stride` on a miss skipped past valid
+        # pointers (0/8/16 with garbage at 4/12 were never visited).
+        current_entries: list[DispatchEntry] = []
+        current_start_va = 0
+        last_ptr_i: int | None = None
+
+        def _flush_run(sec_name: str = sec_name) -> None:
+            nonlocal current_entries, current_start_va, last_ptr_i
+            if len(current_entries) >= min_entries:
+                tables.append(
+                    DispatchTable(
+                        va=current_start_va,
+                        section=sec_name,
+                        entries=list(current_entries),
+                    )
+                )
+            current_entries = []
+            last_ptr_i = None
+            current_start_va = 0
+
+        i = 0
+        while i + ptr_size <= len(sec_bytes):
+            val = struct.unpack_from(fmt, sec_bytes, i)[0]
+            entry_va = sec_va + i
+            if is_ne:
+                # the stored word is a far pointer with NE's one-based
+                # segment number; rebase it into the loader's zero-based
+                # flat space, and reject a zero segment word (zero tails
+                # in data segments are not pointers)
+                far_segment = val >> 16
+                rebased = ((far_segment - 1) << 16) | (val & 0xFFFF)
+                val = rebased if far_segment else -1
+
+            if any(lo <= val < hi for lo, hi in code_ranges):
+                # This looks like a function pointer into a code section
+                gap = (i - last_ptr_i) if last_ptr_i is not None else 0
+                if current_entries and gap > stride:
+                    # Gap exceeds the stride — the table ended; start a new run.
+                    _flush_run()
+                if not current_entries:
+                    current_start_va = entry_va
+
+                func_info = known_functions.get(val, {})
+                current_entries.append(
+                    DispatchEntry(
+                        target_va=val,
+                        name=func_info.get("name", ""),
+                        status=func_info.get("status", ""),
+                    )
+                )
+                last_ptr_i = i
+            # else: not a text pointer — do NOT flush.  Non-pointer slots
+            # within stride of the last pointer are tolerated (sparse tables);
+            # the next pointer's gap check decides whether the run continues.
+            i += ptr_size  # always advance by ptr_size; stride only bounds gaps
+
+        # Flush trailing run
+        _flush_run()
+
+    tables.sort(key=lambda t: t.va)
+    return tables
+
+
+# ---------------------------------------------------------------------------
+# BSS layout verification
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BssEntry:
+    """A known global in the .bss section."""
+
+    name: str
+    va: int
+    size_hint: int = 0  # from type heuristic
+    source_file: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict for JSON output."""
+        return {
+            "name": self.name,
+            "va": f"0x{self.va:08x}",
+            "size_hint": self.size_hint,
+            "source_file": self.source_file,
+        }
+
+
+@dataclass
+class BssGap:
+    """A gap between known BSS globals — likely an undeclared variable."""
+
+    offset: int
+    size: int
+    before: str  # name of global before the gap
+    after: str  # name of global after the gap
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict for JSON output."""
+        return {
+            "offset": f"0x{self.offset:08x}",
+            "size": self.size,
+            "between": [self.before, self.after],
+        }
+
+
+@dataclass
+class BssReport:
+    """BSS layout verification report."""
+
+    bss_va: int = 0
+    bss_size: int = 0
+    known_entries: list[BssEntry] = field(default_factory=list)
+    gaps: list[BssGap] = field(default_factory=list)
+    coverage_bytes: int = 0
+
+    @property
+    def coverage_pct(self) -> float:
+        """BSS coverage as a percentage."""
+        return floor_pct(self.coverage_bytes, self.bss_size)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a plain dict for JSON output."""
+        return {
+            "bss_va": f"0x{self.bss_va:08x}",
+            "bss_size": self.bss_size,
+            "known_entries": [e.to_dict() for e in self.known_entries],
+            "gaps": [g.to_dict() for g in self.gaps],
+            "coverage_bytes": self.coverage_bytes,
+            "coverage_pct": f"{self.coverage_pct:.1f}%",
+            "summary": {
+                "total_globals": len(self.known_entries),
+                "gaps": len(self.gaps),
+                "total_gap_bytes": sum(g.size for g in self.gaps),
+            },
+        }
+
+
+# Smaller BSS gaps are alignment padding, not an undeclared global.
+_BSS_GAP_BYTES_MIN = 4
+
+
+def verify_bss_layout(
+    scan: ScanResult,
+    sections: dict[str, dict[str, Any]],
+) -> BssReport:
+    """Verify BSS layout by checking globals placement and detecting gaps.
+
+    Collects all globals annotated with a .bss VA, sorts them by address,
+    and identifies gaps between consecutive entries that may indicate
+    missing extern declarations.
+    """
+    bss = sections.get(".bss", {})
+    bss_va = bss.get("va")
+    bss_size = bss.get("size", 0)
+
+    report = BssReport(bss_va=bss_va if bss_va is not None else 0, bss_size=bss_size)
+    if bss_va is None or not bss_size:
+        return report
+
+    bss_end = bss_va + bss_size
+
+    # Shared type-size model (data_layout) — the same table that sizes
+    # materialized definitions, so coverage estimates cannot drift.
+    from rebrew.data.layout import estimate_type_size
+
+    # Collect BSS globals (those with VAs in the .bss range)
+    bss_entries: list[BssEntry] = []
+    for entry in scan.globals.values():
+        if entry.has_address and bss_va <= entry.va < bss_end:
+            size_hint = (
+                entry.size
+                if entry.size is not None
+                else (estimate_type_size(entry.type_str) if entry.type_str else 4)
+            )
+            bss_entries.append(
+                BssEntry(
+                    name=entry.name,
+                    va=entry.va,
+                    size_hint=size_hint,
+                    source_file=entry.declared_in[0] if entry.declared_in else "",
+                )
+            )
+
+    bss_entries.sort(key=lambda e: e.va)
+    report.known_entries = bss_entries
+
+    if not bss_entries:
+        return report
+
+    # Detect gaps between consecutive entries
+    # First gap: from bss_va to first entry
+    if bss_entries[0].va > bss_va:
+        gap_size = bss_entries[0].va - bss_va
+        if gap_size >= _BSS_GAP_BYTES_MIN:
+            report.gaps.append(
+                BssGap(
+                    offset=bss_va,
+                    size=gap_size,
+                    before="<bss_start>",
+                    after=bss_entries[0].name,
+                )
+            )
+
+    frontier = bss_entries[0].va + bss_entries[0].size_hint
+    frontier_name = bss_entries[0].name
+    for bss_entry in bss_entries[1:]:
+        if bss_entry.va - frontier >= _BSS_GAP_BYTES_MIN:
+            report.gaps.append(
+                BssGap(
+                    offset=frontier,
+                    size=bss_entry.va - frontier,
+                    before=frontier_name,
+                    after=bss_entry.name,
+                )
+            )
+        end = bss_entry.va + bss_entry.size_hint
+        if end > frontier:
+            frontier, frontier_name = end, bss_entry.name
+
+    # Calculate coverage: the union of the entries' spans, clipped to .bss.
+    # Summing double-counts two names for one address (an alias, a struct and
+    # its first member) and the min() cap only hid the overshoot.
+    report.coverage_bytes = merged_span_bytes(
+        [(e.va, e.va + max(e.size_hint, 0)) for e in bss_entries], (bss_va, bss_size)
+    )
+
+    return report

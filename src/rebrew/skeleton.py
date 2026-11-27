@@ -108,7 +108,7 @@ def _render_skeleton(
     if decomp_code and decomp_body:
         # Validate the complete implementation before embedding it; population
         # budgets apply only when a matcher later admits it as an extra seed.
-        from rebrew.c_rename import rename_function_source
+        from rebrew.source.c_rename import rename_function_source
 
         try:
             body = rename_function_source(decomp_code.strip(), func_name)
@@ -1267,7 +1267,7 @@ def _run_append_mode(
         separator = eol * 2
     replacement = existing_text + separator + block
     if existing is not None:
-        from rebrew.split import source_layout, span_extent
+        from rebrew.source.split import source_layout, span_extent
 
         raw, spans = source_layout(existing_text)
         selected = [

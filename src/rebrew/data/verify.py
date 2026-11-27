@@ -1,0 +1,329 @@
+"""data_verify.py - Byte-compare built data sections against the reference.
+
+Compare per-symbol bytes of a built binary's ``.data`` / ``.rdata`` sections
+against the reference, attributed per metadata symbol. When a link map is
+available, placement is also checked: matching bytes at the reference VA are
+``EXACT``, a symbol linked elsewhere is ``DISPLACED``, and a symbol absent
+from the map remains byte-``VERIFIED`` with placement unchecked.
+
+Pure logic here (dicts in, report out) so it is unit-testable without a
+link; the binary-reading thin layer lives in ``verify --data``.
+"""
+
+lazy import hashlib
+lazy from pathlib import Path
+lazy from typing import Any
+
+lazy from rebrew.metadata.data import (
+    DATA_STATUS_DISPLACED,
+    DATA_STATUS_EXACT,
+    DATA_STATUS_VERIFIED,
+    data_definition_hash,
+    iter_data_symbols,
+    load_data_document,
+)
+
+
+def verify_data_bytes(
+    *,
+    metadata_path: Path,
+    expected: dict[int, bytes],
+    actual: dict[int, bytes],
+    sizes: dict[int, int],
+    sections: tuple[str, ...] = (".data", ".rdata"),
+    cfg: Any | None = None,
+    built_symbols: dict[str, int] | None = None,
+    span_placements: dict[tuple[str, int], int] | None = None,
+    image_identical: bool = False,
+) -> dict[str, Any]:
+    """Compare per-symbol bytes; return ``matched`` / ``mismatched`` / ``missing``.
+
+    *metadata_path* supplies symbol definitions (``rebrew-data.toml``). *expected*
+    maps VA to reference bytes, *actual* maps VA to built bytes, and *sizes*
+    supplies available extents and a fallback for unsized symbols.
+    Only symbols whose metadata ``section`` is in
+    *sections* are compared.  Symbols absent from *actual* are ``missing``;
+    present-but-different bytes are ``mismatched`` with the first differing
+    offset.  Symbols with no name in metadata are skipped (unnamed inventory
+    cannot be attributed).
+    ``results`` preserves each symbol's ``(module, VA)`` identity and verdict;
+    aliases are compared at their own sizes. *image_identical* states that the built
+    image, acknowledged as the raw link, equals the reference file byte for byte: every
+    record then sits at its reference VA, so a verified record the link map does not
+    name is placed by the image itself (``placement_method`` ``identical-image``). With *cfg*, other targets are
+    excluded from both results and totals. Incomplete reference bytes remain
+    UNCHECKED, and incomplete built bytes are missing rather than matched.
+    **Coverage is reported, because the summary is otherwise misleading.** A
+    symbol is comparable only when its ``section`` is in *sections* *and*
+    ``section_symbol_bytes`` could read bytes for it. A zero-fill span inside
+    the image is supplied as zeros; a span past that image's virtual size never
+    reaches *sizes*. ``total`` counts every named symbol, ``not_comparable``
+    the difference, and ``coverage`` is the fraction compared, so a caller can
+    tell "122 matched" from "122 of 329 matched".
+    **Placement** needs *built_symbols* (link-map name -> built VA, see
+    :func:`link_map_symbols`), including checked COFF-private symbols. Explicit
+    aliases inherit a bounded offset from their placed backing object. Inventory
+    spans can use checked section-relative coordinates without claiming a C
+    storage owner. Bytes compared at the reference VA cannot see a
+    symbol that the build put elsewhere: two zero-filled spans compare equal. A
+    symbol the map places at its reference VA is ``EXACT`` when its bytes match;
+    one placed elsewhere is ``DISPLACED`` (``built_va`` and ``delta`` on the row)
+    whatever its bytes; one the map does not name keeps its byte verdict, so
+    ``VERIFIED`` means "bytes match, placement unchecked". ``exact``,
+    ``displaced`` and ``unplaced`` count those outcomes.
+    """
+    from rebrew.data.layout import data_symbol_size
+    from rebrew.metadata.data import module_visible_to_target
+
+    db = load_data_document(metadata_path)
+    matched = 0
+    mismatched: list[dict[str, Any]] = []
+    missing: list[str] = []
+    compared = 0
+    results: list[dict[str, Any]] = []
+    row_meta: list[tuple[str, int, dict[str, Any]]] = []
+    for module, va, fields in iter_data_symbols(db, section=None):
+        if not fields.get("name") or not module_visible_to_target(module, cfg):
+            continue
+        name = str(fields["name"])
+        size = data_symbol_size(fields, arch=getattr(cfg, "arch", "x86_32"))
+        if "size" not in fields and "type" not in fields:
+            size = sizes.get(va, 0)
+        row: dict[str, Any] = {
+            "module": module,
+            "va": f"0x{va:x}",
+            "name": name,
+            "size": size,
+            "status": "UNCHECKED",
+        }
+        definition_hash = data_definition_hash(
+            module, va, fields, arch=getattr(cfg, "arch", "x86_32")
+        )
+        row["definition_hash"] = definition_hash
+        digest = hashlib.sha256(definition_hash.encode())
+        for label, data in (("reference", expected.get(va)), ("built", actual.get(va))):
+            digest.update(label.encode())
+            digest.update(b"missing" if data is None else hashlib.sha256(data[:size]).digest())
+        row["input_hash"] = digest.hexdigest()
+        results.append(row)
+        row_meta.append((name, va, fields))
+        exp = expected.get(va)
+        got = actual.get(va)
+        if not _section_selected(str(fields.get("section") or ""), sections):
+            continue
+        if size <= 0 or va not in sizes or exp is None or len(exp) < size:
+            continue
+        compared += 1
+        if got is None or len(got) < size:
+            row["status"] = "DRIFT"
+            missing.append(name)
+            continue
+        exp_slice = exp[:size]
+        got_slice = got[:size]
+        if exp_slice == got_slice:
+            row["status"] = "VERIFIED"
+            matched += 1
+            continue
+        first_diff = next(
+            (i for i, (a, b) in enumerate(zip(exp_slice, got_slice, strict=False)) if a != b),
+            min(len(exp_slice), len(got_slice)),
+        )
+        row["status"] = "DRIFT"
+        row["first_diff"] = first_diff
+        mismatched.append(dict(row))
+    exact = 0
+    displaced: list[dict[str, Any]] = []
+    unplaced = 0
+    if built_symbols is not None or image_identical:
+        built_symbols = built_symbols or {}
+        resolved = {}
+        by_name: dict[tuple[str, str], list[tuple[str, int, dict[str, Any]]]] = {}
+        for module, va, fields in iter_data_symbols(db, section=None):
+            if not module_visible_to_target(module, cfg):
+                continue
+            name = str(fields.get("name") or "")
+            by_name.setdefault((module, name), []).append((module, va, fields))
+            direct = _built_va(name, fields, built_symbols)
+            if direct is not None:
+                resolved[module, va] = (direct, "link-symbol")
+        for _ in range(len(row_meta)):
+            changed = False
+            for row, (_, va, fields) in zip(results, row_meta, strict=True):
+                key = row["module"], va
+                if key in resolved or fields.get("storage_kind") != "alias":
+                    continue
+                backings = by_name.get((key[0], str(fields.get("backing") or "")), [])
+                if len(backings) != 1:
+                    continue
+                _, base, parent = backings[0]
+                size = data_symbol_size(parent, arch=getattr(cfg, "arch", "x86_32"))
+                placed = resolved.get((key[0], base))
+                if (
+                    placed
+                    and va - base >= 0
+                    and row["size"] > 0
+                    and va + row["size"] <= base + size
+                ):
+                    resolved[key] = (placed[0] + va - base, "backing-offset")
+                    changed = True
+            if not changed:
+                break
+        for row, (_, va, fields) in zip(results, row_meta, strict=True):
+            if not _section_selected(str(fields.get("section") or ""), sections):
+                continue
+            key = row["module"], va
+            placement = resolved.get(key)
+            if (
+                placement is None
+                and fields.get("storage_kind") == "span"
+                and key in (span_placements or {})
+            ):
+                placement = ((span_placements or {})[key], "section-relative-span")
+            if placement is None and image_identical:
+                placement = (va, "identical-image")
+            if placement is None:
+                unplaced += 1
+                continue
+            built_va, method = placement
+            row["built_va"] = f"0x{built_va:x}"
+            row["placement_method"] = method
+            row["input_hash"] = hashlib.sha256(
+                f"{row['input_hash']}:{method}:{built_va}".encode()
+            ).hexdigest()
+            if built_va != va:
+                row["delta"] = built_va - va
+                row["status"] = DATA_STATUS_DISPLACED
+                displaced.append(dict(row))
+            elif row["status"] == DATA_STATUS_VERIFIED:
+                row["status"] = DATA_STATUS_EXACT
+                exact += 1
+    total = len(results)
+    return {
+        "matched": matched,
+        "mismatched": mismatched,
+        "missing": missing,
+        "total": total,
+        "compared": compared,
+        "not_comparable": total - compared,
+        "coverage": (compared / total) if total else 0.0,
+        "exact": exact,
+        "displaced": displaced,
+        "unplaced": unplaced,
+        "results": results,
+    }
+
+
+def _built_va(name: str, fields: dict[str, Any], built_symbols: dict[str, int]) -> int | None:
+    """The built VA of a data row: its recorded native symbol, else the cdecl name."""
+    link_symbol = fields.get("link_symbol")
+    if link_symbol:
+        return built_symbols.get(str(link_symbol))
+    return built_symbols.get(f"_{name}", built_symbols.get(name))
+
+
+def link_map_symbols(text: str) -> dict[str, int]:
+    """Unambiguous data symbol names and VAs from an MSVC link map.
+
+    Functions are left out: a data row never names code. Import slots are
+    included for placement, independently of static archive storage ownership.
+    """
+    from rebrew.data.ownership import parse_link_map
+
+    values: dict[str, set[int]] = {}
+    for sym in parse_link_map(text, include_imports=True):
+        if not sym.is_function:
+            values.setdefault(sym.name, set()).add(sym.va)
+    return {name: next(iter(v)) for name, v in values.items() if len(v) == 1}
+
+
+# PE images from MSVC keep BSS as the .data tail and the IAT inside .rdata.
+# Metadata still labels those rows .bss and .idata.
+_SECTION_ALIAS = {".bss": ".data", ".idata": ".rdata"}
+
+
+def _canonical_section(name: str) -> str:
+    return _SECTION_ALIAS.get(name, name)
+
+
+def _section_selected(declared: str, sections: tuple[str, ...]) -> bool:
+    """True when *declared* or its file section is one of *sections*."""
+    return declared in sections or _canonical_section(declared) in sections
+
+
+def section_symbol_bytes(
+    *,
+    metadata_path: Path,
+    binary_path: Path,
+    sections: tuple[str, ...] = (".data", ".rdata"),
+    cfg: Any | None = None,
+    zero_fill: set[int] | None = None,
+) -> tuple[dict[int, bytes], dict[int, int]]:
+    """Read per-symbol bytes for metadata symbols from *binary_path* sections.
+
+    Returns ``(by_va, sizes)``: for each named metadata symbol in *sections*
+    with a known size, the raw bytes at its VA sliced from the binary's
+    section data.  A ``.bss`` row is read from ``.data`` and a ``.idata`` row
+    from ``.rdata`` when the image has no section of the declared name.  A
+    span that lies in the zero-fill tail and inside the virtual size is
+    returned as zeros, and its VA is added to *zero_fill* when that set is
+    given.  A zero-fill span past the virtual size is skipped.  A file-backed
+    span past the virtual size raises.  With *cfg*, another target's module
+    is skipped: its VAs are not in this binary, and writing them back as
+    UNCHECKED would erase that target's verdict.
+    """
+    from rebrew.data.layout import data_symbol_size
+    from rebrew.formats.binary_loader import load_binary
+    from rebrew.metadata.data import module_visible_to_target
+
+    db = load_data_document(metadata_path)
+    info = load_binary(binary_path)
+    by_va: dict[int, bytes] = {}
+    sizes: dict[int, int] = {}
+    for module, va, val in iter_data_symbols(db, section=None):
+        declared = str(val.get("section") or "")
+        if not _section_selected(declared, sections):
+            continue
+        if not val.get("name"):
+            continue
+        if not module_visible_to_target(module, cfg):
+            continue
+        size = data_symbol_size(
+            val, arch=getattr(info, "arch", "") or getattr(cfg, "arch", "x86_32")
+        )
+        if size <= sizes.get(va, 0):
+            continue
+        sec = info.sections.get(declared)
+        if sec is None:
+            sec = info.sections.get(_canonical_section(declared))
+        if sec is None:
+            continue
+        offset = va - sec.va
+        extent = sec.size or sec.raw_size
+        if offset < 0 or offset >= extent:
+            continue
+        if offset + size > extent:
+            # A zero-fill span past this image is not a bad SIZE. The
+            # reference virtual size can be longer than the built image.
+            if offset >= sec.raw_size:
+                continue
+            raise ValueError(
+                f"symbol {val.get('name')} at 0x{va:x} (size {size}) overruns "
+                f"section {sec.name} extent 0x{sec.va:x}+0x{extent:x} — fix the "
+                "SIZE in rebrew-data.toml"
+            )
+        if offset >= sec.raw_size:
+            if zero_fill is not None:
+                zero_fill.add(va)
+            by_va[va] = b"\x00" * size
+            sizes[va] = size
+            continue
+        if offset + size > sec.raw_size:
+            file_n = sec.raw_size - offset
+            start = sec.file_offset + offset
+            by_va[va] = bytes(info.data[start : start + file_n]) + b"\x00" * (size - file_n)
+            sizes[va] = size
+            continue
+        start = sec.file_offset + offset
+        by_va[va] = bytes(info.data[start : start + size])
+        sizes[va] = size
+    return by_va, sizes

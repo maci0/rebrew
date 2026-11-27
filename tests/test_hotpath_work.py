@@ -9,13 +9,14 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew import utils, verify_cache
+from rebrew import utils
 from rebrew.catalog import grid
 from rebrew.compiler import cache
 from rebrew.metadata.bindings import SourceBinding
 from rebrew.metadata.document import load_metadata_doc
 from rebrew.metadata.functions import save_metadata
-from rebrew.verify_cache import VerifyCacheEntry
+from rebrew.verify import cache as verify_cache
+from rebrew.verify.cache import VerifyCacheEntry
 
 
 class TestFlagWork:

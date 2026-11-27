@@ -87,7 +87,7 @@ class TestCmakeProfileDefaults:
         explicit: bool,
         dry_run: bool,
     ) -> None:
-        from rebrew import cmake_tc
+        from rebrew.buildsys import cmake_tc
 
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
@@ -203,7 +203,7 @@ class TestSourceSelectors:
 def test_cmake_does_not_substitute_msvc_for_an_unsupported_project_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rebrew import cmake_tc
+    from rebrew.buildsys import cmake_tc
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cmake_tc, "walk_up_to_root", lambda cwd: tmp_path)

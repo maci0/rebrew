@@ -1,4 +1,4 @@
-"""Property-based fuzz for ``rebrew.inline_strings.c_literal``.
+"""Property-based fuzz for ``rebrew.source.inline_strings.c_literal``.
 
 ``c_literal`` is a trust boundary: bytes lifted out of the untrusted target
 binary are re-emitted as a C string literal and written into a ``.c`` file
@@ -19,7 +19,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from rebrew.c_parser import get_ts_parser
-from rebrew.inline_strings import c_literal, define_remaining_strings, inline_string_uses
+from rebrew.source.inline_strings import c_literal, define_remaining_strings, inline_string_uses
 
 #: Bytes a C string literal must never carry raw: ``"`` and ```` \ ```` end or
 #: continue the literal, the rest are whitespace or bytes a compiler folds.

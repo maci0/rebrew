@@ -76,7 +76,7 @@ def test_verify_cache_is_released_before_final_gc(tmp_path: Path, locked: bool) 
             from pathlib import Path
             from types import SimpleNamespace
 
-            from rebrew import verify_cache
+            from rebrew.verify import cache as verify_cache
 
             cfg = SimpleNamespace(root=Path(__file__).parent)
             assert verify_cache.load_verify_cache_raw(cfg) == {"version": 2}

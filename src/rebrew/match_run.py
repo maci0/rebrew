@@ -247,10 +247,10 @@ def run_single_ga(
             function_signatures,
             prototype_type_key,
         )
-        from rebrew.c_rename import rename_function_source
         from rebrew.decompiler import kuna_seed_source
         from rebrew.llm_seed import MAX_SEED_CHARS
-        from rebrew.rename_ops import c_name_from_symbol
+        from rebrew.source.c_rename import rename_function_source
+        from rebrew.source.rename_ops import c_name_from_symbol
 
         rejection = ""
         try:
@@ -737,7 +737,7 @@ def _run_one_stub_ga(
                 # a failed cache write must not undo the splice.
                 if spliced_ok:
                     try:
-                        from rebrew.verify_cache import patch_verify_cache_entries
+                        from rebrew.verify.cache import patch_verify_cache_entries
 
                         patch_verify_cache_entries(
                             cfg,
@@ -1743,7 +1743,7 @@ def _run_batch_flag_sweep(
                 from rebrew.compiler.compile import compile_and_compare
                 from rebrew.compiler.overrides import resolve_compile_overrides
                 from rebrew.formats.binary_loader import extract_raw_bytes
-                from rebrew.verify_hash import comparison_inputs, comparison_inputs_current
+                from rebrew.verify.hash import comparison_inputs, comparison_inputs_current
 
                 target_bytes = extract_raw_bytes(cfg.target_binary, int(stub.va, 16), stub.size)
                 if target_bytes:
@@ -1851,7 +1851,7 @@ def _run_batch_flag_sweep(
                 # Keep status/todo in sync with the fresh EXACT metadata (the
                 # verify cache may hold a stale NEAR_MATCHING entry).
                 try:
-                    from rebrew.verify_cache import patch_verify_cache_entries
+                    from rebrew.verify.cache import patch_verify_cache_entries
 
                     patch_verify_cache_entries(
                         cfg,

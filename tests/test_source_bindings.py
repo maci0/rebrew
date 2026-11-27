@@ -11,7 +11,7 @@ from rebrew.metadata.bindings import iter_source_bindings, read_source_bindings,
 from rebrew.metadata.data import save_data_metadata
 from rebrew.metadata.functions import record_function_identity, update_field
 from rebrew.metadata.source_provenance import load_source_files, set_source_file
-from rebrew.source_register import plan_registration
+from rebrew.source.register import plan_registration
 
 
 def _record(root: Path, module: str, va: int, file: str, name: str, size: int = 7) -> None:
@@ -239,9 +239,9 @@ class TestRegistration:
         def fail_data_write(*args: Any, **kwargs: Any) -> None:
             raise OSError("data writer failed")
 
-        monkeypatch.setattr("rebrew.source_register.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.source.register.require_config", lambda **kwargs: cfg)
         if not invalid_kind:
-            monkeypatch.setattr("rebrew.source_register.record_data_rows", fail_data_write)
+            monkeypatch.setattr("rebrew.source.register.record_data_rows", fail_data_write)
         result = CliRunner().invoke(app, ["source", "register", str(source), "--json"])
         assert result.exit_code == 2, result.output
         assert ("kind must be" if invalid_kind else "data writer failed") in result.output
@@ -268,7 +268,7 @@ class TestRegistration:
             f"/* ADDRESS: {module.swapcase()} 0x1000 */\nint other(void) {{ return 0; }}\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.source_register.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.source.register.require_config", lambda **kwargs: cfg)
         result = CliRunner().invoke(app, ["source", "register", str(source), "--json"])
         assert result.exit_code == (2 if has_owner else 0), result.output
         if has_owner:

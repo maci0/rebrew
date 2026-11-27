@@ -17,7 +17,7 @@ from rebrew.alignment import (
     record_alignment,
 )
 from rebrew.compiler.compile import CompareResult
-from rebrew.test import build_result_dict_from_compare
+from rebrew.verify.test import build_result_dict_from_compare
 
 
 class TestAlignment:

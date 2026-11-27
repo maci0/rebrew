@@ -1,4 +1,4 @@
-"""Property-based fuzz tests for ``rebrew.layout_meta`` on untrusted images.
+"""Property-based fuzz tests for ``rebrew.buildsys.layout_meta`` on untrusted images.
 
 ``extract_layout`` is the whole of ``rebrew build layout``: it walks a reference
 PE the user points the CLI at and pulls the import directory, the export
@@ -32,9 +32,9 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 from test_postlink import make_full_pe
 
+from rebrew.buildsys.gen_layout import fmt_layout_toml
+from rebrew.buildsys.layout_meta import LayoutMetadata, extract_layout, load_package, write_package
 from rebrew.formats.pe_headers import pe_header
-from rebrew.gen_layout import fmt_layout_toml
-from rebrew.layout_meta import LayoutMetadata, extract_layout, load_package, write_package
 
 #: Patches land in the header block, which is where the parser branches.
 _MUTATE_SPAN = 0x400

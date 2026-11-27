@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from rebrew import prove
-from rebrew.data_layout import estimate_type_size
+from rebrew.data.layout import estimate_type_size
 from rebrew.metadata.functions import GA_CEILING_PREFIX
 from rebrew.todo import (
     CAT_IMPROVE_MATCH,
@@ -124,8 +124,8 @@ class TestBenchmarkInputs:
         assert any(item.mutations for item in ranked)
 
     def test_data_inputs_reach_every_branch(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.data_render import section_summary
-        from rebrew.data_scan import enrich_with_sections, verify_bss_layout
+        from rebrew.data.render import section_summary
+        from rebrew.data.scan import enrich_with_sections, verify_bss_layout
 
         monkeypatch.setattr(bench, "DATA_GLOBALS", 2000)
         scan, sections = bench._make_scan(random.Random(bench.SEED + 1))

@@ -11,7 +11,7 @@ Selected entry points, such as `load_config`, are also available from
 from rebrew.config import load_config
 from rebrew.compiler.compile import compile_and_compare
 from rebrew.errors import RebrewError
-from rebrew.sources import iter_sources
+from rebrew.source.discovery import iter_sources
 from rebrew.compiler.toolchain import TOOLCHAINS, get_toolchain
 from rebrew.compiler.toolchain import ToolchainError
 

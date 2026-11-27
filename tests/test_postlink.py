@@ -1,4 +1,4 @@
-"""Tests for rebrew.postlink — the ``rebrew build postlink`` layout normalizer.
+"""Tests for rebrew.buildsys.postlink — the ``rebrew build postlink`` layout normalizer.
 
 The fixers converge a built binary onto a reference by copying linker-derived
 regions (import bookkeeping, ``.data``, ``.reloc``, PE headers).  ``make_pe``
@@ -23,12 +23,12 @@ from cli_json import cli_payload
 from memory_cap import address_space_cap
 from typer.testing import CliRunner
 
+from rebrew.buildsys.postlink import FIXER_ORDER, app, run_fixers
 from rebrew.cli import EXIT_ERROR
-from rebrew.postlink import FIXER_ORDER, app, run_fixers
 
 if TYPE_CHECKING:
+    from rebrew.buildsys.layout_meta import LayoutMetadata
     from rebrew.formats.binary_model import BinaryInfo
-    from rebrew.layout_meta import LayoutMetadata
 
 runner = CliRunner()
 
@@ -271,7 +271,7 @@ class TestImportsFixer:
 
     @pytest.mark.parametrize("tail_padding", [0, 1])
     def test_rewrites_slot_at_end_of_raw_text(self, tmp_path: Path, tail_padding: int) -> None:
-        from rebrew.layout_meta import extract_layout
+        from rebrew.buildsys.layout_meta import extract_layout
 
         imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
 
@@ -301,9 +301,9 @@ class TestImportsFixer:
         mov-imm32 constant) must be left alone, not rewritten."""
         import dataclasses
 
+        from rebrew.buildsys.layout_meta import extract_layout
+        from rebrew.buildsys.postlink import _fix_imports
         from rebrew.formats.binary_loader import load_binary
-        from rebrew.layout_meta import extract_layout
-        from rebrew.postlink import _fix_imports
 
         imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
         ref = make_full_pe(imports=imports)
@@ -387,9 +387,9 @@ class TestDataFixer:
         fill with 0xCC, and zeroing it would corrupt a matching build.  That
         case is covered by test_preserves_reference_text_padding.
         """
+        from rebrew.buildsys.layout_meta import extract_layout
+        from rebrew.buildsys.postlink import _fix_data
         from rebrew.formats.binary_loader import load_binary
-        from rebrew.layout_meta import extract_layout
-        from rebrew.postlink import _fix_data
 
         ref_bytes = make_full_pe(code=b"\xc3")
         _write(tmp_path, "ref.dll", ref_bytes)
@@ -432,8 +432,8 @@ class TestDataFixer:
         """The .reloc bytes must land at the *built* file's own .reloc raw
         pointer (from its headers), not the reference's raw_ptr: a built
         link whose .reloc sits 0x200 later must keep it there."""
-        from rebrew.layout_meta import extract_layout
-        from rebrew.postlink import _fix_data
+        from rebrew.buildsys.layout_meta import extract_layout
+        from rebrew.buildsys.postlink import _fix_data
 
         reloc = struct.pack("<II", 0x1000, 8) + struct.pack("<HH", 0x123, 0x3000)
         ref = _write(tmp_path, "ref.dll", make_full_pe(reloc_bytes=reloc))
@@ -471,9 +471,9 @@ class TestDataFixer:
         raw[_HEADERS + old_raw : _HEADERS + old_raw] = b"\x90" * 0x100
         built = _write(tmp_path, "built.dll", bytes(raw))
 
+        from rebrew.buildsys.layout_meta import extract_layout
+        from rebrew.buildsys.postlink import _fix_data
         from rebrew.formats.binary_loader import load_binary
-        from rebrew.layout_meta import extract_layout
-        from rebrew.postlink import _fix_data
 
         blob = bytearray(built.read_bytes())
         _fix_data(blob, extract_layout(ref.read_bytes(), "ref.dll"), load_binary(built))
@@ -484,9 +484,9 @@ class TestDataFixer:
         """A built link whose raw sections sit 0x200 later must not be trimmed:
         the trim point resolves from the built section's own file offset, never
         the reference's ``raw_ptr`` (which indexed the built buffer)."""
+        from rebrew.buildsys.layout_meta import extract_layout
+        from rebrew.buildsys.postlink import _fix_data
         from rebrew.formats.binary_loader import load_binary
-        from rebrew.layout_meta import extract_layout
-        from rebrew.postlink import _fix_data
 
         ref = _write(tmp_path, "ref.dll", make_full_pe(code=b"\xc3", text_pad_byte=0xCC))
         raw = bytearray(make_full_pe(code=b"\xc3", text_pad_byte=0xCC))
@@ -514,9 +514,9 @@ class TestCallOpcodeContext:
     def test_changed_opcode_neither_validates_nor_rewrites(
         self, tmp_path: Path, opcode: int, displacement: int
     ) -> None:
+        from rebrew.buildsys.layout_meta import extract_layout
+        from rebrew.buildsys.postlink import _fix_data, map_coverage
         from rebrew.formats.binary_loader import load_binary
-        from rebrew.layout_meta import extract_layout
-        from rebrew.postlink import _fix_data, map_coverage
 
         reference = b"\x90\x90" + bytes([opcode]) + struct.pack("<I", 1) + b"\x90\x90\xc3"
         changed = (
@@ -539,7 +539,7 @@ class TestCallOpcodeContext:
     def test_same_opcode_survives_package_roundtrip_and_rewrites(
         self, tmp_path: Path, opcode: int
     ) -> None:
-        from rebrew.layout_meta import load_package
+        from rebrew.buildsys.layout_meta import load_package
 
         code = b"\x90\x90" + bytes([opcode]) + struct.pack("<I", 1) + b"\x90\x90\xc3"
         ref = make_full_pe(code=code)
@@ -561,7 +561,7 @@ class TestCallOpcodeContext:
 
     @pytest.mark.parametrize("row", ["0x3 0x1 0x9090", "0x3 0x1 0x9090 0x9090 0x90"])
     def test_invalid_call_context_is_rejected(self, tmp_path: Path, row: str) -> None:
-        from rebrew.layout_meta import load_package
+        from rebrew.buildsys.layout_meta import load_package
 
         pkg = write_pkg(tmp_path, make_full_pe())
         (pkg / "calls.txt").write_text(row + "\n")
@@ -569,9 +569,9 @@ class TestCallOpcodeContext:
             load_package(pkg)
 
     def test_old_package_loads_but_unknown_opcode_cannot_rewrite(self, tmp_path: Path) -> None:
+        from rebrew.buildsys.layout_meta import load_package, write_package
+        from rebrew.buildsys.postlink import _fix_data, map_coverage
         from rebrew.formats.binary_loader import load_binary
-        from rebrew.layout_meta import load_package, write_package
-        from rebrew.postlink import _fix_data, map_coverage
 
         code = b"\x90\x90\xe8\x01\x00\x00\x00\x90\x90\xc3"
         pkg = write_pkg(tmp_path, make_full_pe(code=code))
@@ -674,9 +674,9 @@ class TestPeMetadataFixer:
         import dataclasses
         import struct
 
+        from rebrew.buildsys.layout_meta import extract_layout
+        from rebrew.buildsys.postlink import _fix_pe_metadata
         from rebrew.formats.binary_loader import load_binary
-        from rebrew.layout_meta import extract_layout
-        from rebrew.postlink import _fix_pe_metadata
 
         ref = _write(tmp_path, "ref.dll", make_full_pe())
         meta = extract_layout(ref.read_bytes(), "ref.dll")
@@ -696,7 +696,7 @@ class TestPeMetadataFixer:
         not the geometry parsed before the chain ran: the ``data`` fixer
         grows the built ``.reloc`` raw-size header field, and
         ``pe-metadata`` must observe the grown value."""
-        import rebrew.postlink as postlink
+        import rebrew.buildsys.postlink as postlink
 
         reloc = struct.pack("<II", 0x1000, 8)
         ref = _write(
@@ -789,7 +789,7 @@ def write_pkg(tmp_path: Path, ref: bytes, name: str = "pkg") -> Path:
     """Write a text-only layout package for *ref* (the rebrew build layout emission path)."""
     import tomlkit
 
-    from rebrew.layout_meta import extract_layout, write_package
+    from rebrew.buildsys.layout_meta import extract_layout, write_package
 
     meta = extract_layout(ref, "ref.dll")
 
@@ -813,7 +813,7 @@ class TestLayoutPackage:
         ref = _write(tmp_path, "ref.dll", make_full_pe(imports=imports, data=b"\x07" * 0x20))
         pkg = write_pkg(tmp_path, ref.read_bytes())
 
-        from rebrew.layout_meta import load_package
+        from rebrew.buildsys.layout_meta import load_package
 
         meta = load_package(pkg)
         assert meta.header == ref.read_bytes()[: len(meta.header)]
@@ -847,7 +847,7 @@ class TestLayoutPackage:
         pkg.mkdir()
         import pytest
 
-        from rebrew.layout_meta import load_package
+        from rebrew.buildsys.layout_meta import load_package
 
         with pytest.raises(ValueError, match="missing rebrew-layout.toml"):
             load_package(pkg)
@@ -899,9 +899,9 @@ class TestExactLayout:
     def test_reloc_moves_to_reference_offset_and_file_shrinks(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.postlink as pl
+        import rebrew.buildsys.postlink as pl
+        from rebrew.buildsys.layout_meta import extract_layout
         from rebrew.formats.binary_loader import load_binary
-        from rebrew.layout_meta import extract_layout
 
         reloc = struct.pack("<II", 0x1000, 8) + struct.pack("<HH", 0x123, 0x3000)
         ref = _write(tmp_path, "ref.dll", make_full_pe(reloc_bytes=reloc))

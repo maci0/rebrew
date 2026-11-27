@@ -241,7 +241,7 @@ def test_stored_address_is_not_reread(tmp_path: Path, monkeypatch: pytest.Monkey
     ``rebrew`` process takes. Editing the store or the source reads again.
     The default declaration scan still reads.
     """
-    import rebrew.data_scan as data_scan
+    import rebrew.data.scan as data_scan
 
     (tmp_path / "rebrew-project.toml").write_text(PROJECT_TOML, encoding="utf-8")
     src = tmp_path / "src"
@@ -313,7 +313,7 @@ def test_function_catalog_scan_is_marker_scoped(
     from types import SimpleNamespace
 
     import rebrew.coff_reloc as cr
-    import rebrew.data_scan as data_mod
+    import rebrew.data.scan as data_mod
     import rebrew.metadata.bindings as annotation_mod
     import rebrew.metadata.data as dm_mod
 

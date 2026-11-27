@@ -18,9 +18,9 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
-from rebrew.cmake_sources import app
+from rebrew.buildsys.cmake_sources import app
 from rebrew.config import ProjectConfig, load_config
-from rebrew.source_selection import collect_target_sources
+from rebrew.source.selection import collect_target_sources
 
 TOML = """\
 [project]
@@ -188,7 +188,7 @@ def test_relative_archive_reaches_cmake_as_a_file(
         pytest.skip("CMake and a C compiler are required")
     cfg = _project(tmp_path, {"src/server_dll/main.c": "int main(void) { return 0; }\n"})
     cfg.external_libs = {"RUNTIME": archive, "SYSTEM": "KERNEL32.lib"}
-    monkeypatch.setattr("rebrew.cmake_sources.require_config", lambda **_kw: cfg)
+    monkeypatch.setattr("rebrew.buildsys.cmake_sources.require_config", lambda **_kw: cfg)
     monkeypatch.chdir(tmp_path)
     output = tmp_path / "sources.cmake"
     result = CliRunner().invoke(app, ["--output", str(output), "--json"])
@@ -233,7 +233,7 @@ def test_config_change_regenerates_library_order(tmp_path: Path) -> None:
     config.write_text(TOML + libraries)
     (tmp_path / "CMakeLists.txt").write_text(
         "cmake_minimum_required(VERSION 3.15)\nproject(regenerate NONE)\n"
-        f'execute_process(COMMAND "{Path(sys.executable).as_posix()}" -m rebrew.cmake_sources '
+        f'execute_process(COMMAND "{Path(sys.executable).as_posix()}" -m rebrew.buildsys.cmake_sources '
         '-o "${CMAKE_BINARY_DIR}/sources.cmake" '
         'WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE rc)\n'
         'if(NOT rc EQUAL 0)\nmessage(FATAL_ERROR "cmake-sources failed")\nendif()\n'

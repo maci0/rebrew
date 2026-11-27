@@ -44,9 +44,9 @@ flowchart LR
     LOAD --> DIFF
 
     LOAD --> CATALOG["catalog/ (LIEF section/label data)"]
-    CATALOG --> COVERAGE["coverage_project.py<br/>load_project_coverage"]
+    CATALOG --> COVERAGE["coverage/project.py<br/>load_project_coverage"]
     META --> COVERAGE
-    COVERAGE --> DASH["dashboard.py<br/>read-only web UI"]
+    COVERAGE --> DASH["coverage/dashboard.py<br/>read-only web UI"]
     COVERAGE -.-> DB["coverage export<br/>portable coverage-&lt;target&gt;.toml"]
 
     LOAD --> IMPORTS["formats/import_table.py<br/>PE/ELF/NE import table + stubs"]
@@ -61,13 +61,14 @@ Paths below are under `src/rebrew/`.
 | Area | Start here |
 | --- | --- |
 | CLI | `app/main.py` mounts the commands declared in `app/builtins.py`. `app/plugin.py` handles component activation. `cli.py` holds shared options, output, and exit codes. |
-| Configuration and sources | `workspace/` resolves the project root and target. `config.py` builds `ProjectConfig`. `sources.py` discovers source files and resolves metadata paths. |
+| Configuration and sources | `workspace/` resolves the project root and target. `config.py` builds `ProjectConfig`. `source/` discovers source files, resolves metadata paths, audits contracts, and handles merge/split/rename workflows. |
 | Binary analysis | `formats/` parses binaries, objects, and archives. `discover.py` builds function inventories. `decompiler.py` selects a decompiler. |
 | Metadata | `metadata/bindings.py` joins source addresses and stored identities. `metadata/functions.py` and `metadata/data.py` own domain fields and writes. `metadata/storage.py` selects TOML, SQLite, or PostgreSQL. `metadata/replication.py` coordinates replicas. |
 | Compilation | `compiler/toolchain.py` resolves profiles and images. `compiler/compile.py` compiles, extracts, and compares. `compiler/cache.py` owns object cache keys. `compiler/recompile_client.py` handles the remote backend. |
 | Matching and diagnosis | `matcher/` implements scoring, flag sweeps, mutations, and history. `coff_reloc.py` compares with relocation awareness. `near_analysis.py` and `stack_analysis.py` explain differences. `prove.py` runs symbolic checks. |
 | Library identification | `flirt.py` matches signatures, `crt_match.py` matches against CRT source evidence, and `identify_library.py` records library identities. |
-| Verification and coverage | `verify.py` coordinates batch checks. `catalog/` builds the function registry. `coverage_project.py` supplies live views to `dashboard.py`. `build_db.py` implements portable exports through `coverage_db.write_coverage`. |
+| Verification and coverage | `verify/` coordinates batch checks and `test` runs. `catalog/` builds the function registry. `coverage/project.py` supplies live views to `coverage/dashboard.py`. `coverage/build_db.py` implements portable exports through `coverage/db.py`. |
+| Data and build system | `data/` handles global scanning, layout, ownership, pairing, and verification. `buildsys/` integrates CMake, objdiff, link order, stub/layout generation, and splat. `ops/` implements the backend op worker and wire contracts. |
 | Synchronization | `binsync/` owns field exchange, reconciliation, and Git-backed state. `ghidra/` provides the `sync` CLI and live structural operations. |
 | Extensions | `registry.py` discovers entry-point plugins. `skills.py` resolves packaged and overlaid skills. |
 

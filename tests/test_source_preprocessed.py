@@ -4,7 +4,7 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.source_preprocessed import (
+from rebrew.source.preprocessed import (
     parse_msvc_preprocessed,
     reported_declaration_scopes,
     reported_source_functions,

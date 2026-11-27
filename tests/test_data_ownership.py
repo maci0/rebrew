@@ -11,8 +11,8 @@ from source_util import write_source
 
 from rebrew.c_parser import find_variable_roles
 from rebrew.config import load_config
-from rebrew.data_render import render_globals
-from rebrew.data_scan import scan_data_annotations, scan_globals
+from rebrew.data.render import render_globals
+from rebrew.data.scan import scan_data_annotations, scan_globals
 
 
 def _sqlite_scan_project(root: Path, count: int) -> Any:
@@ -146,7 +146,7 @@ def test_duplicate_tentative_definitions_are_owners(tmp_path: Path) -> None:
 def test_first_field_alias_does_not_reclassify_its_backing_definition(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
-    from rebrew.data_ownership import resolve_backing_owners
+    from rebrew.data.ownership import resolve_backing_owners
     from rebrew.metadata.data import set_data_fields_batch
 
     write_source(
@@ -306,7 +306,7 @@ class TestRoleIndexing:
 
 def test_data_scans_reuse_a_shared_tree_walk(tmp_path: Path, monkeypatch) -> None:
     """``rebrew data list`` walks the tree once and hands it to both scans."""
-    import rebrew.sources as sources
+    import rebrew.source.discovery as sources
 
     (tmp_path / "a.c").write_text("int first;\nint table[4];\n")
     scanned = sources.scan_files(tmp_path)
@@ -327,7 +327,7 @@ def test_warm_data_scan_replays_roles_without_parsing_again(tmp_path: Path, monk
     from unittest.mock import Mock
 
     from rebrew.c_parser import find_extern_variables, find_variable_roles
-    from rebrew.data_scan import _ROLE_FACT_CACHE
+    from rebrew.data.scan import _ROLE_FACT_CACHE
 
     source = tmp_path / "a.c"
     source.write_text("int first;\nint a(void) { return first; }\n")
@@ -365,7 +365,7 @@ def test_warm_data_scan_replays_roles_without_parsing_again(tmp_path: Path, monk
 
 def test_data_scan_caches_are_bounded(tmp_path: Path) -> None:
     """Per-root and per-target fact caches must not grow with every root visited."""
-    import rebrew.data_scan as data_scan
+    import rebrew.data.scan as data_scan
 
     data_scan._NAME_COVER_CACHE.clear()
     data_scan._ROLE_FACT_CACHE.clear()
@@ -384,7 +384,7 @@ def test_data_scan_caches_are_bounded(tmp_path: Path) -> None:
 def test_data_scan_keeps_cache_facts_with_the_revision_read(
     tmp_path: Path, monkeypatch, roles: bool
 ) -> None:
-    from rebrew import data_scan
+    from rebrew.data import scan as data_scan
 
     source = tmp_path / "globals.c"
     source.write_text("int retired;\n", encoding="utf-8")
@@ -419,7 +419,7 @@ def test_name_cover_publishes_one_record_per_store(tmp_path: Path, monkeypatch) 
     import json
     import threading
 
-    import rebrew.data_scan as data_scan
+    import rebrew.data.scan as data_scan
 
     stamp = data_scan._store_stamp(tmp_path)
     cache_path = tmp_path / ".rebrew" / "name-map-cover.json"
@@ -452,7 +452,7 @@ def test_role_cache_publishes_one_record_per_identity(tmp_path: Path, monkeypatc
     import json
     import threading
 
-    import rebrew.data_scan as data_scan
+    import rebrew.data.scan as data_scan
 
     stamp = data_scan._store_stamp(tmp_path)
     identity = data_scan._role_identity(None)
@@ -504,7 +504,7 @@ def test_name_cover_flush_serializes_a_concurrent_remember(tmp_path: Path, monke
 
     from thread_util import join_all
 
-    import rebrew.data_scan as data_scan
+    import rebrew.data.scan as data_scan
 
     first = tmp_path / "a.c"
     first.write_text("int first;\n")
@@ -549,7 +549,7 @@ def test_unversioned_name_cover_is_ignored(tmp_path: Path) -> None:
     """A cover written by older coverage semantics must not skip a source."""
     import json
 
-    import rebrew.data_scan as data_scan
+    import rebrew.data.scan as data_scan
 
     source = tmp_path / "a.c"
     source.write_text("int first;\n")

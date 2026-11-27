@@ -18,7 +18,7 @@ lazy import struct
 lazy from pathlib import Path
 
 from rebrew.errors import RebrewError
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 lazy from rebrew.utils import binary_fingerprint, preset_module_key
 
 if TYPE_CHECKING:
@@ -296,7 +296,7 @@ def build_name_to_va(
     name_to_va: dict[str, int] = {}
     try:
         from rebrew.config import target_module
-        from rebrew.data_scan import scan_globals
+        from rebrew.data.scan import scan_globals
 
         # Every source of pairs below is scoped to the ACTIVE target's module.
         # A shared file can carry one ADDRESS anchor per target, and the same
@@ -391,7 +391,7 @@ def build_name_to_va(
                         ambiguous_names.add(name)
                     else:
                         name_to_va[name] = ann_va
-        from rebrew.rename_ops import c_name_from_symbol
+        from rebrew.source.rename_ops import c_name_from_symbol
 
         ambiguous_keys = {
             spelling
@@ -491,7 +491,7 @@ def apply_coff_relocations(
     :raises UnresolvedSymbolError: Symbol not in the catalog.
     :raises NotImplementedError: Unsupported relocation type.
     """
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     buf = bytearray(text)
     table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
@@ -563,7 +563,7 @@ def resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> in
     """
     if sym_name in name_to_va:
         return name_to_va[sym_name]
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     c_name = c_name_from_symbol(sym_name)
     if c_name and c_name != sym_name and c_name in name_to_va:

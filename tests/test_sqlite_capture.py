@@ -18,7 +18,7 @@ from test_ops import BINARY, KEY, SHA256, _store, _worker_dirs
 import rebrew.metadata_transfer as transfer
 import rebrew.ops as ops
 from rebrew.config import load_config
-from rebrew.coverage_project import coverage_inputs
+from rebrew.coverage.project import coverage_inputs
 from rebrew.metadata.functions import record_function_rows
 from rebrew.metadata.sqlite import DATABASE_FILENAME, SqliteStore
 from rebrew.metadata.storage import project_metadata_stores
@@ -32,7 +32,7 @@ def _verify_cli(
     from typer.testing import CliRunner
 
     from rebrew.compiler import compile as compiler
-    from rebrew.verify import app
+    from rebrew.verify.cli import app
 
     compiled: list[int] = []
 
@@ -417,7 +417,7 @@ def test_applied_candidate_store_is_what_later_retained_reads_see(
     with monkeypatch.context() as patch:
         patch.setattr(ops, "run_rebrew", promote)
         patch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=True,
                 status="EXACT",

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 lazy import unicodedata
 lazy from pathlib import Path
 
-from rebrew.sources import iter_sources as iter_sources
+from rebrew.source.discovery import iter_sources as iter_sources
 lazy from rebrew.config import ProjectConfig
 
 logger = logging.getLogger(__name__)
@@ -124,12 +124,12 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     Declaration sites, storage owners and users remain distinct. Durable data
     extents override type estimates; headers and migrated metadata are included.
     """
-    from rebrew.data_layout import estimate_type_size
-    from rebrew.data_scan import scan_globals
+    from rebrew.data.layout import estimate_type_size
+    from rebrew.data.scan import scan_globals
 
     scan = scan_globals(src_dir, cfg)
     if cfg is not None:
-        from rebrew.data_ownership import enrich_library_owners
+        from rebrew.data.ownership import enrich_library_owners
 
         enrich_library_owners(scan, cfg)
     # One ancestor probe and one read-only data-store read for the whole
@@ -210,7 +210,7 @@ def get_text_section_size(bin_path: Path, root: Path | None = None, target: str 
     on *bin_path* remains the fallback.
     """
     if root is not None and target:
-        from rebrew.layout_meta import read_layout_header
+        from rebrew.buildsys.layout_meta import read_layout_header
 
         hdr = read_layout_header(root, target, bin_path)
         if hdr is not None:

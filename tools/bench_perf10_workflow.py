@@ -170,7 +170,7 @@ _VERIFY_STATUSES = (
 
 
 def _make_todo_inputs(rng: random.Random) -> tuple[Any, ...]:
-    from rebrew.verify_cache import VerifyCacheEntry
+    from rebrew.verify.cache import VerifyCacheEntry
 
     existing: dict[int, dict[str, str]] = {}
     size_by_va: dict[int, int] = {}
@@ -287,7 +287,7 @@ def _data_type(rng: random.Random) -> str:
 
 
 def _make_scan(rng: random.Random) -> tuple[Any, dict[str, dict[str, Any]]]:
-    from rebrew.data_scan import GlobalEntry, ScanResult
+    from rebrew.data.scan import GlobalEntry, ScanResult
 
     sections = {name: {"va": va, "size": size} for name, va, size in DATA_SECTIONS}
     scan = ScanResult()
@@ -324,7 +324,7 @@ def _make_scan(rng: random.Random) -> tuple[Any, dict[str, dict[str, Any]]]:
 
 def _reset_type_size_memo() -> None:
     """Clear the per-spelling size memo where the build has one."""
-    from rebrew.data_layout import estimate_type_size
+    from rebrew.data.layout import estimate_type_size
 
     clear = getattr(estimate_type_size, "cache_clear", None)
     if clear is not None:
@@ -332,8 +332,8 @@ def _reset_type_size_memo() -> None:
 
 
 def bench_data_inventory() -> dict[str, Any]:
-    from rebrew.data_render import section_summary
-    from rebrew.data_scan import enrich_with_sections, verify_bss_layout
+    from rebrew.data.render import section_summary
+    from rebrew.data.scan import enrich_with_sections, verify_bss_layout
 
     rng = random.Random(SEED + 1)
     scan, sections = _make_scan(rng)

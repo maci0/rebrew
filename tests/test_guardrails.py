@@ -17,7 +17,7 @@ from rebrew.metadata.bindings import (
 )
 from rebrew.metadata.functions import get_entry, update_source_status
 from rebrew.naming import sanitize_name
-from rebrew.test import smart_reloc_compare
+from rebrew.verify.test import smart_reloc_compare
 
 # ---------------------------------------------------------------------------
 # Helpers

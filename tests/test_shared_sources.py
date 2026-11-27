@@ -129,7 +129,7 @@ class TestIterSources:
         (cfg.reversed_dir / "local.c").write_text("int l(void){return 1;}\n", encoding="utf-8")
         (cfg.shared_dir / "common.c").write_text("int c(void){return 1;}\n", encoding="utf-8")
 
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
 
         files = iter_sources(cfg.reversed_dir, cfg)
         assert (cfg.reversed_dir / "local.c") in files
@@ -139,7 +139,7 @@ class TestIterSources:
         """The shared half of the scan used to be globbed through a `cfg=None`
         recursive call, which fell back to `[".c"]` — with `source_ext = ".cpp"`
         every shared `.cpp` was invisible to coverage/matching."""
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
 
         cfg = _cfg(tmp_path)
         cfg.source_ext = ".cpp"
@@ -156,7 +156,7 @@ class TestIterSources:
         cfg = _cfg(tmp_path, shared="")
         (cfg.reversed_dir / "local.c").write_text("x", encoding="utf-8")
 
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
 
         files = iter_sources(cfg.reversed_dir, cfg)
         assert files == [cfg.reversed_dir / "local.c"]
@@ -166,7 +166,7 @@ class TestIterSources:
         cfg.shared_dir = tmp_path / "src" / "nope"  # never created
         (cfg.reversed_dir / "local.c").write_text("x", encoding="utf-8")
 
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
 
         assert iter_sources(cfg.reversed_dir, cfg) == [cfg.reversed_dir / "local.c"]
 
@@ -179,7 +179,7 @@ class TestIterSources:
         other.mkdir(parents=True)
         (other / "o.c").write_text("x", encoding="utf-8")
 
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
 
         files = iter_sources(other, cfg)
         assert files == [other / "o.c"]
@@ -557,7 +557,7 @@ class TestVerifySharedFile:
         )
 
         from rebrew.catalog.loaders import scan_reversed_dir
-        from rebrew.verify import verify_entry
+        from rebrew.verify.cli import verify_entry
 
         entries = scan_reversed_dir(cfg.reversed_dir, cfg)
         assert len(entries) == 1
@@ -577,7 +577,7 @@ class TestSharedLibraryHeaderCoverage:
         """`iter_sources` adds `cfg.shared_dir`; the header scan must too, or a
         shared `library_*.h` is invisible to coverage, crt-match, the call
         graph and `rebrew export context`."""
-        from rebrew.sources import iter_library_headers
+        from rebrew.source.discovery import iter_library_headers
 
         cfg = _cfg(tmp_path)
         shared_hdr = cfg.shared_dir / "library_foo.h"
@@ -603,7 +603,7 @@ class TestSharedLibraryHeaderCoverage:
     def test_iter_library_headers_skips_excluded_dirs(self, tmp_path: Path) -> None:
         """The header scan must skip build/.venv/... like the source scan does:
         a `library_*.h` copied into `build/` is not a project marker."""
-        from rebrew.sources import iter_library_headers
+        from rebrew.source.discovery import iter_library_headers
 
         cfg = _cfg(tmp_path)
         own_hdr = cfg.reversed_dir / "library_bar.h"

@@ -43,7 +43,7 @@ lazy from rebrew.c_parser import (
     node_text,
     parse_c_source,
 )
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 lazy from rebrew.utils import (
     TerminalTable,
     rel_display_path,

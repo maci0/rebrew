@@ -1,0 +1,847 @@
+"""merge_sweep.py - deterministic TU-partition search over cu_map clusters.
+
+``rebrew source graph --cu-map`` infers translation units from gap analysis plus call-graph
+signals, but the inference never compiles anything: a boundary it proposes
+may not reproduce.  This tool closes the loop.  It starts from the
+:func:`rebrew.cu_map.cluster_functions` partition and hill-climbs toward the
+partition whose merged translation units compile to the most matched bytes:
+
+- **Phase A (merge)**: greedily merge adjacent cluster pairs that share a
+  call edge or a string, accepting only moves that increase total matched
+  bytes (ties: fewer clusters, then lower VA).
+- **Phase B (split)**: greedily split clusters at internal
+  ``large_nonpadding`` gaps, accepting strict improvements and ties.
+
+Both phases repeat to a fixpoint (cap: 3 passes, 2n compiler invocations).
+Scoring compiles each merged TU once via the :mod:`rebrew.source.merge` machinery
+plus :func:`rebrew.compiler.compile.compile_to_obj`, extracts every member function
+from that single object, and compares the sum of matched bytes.  Traversal
+is VA-ordered, there is no RNG, and every accepted move is appended to a
+JSON audit log.
+"""
+
+from __future__ import annotations
+
+lazy import json
+lazy import logging
+lazy import tempfile
+lazy from collections.abc import Callable
+lazy from itertools import pairwise
+lazy from pathlib import Path
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import (
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
+lazy from rebrew.catalog import (
+    build_function_registry,
+    cached_function_list,
+)
+lazy from rebrew.coff_reloc import build_name_to_va
+lazy from rebrew.compiler.overrides import resolve_compile_overrides
+lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
+lazy from rebrew.formats.binary_loader import extract_raw_bytes, load_binary
+lazy from rebrew.metadata.bindings import derive_c_symbol, read_source_bindings
+lazy from rebrew.source.discovery import contained_path, iter_sources, source_roots
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew match partitions  # Search the deterministic TU partitions\n\n"
+    "  # Cap the search budget\n"
+    "  rebrew match partitions --passes 3 --max-compiles 200\n\n"
+    "  # Plan the passes, compile nothing\n"
+    "  rebrew match partitions --dry-run --json\n"
+)
+
+
+app = typer.Typer(
+    help="Deterministic TU-partition search over cu-map clusters.",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+#: Search caps from the spec: at most 3 full passes, at most 2n compiles.
+DEFAULT_MAX_PASSES = 3
+
+#: Gap classes that mark a compilation-unit boundary (cu_map splits on these).
+BOUNDARY_GAP_CLASSES = frozenset({"large_nonpadding"})
+
+
+# ---------------------------------------------------------------------------
+# Pure partition logic (no compiler)
+# ---------------------------------------------------------------------------
+
+
+def _partition_key(partition: list[list[int]]) -> tuple[tuple[int, ...], ...]:
+    """Hashable key for one partition (sorted VAs per cluster, VA-ordered)."""
+    return tuple(tuple(sorted(cluster)) for cluster in partition)
+
+
+def _shared_call_edge(
+    left: set[int],
+    right: set[int],
+    call_map: dict[int, set[int]],
+) -> bool:
+    """True when any call crosses the left/right boundary in either direction."""
+    for caller, callees in call_map.items():
+        if caller in left and not callees.isdisjoint(right):
+            return True
+        if caller in right and not callees.isdisjoint(left):
+            return True
+    return False
+
+
+def _shared_string(
+    left: set[int],
+    right: set[int],
+    func_strings: dict[int, set[int]],
+) -> bool:
+    """True when a function in *left* and one in *right* reference one string."""
+    left_strings: set[int] = set()
+    for va in left:
+        left_strings |= func_strings.get(va, set())
+    if not left_strings:
+        return False
+    return any(left_strings & func_strings.get(va, set()) for va in right)
+
+
+def _merge_candidates(
+    partition: list[list[int]],
+    call_map: dict[int, set[int]],
+    func_strings: dict[int, set[int]],
+) -> list[tuple[int, int, str]]:
+    """Adjacent merge candidates in VA order as ``(left_idx, right_idx, reason)``.
+
+    A pair qualifies when it shares a call edge (``"call"``) or a referenced
+    string (``"string"``); a pair sharing both reports ``"call+string"``.
+    """
+    out: list[tuple[int, int, str]] = []
+    for i in range(len(partition) - 1):
+        left = set(partition[i])
+        right = set(partition[i + 1])
+        reasons: list[str] = []
+        if _shared_call_edge(left, right, call_map):
+            reasons.append("call")
+        if _shared_string(left, right, func_strings):
+            reasons.append("string")
+        if reasons:
+            out.append((i, i + 1, "+".join(reasons)))
+    return out
+
+
+def _split_candidates(
+    partition: list[list[int]],
+    gap_classes: dict[tuple[int, int], str],
+) -> list[tuple[int, int]]:
+    """Split points in VA order as ``(cluster_idx, position_after)``.
+
+    Position *k* of a cluster splits after its k-th function (1-based) when
+    the gap between function k-1 and k is a ``large_nonpadding`` boundary.
+    """
+    out: list[tuple[int, int]] = []
+    for i, cluster in enumerate(partition):
+        for k in range(1, len(cluster)):
+            if gap_classes.get((cluster[k - 1], cluster[k])) in BOUNDARY_GAP_CLASSES:
+                out.append((i, k))
+    return out
+
+
+def _apply_merge(partition: list[list[int]], left: int, right: int) -> list[list[int]]:
+    """Return *partition* with clusters *left* and *right* joined."""
+    merged = sorted(partition[left] + partition[right])
+    return partition[:left] + [merged] + partition[right + 1 :]
+
+
+def _apply_split(partition: list[list[int]], cluster: int, at: int) -> list[list[int]]:
+    """Return *partition* with cluster *cluster* split after its *at*-th function."""
+    left = partition[cluster][:at]
+    right = partition[cluster][at:]
+    return partition[:cluster] + [left, right] + partition[cluster + 1 :]
+
+
+def _rank_key(partition: list[list[int]], score: int) -> tuple[int, int, int]:
+    """Ordering key for one candidate partition.
+
+    Primary key is matched bytes; ties break toward fewer clusters, then
+    lower first VA, so winner selection among equal-scoring candidates is
+    deterministic.
+    """
+    first_va = partition[0][0] if partition and partition[0] else 0
+    return (score, -len(partition), -first_va)
+
+
+def search_partitions(
+    initial: list[list[int]],
+    score_fn: Callable[[list[list[int]]], tuple[int, int]],
+    call_map: dict[int, set[int]],
+    func_strings: dict[int, set[int]],
+    gap_classes: dict[tuple[int, int], str],
+    *,
+    max_passes: int = DEFAULT_MAX_PASSES,
+    max_compiles: int | None = None,
+    on_accept: Callable[[dict[str, Any]], None] | None = None,
+) -> tuple[list[list[int]], int, list[dict[str, Any]], int]:
+    """Hill-climb *initial* toward the highest-scoring TU partition.
+
+    Phase A merges adjacent cluster pairs sharing a call edge or string;
+    Phase B splits clusters at internal ``large_nonpadding`` gaps.  Both
+    repeat to a fixpoint.  *score_fn* maps a partition to ``(matched_bytes,
+    compiler_invocations)``; the invocation count is charged against
+    *max_compiles*, so the cap counts real compiler runs, not partitions.
+    Scores memoize per partition key so a revisited shape never recompiles.
+    Returns ``(partition, score, moves, compile_count)`` where each move
+    records its phase, kind, affected VAs, reason, and scores.
+    """
+    memo: dict[tuple[tuple[int, ...], ...], int] = {}
+    compiles = 0
+
+    def scored(partition: list[list[int]]) -> int:
+        nonlocal compiles
+        key = _partition_key(partition)
+        hit = memo.get(key)
+        if hit is not None:
+            return hit
+        value, invocations = score_fn(partition)
+        compiles += invocations
+        if max_compiles is not None and compiles > max_compiles:
+            raise _BudgetExhausted
+        memo[key] = value
+        return value
+
+    moves: list[dict[str, Any]] = []
+    # The initial score is the fallback result, so it is never budget-aborted.
+    current = [sorted(cluster) for cluster in initial]
+    best, compiles = score_fn(current)
+    memo[_partition_key(current)] = best
+    try:
+        for sweep in range(max(1, max_passes)):
+            changed = False
+            for phase in ("merge", "split"):
+                while True:
+                    incumbent = best
+                    winner: list[list[int]] | None = None
+                    winner_key: tuple[int, int, int] | None = None
+                    winner_info: dict[str, Any] = {}
+                    if phase == "merge":
+                        cands: list[tuple[list[list[int]], dict[str, Any]]] = [
+                            (
+                                _apply_merge(current, left, right),
+                                {
+                                    "kind": "merge",
+                                    "left": list(current[left]),
+                                    "right": list(current[right]),
+                                    "reason": reason,
+                                },
+                            )
+                            for left, right, reason in _merge_candidates(
+                                current, call_map, func_strings
+                            )
+                        ]
+                    else:
+                        cands = [
+                            (
+                                _apply_split(current, cluster, at),
+                                {
+                                    "kind": "split",
+                                    "cluster": list(current[cluster]),
+                                    "at": current[cluster][at],
+                                },
+                            )
+                            for cluster, at in _split_candidates(current, gap_classes)
+                        ]
+                    for cand_partition, info in cands:
+                        score = scored(cand_partition)
+                        key = _rank_key(cand_partition, score)
+                        if winner_key is None or key > winner_key:
+                            winner = cand_partition
+                            winner_key = key
+                            winner_info = info
+                    if winner is None or winner_key is None:
+                        break
+                    # Merges need strictly more matched bytes; splits accept
+                    # ties (a zero-cost split still reveals a real boundary).
+                    if winner_key[0] < best or (phase == "merge" and winner_key[0] == best):
+                        break
+                    best = winner_key[0]
+                    current = winner
+                    changed = True
+                    move = {
+                        "pass": sweep,
+                        "phase": phase,
+                        **winner_info,
+                        "before": incumbent,
+                        "after": best,
+                        "clusters": len(current),
+                    }
+                    moves.append(move)
+                    if on_accept is not None:
+                        on_accept(move)
+            if not changed:
+                break
+    except _BudgetExhausted:
+        pass
+    return current, best, moves, compiles
+
+
+def _member_symbol(ann: Any) -> str:
+    """COFF symbol a cluster member is extracted under.
+
+    A stored symbol is kept. An empty symbol uses the prototype when that
+    is vectorcall (``hook@@4``), fastcall (``@keeps@4``), or stdcall
+    (``_bar@4``). Cdecl stays ``_name``. A name that already starts with
+    ``_`` is kept, not dropped and not given a second underscore.
+    """
+    if ann.symbol:
+        return str(ann.symbol)
+    name = str(ann.name or "")
+    proto = str(getattr(ann, "prototype", "") or "")
+    if name and proto:
+        derived = derive_c_symbol(name, proto)
+        # Cdecl derivation adds one ``_``. A legacy name ``_foo`` must stay
+        # ``_foo``. A real decoration differs from that cdecl spelling.
+        if derived and derived != f"_{name}":
+            return derived
+    if name and not name.startswith("_"):
+        return "_" + name
+    return name
+
+
+class _BudgetExhausted(Exception):
+    """Internal signal: the compile budget ran out mid-search."""
+
+
+# ---------------------------------------------------------------------------
+# Binary-derived inputs (call graph, strings, gaps)
+# ---------------------------------------------------------------------------
+
+
+def _function_call_map(
+    registry: dict[int, Any],
+    info: Any,
+    cfg: ProjectConfig | None,
+) -> dict[int, set[int]]:
+    """Caller VA to callee-VA set, restricted to functions in *registry*."""
+    from rebrew.cu_map import scan_call_targets
+
+    return scan_call_targets(info, registry, cfg)
+
+
+def _function_strings(info: Any) -> dict[int, set[int]]:
+    """Function VA to referenced string-VA set."""
+    from rebrew.analysis import iter_strings, string_refs
+
+    strings = iter_strings(info)
+    refs = string_refs(info, strings)
+    string_vas = {s.va for s in strings}
+    out: dict[int, set[int]] = {}
+    for string_va, xrefs in refs.items():
+        if string_va not in string_vas:
+            continue
+        for xref in xrefs:
+            out.setdefault(xref.from_va, set()).add(string_va)
+    return out
+
+
+def _gap_classes(
+    vas: list[int],
+    registry: dict[int, Any],
+    info: Any,
+    cfg: ProjectConfig | None,
+) -> dict[tuple[int, int], str]:
+    """Gap class for each consecutive VA pair, via cu_map's classifier."""
+    from rebrew.cu_map import classify_gap
+    from rebrew.formats.binary_loader import extract_bytes_at_va
+
+    padding = tuple(cfg.padding_bytes) if cfg else (0xCC, 0x90)
+    configured = getattr(cfg, "arch", "") if cfg is not None else ""
+    arch = configured or getattr(info, "arch", "") or "x86_32"
+    endian = getattr(info, "endian", "") or ""
+    text_va = info.text_va
+    text_size = info.text_size
+    out: dict[tuple[int, int], str] = {}
+    for prev_va, curr_va in pairwise(vas):
+        # pairwise drops the trailing element, which is the one with no
+        # successor.
+        size = int(registry.get(prev_va, {}).get("canonical_size", 0))
+        gap_start = prev_va + size
+        gap_len = curr_va - gap_start
+        if gap_len <= 0:
+            out[(prev_va, curr_va)] = "padding"
+            continue
+        gap_data = extract_bytes_at_va(info, gap_start, gap_len, trim_padding=False)
+        if gap_data is None:
+            out[(prev_va, curr_va)] = "unknown"
+        else:
+            out[(prev_va, curr_va)] = classify_gap(
+                gap_data, text_va, text_size, padding, arch, endian
+            )
+    return out
+
+
+def _initial_partition(
+    registry: dict[int, Any],
+    info: Any,
+    cfg: ProjectConfig | None,
+) -> list[list[int]]:
+    """cluster_functions output as VA-ordered VA lists."""
+    from rebrew.cu_map import cluster_functions
+
+    clusters = cluster_functions(registry, info, cfg)
+    return [sorted(c.functions) for c in clusters]
+
+
+# ---------------------------------------------------------------------------
+# Compile-backed scoring (merge machinery + compile_and_compare)
+# ---------------------------------------------------------------------------
+
+
+class _PartitionScorer:
+    """Score one partition as total matched bytes over its merged TUs.
+
+    Each cluster becomes one merged TU in a temp dir (via
+    :func:`rebrew.source.merge` helpers), compiled **once**; every function in the
+    TU is extracted by symbol from that single object and compared, and the
+    matched-byte counts are summed.  A cluster with no reversed source
+    scores 0 without compiling.  Compile overrides resolve against each
+    function's real source path (never the temp dir), so per-function
+    TOOLCHAIN/CFLAGS and the nearest ``rebrew-libraries.toml`` apply.
+    """
+
+    def __init__(
+        self,
+        cfg: ProjectConfig,
+        annotations: dict[int, Any],
+        name_to_va: dict[str, int],
+    ) -> None:
+        self._cfg = cfg
+        self._annotations = annotations
+        self._name_to_va = name_to_va
+
+    def _cluster_text(self, cluster: list[int]) -> str | None:
+        """Merged TU text for *cluster*, or None when no source covers it."""
+        from rebrew.source.merge import merge_preambles
+        from rebrew.source.split import shared_preamble, source_layout, span_extent
+        from rebrew.utils import read_compile_source
+
+        preambles: list[str] = []
+        blocks: list[tuple[int, str]] = []
+        seen_files: set[str] = set()
+        for va in cluster:
+            ann = self._annotations.get(va)
+            if ann is None:
+                continue
+            # The stored path is a display form: shared sources sit outside
+            # the reversed dir, so it can be ``../``-prefixed, and an older
+            # absolute value resolves as itself.  Re-root and refuse anything
+            # that lands outside the project's source trees — there is nothing
+            # legitimate left to read.
+            resolved = contained_path(
+                source_roots(self._cfg),
+                ann.filepath,
+            )
+            if resolved is None:
+                path = Path(ann.filepath)
+                if not path.is_absolute() or not path.resolve().is_relative_to(
+                    Path(self._cfg.root).resolve()
+                ):
+                    continue
+                path = path.resolve()
+            else:
+                path = resolved
+            key = str(path)
+            if key not in seen_files:
+                seen_files.add(key)
+                try:
+                    text = read_compile_source(path)
+                except OSError as exc:
+                    # The merged TU would silently lose this member's blocks,
+                    # and the partial merge is scored like any other candidate.
+                    logging.getLogger(__name__).warning(
+                        "merge-sweep: skipping unreadable source %s: %s", path, exc
+                    )
+                    continue
+                raw, spans = source_layout(text)
+                selected_names = {
+                    str(self._annotations[v].name)
+                    for v in cluster
+                    if v in self._annotations
+                    and str(self._annotations[v].filepath) == str(ann.filepath)
+                }
+                selected = [
+                    span
+                    for span in spans
+                    if span.kind == "storage"
+                    or (span.kind == "function" and (span.static or span.name in selected_names))
+                ]
+                extents = [span_extent(raw, span, spans) for span in selected]
+                preambles.append(shared_preamble(raw, spans, extents))
+                for span, (start, end) in zip(selected, extents, strict=True):
+                    body = raw[start:end].decode("utf-8", errors="surrogateescape")
+                    bound = next(
+                        (
+                            v
+                            for v in cluster
+                            if v in self._annotations and self._annotations[v].name == span.name
+                        ),
+                        va,
+                    )
+                    blocks.append((bound, body.strip("\n")))
+        if not blocks:
+            return None
+        wanted = set(cluster)
+        picked = sorted({(va, block) for va, block in blocks if va in wanted})
+        if not picked:
+            return None
+        return merge_preambles(preambles) + "\n\n".join(b for _, b in picked) + "\n"
+
+    def _real_source_dir(self, va: int) -> Path:
+        """Directory holding *va*'s real source file (override resolution root)."""
+        ann = self._annotations.get(va)
+        rel = str(getattr(ann, "filepath", "") or "")
+        # The stored path is metadata-supplied and the walk-up that follows
+        # reads a rebrew-libraries.toml at every level, so it must not start
+        # outside the source roots: an escaping value would pick up a
+        # libraries file the tree author does not own and hand its flags to
+        # the compiler.  Unresolvable falls back to the display base.
+        resolved = contained_path(source_roots(self._cfg), rel) if rel else None
+        if resolved is None:
+            resolved = Path(self._cfg.reversed_dir)
+        return resolved.parent
+
+    def _cluster_overrides(self, cluster: list[int]) -> tuple[str | None, str]:
+        """Effective (toolchain, cflags) for one merged TU.
+
+        Resolved per member against its real source path, then merged: one
+        TU compiles with one toolchain, so a split vote keeps the first
+        member's toolchain and its cflags (both reported per member in the
+        audit path by the caller).
+        """
+        toolchains: list[str | None] = []
+        cflags_list: list[str] = []
+        for va in cluster:
+            ann = self._annotations.get(va)
+            if ann is None:
+                continue
+            toolchain, cflags = resolve_compile_overrides(
+                self._cfg,
+                self._real_source_dir(va),
+                getattr(ann, "toolchain", ""),
+                getattr(ann, "cflags", ""),
+                getattr(ann, "module", ""),
+            )
+            toolchains.append(toolchain)
+            cflags_list.append(cflags)
+        toolchain = next((t for t in toolchains if t), None)
+        cflags = cflags_list[0] if cflags_list else ""
+        return toolchain, cflags
+
+    def _score_cluster(self, cluster: list[int], workdir: Path) -> tuple[int, int]:
+        """Score one cluster as ``(matched_bytes, compiler_invocations)``."""
+        from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
+        from rebrew.compiler.compile import compile_to_obj
+        from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+        from rebrew.utils import safe_shlex_split
+
+        text = self._cluster_text(cluster)
+        if text is None:
+            return 0, 0
+        tu_path = workdir / f"tu_{cluster[0]:08x}.c"
+        tu_path.write_text(text, encoding="utf-8", errors="surrogateescape")
+        members = [
+            va for va in cluster if (ann := self._annotations.get(va)) is not None and ann.size > 0
+        ]
+        if not members:
+            return 0, 0
+        toolchain, cflags = self._cluster_overrides(cluster)
+        obj_path, _err = compile_to_obj(
+            self._cfg,
+            tu_path,
+            safe_shlex_split(cflags),
+            workdir,
+            toolchain=toolchain,
+        )
+        if obj_path is None:
+            return 0, 1
+        iat_region = build_iat_region(self._cfg)
+        total = 0
+        for va in members:
+            ann = self._annotations[va]
+            symbol = _member_symbol(ann)
+            if not symbol:
+                continue
+            target_bytes = extract_raw_bytes(self._cfg.target_binary, va, ann.size)
+            if not target_bytes:
+                continue
+            obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
+            if obj_bytes is None:
+                continue
+            coff_relocs = full_relocs if full_relocs else reloc_dict
+            size_mismatch = len(obj_bytes) != len(target_bytes)
+            if size_mismatch:
+                if len(obj_bytes) > len(target_bytes):
+                    obj_bytes = obj_bytes[: len(target_bytes)]
+                else:
+                    target_bytes = target_bytes[: len(obj_bytes)]
+            # Both sides are truncated to equal length above, so match_count
+            # is already a byte count over len(target_bytes).
+            matched, match_count, _total, _relocs, _inv = smart_reloc_compare(
+                obj_bytes,
+                target_bytes,
+                coff_relocs,
+                name_to_va=self._name_to_va,
+                section_va=va,
+                iat_region=iat_region,
+            )
+            total += match_count if size_mismatch or not matched else len(target_bytes)
+        return total, 1
+
+    def __call__(self, partition: list[list[int]]) -> tuple[int, int]:
+        with tempfile.TemporaryDirectory(prefix="merge_sweep_") as tmp:
+            workdir = Path(tmp)
+            matched = 0
+            invokes = 0
+            for cluster in partition:
+                score, n = self._score_cluster(cluster, workdir)
+                matched += score
+                invokes += n
+            return matched, invokes
+
+
+def _load_annotations(cfg: ProjectConfig) -> dict[int, Any]:
+    """VA to annotation over every reversed source for the active target."""
+    from rebrew.metadata.bindings import iter_source_bindings
+
+    target_module_name = target_module(cfg)
+    out: dict[int, Any] = {}
+    for _path, anns in iter_source_bindings(
+        iter_sources(cfg.reversed_dir, cfg),
+        target=target_module_name,
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    ):
+        for ann in anns:
+            if ann.va not in out:
+                out[ann.va] = ann
+    return out
+
+
+def _initial_partition_for_annotated(
+    partition: list[list[int]],
+    annotated: set[int],
+) -> list[list[int]]:
+    """Restrict *partition* to annotated functions, preserving VA order."""
+    return [
+        sorted(va for va in cluster if va in annotated)
+        for cluster in partition
+        if any(va in annotated for va in cluster)
+    ]
+
+
+def _parse_annotations_fallback(cfg: ProjectConfig) -> dict[int, Any]:
+    """VA to annotation via direct per-file parse (no metadata overlay)."""
+    target_module_name = target_module(cfg)
+    out: dict[int, Any] = {}
+    metadata_dir = cfg.metadata_dir
+    project_root = getattr(cfg, "root", None)
+    from rebrew.metadata.functions import load_metadata
+
+    function_entries = load_metadata(metadata_dir, deepcopy=False)
+    for src in iter_sources(cfg.reversed_dir, cfg):
+        try:
+            anns = read_source_bindings(
+                src,
+                target_name=target_module_name,
+                metadata_dir=metadata_dir,
+                project_root=project_root,
+                function_entries=function_entries,
+            )
+        except (OSError, ValueError) as exc:
+            # Every annotation in this file is then absent from the fallback
+            # map, so its functions enter no partition and the sweep reports
+            # a clean run over an incomplete set.
+            logging.getLogger(__name__).warning(
+                "merge-sweep: skipping unparseable source %s: %s", src, exc
+            )
+            continue
+        for ann in anns:
+            if ann.va not in out:
+                out[ann.va] = ann
+    return out
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    passes: int = typer.Option(
+        DEFAULT_MAX_PASSES, "--passes", help="Search passes over the partition"
+    ),
+    max_compiles: int | None = typer.Option(
+        None, "--max-compiles", min=1, help="Cap on TU compilations (at least 1)"
+    ),
+    audit: str | None = typer.Option(
+        None,
+        "--audit",
+        help="Write the JSON audit log to FILE",
+        metavar="<path>",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Search cu-map TU partitions for the most matched bytes."""
+    from rebrew.utils import atomic_write_text
+
+    cfg = require_config(target=target, json_mode=json_output)
+    if passes < 1:
+        error_exit("--passes must be at least 1", json_mode=json_output)
+
+    if not cfg.target_binary.exists():
+        error_exit(f"Target binary not found: {cfg.target_binary}", json_mode=json_output)
+    if not cached_function_list(cfg):
+        error_exit("No function inventory — run `rebrew intake` first", json_mode=json_output)
+    info = load_binary(cfg.target_binary)
+
+    funcs = cached_function_list(cfg)
+    ghidra_path = inventory_path_for(cfg.reversed_dir, cfg)
+    registry = build_function_registry(
+        funcs, cfg, ghidra_path=ghidra_path, bin_path=cfg.target_binary
+    )
+    if not registry:
+        error_exit("No functions in registry", json_mode=json_output)
+
+    annotations = _load_annotations(cfg)
+    if not annotations:
+        annotations = _parse_annotations_fallback(cfg)
+    if not annotations:
+        error_exit("No annotated functions found", json_mode=json_output)
+
+    full_initial = _initial_partition(registry, info, cfg)
+    annotated = set(annotations)
+    initial = _initial_partition_for_annotated(full_initial, annotated)
+    if not initial:
+        initial = [sorted(annotated)]
+
+    vas = sorted(annotated)
+    call_map = _function_call_map(registry, info, cfg)
+    func_strings = _function_strings(info)
+    gaps = _gap_classes(vas, registry, info, cfg)
+
+    if dry_run:
+        candidates = _merge_candidates(initial, call_map, func_strings)
+        splits = _split_candidates(initial, gaps)
+        payload: dict[str, Any] = {
+            "dry_run": True,
+            "clusters": len(initial),
+            "initial_partition": [[f"0x{va:08X}" for va in cluster] for cluster in initial],
+            "merge_candidates": [
+                {
+                    "left": [f"0x{va:08X}" for va in initial[left]],
+                    "right": [f"0x{va:08X}" for va in initial[right]],
+                    "reason": reason,
+                }
+                for left, right, reason in candidates
+            ],
+            "split_candidates": [
+                {
+                    "cluster": [f"0x{va:08X}" for va in initial[cluster]],
+                    "at": f"0x{initial[cluster][at]:08X}",
+                }
+                for cluster, at in splits
+            ],
+        }
+        if json_output:
+            json_print(payload)
+            return
+        console.print(
+            f"[bold]merge-sweep dry run[/bold]: {len(initial)} initial cluster(s), "
+            f"{len(candidates)} merge candidate(s), {len(splits)} split candidate(s)"
+        )
+        for left, right, reason in candidates:
+            console.print(
+                f"  merge {[f'0x{v:08X}' for v in initial[left]]} + "
+                f"{[f'0x{v:08X}' for v in initial[right]]} ({reason})"
+            )
+        for cluster, at in splits:
+            console.print(
+                f"  split {[f'0x{v:08X}' for v in initial[cluster]]} "
+                f"at 0x{initial[cluster][at]:08X}"
+            )
+        return
+
+    default_cap = 2 * max(len(initial), 1)
+    cap = max_compiles if max_compiles is not None else default_cap
+    scorer = _PartitionScorer(cfg, annotations, build_name_to_va(cfg))
+    audit_moves: list[dict[str, Any]] = []
+
+    def on_accept(move: dict[str, Any]) -> None:
+        audit_moves.append(move)
+        left = move.get("left", move.get("cluster", []))
+        console.print(
+            f"  {move['phase']} {move['kind']}: {[f'0x{v:08X}' for v in left]} "
+            f"{move['before']} -> {move['after']} bytes"
+        )
+
+    final, best, moves, compiles = search_partitions(
+        initial,
+        scorer,
+        call_map,
+        func_strings,
+        gaps,
+        max_passes=passes,
+        max_compiles=cap,
+        on_accept=on_accept,
+    )
+
+    audit_log = [
+        {
+            "pass": move["pass"],
+            "phase": move["phase"],
+            "kind": move["kind"],
+            "reason": move.get("reason", ""),
+            "vas": [f"0x{v:08X}" for v in move.get("left", move.get("cluster", []))],
+            "before": move["before"],
+            "after": move["after"],
+            "clusters": move["clusters"],
+        }
+        for move in moves
+    ]
+    if audit is not None:
+        atomic_write_text(Path(audit), json.dumps(audit_log, indent=2) + "\n")
+
+    payload = {
+        "clusters": len(final),
+        "initial_clusters": len(initial),
+        "matched_bytes": best,
+        "compiles": compiles,
+        "moves": len(moves),
+        "audit": audit_log,
+        "partition": [[f"0x{va:08X}" for va in cluster] for cluster in final],
+    }
+    if json_output:
+        json_print(payload)
+        return
+    console.print(
+        f"[bold]merge-sweep[/bold]: {len(initial)} -> {len(final)} cluster(s), "
+        f"{best} matched bytes ({len(moves)} move(s), {compiles} compile(s))"
+    )
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

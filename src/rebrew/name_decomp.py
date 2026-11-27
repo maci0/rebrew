@@ -831,7 +831,7 @@ def main(
 
     applied: list[dict[str, Any]] = []
     if named:
-        from rebrew.sources import iter_library_headers, iter_sources, scan_files
+        from rebrew.source.discovery import iter_library_headers, iter_sources, scan_files
         from rebrew.struct_recover import existing_structs
 
         tree = scan_files(cfg.reversed_dir)

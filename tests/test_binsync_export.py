@@ -331,7 +331,7 @@ class TestBinsyncExportGlobals:
     def test_global_vars_toml_written(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.data_scan import scan_globals
+        from rebrew.data.scan import scan_globals
 
         scans = 0
 
@@ -340,7 +340,7 @@ class TestBinsyncExportGlobals:
             scans += 1
             return scan_globals(*args, **kwargs)
 
-        monkeypatch.setattr("rebrew.data_scan.scan_globals", scan_once)
+        monkeypatch.setattr("rebrew.data.scan.scan_globals", scan_once)
         _make_project(
             tmp_path,
             {

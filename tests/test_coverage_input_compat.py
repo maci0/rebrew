@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.coverage_input_contract import (
+from rebrew.coverage.input_contract import (
     coverage_input_digest,
     rebrew_coverage_paths,
     verify_coverage_readset,

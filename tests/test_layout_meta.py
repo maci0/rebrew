@@ -1,4 +1,4 @@
-"""Tests for rebrew.layout_meta — PE layout extraction.
+"""Tests for rebrew.buildsys.layout_meta — PE layout extraction.
 
 Regression for the tooling-sweep round: ``extract_layout`` used bare
 ``next()`` over the section table, so a PE missing one of
@@ -18,8 +18,8 @@ import pytest
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
+from rebrew.buildsys.layout_meta import extract_layout, write_package
 from rebrew.formats.pe_headers import pe_header
-from rebrew.layout_meta import extract_layout, write_package
 
 _IMAGE_BASE = 0x400000
 _SEC_ALIGN = 0x1000
@@ -125,7 +125,7 @@ class TestExtractLayoutMissingSection:
         from cli_json import cli_payload
         from typer.testing import CliRunner
 
-        from rebrew.gen_layout import app
+        from rebrew.buildsys.gen_layout import app
 
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "game"\n'
@@ -378,7 +378,7 @@ class TestExportTableCaps:
 
 def _assert_layout_shape(meta: object) -> None:
     """Invariants on a successfully decoded LayoutMetadata."""
-    from rebrew.layout_meta import LayoutMetadata
+    from rebrew.buildsys.layout_meta import LayoutMetadata
 
     assert isinstance(meta, LayoutMetadata)
     assert isinstance(meta.header, (bytes, bytearray))
@@ -483,8 +483,8 @@ def _pe_header_dimensions(draw: st.DrawFn) -> bytes:
 
 def _assert_extract_agrees(blob: bytes, meta: object) -> None:
     """A decoded layout matches ``pe_image.parse_pe`` on the shared fields."""
+    from rebrew.buildsys.layout_meta import LayoutMetadata
     from rebrew.formats.pe_image import parse_pe as parse_gen
-    from rebrew.layout_meta import LayoutMetadata
 
     assert isinstance(meta, LayoutMetadata)
     _assert_layout_shape(meta)
@@ -538,7 +538,7 @@ class TestImportSlotBudget:
     def test_limit_covers_all_descriptors(
         self, monkeypatch: pytest.MonkeyPatch, parser: str, invalid_names: bool, slots_per_dll: int
     ) -> None:
-        import rebrew.layout_meta as layout_meta
+        import rebrew.buildsys.layout_meta as layout_meta
         from rebrew.formats import pe_image
 
         raw = bytearray(_make_pe(_SECTIONS))

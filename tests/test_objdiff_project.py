@@ -11,7 +11,7 @@ import pytest
 from source_util import write_source
 from typer.testing import CliRunner
 
-import rebrew.objdiff_project as objdiff_project
+import rebrew.buildsys.objdiff as objdiff_project
 
 runner = CliRunner()
 

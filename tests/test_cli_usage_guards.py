@@ -54,11 +54,11 @@ class TestTestAllRejectsSingleFunctionOptions:
     def test_rejected_before_project_load(
         self, monkeypatch: pytest.MonkeyPatch, argv: list[str], flag: str
     ) -> None:
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
-        monkeypatch.setattr("rebrew.test.require_config", _refuse_project)
+        monkeypatch.setattr("rebrew.verify.test.require_config", _refuse_project)
         monkeypatch.setattr(
-            "rebrew.test.emit_test_batch", lambda *_a, **_k: pytest.fail("batch ran")
+            "rebrew.verify.test.emit_test_batch", lambda *_a, **_k: pytest.fail("batch ran")
         )
         result = CliRunner().invoke(app, argv)
         assert result.exit_code == 2, result.output
@@ -66,9 +66,9 @@ class TestTestAllRejectsSingleFunctionOptions:
         assert result.stdout.strip() == ""
 
     def test_json_error_names_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
-        monkeypatch.setattr("rebrew.test.require_config", _refuse_project)
+        monkeypatch.setattr("rebrew.verify.test.require_config", _refuse_project)
         result = CliRunner().invoke(app, ["--all", "--va", "0x10", "--json"])
         assert result.exit_code == 2, result.output
         error = json.loads(result.stderr.strip().splitlines()[-1])["error"]
@@ -76,7 +76,7 @@ class TestTestAllRejectsSingleFunctionOptions:
         assert result.stdout.strip() == ""
 
     def test_help_says_the_flags_exclude_all(self) -> None:
-        from rebrew.test import main
+        from rebrew.verify.test import main
 
         for name in ("cflags", "toolchain", "size", "va", "symbol", "target_bin"):
             option = inspect.signature(main).parameters[name].default
@@ -84,16 +84,16 @@ class TestTestAllRejectsSingleFunctionOptions:
             assert "Excludes --all." in (option.help or "")
 
     def test_all_alone_still_loads_the_project(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
-        monkeypatch.setattr("rebrew.test.require_config", _refuse_project)
+        monkeypatch.setattr("rebrew.verify.test.require_config", _refuse_project)
         with pytest.raises(_ReachedProject):
             CliRunner().invoke(app, ["--all"], catch_exceptions=False)
 
     def test_all_keeps_batch_filters(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
-        monkeypatch.setattr("rebrew.test.require_config", _refuse_project)
+        monkeypatch.setattr("rebrew.verify.test.require_config", _refuse_project)
         with pytest.raises(_ReachedProject):
             CliRunner().invoke(
                 app,
@@ -107,11 +107,11 @@ class TestBatchFiltersRequireAll:
     def test_rejected_before_project_load(
         self, monkeypatch: pytest.MonkeyPatch, argv: list[str], flag: str
     ) -> None:
-        from rebrew.test import app
+        from rebrew.verify.test import app
 
-        monkeypatch.setattr("rebrew.test.require_config", _refuse_project)
+        monkeypatch.setattr("rebrew.verify.test.require_config", _refuse_project)
         monkeypatch.setattr(
-            "rebrew.test.emit_test_batch", lambda *_a, **_k: pytest.fail("batch ran")
+            "rebrew.verify.test.emit_test_batch", lambda *_a, **_k: pytest.fail("batch ran")
         )
         result = CliRunner().invoke(app, argv)
         assert result.exit_code == 2, result.output
@@ -119,7 +119,7 @@ class TestBatchFiltersRequireAll:
         assert result.stdout.strip() == ""
 
     def test_help_says_the_flags_require_all(self) -> None:
-        from rebrew.test import main
+        from rebrew.verify.test import main
 
         for name in ("batch_dir", "origin", "jobs"):
             option = inspect.signature(main).parameters[name].default

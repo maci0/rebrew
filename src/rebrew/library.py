@@ -96,9 +96,9 @@ def bind_source_cmd(
     from rebrew.metadata.bindings import derive_c_symbol, library_bindings_for_file
     from rebrew.metadata.functions import get_entry, record_function_identity, record_function_rows
     from rebrew.metadata.storage import input_digest
-    from rebrew.rename_ops import c_name_from_symbol
-    from rebrew.source_binding import has_unique_source_definition, supported_decorated_signature
-    from rebrew.sources import iter_library_headers
+    from rebrew.source.binding import has_unique_source_definition, supported_decorated_signature
+    from rebrew.source.discovery import iter_library_headers
+    from rebrew.source.rename_ops import c_name_from_symbol
     from rebrew.utils import is_safe_c_ident, preset_module_key, read_source_text
 
     cfg = require_config(target=target, json_mode=json_output)
@@ -598,7 +598,7 @@ def adopt_cmd(
     from rebrew.metadata.binding_history import change_source_bindings_batch, retired_binding
     from rebrew.metadata.functions import get_entry, record_function_identity
     from rebrew.metadata.storage import input_digest, metadata_store
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
     from rebrew.utils import library_header_name, preset_module_key
 
     cfg = require_config(target=target, json_mode=json_output)

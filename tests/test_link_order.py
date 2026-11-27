@@ -13,7 +13,7 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
-from rebrew.link_order import find_sources_block, normalize_listed, render_block
+from rebrew.buildsys.link_order import find_sources_block, normalize_listed, render_block
 from rebrew.metadata.functions import record_function_identity
 
 _TOML_CFG = """
@@ -66,7 +66,7 @@ def _make_project(tmp_path: Path, files: dict[str, int | None], cmake: str = _CM
 
 
 def _invoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *args: str) -> Any:
-    from rebrew.link_order import app
+    from rebrew.buildsys.link_order import app
 
     monkeypatch.chdir(tmp_path)
     with warnings.catch_warnings():
@@ -128,7 +128,7 @@ class TestLinkOrderCli:
         assert result.exit_code == 0
         assert _stdout(result).splitlines()[:2] == ["src/b.c", "src/a.c"]
 
-        from rebrew.order_sources import app
+        from rebrew.source.order import app
 
         result = CliRunner().invoke(app, ["--json", "src/a.c", "src/b.c"])
         assert result.exit_code == 0

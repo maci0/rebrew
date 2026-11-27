@@ -2,7 +2,7 @@
 
 ``rebrew coverage export`` runs the catalog analysis in-process and writes one
 document per target, ``<output>/coverage-<target>.toml``. The writer itself is
-:func:`rebrew.coverage_toml.write_coverage_toml` and is tested in
+:func:`rebrew.coverage.toml.write_coverage_toml` and is tested in
 ``test_coverage_toml.py``; what this file pins is the COMMAND: which files it
 writes, target selection, JSON reporting, removed options, and malformed inputs.
 
@@ -24,8 +24,8 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew.build_db import app
-from rebrew.coverage_db import KNOWN_CELL_STATES
+from rebrew.coverage.build_db import app
+from rebrew.coverage.db import KNOWN_CELL_STATES
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -328,7 +328,7 @@ def _collect_dispatch(info: Any, cfg: Any, *, strict: bool = False) -> list[dict
     ``rebrew data dispatch`` uses — passing ``{}`` made every ``resolved``
     count 0).
     """
-    from rebrew.data_scan import build_dispatch_known_functions, find_dispatch_tables
+    from rebrew.data.scan import build_dispatch_known_functions, find_dispatch_tables
 
     try:
         sections = _section_dicts(info)

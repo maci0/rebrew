@@ -6,7 +6,7 @@ Adapted from reccmp (isledecomp/reccmp, MIT License)
 x87 instructions with a memory operand that falls in the ``D8``-``DF``
 two-byte opcode space can reference a constant instead of a variable.
 Capstone walks those instructions; a pointer that lands in a read-only
-data region is a constant. Complements :mod:`rebrew.inline_strings`
+data region is a constant. Complements :mod:`rebrew.source.inline_strings`
 (strings, not floats) for data annotation.
 """
 

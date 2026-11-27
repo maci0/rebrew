@@ -7,7 +7,7 @@ lazy from pathlib import Path
 
 import pytest
 
-import rebrew.report as report
+import rebrew.coverage.report as report
 
 
 def _fake_ann(va: int, size: int, name: str, status: str) -> SimpleNamespace:
@@ -53,7 +53,7 @@ class TestDecompDevReport:
             lambda sources, target=None, metadata_dir=None, project_root=None: [(src_file, annos)],
         )
         monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1000)
-        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: None)
+        monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: None)
         # No data sections → data measures stay 0 without erroring.
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.load_binary",
@@ -145,7 +145,7 @@ class TestDecompDevReport:
         class _Cache:
             entries: ClassVar[dict] = {0x2000: _Entry()}
 
-        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
+        monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
         report.generate_decomp_dev_report(_cfg(tmp_path), out)
         doc = json.loads(out.read_text(encoding="utf-8"))
@@ -167,7 +167,7 @@ class TestDecompDevReport:
         class _Cache:
             entries: ClassVar[dict] = {"0x2000": _Entry()}
 
-        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
+        monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
         report.generate_decomp_dev_report(_cfg(tmp_path), out)
         doc = json.loads(out.read_text(encoding="utf-8"))
@@ -189,7 +189,7 @@ class TestDecompDevReport:
         class _Cache:
             entries: ClassVar[dict] = {0x2000: _Entry()}
 
-        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
+        monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
         report.generate_decomp_dev_report(_cfg(tmp_path), out)
         doc = json.loads(out.read_text(encoding="utf-8"))
@@ -215,7 +215,7 @@ class TestDecompDevReport:
         class _Cache:
             entries: ClassVar[dict] = {0x2000: _Entry()}
 
-        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
+        monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
         report.generate_decomp_dev_report(_cfg(tmp_path), out)
         doc = json.loads(out.read_text(encoding="utf-8"))
@@ -241,7 +241,7 @@ class TestDecompDevReport:
         class _Cache:
             entries: ClassVar[dict] = {0x1000: _Entry(), 0x1200: _Entry()}
 
-        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: _Cache())
+        monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: _Cache())
         out = tmp_path / "report.json"
         report.generate_decomp_dev_report(_cfg(tmp_path), out)
         doc = json.loads(out.read_text(encoding="utf-8"))
@@ -281,7 +281,7 @@ class TestDecompDevDataMeasure:
             ],
         )
         monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1000)
-        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache", lambda _p, _c: None)
+        monkeypatch.setattr("rebrew.verify.cache.load_verify_cache", lambda _p, _c: None)
         # report.py imports load_binary inside the function, so patch the source.
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.load_binary",

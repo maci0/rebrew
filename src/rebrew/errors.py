@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Any, override
 if TYPE_CHECKING:
     from rebrew.analysis import CapstoneUnavailable as CapstoneUnavailable
     from rebrew.app.plugin import ComponentError as ComponentError
-    from rebrew.c_rename import IdentifierRenameRefused as IdentifierRenameRefused
+    from rebrew.buildsys.residue import ResidueError as ResidueError
     from rebrew.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
     from rebrew.compiler.compile import CompareResultError as CompareResultError
@@ -68,9 +68,9 @@ if TYPE_CHECKING:
     from rebrew.compiler.toolchain import ToolchainError as ToolchainError
     from rebrew.compiler.toolchain import ToolchainErrorKind as ToolchainErrorKind
     from rebrew.compiler.unshare import UnshareError as UnshareError
-    from rebrew.coverage_input_contract import CoverageInputError as CoverageInputError
-    from rebrew.coverage_project import ProjectCoverageError as ProjectCoverageError
-    from rebrew.coverage_toml import CoverageTomlError as CoverageTomlError
+    from rebrew.coverage.input_contract import CoverageInputError as CoverageInputError
+    from rebrew.coverage.project import ProjectCoverageError as ProjectCoverageError
+    from rebrew.coverage.toml import CoverageTomlError as CoverageTomlError
     from rebrew.decompiler import KunaNoBodyError as KunaNoBodyError
     from rebrew.decompiler import KunaProcessError as KunaProcessError
     from rebrew.decompme import DecompmeError as DecompmeError
@@ -100,9 +100,9 @@ if TYPE_CHECKING:
     from rebrew.pdb_export import PdbExportError as PdbExportError
     from rebrew.project_archive import ProjectArchiveError as ProjectArchiveError
     from rebrew.registry import RegistryError as RegistryError
-    from rebrew.rename_ops import RenameError as RenameError
-    from rebrew.residue import ResidueError as ResidueError
     from rebrew.security_scan import SecurityScanUnavailable as SecurityScanUnavailable
+    from rebrew.source.c_rename import IdentifierRenameRefused as IdentifierRenameRefused
+    from rebrew.source.rename_ops import RenameError as RenameError
     from rebrew.strict_relocation import StrictRelocationError as StrictRelocationError
     from rebrew.struct_recover import NoDecompilationError as NoDecompilationError
     from rebrew.vendor import VendorError as VendorError
@@ -279,7 +279,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ComponentError": ("rebrew.app.plugin", "ComponentError"),
     "CompareResultError": ("rebrew.compiler.compile", "CompareResultError"),
     "CompilerNotOffered": ("rebrew.compiler.toolchain", "CompilerNotOffered"),
-    "CoverageInputError": ("rebrew.coverage_input_contract", "CoverageInputError"),
+    "CoverageInputError": ("rebrew.coverage.input_contract", "CoverageInputError"),
     "OpsError": ("rebrew.ops", "OpsError"),
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
     "Delphi16Error": ("rebrew.compiler.delphi16", "Delphi16Error"),
@@ -287,7 +287,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DosboxError": ("rebrew.compiler.dosbox", "DosboxError"),
     "ExportParseError": ("rebrew.formats.binary_loader", "ExportParseError"),
     "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
-    "IdentifierRenameRefused": ("rebrew.c_rename", "IdentifierRenameRefused"),
+    "IdentifierRenameRefused": ("rebrew.source.c_rename", "IdentifierRenameRefused"),
     "KunaNoBodyError": ("rebrew.decompiler", "KunaNoBodyError"),
     "KunaProcessError": ("rebrew.decompiler", "KunaProcessError"),
     "LibraryOverrideError": ("rebrew.metadata.functions", "LibraryOverrideError"),
@@ -309,8 +309,8 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "ProjectArchiveError": ("rebrew.project_archive", "ProjectArchiveError"),
     "RecompileError": ("rebrew.compiler.recompile_client", "RecompileError"),
     "RegistryError": ("rebrew.registry", "RegistryError"),
-    "RenameError": ("rebrew.rename_ops", "RenameError"),
-    "ResidueError": ("rebrew.residue", "ResidueError"),
+    "RenameError": ("rebrew.source.rename_ops", "RenameError"),
+    "ResidueError": ("rebrew.buildsys.residue", "ResidueError"),
     "SecurityScanUnavailable": ("rebrew.security_scan", "SecurityScanUnavailable"),
     "SignatureFileError": ("rebrew.flirt", "SignatureFileError"),
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
@@ -320,8 +320,8 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "UnshareError": ("rebrew.compiler.unshare", "UnshareError"),
     "UnsupportedBinaryFormat": ("rebrew.formats.binary_loader", "UnsupportedBinaryFormat"),
     "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
-    "CoverageTomlError": ("rebrew.coverage_toml", "CoverageTomlError"),
-    "ProjectCoverageError": ("rebrew.coverage_project", "ProjectCoverageError"),
+    "CoverageTomlError": ("rebrew.coverage.toml", "CoverageTomlError"),
+    "ProjectCoverageError": ("rebrew.coverage.project", "ProjectCoverageError"),
     "VendorError": ("rebrew.vendor", "VendorError"),
     "WiboError": ("rebrew.wibo", "WiboError"),
     "WorkspaceConfigError": ("rebrew.workspace.config", "WorkspaceConfigError"),

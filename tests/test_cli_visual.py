@@ -192,8 +192,8 @@ def test_status_full_text_bar_is_solid(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_data_summary_bar_matches_section(monkeypatch: pytest.MonkeyPatch) -> None:
-    from rebrew.data_render import render_summary
-    from rebrew.data_scan import GlobalEntry, ScanResult
+    from rebrew.data.render import render_summary
+    from rebrew.data.scan import GlobalEntry, ScanResult
 
     buf = StringIO()
     console = Console(
@@ -223,8 +223,8 @@ def test_data_summary_bar_matches_section(monkeypatch: pytest.MonkeyPatch) -> No
 def test_data_summary_full_section_bar_is_solid() -> None:
     from io import StringIO
 
-    from rebrew.data_render import render_summary
-    from rebrew.data_scan import GlobalEntry, ScanResult
+    from rebrew.data.render import render_summary
+    from rebrew.data.scan import GlobalEntry, ScanResult
 
     buf = StringIO()
     console = Console(
@@ -258,8 +258,8 @@ def test_todo_headline_bar(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_verify_summary_bar_and_short_title(monkeypatch: pytest.MonkeyPatch) -> None:
-    import rebrew.verify as verify_mod
-    from rebrew.verify import render_verify_summary
+    import rebrew.verify.cli as verify_mod
+    from rebrew.verify.cli import render_verify_summary
 
     buf = _console(monkeypatch, verify_mod)
     render_verify_summary(
@@ -316,8 +316,8 @@ def test_verify_summary_bar_and_short_title(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_batch_summary_uses_the_shared_bar(monkeypatch: pytest.MonkeyPatch) -> None:
-    import rebrew.test as test_mod
-    from rebrew.test import print_batch_status_rows
+    import rebrew.verify.test as test_mod
+    from rebrew.verify.test import print_batch_status_rows
 
     buf = _console(monkeypatch, test_mod)
     print_batch_status_rows({"EXACT": 1, "RELOC": 1}, 2)

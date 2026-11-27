@@ -1,4 +1,4 @@
-"""Tests for rebrew.cmake_tc — the docker CMake toolchain bridge.
+"""Tests for rebrew.buildsys.cmake_tc — the docker CMake toolchain bridge.
 
 Covers the argv translation (ported from the project's wine wrapper), the
 project-root discovery, the toolchain-file generator, and the docker
@@ -17,8 +17,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebrew import cmake_tc
-from rebrew.cmake_tc import (
+from rebrew.buildsys import cmake_tc
+from rebrew.buildsys.cmake_tc import (
     ToolMode,
     _docker_run,
     _docker_user_args,
@@ -220,7 +220,7 @@ def test_docker_run_builds_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         calls.append(cmd)
         return SimpleNamespace(returncode=returncodes[len(calls) - 1], stdout="", stderr="")
 
-    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fake_run)
+    monkeypatch.setattr("rebrew.buildsys.cmake_tc.run_process_group", fake_run)
 
     spec = TOOLCHAINS["msvc-6.0"]
     rc = _docker_run(spec, "cl", ["/c", "x.c"])
@@ -275,7 +275,7 @@ def test_source_date_epoch_freezes_tool_after_real_wineboot(
         calls.append(cmd)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fake_run)
+    monkeypatch.setattr("rebrew.buildsys.cmake_tc.run_process_group", fake_run)
     spec = TOOLCHAINS["msvc-6.0"]
     assert _docker_run(spec, mode, ["/nologo"]) == 0
     init, tool = calls
@@ -309,7 +309,7 @@ def test_docker_run_timeout_kills_container(
 
     killed: list[str] = []
     monkeypatch.setattr("rebrew.utils.kill_process_group", lambda proc: killed.append("group"))
-    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fake_run)
+    monkeypatch.setattr("rebrew.buildsys.cmake_tc.run_process_group", fake_run)
 
     spec = TOOLCHAINS["msvc-6.0"]
     with pytest.raises(sp.TimeoutExpired):
@@ -338,7 +338,7 @@ def test_wineprefix_init_timeout_kills_container(
             raise sp.TimeoutExpired(cmd, 300)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fake_run)
+    monkeypatch.setattr("rebrew.buildsys.cmake_tc.run_process_group", fake_run)
 
     with pytest.raises(typer.Exit):
         _ensure_wineprefix(Path(os.environ["REBREW_WINEPREFIX"]), TOOLCHAINS["msvc-6.0"])
@@ -365,11 +365,11 @@ def test_docker_run_does_not_kill_before_launch(
         fail()
 
     monkeypatch.setattr("rebrew.utils.kill_process_group", killed.append)
-    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", fail_spawn)
+    monkeypatch.setattr("rebrew.buildsys.cmake_tc.run_process_group", fail_spawn)
     if failure == "response":
-        monkeypatch.setattr("rebrew.cmake_tc._rewrite_response_files", fail)
+        monkeypatch.setattr("rebrew.buildsys.cmake_tc._rewrite_response_files", fail)
     elif failure == "lock":
-        monkeypatch.setattr("rebrew.cmake_tc.file_lock", fail)
+        monkeypatch.setattr("rebrew.buildsys.cmake_tc.file_lock", fail)
     with pytest.raises(PermissionError, match="denied"):
         _docker_run(TOOLCHAINS["msvc-6.0"], "cl", ["/c", "x.c"])
     assert killed == []
@@ -547,7 +547,7 @@ def test_resolve_spec_rejects_dosbox_image() -> None:
     an actionable error instead of a missing-tool_root dead end."""
     import typer
 
-    from rebrew.cmake_tc import _resolve_spec
+    from rebrew.buildsys.cmake_tc import _resolve_spec
     from rebrew.compiler.toolchain import TOOLCHAINS
 
     with pytest.raises(typer.Exit):
@@ -582,8 +582,8 @@ def test_driver_dispatch_and_run(
         calls.append((mode, args))
         return 7
 
-    monkeypatch.setattr("rebrew.cmake_tc._docker_run", fake_docker_run)
-    monkeypatch.setattr("rebrew.cmake_tc.Path.cwd", lambda: proj / "build")
+    monkeypatch.setattr("rebrew.buildsys.cmake_tc._docker_run", fake_docker_run)
+    monkeypatch.setattr("rebrew.buildsys.cmake_tc.Path.cwd", lambda: proj / "build")
     from typer.testing import CliRunner
 
     from rebrew.app.main import app
@@ -612,7 +612,7 @@ def test_generated_profile_pin_precedes_environment_and_allows_file_override(
         assert selected_mode == mode
         return 0
 
-    monkeypatch.setattr("rebrew.cmake_tc._docker_run", fake_docker_run)
+    monkeypatch.setattr("rebrew.buildsys.cmake_tc._docker_run", fake_docker_run)
     from typer.testing import CliRunner
 
     from rebrew.app.main import app
@@ -637,7 +637,9 @@ def test_docker_run_rejects_relative_wineprefix(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("REBREW_WINEPREFIX", "prefix")
     calls: list[list[str]] = []
-    monkeypatch.setattr("rebrew.cmake_tc.run_process_group", lambda cmd, **_: calls.append(cmd))
+    monkeypatch.setattr(
+        "rebrew.buildsys.cmake_tc.run_process_group", lambda cmd, **_: calls.append(cmd)
+    )
 
     with pytest.raises(typer.Exit):
         _docker_run(TOOLCHAINS["msvc-6.0"], "cl", ["/c", "x.c"])
@@ -649,7 +651,7 @@ def test_docker_run_rejects_relative_wineprefix(
 def test_response_paths_are_rewritten_without_changing_original(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from rebrew.cmake_tc import _rewrite_response_files
+    from rebrew.buildsys.cmake_tc import _rewrite_response_files
 
     (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -680,7 +682,7 @@ def test_response_file_bytes_survive_the_rewrite(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A non-UTF-8 path byte is copied through, not decoded with the locale."""
-    from rebrew.cmake_tc import _rewrite_response_files
+    from rebrew.buildsys.cmake_tc import _rewrite_response_files
 
     (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -697,7 +699,7 @@ def test_response_file_outside_the_project_is_refused(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """An @path outside the project is not read or copied into the tree."""
-    from rebrew.cmake_tc import _rewrite_response_files
+    from rebrew.buildsys.cmake_tc import _rewrite_response_files
 
     project = tmp_path / "project"
     project.mkdir()
@@ -715,7 +717,7 @@ def test_response_file_outside_the_project_is_refused(
 
 def test_response_file_symlink_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A symlink response file is refused even when its target is in the project."""
-    from rebrew.cmake_tc import _rewrite_response_files
+    from rebrew.buildsys.cmake_tc import _rewrite_response_files
 
     (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -734,7 +736,7 @@ def test_response_file_over_the_size_cap_is_refused(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """A response file past the cap is refused before it is copied."""
-    from rebrew.cmake_tc import _MAX_RESPONSE_BYTES, _rewrite_response_files
+    from rebrew.buildsys.cmake_tc import _MAX_RESPONSE_BYTES, _rewrite_response_files
 
     (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -753,8 +755,8 @@ def test_driver_uses_configured_unshare(
 ) -> None:
     from typer.testing import CliRunner
 
-    from rebrew import cmake_tc
     from rebrew.app.main import app
+    from rebrew.buildsys import cmake_tc
 
     (tmp_path / "rebrew-project.toml").write_text(
         '[compiler]\nprofile="msvc-6.0-sp5"\nexecution_backend="unshare"\n'
@@ -780,7 +782,7 @@ def test_driver_uses_configured_unshare(
 def test_unshare_bridge_keeps_paths_and_tool(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str, epoch: str | None
 ) -> None:
-    from rebrew import cmake_tc
+    from rebrew.buildsys import cmake_tc
     from rebrew.compiler import toolchain
 
     (tmp_path / "rebrew-project.toml").write_text('[compiler]\nprofile="msvc-6.0-sp5-pp"\n')
@@ -830,8 +832,8 @@ def test_driver_explicit_container_backend(
 ) -> None:
     from typer.testing import CliRunner
 
-    from rebrew import cmake_tc
     from rebrew.app.main import app
+    from rebrew.buildsys import cmake_tc
 
     (tmp_path / "rebrew-project.toml").write_text(
         f'[compiler]\nprofile="msvc-6.0-sp5"\nexecution_backend="{backend}"\n'
@@ -851,8 +853,8 @@ def test_driver_unshare_failure_has_no_fallback(
 ) -> None:
     from typer.testing import CliRunner
 
-    from rebrew import cmake_tc
     from rebrew.app.main import app
+    from rebrew.buildsys import cmake_tc
     from rebrew.compiler.toolchain import ToolchainError
 
     (tmp_path / "rebrew-project.toml").write_text(
@@ -877,8 +879,8 @@ def test_driver_reuses_object_and_exact_diagnostics(
     """An unchanged argv/source compile must survive flags.make invalidation."""
     from typer.testing import CliRunner
 
-    from rebrew import cmake_tc
     from rebrew.app.main import app
+    from rebrew.buildsys import cmake_tc
     from rebrew.compiler import toolchain
 
     (tmp_path / "rebrew-project.toml").write_text(
@@ -933,7 +935,7 @@ def test_driver_reuses_object_and_exact_diagnostics(
 def test_unshare_bridge_uses_the_cache_admitted_image_without_readmission(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from rebrew import cmake_tc
+    from rebrew.buildsys import cmake_tc
     from rebrew.compiler import toolchain
 
     (tmp_path / "rebrew-project.toml").write_text('[compiler]\nprofile="msvc-6.0-sp5-pp"\n')

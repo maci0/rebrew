@@ -12,7 +12,7 @@ from source_util import write_store_fixture
 from typer.testing import CliRunner
 
 from rebrew.app.main import app
-from rebrew.rehome import rehome_functions
+from rebrew.source.rehome import rehome_functions
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -100,7 +100,7 @@ def test_rehome_refuses_a_second_claim_to_one_definition(
     )
     metadata = tmp_path / "rebrew-functions.toml"
     before = metadata.read_bytes()
-    monkeypatch.setattr("rebrew.rehome.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.rehome.require_config", lambda **kwargs: cfg)
     specs = ["0x1000=src/b.c:g"]
     if not existing_owner:
         specs.append("0x2000=src/b.c")
@@ -127,7 +127,7 @@ def test_library_rehome_uses_the_project_root(
     record_function_identity(
         metadata, module="SERVER", va=0x1000, file=old, name="f", symbol="_f", kind="LIBRARY"
     )
-    monkeypatch.setattr("rebrew.rehome.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.rehome.require_config", lambda **kwargs: cfg)
     args = ["--from", old, "--to", new] if whole_file else [f"0x1000={new}"]
     result = CliRunner().invoke(app, ["source", "rehome", *args, "--json"])
     assert result.exit_code == 0, result.output

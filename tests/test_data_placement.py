@@ -7,8 +7,8 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.data_placement import coff_data_symbols, span_data_placements
-from rebrew.data_verify import verify_data_bytes
+from rebrew.data.placement import coff_data_symbols, span_data_placements
+from rebrew.data.verify import verify_data_bytes
 from rebrew.formats.binary_model import BinaryInfo, SectionInfo
 from rebrew.metadata.data import set_data_fields_batch
 
@@ -187,7 +187,7 @@ def test_span_placement_is_a_section_interval_not_an_allocation(
 
 
 def test_map_name_collision_cannot_place_a_private_symbol() -> None:
-    from rebrew.data_verify import link_map_symbols
+    from rebrew.data.verify import link_map_symbols
 
     text = " 0003:00000000 _local 00403000 one.obj\n 0003:00000004 _local 00403004 two.obj\n"
     assert "_local" not in link_map_symbols(text)
@@ -198,7 +198,7 @@ def test_private_symbol_selection_keeps_map_order_and_collisions(
 ) -> None:
     import json
 
-    from rebrew.data_placement import private_data_symbols
+    from rebrew.data.placement import private_data_symbols
 
     obj = tmp_path / "one.obj"
     obj.write_bytes(b"object")
@@ -210,8 +210,8 @@ def test_private_symbol_selection_keeps_map_order_and_collisions(
         SimpleNamespace(object="one.obj", member="", library="", name="a", va=2),
         SimpleNamespace(object="", member="M.OBJ", library="path/CRT.lib", name="b", va=3),
     ]
-    monkeypatch.setattr("rebrew.data_ownership.parse_link_map", lambda _: rows)
-    monkeypatch.setattr("rebrew.data_ownership.cached_data_archives", lambda _: {"crt": "lib"})
+    monkeypatch.setattr("rebrew.data.ownership.parse_link_map", lambda _: rows)
+    monkeypatch.setattr("rebrew.data.ownership.cached_data_archives", lambda _: {"crt": "lib"})
     monkeypatch.setattr("rebrew.formats.archives.parse_archive", lambda _: [("m.obj", b"member")])
     monkeypatch.setattr(
         "rebrew.formats.binary_loader.load_binary", lambda _: SimpleNamespace(format="pe")
@@ -222,7 +222,7 @@ def test_private_symbol_selection_keeps_map_order_and_collisions(
         seen.append((body, anchors))
         return {"private": 10 if body == b"object" else 20}
 
-    monkeypatch.setattr("rebrew.data_placement.coff_data_symbols", recover)
+    monkeypatch.setattr("rebrew.data.placement.coff_data_symbols", recover)
     assert private_data_symbols(SimpleNamespace(), tmp_path / "built", map_path) == {}
     assert seen == [(b"object", {}), (b"member", {"b": 3})]
 
@@ -243,13 +243,13 @@ def test_private_symbols_reject_malformed_compile_commands(
 ) -> None:
     import json
 
-    from rebrew.data_placement import private_data_symbols
+    from rebrew.data.placement import private_data_symbols
 
     map_path = tmp_path / "built.map"
     map_path.write_text("map", encoding="utf-8")
     (tmp_path / "compile_commands.json").write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setattr("rebrew.data_ownership.parse_link_map", lambda _: [])
-    monkeypatch.setattr("rebrew.data_ownership.cached_data_archives", lambda _: {})
+    monkeypatch.setattr("rebrew.data.ownership.parse_link_map", lambda _: [])
+    monkeypatch.setattr("rebrew.data.ownership.cached_data_archives", lambda _: {})
     monkeypatch.setattr(
         "rebrew.formats.binary_loader.load_binary", lambda _: SimpleNamespace(format="pe")
     )

@@ -63,8 +63,8 @@ lazy from rebrew.catalog import load_function_structure
 lazy from rebrew.cfg_ged import ImageReader
 lazy from rebrew.config import ProjectConfig, inventory_path_for, load_config, target_module
 lazy from rebrew.metadata.bindings import read_source_bindings
-lazy from rebrew.rename_ops import c_name_from_symbol
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
+lazy from rebrew.source.rename_ops import c_name_from_symbol
 lazy from rebrew.status_style import DISPLAY_STATUSES
 lazy from rebrew.utils import (
     atomic_write_text,

@@ -209,7 +209,7 @@ def _named(
     A module names a symbol that vanished from it only when nothing public is
     left in the module (``module_emptied``), which is the one note the module
     can stand in for.  While the module keeps exporting, a mention is a
-    sentence about something else, and `rebrew.verify` lost
+    sentence about something else, and `rebrew.verify.cli` lost
     ``DEFAULT_TOOLCHAIN`` unannounced on a `verify-cache` note that happened to
     name the module.
     """
@@ -293,7 +293,7 @@ class TestNoteNaming:
     def test_a_module_still_exporting_does_not_name_one_name_it_lost(self) -> None:
         """Naming the module is only a note for a module that went private.
 
-        `rebrew.verify` still exports the rest of what `verify_hash` owns, so
+        `rebrew.verify.cli` still exports the rest of what `verify_hash` owns, so
         its `DEFAULT_TOOLCHAIN` re-export needed its own entry, and a sentence
         about the verify cache is not one.
         """
@@ -656,7 +656,7 @@ class TestDashboardRoutes:
         assert dashboard_routes("_PATHS = ['/api/targets']\n") is None
 
     def test_the_shipped_table_reads(self) -> None:
-        source = (PKG / "dashboard.py").read_text(encoding="utf-8")
+        source = (PKG / "coverage" / "dashboard.py").read_text(encoding="utf-8")
         routes = dashboard_routes(source)
         assert routes is not None
         # The removal gate above skips whenever nothing was dropped, so the
@@ -671,7 +671,7 @@ class TestDashboardRoutes:
         old = routes_at_ref(_last_tag(), cwd=ROOT)
         if old is None:
             pytest.skip(f"cannot read {_last_tag()} from this checkout")
-        current = dashboard_routes((PKG / "dashboard.py").read_text(encoding="utf-8"))
+        current = dashboard_routes((PKG / "coverage" / "dashboard.py").read_text(encoding="utf-8"))
         if current is None:
             pytest.fail("the route table is no longer spelled as literals")
         removed = sorted(old - current)

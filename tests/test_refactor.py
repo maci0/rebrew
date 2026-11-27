@@ -15,8 +15,8 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner, Result
 
-from rebrew import refactor
-from rebrew.refactor import _analyse_file, _collect_python_files, _make_suggestions
+from rebrew.source import refactor
+from rebrew.source.refactor import _analyse_file, _collect_python_files, _make_suggestions
 
 # --- suggestion heuristics --------------------------------------------------
 

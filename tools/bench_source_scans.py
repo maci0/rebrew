@@ -103,7 +103,7 @@ def workload(case: str, root: Path) -> Callable[[], Any]:
         source = "".join(f"extern int (*callback{i})({params});\n" for i in range(300))
         return lambda: c_parser.find_extern_variables(source)
     if case == "include_scan":
-        from rebrew.source_paths import rebase_includes
+        from rebrew.source.paths import rebase_includes
 
         (root / "local.h").write_text("int provider;\n")
         source = '#include "local.h"\nint table[] = {' + ",".join(map(str, range(5000))) + "};\n"
@@ -115,7 +115,7 @@ def workload(case: str, root: Path) -> Callable[[], Any]:
         source += ",".join(map(str, range(5000))) + "};\n"
         return lambda: sorted(struct_definition_names(source))
     if case == "named_string_reuse":
-        from rebrew.inline_strings import inline_named_strings
+        from rebrew.source.inline_strings import inline_named_strings
 
         owner, other = root / "owner.c", root / "other.c"
         names = [f"s_value_{i}" for i in range(30)]

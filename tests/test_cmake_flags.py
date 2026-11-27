@@ -20,8 +20,8 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import CliRunner
 
+from rebrew.buildsys.cmake_flags import HEADER, _defines, app, collect
 from rebrew.cli import EXIT_ERROR
-from rebrew.cmake_flags import HEADER, _defines, app, collect
 from rebrew.config import ProjectConfig, load_config
 from rebrew.lint_cflags import codegen_cflags_key
 

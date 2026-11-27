@@ -1,4 +1,4 @@
-"""Property-based fuzz tests for ``rebrew.dashboard``'s request-derived input.
+"""Property-based fuzz tests for ``rebrew.coverage.dashboard``'s request-derived input.
 
 The dashboard is the one surface in rebrew that takes input from an
 untrusted socket: a browser (or anything that can reach the bind address)
@@ -40,8 +40,7 @@ import pytest
 from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
-from rebrew.coverage_toml import render_coverage_toml
-from rebrew.dashboard import (
+from rebrew.coverage.dashboard import (
     _APP_JS_VERSION,
     _CACHE_IMMUTABLE,
     _CACHE_REVALIDATE,
@@ -65,6 +64,7 @@ from rebrew.dashboard import (
     _va_query,
     allowed_hosts_for,
 )
+from rebrew.coverage.toml import render_coverage_toml
 from rebrew.workspace import VA_MAX
 
 #: The characters that must never reach a response body: the reordering and

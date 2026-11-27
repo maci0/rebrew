@@ -1,4 +1,4 @@
-"""Tests for incremental verification logic in rebrew.verify."""
+"""Tests for incremental verification logic in rebrew.verify.cli."""
 
 import hashlib
 import json
@@ -18,14 +18,14 @@ from typer.testing import CliRunner
 from rebrew.compiler.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.metadata.bindings import SourceBinding
-from rebrew.verify import app
-from rebrew.verify_cache import (
+from rebrew.verify.cache import (
     binary_id,
     load_verify_cache,
     load_verify_cache_raw,
     save_verify_cache,
 )
-from rebrew.verify_hash import (
+from rebrew.verify.cli import app
+from rebrew.verify.hash import (
     DEFAULT_TOOLCHAIN,
     cflags_equivalent,
     compiler_config_hash,
@@ -79,7 +79,7 @@ _IMAGE_ID = "sha256:" + "a" * 64
 
 @pytest.fixture
 def compiler_image(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("rebrew.verify_hash.current_compiler_image", lambda *_: _IMAGE_ID)
+    monkeypatch.setattr("rebrew.verify.hash.current_compiler_image", lambda *_: _IMAGE_ID)
 
 
 def _measure_for_cache(cfg: ProjectConfig, entry: SourceBinding) -> None:
@@ -141,12 +141,12 @@ def _patch_verify(
             message="EXACT MATCH",
         )
 
-    monkeypatch.setattr("rebrew.verify_hash.current_compiler_image", lambda *_: _IMAGE_ID)
-    monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
-    monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
-    monkeypatch.setattr("rebrew.verify.cached_function_list", fake_cached_function_list)
-    monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
-    monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify_entry)
+    monkeypatch.setattr("rebrew.verify.hash.current_compiler_image", lambda *_: _IMAGE_ID)
+    monkeypatch.setattr("rebrew.verify.cli.require_config", fake_require_config)
+    monkeypatch.setattr("rebrew.verify.cli.scan_reversed_dir", fake_scan_reversed_dir)
+    monkeypatch.setattr("rebrew.verify.cli.cached_function_list", fake_cached_function_list)
+    monkeypatch.setattr("rebrew.verify.cli.build_function_registry", fake_build_registry)
+    monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify_entry)
 
 
 def _func_b_row(cfg: ProjectConfig) -> tuple[list[Any], list[dict[str, Any]]]:
@@ -226,7 +226,7 @@ class TestCompilerConfigHash:
         """The hash must embed a content hash of the comparison/extraction
         modules, not just the (static during development) package version —
         a code fix that changes results must invalidate cached results."""
-        import rebrew.verify_hash as verify_hash
+        import rebrew.verify.hash as verify_hash
 
         cfg = _make_cfg(tmp_path)
         # Deterministic + includes the logic modules (stable across calls).
@@ -381,7 +381,7 @@ class TestSourceHash:
         body per save; without a byte bound the retained total would grow
         with the length of the session.
         """
-        from rebrew import verify_hash
+        from rebrew.verify import hash as verify_hash
 
         verify_hash.clear_source_memo()
         monkey_max = 4096
@@ -402,7 +402,7 @@ class TestSourceHash:
 
     def test_oversized_source_is_still_hashed_and_stays_readable(self, tmp_path: Path) -> None:
         """A body larger than the budget is evicted, not refused or half-held."""
-        from rebrew import verify_hash
+        from rebrew.verify import hash as verify_hash
 
         verify_hash.clear_source_memo()
         original_max = verify_hash._SOURCE_MEMO_MAX_BYTES
@@ -426,7 +426,7 @@ class TestBinaryId:
         mtime+size alone keeps serving verdicts earned against the previous
         image after ``atomic_write_bytes`` or ``cp -p`` + ``mv``.
         """
-        from rebrew.verify_cache import binary_id
+        from rebrew.verify.cache import binary_id
 
         cfg = _make_cfg(tmp_path)
         path = Path(cfg.target_binary)
@@ -445,7 +445,7 @@ class TestBinaryId:
 
     def test_in_place_rewrite_with_restored_mtime_changes_id(self, tmp_path: Path) -> None:
         """A same-size rewrite that restores mtime keeps the inode but not the bytes."""
-        from rebrew.verify_cache import binary_id
+        from rebrew.verify.cache import binary_id
 
         cfg = _make_cfg(tmp_path)
         path = Path(cfg.target_binary)
@@ -595,7 +595,7 @@ class TestCacheIdentityAgreesAcrossReaders:
         assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.toml", cfg) is not None
 
     def test_foreign_compiler_hash_rejected_by_every_reader(self, tmp_path: Path) -> None:
-        from rebrew.residue import _nonmatching_from_cache
+        from rebrew.buildsys.residue import _nonmatching_from_cache
         from rebrew.status import _load_cache_raw
         from rebrew.todo import load_verify_entries
 
@@ -625,42 +625,42 @@ class TestVerifyCacheMatchesCfg:
     patch entries a `verify -t SERVER` wrote."""
 
     def test_matching_identity(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import verify_cache_matches_cfg
+        from rebrew.verify.cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = _write_cache(cfg)
         assert verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_target_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import verify_cache_matches_cfg
+        from rebrew.verify.cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = _write_cache(cfg, target="OTHER")
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_compiler_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import verify_cache_matches_cfg
+        from rebrew.verify.cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = _write_cache(cfg, compiler_hash="deadbeef")
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_binary_id_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import verify_cache_matches_cfg
+        from rebrew.verify.cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = _write_cache(cfg, binary_id="outdated_binary_digest")
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_version_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import verify_cache_matches_cfg
+        from rebrew.verify.cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = _write_cache(cfg, version=99)
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_missing_cache_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import verify_cache_matches_cfg
+        from rebrew.verify.cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = tmp_path / ".rebrew" / "verify_cache.toml"
@@ -706,7 +706,7 @@ class TestPatchVerifyCacheEntries:
 
     @staticmethod
     def _inputs(cfg: ProjectConfig, va: int = 0x1000) -> dict[str, str]:
-        from rebrew.verify_hash import comparison_inputs
+        from rebrew.verify.hash import comparison_inputs
 
         source = cfg.reversed_dir / "func_a.c"
         if not source.exists():
@@ -725,7 +725,7 @@ class TestPatchVerifyCacheEntries:
         return inputs
 
     def _patch(self, cfg: ProjectConfig, patches: list[dict[str, Any]]) -> None:
-        from rebrew.verify_cache import patch_verify_cache_entries
+        from rebrew.verify.cache import patch_verify_cache_entries
 
         for patch in patches:
             if patch["status"] != "PROVEN" and "inputs" not in patch:
@@ -815,7 +815,7 @@ class TestPatchVerifyCacheEntries:
     @pytest.mark.parametrize("payload", [b"\xff\xfe not utf-8", b"[1, 2]"])
     def test_patch_ignores_unreadable_cache(self, tmp_path: Path, payload: bytes) -> None:
         """A non-UTF-8 or non-object cache degrades to "nothing to patch"."""
-        from rebrew.verify_cache import verify_cache_matches_cfg
+        from rebrew.verify.cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="STUB")
@@ -889,7 +889,7 @@ class TestPatchVerifyCacheEntries:
         # a JSON-era `null` mean the same thing to every consumer.
         on_disk = tomllib.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert on_disk["context_hash"] == ""
-        from rebrew.verify_cache import load_verify_cache_raw
+        from rebrew.verify.cache import load_verify_cache_raw
 
         raw = load_verify_cache_raw(cfg)
         assert raw is not None
@@ -1020,7 +1020,7 @@ class TestPatchVerifyCacheEntries:
         self, tmp_path: Path, changed: str
     ) -> None:
         """A verdict measured before an edit must not adopt the edited identity."""
-        from rebrew.verify_hash import comparison_inputs
+        from rebrew.verify.hash import comparison_inputs
 
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src" / "func_a.c"
@@ -1109,7 +1109,7 @@ class TestPatchVerifyCacheEntries:
         """
         from contextlib import contextmanager
 
-        import rebrew.verify_cache as verify_cache_mod
+        import rebrew.verify.cache as verify_cache_mod
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="STUB")
@@ -1149,7 +1149,7 @@ class TestPatchVerifyCacheEntries:
         from contextlib import contextmanager
         from threading import Event, current_thread, main_thread
 
-        import rebrew.verify_cache as cache_mod
+        import rebrew.verify.cache as cache_mod
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="STUB")
@@ -1595,7 +1595,7 @@ class TestIncrementalVerify:
             calls.append(entry.va)
             return compared[entry.va]
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", run_entry)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", run_entry)
         expected = {
             "0x10001000": {
                 "source": "src/func_a.c",
@@ -1660,7 +1660,7 @@ class TestIncrementalVerify:
             remote_compile=record,
         )
         _patch_verify(monkeypatch, cfg, entries)
-        monkeypatch.setattr("rebrew.verify.verify_entry", lambda *_a, **_k: compared)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", lambda *_a, **_k: compared)
         compiles = []
         for _run in ("first", "second"):
             outcome = runner.invoke(app, ["--json", "--no-promote"])
@@ -1772,7 +1772,7 @@ class TestHeadersHash:
 
         from thread_util import join_all
 
-        import rebrew.verify_hash as vh
+        import rebrew.verify.hash as vh
 
         cfg = _make_cfg(tmp_path)
         (cfg.reversed_dir / "a.h").write_text("typedef int A;\n", encoding="utf-8")
@@ -1888,7 +1888,7 @@ class TestHeadersHash:
         Skipping it made the tree hash the same as one that never contained
         the header, so a cached PASS survived an edit the failed read hid.
         """
-        import rebrew.verify_hash as vh
+        import rebrew.verify.hash as vh
 
         cfg = _make_cfg(tmp_path)
         header = cfg.reversed_dir / "types.h"
@@ -1918,7 +1918,7 @@ class TestHeadersHash:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The memo key must not alias a run that could not stat the header."""
-        import rebrew.verify_hash as vh
+        import rebrew.verify.hash as vh
 
         cfg = _make_cfg(tmp_path)
         (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
@@ -1996,7 +1996,7 @@ class TestVerifyCacheDump:
     """The cache rewrite round-trips through ``rtoml`` and ``tomllib``."""
 
     def test_scalar_rows_round_trip(self) -> None:
-        from rebrew.verify_cache import _dump_toml, _dump_verify_cache, toml_document
+        from rebrew.verify.cache import _dump_toml, _dump_verify_cache, toml_document
 
         document = {
             "version": 2,
@@ -2023,7 +2023,7 @@ class TestVerifyCacheDump:
         assert flat["entries"]["0x10000000"]["match_percent"] == 100.0
 
     def test_nested_row_round_trips(self) -> None:
-        from rebrew.verify_cache import _dump_toml, _dump_verify_cache, toml_document
+        from rebrew.verify.cache import _dump_toml, _dump_verify_cache, toml_document
 
         document = {
             "version": 2,
@@ -2037,7 +2037,7 @@ class TestVerifyBaselineDump:
     """The baseline rewrite round-trips through ``rtoml`` and ``tomllib``."""
 
     def test_summary_and_rows_round_trip(self) -> None:
-        from rebrew.verify_cache import _dump_toml, _dump_verify_baseline, toml_document
+        from rebrew.verify.cache import _dump_toml, _dump_verify_baseline, toml_document
 
         document = {
             "schema_version": 2,
@@ -2070,7 +2070,7 @@ class TestVerifyBaselineDump:
         assert flat["size_divergences"] == []
 
     def test_mixed_result_list_round_trips(self) -> None:
-        from rebrew.verify_cache import _dump_toml, _dump_verify_baseline, toml_document
+        from rebrew.verify.cache import _dump_toml, _dump_verify_baseline, toml_document
 
         document = {"results": [{"status": "EXACT"}, "nope"]}
         generic = tomllib.loads(_dump_toml(toml_document(document)))
@@ -2084,7 +2084,7 @@ class TestHitChecksTheResolvedSource:
     def test_hit_does_not_resolve_the_source_twice(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.sources import contained_path
+        from rebrew.source.discovery import contained_path
 
         cfg, _shared, _other = _seed_current_cache(tmp_path)
         hit_resolves = {"n": 0}
@@ -2093,7 +2093,7 @@ class TestHitChecksTheResolvedSource:
             hit_resolves["n"] += 1
             return contained_path(*args, **kwargs)  # type: ignore[arg-type]
 
-        monkeypatch.setattr("rebrew.verify.contained_path", counting)
+        monkeypatch.setattr("rebrew.verify.cli.contained_path", counting)
         count, cached = _prepare_cached(cfg)
         assert count == 2
         assert cached == 2
@@ -2123,7 +2123,7 @@ class TestFreshFingerprintReuse:
         def refuse(*_args: object, **_kwargs: object) -> None:
             raise AssertionError("contained_path")
 
-        monkeypatch.setattr("rebrew.sources.contained_path", refuse)
+        monkeypatch.setattr("rebrew.source.discovery.contained_path", refuse)
         assert fresh_entry_fingerprint(cfg, entry) is first
 
     def test_in_place_rewrite_with_restored_mtime_recomputes(self, tmp_path: Path) -> None:
@@ -2253,7 +2253,7 @@ class TestStaleSaveIsDropped:
     ) -> None:
         import contextlib
 
-        import rebrew.verify_cache as verify_cache
+        import rebrew.verify.cache as verify_cache
 
         cfg = _make_cfg(tmp_path)
         entries, results = _func_b_row(cfg)
@@ -2418,7 +2418,7 @@ class TestCompareLogicHashMembership:
         import rebrew.formats.binary_loader
         import rebrew.matcher.parsers
         import rebrew.metadata.bindings
-        from rebrew.verify_hash import _compare_logic_hash, _package_source_fingerprint
+        from rebrew.verify.hash import _compare_logic_hash, _package_source_fingerprint
 
         names = {
             rebrew.metadata.bindings.source_bindings.__code__.co_filename,
@@ -2442,7 +2442,7 @@ class TestCompareLogicHashMembership:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew
-        from rebrew import verify_hash
+        from rebrew.verify import hash as verify_hash
 
         package = tmp_path / "__init__.py"
         package.write_text("# old\n", encoding="utf-8")
@@ -2484,7 +2484,7 @@ class TestNonUtf8PathText:
         return cfg
 
     def test_headers_hash_accepts_non_utf8_filename(self, tmp_path: Path) -> None:
-        import rebrew.verify_hash as vh
+        import rebrew.verify.hash as vh
 
         cfg = _make_cfg(tmp_path)
         vh._HEADERS_HASH_CACHE.clear()
@@ -2494,7 +2494,7 @@ class TestNonUtf8PathText:
 
     def test_headers_hash_separates_distinct_non_utf8_names(self, tmp_path: Path) -> None:
         """Two different legacy names must not fold into one digest."""
-        import rebrew.verify_hash as vh
+        import rebrew.verify.hash as vh
 
         cfg = _make_cfg(tmp_path)
         vh._HEADERS_HASH_CACHE.clear()
@@ -2646,7 +2646,7 @@ class TestEntryFingerprint:
         assert entry_fingerprint(cfg, entry) is None
 
     def test_fingerprint_pins_toolchain_cflags_size_and_source(self, tmp_path: Path) -> None:
-        from rebrew.verify_hash import DEFAULT_TOOLCHAIN
+        from rebrew.verify.hash import DEFAULT_TOOLCHAIN
 
         cfg = _make_cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text("int a(void) { return 1; }\n", encoding="utf-8")
@@ -2773,7 +2773,7 @@ def _seed_known_binding_cache(
 ) -> tuple[ProjectConfig, list[Any]]:
     """Cache written with ``check_known_bindings`` on, plus per-entry evidence."""
     from rebrew.catalog.loaders import scan_reversed_dir
-    from rebrew.verify_cache import save_verify_cache
+    from rebrew.verify.cache import save_verify_cache
 
     cfg = _make_cfg(tmp_path)
     cfg.check_known_bindings = True
@@ -2817,7 +2817,7 @@ def _seed_known_binding_cache(
 def _seed_current_cache(tmp_path: Path) -> tuple[ProjectConfig, Path, Path]:
     """Write a verify cache with the shipped ``save_verify_cache``."""
     from rebrew.catalog.loaders import scan_reversed_dir
-    from rebrew.verify_cache import save_verify_cache
+    from rebrew.verify.cache import save_verify_cache
 
     cfg = _make_cfg(tmp_path)
     shared, other = _write_hit_sources(cfg)
@@ -2856,7 +2856,7 @@ def _seed_current_cache(tmp_path: Path) -> tuple[ProjectConfig, Path, Path]:
 
 def _prepare_cached(cfg: ProjectConfig, context: Any = None) -> tuple[int, int]:
     """Return ``(annotation count, cached count)`` from the shipped hit check."""
-    from rebrew.verify import prepare_entries
+    from rebrew.verify.cli import prepare_entries
 
     entries, _passed, _failed, _details, _results, cached, *_rest = prepare_entries(
         cfg, False, True, context=context
@@ -2967,7 +2967,7 @@ class TestCurrentWriterCacheIdentity:
     def test_comparison_logic_change_misses(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.verify_hash as verify_hash
+        import rebrew.verify.hash as verify_hash
 
         cfg, _shared, _other = _seed_current_cache(tmp_path)
         assert _prepare_cached(cfg) == (2, 2)
@@ -3065,7 +3065,7 @@ class TestResultRowCopy:
         """
         import copy
 
-        from rebrew.verify_cache import VerifyCache, VerifyCacheEntry
+        from rebrew.verify.cache import VerifyCache, VerifyCacheEntry
 
         def _boom(*_args: object, **_kwargs: object) -> None:
             raise AssertionError("deepcopy")
@@ -3162,7 +3162,7 @@ class TestVerifyCacheLineParse:
         def refuse(*_args: object, **_kwargs: object) -> None:
             raise AssertionError("tomllib")
 
-        monkeypatch.setattr("rebrew.verify_cache.tomllib.loads", refuse)
+        monkeypatch.setattr("rebrew.verify.cache.tomllib.loads", refuse)
         loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
         row = loaded.entries["0x00000010"]
@@ -3186,7 +3186,7 @@ class TestVerifyCacheLineParse:
         def refuse(*_args: object, **_kwargs: object) -> None:
             raise AssertionError("tomllib")
 
-        monkeypatch.setattr("rebrew.verify_cache.tomllib.loads", refuse)
+        monkeypatch.setattr("rebrew.verify.cache.tomllib.loads", refuse)
         loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
         assert loaded.version == 2

@@ -56,8 +56,8 @@ lazy from rebrew.formats.binary_model import BinaryInfo
 lazy from rebrew.formats.import_table import parse_import_table
 lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 lazy from rebrew.metadata.functions import as_metadata_int, get_entry, load_metadata
-lazy from rebrew.rename_ops import c_name_from_symbol
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
+lazy from rebrew.source.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import TerminalTable
 
 logger = logging.getLogger(__name__)

@@ -255,9 +255,9 @@ class TestContextNeverTouchesTheResultCache:
                 context_hash="deadbeef" if k.get("context") is not None else None,
             )
 
-        monkeypatch.setattr("rebrew.test.compile_and_compare", _fake_compile)
+        monkeypatch.setattr("rebrew.verify.test.compile_and_compare", _fake_compile)
         monkeypatch.setattr(
-            "rebrew.test._patch_verify_cache", lambda *a, **k: seen.append("patched")
+            "rebrew.verify.test._patch_verify_cache", lambda *a, **k: seen.append("patched")
         )
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(
@@ -303,13 +303,13 @@ class TestContextHashReporting:
             reloc_offsets=[],
             context_hash="deadbeef",
         )
-        from rebrew.test import build_result_dict_from_compare
+        from rebrew.verify.test import build_result_dict_from_compare
 
         body = build_result_dict_from_compare("f.c", "_f", "0x1000", 1, result, b"\x90")
         assert body["context_hash"] == "deadbeef"
 
     def test_json_carries_null_without_a_context(self) -> None:
-        from rebrew.test import build_result_dict_from_compare
+        from rebrew.verify.test import build_result_dict_from_compare
 
         result = CompareResult(
             matched=True,

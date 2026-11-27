@@ -166,7 +166,7 @@ class TestIntake:
             update_field,
             update_source_status,
         )
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
 
         (tmp_path / "game.exe").write_bytes(b"MZ")
         argv = ["game.exe", "--json"]

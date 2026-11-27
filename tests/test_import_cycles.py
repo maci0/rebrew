@@ -39,7 +39,7 @@ def test_shared_libraries_do_not_import_command_modules() -> None:
 
     code = (
         "import rebrew.decompiler, rebrew.formats.pe_image, rebrew.pseudo_c, sys\n"
-        "bad = [n for n in ('rebrew.cli', 'rebrew.gen_layout', 'rebrew.fixup') if n in sys.modules]\n"
+        "bad = [n for n in ('rebrew.cli', 'rebrew.buildsys.gen_layout', 'rebrew.fixup') if n in sys.modules]\n"
         "raise SystemExit(0 if not bad else ','.join(bad))\n"
     )
     proc = subprocess.run(

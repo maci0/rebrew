@@ -242,7 +242,7 @@ def find_source_binding_by_symbol(
     A decorated symbol (``hook@@12``) also answers ``hook``, and ``__foo``
     answers ``_foo`` rather than ``foo``.
     """
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     want = fold_ident(symbol.strip())
     for binding in bindings:
@@ -1112,7 +1112,7 @@ def iter_source_bindings(
     least one binding.  The shared batch-mode loader over
     :func:`read_source_bindings`.
 
-    :param sources: List of paths returned by :func:`rebrew.sources.iter_sources`.
+    :param sources: List of paths returned by :func:`rebrew.source.discovery.iter_sources`.
     :param target:  Optional module string passed through to
         ``read_source_bindings`` (use :func:`rebrew.config.target_module` to obtain it).
     :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-functions.toml``

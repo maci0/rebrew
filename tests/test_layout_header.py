@@ -10,7 +10,7 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.layout_meta import read_layout_header
+from rebrew.buildsys.layout_meta import read_layout_header
 
 
 def _write_layout(root: Path, target: str = "main") -> Path:

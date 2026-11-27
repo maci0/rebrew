@@ -109,14 +109,14 @@ def _near_matching_result(
 
 class TestVerifyEntryBranches:
     def test_missing_file(self, tmp_path: Path) -> None:
-        from rebrew.verify import verify_entry
+        from rebrew.verify.cli import verify_entry
 
         cfg = _cfg(tmp_path)
         result = verify_entry(_ann(0x1000, filepath="nope.c"), cfg)  # type: ignore[arg-type]
         assert result.status == "MISSING_FILE"
 
     def test_invalid_va(self, tmp_path: Path) -> None:
-        from rebrew.verify import verify_entry
+        from rebrew.verify.cli import verify_entry
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -125,7 +125,7 @@ class TestVerifyEntryBranches:
         assert "INVALID_VA" in (result.message or "")
 
     def test_missing_size(self, tmp_path: Path) -> None:
-        from rebrew.verify import verify_entry
+        from rebrew.verify.cli import verify_entry
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -134,7 +134,7 @@ class TestVerifyEntryBranches:
 
     def test_extract_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -150,7 +150,7 @@ class TestVerifyEntryBranches:
         function list is a stale annotation (binary updated since the marker
         was written) — the error must say so, not blame binary tooling."""
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -171,7 +171,7 @@ class TestVerifyEntryBranches:
         """A VA that IS in the current function list gets the plain tooling
         error — no stale-annotation hint."""
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -193,7 +193,7 @@ class TestVerifyEntryBranches:
         leaving a bare byte diff (the '18 at 0%' reccmp confusion)."""
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text(
@@ -217,7 +217,7 @@ class TestVerifyEntryBranches:
         """A plain (unfenced) source gets no naked-fence note on mismatch."""
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -234,7 +234,7 @@ class TestVerifyEntryBranches:
         """Path-only memo would keep the first probe forever; mtime+size must bust it."""
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         cfile = cfg.reversed_dir / "f.c"
@@ -266,7 +266,7 @@ class TestVerifyEntryBranches:
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
         import rebrew.matcher
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -315,7 +315,7 @@ class TestVerifyEntryBranches:
     def test_success_delegates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
@@ -340,7 +340,7 @@ class TestVerifyEntryBranches:
         data (it was documented but never produced)."""
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
@@ -374,7 +374,7 @@ class TestVerifyEntryBranches:
         stays None (0 diffs trivially)."""
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
@@ -407,7 +407,7 @@ class TestVerifyEntryBranches:
             pytest.skip("optional `resembl` dependency not installed")
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
@@ -431,7 +431,7 @@ class TestVerifyEntryBranches:
             pytest.skip("optional `resembl` dependency not installed")
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
@@ -460,7 +460,7 @@ class TestVerifyEntryBranches:
 
 class TestDiffReports:
     def test_new_removed_unchanged(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {
             "results": [
@@ -482,7 +482,7 @@ class TestDiffReports:
         assert d["improvements"] == []
 
     def test_scoped_diff_omits_out_of_scope_removed(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {
             "results": [
@@ -499,7 +499,7 @@ class TestDiffReports:
         assert d["unchanged_count"] == 1
 
     def test_improvement_and_regression(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {
             "results": [
@@ -522,7 +522,7 @@ class TestDiffReports:
         """SKIP is a parking classification, not a verdict: _STATUS_RANK ranks
         it with the whole neutral band, so parking or unparking one of those
         verdicts must not read as a regression or an improvement."""
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         for verdict in ("STUB", "NEAR_MATCHING", "SIZE_MISMATCH", "PROVEN"):
             for before, after in (
@@ -540,7 +540,7 @@ class TestDiffReports:
     def test_parking_a_matched_status_is_still_a_regression(self) -> None:
         """SKIP is neutral against the unmatched band only; an EXACT function
         parked as SKIP gives up a real match and must still fail the gate."""
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         d = diff_reports(
             {"results": [{"va": "0x1000", "name": "a", "status": "EXACT"}]},
@@ -549,7 +549,7 @@ class TestDiffReports:
         assert len(d["regressions"]) == 1
 
     def test_unknown_status_ranks_as_fail(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {"results": [{"va": "0x1000", "name": "a", "status": "WEIRD"}]}
         current = {"results": [{"va": "0x1000", "name": "a", "status": "EXACT"}]}
@@ -563,8 +563,8 @@ class TestVerifyCli:
     def test_compare_reports_removals_only_for_full_runs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scoped: bool
     ) -> None:
-        from rebrew.verify import app
-        from rebrew.verify_cache import baseline_path, save_baseline
+        from rebrew.verify.cache import baseline_path, save_baseline
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         kept = {"va": "0x00001000", "name": "kept", "status": "EXACT", "passed": True}
@@ -588,8 +588,8 @@ class TestVerifyCli:
     ) -> None:
         from bin_util import append_pe_section, make_pe
 
-        from rebrew import verify
         from rebrew.metadata.data import load_data_metadata, set_data_fields_batch
+        from rebrew.verify import cli as verify
 
         cfg = _cfg(tmp_path)
         image = append_pe_section(make_pe(b"\xc3"), ".data", bytes(4))
@@ -645,9 +645,9 @@ class TestVerifyCli:
     ) -> None:
         from bin_util import make_pe
 
-        from rebrew import verify
         from rebrew.compiler import compile as compiler
         from rebrew.metadata.functions import get_entry
+        from rebrew.verify import cli as verify
 
         cfg = _cfg(tmp_path, compiler_profile="msvc-6.0", compile_timeout=3)
         va = 0x4011FC
@@ -678,10 +678,10 @@ class TestVerifyCli:
     ) -> None:
         from bin_util import make_coff_obj, make_pe
 
-        from rebrew import verify
         from rebrew.compiler import compile as compiler
         from rebrew.compiler import toolchain
-        from rebrew.verify_cache import cache_path_for, load_verify_cache
+        from rebrew.verify import cli as verify
+        from rebrew.verify.cache import cache_path_for, load_verify_cache
 
         code = b"\x31\xc0\x40\xc3"
         cfg = _cfg(tmp_path, compiler_profile="msvc-6.0", compile_timeout=3)
@@ -749,11 +749,11 @@ class TestVerifyCli:
     ) -> None:
         from bin_util import make_coff_obj, make_pe
 
-        from rebrew import verify
         from rebrew.compiler import compile as compiler
         from rebrew.compiler.toolchain import RunResult
         from rebrew.formats import binary_loader
         from rebrew.metadata import functions
+        from rebrew.verify import cli as verify
 
         va = 0x401000
         code = b"\x31\xc0\x40\xc3"
@@ -817,7 +817,7 @@ class TestVerifyCli:
         from bin_util import append_pe_section, make_pe
 
         import rebrew.compiler.toolchain as toolchain
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
         from rebrew.metadata.data import set_data_fields_batch
 
         cfg = _cfg(tmp_path, execution_backend="unshare")
@@ -835,7 +835,7 @@ class TestVerifyCli:
         monkeypatch.setattr(verify_mod, "run_batch", unexpected)
         monkeypatch.setattr(toolchain, "check_experimental_unshare", unexpected)
         monkeypatch.setattr(verify_mod, "save_verify_cache", unexpected)
-        import rebrew.verify_cache as verify_cache
+        import rebrew.verify.cache as verify_cache
 
         monkeypatch.setattr(verify_cache, "save_baseline", unexpected)
         result = CliRunner().invoke(verify_mod.app, ["--data", "--built", str(built), "--json"])
@@ -851,7 +851,7 @@ class TestVerifyCli:
         """Library statics are placed from cached archives only; a missing one must be named."""
         from bin_util import append_pe_section, make_pe
 
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(
             tmp_path, external_libs={"LIBCMT": "LIBCMT.lib", "MSVCRT": ""}, compiler_profile="p"
@@ -872,7 +872,7 @@ class TestVerifyCli:
     ) -> None:
         from bin_util import make_pe
 
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path)
         cfg.target_binary.write_bytes(make_pe(b"\xc3"))
@@ -897,7 +897,7 @@ class TestVerifyCli:
 
         from rebrew.formats.binary_loader import load_binary
         from rebrew.metadata.data import set_data_fields_batch
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         image = append_pe_section(make_pe(b"\xc3"), ".rdata", bytes(4))
@@ -938,7 +938,7 @@ class TestVerifyCli:
 
         from rebrew.formats.binary_loader import load_binary
         from rebrew.metadata.data import set_data_fields_batch
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         image = append_pe_section(make_pe(b"\xc3"), ".data", b"abcdefgh")
@@ -977,7 +977,7 @@ class TestVerifyCli:
 
         from rebrew.formats.binary_loader import load_binary
         from rebrew.metadata.data import set_data_fields_batch
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         image = append_pe_section(make_pe(b"\xc3"), ".data", b"abcdefgh")
@@ -1025,7 +1025,7 @@ class TestVerifyCli:
 
         from rebrew.formats.binary_loader import load_binary
         from rebrew.metadata.data import get_data_entry, set_data_fields_batch
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path, target_modules={"SERVER", "OTHER"})
         cfg.target_binary.write_bytes(append_pe_section(make_pe(b"\xc3"), ".data", b"abcdefgh"))
@@ -1107,9 +1107,9 @@ class TestVerifyCli:
         previous: dict | None = None,
     ) -> None:
 
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda cfg, full, json_output, context=None: (
                 [_ann(0x1000)],
                 passed,
@@ -1124,17 +1124,19 @@ class TestVerifyCli:
                 0,
             ),
         )
-        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
+        monkeypatch.setattr(
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 0, [], [], [])
+        )
 
         def _prev(cfg):
             return (previous, None) if previous is not None else (None, None)
 
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", _prev)
-        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cache.load_baseline", _prev)
+        monkeypatch.setattr("rebrew.verify.cli.save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *a, **k: None)
 
     def test_json_report(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1163,7 +1165,7 @@ class TestVerifyCli:
         stub into COMPILE_ERROR rows.  The skip verifies zero functions, so
         it exits non-zero (EXIT_ERROR) — CI must never green on skipped
         work."""
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         ne = tmp_path / "game.ne"
         data = bytearray(0x140)
@@ -1172,7 +1174,7 @@ class TestVerifyCli:
         data[0x100:0x102] = b"NE"
         ne.write_bytes(bytes(data))
         cfg = _cfg(tmp_path, target_binary=ne)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 2
         data = cli_payload(result)
@@ -1201,7 +1203,7 @@ class TestVerifyCli:
         that the run got far enough to crash: a failure between the gate and
         the compile would otherwise keep the test green.
         """
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         ne = tmp_path / "game.ne"
         data = bytearray(0x140)
@@ -1216,10 +1218,10 @@ class TestVerifyCli:
             encoding="utf-8",
             metadata_fields={"SERVER.0x1000": {"kind": "FUNCTION", "size": 8}},
         )
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         reached: list[int] = []
         monkeypatch.setattr(
-            "rebrew.verify.verify_entry",
+            "rebrew.verify.cli.verify_entry",
             lambda entry, config, *a, **kw: reached.append(entry.va) or _ok_result(),
         )
         result = CliRunner().invoke(app, ["--json"])
@@ -1231,7 +1233,7 @@ class TestVerifyCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """delphi-1.0 is bits=16 but emits a linked NE, not a comparable object."""
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         ne = tmp_path / "game.ne"
         data = bytearray(0x140)
@@ -1240,7 +1242,7 @@ class TestVerifyCli:
         data[0x100:0x102] = b"NE"
         ne.write_bytes(bytes(data))
         cfg = _cfg(tmp_path, target_binary=ne, compiler_profile="delphi-1.0")
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 2
         payload = cli_payload(result)
@@ -1249,7 +1251,7 @@ class TestVerifyCli:
         assert "delphi-1.0" in payload["reason"]
 
     def test_failed_exits_mismatch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1268,15 +1270,15 @@ class TestVerifyCli:
         """--skip-libraries (the reccmp --nolib equivalent) must drop LIBRARY-marked
         functions from the work list, the cached results, and the exit gate —
         gate on game code only."""
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
         lib_ann.kind = "LIBRARY"
         fn_ann = _ann(0x2000)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda cfg, full, json_output, context=None: (
                 [lib_ann, fn_ann],
                 1,  # passed — the cached LIBRARY hit
@@ -1291,13 +1293,15 @@ class TestVerifyCli:
                 0,
             ),
         )
-        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr(
-            "rebrew.verify_cache.load_baseline",
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 0, [], [], [])
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.cache.load_baseline",
             lambda out_file, diff_mode, json_output: (None, None),
         )
-        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--json", "--skip-libraries"])
         assert result.exit_code == 0
@@ -1314,15 +1318,15 @@ class TestVerifyCli:
         """--skip-libraries drops library rows from the run, but `verify_cache.toml` is
         rewritten from `results` alone — without carrying the excluded keys over
         one --skip-libraries run erased the measured truth for every library function."""
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
         lib_ann.kind = "LIBRARY"
         fn_ann = _ann(0x2000)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda cfg, full, json_output, context=None: (
                 [lib_ann, fn_ann],
                 0,
@@ -1337,9 +1341,11 @@ class TestVerifyCli:
                 0,
             ),
         )
-        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr(
-            "rebrew.verify_cache.load_baseline",
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 0, [], [], [])
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.cache.load_baseline",
             lambda out_file, diff_mode, json_output: (None, None),
         )
         captured: dict[str, object] = {}
@@ -1353,8 +1359,8 @@ class TestVerifyCli:
         ) -> None:
             captured["preserve_keys"] = preserve_keys
 
-        monkeypatch.setattr("rebrew.verify.save_verify_cache", _fake_save)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.save_verify_cache", _fake_save)
+        monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--json", "--skip-libraries"])
         assert result.exit_code == 0, result.output
@@ -1365,14 +1371,14 @@ class TestVerifyCli:
     ) -> None:
         """A failing LIBRARY function must not fail the run under --skip-libraries
         (without the flag it would exit EXIT_MISMATCH)."""
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
         lib_ann.kind = "LIBRARY"
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda cfg, full, json_output, context=None: (
                 [lib_ann],
                 0,
@@ -1387,13 +1393,15 @@ class TestVerifyCli:
                 0,
             ),
         )
-        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr(
-            "rebrew.verify_cache.load_baseline",
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 0, [], [], [])
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.cache.load_baseline",
             lambda out_file, diff_mode, json_output: (None, None),
         )
-        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli.save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--json", "--skip-libraries"])
         assert result.exit_code == 0
@@ -1406,7 +1414,7 @@ class TestVerifyCli:
         assert result.exit_code == EXIT_MISMATCH
 
     def test_summary_text(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1434,7 +1442,7 @@ class TestVerifyCli:
     def test_compare_regression_exits_mismatch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1452,7 +1460,7 @@ class TestVerifyCli:
         assert data["report"]["summary"]["passed"] == 1
 
     def test_compare_has_regression(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1469,7 +1477,7 @@ class TestVerifyCli:
     def test_report_written_to_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(monkeypatch, cfg, results=[])
@@ -1484,7 +1492,7 @@ class TestVerifyCli:
     ) -> None:
         """--compare is a CI regression gate: pre-existing failures must not
         fail the run — only new regressions do."""
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1514,7 +1522,7 @@ class TestVerifyCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.cli import EXIT_MISMATCH
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1532,7 +1540,7 @@ class TestVerifyCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.cli import EXIT_MISMATCH
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1554,7 +1562,7 @@ class TestVerifyCli:
     def test_new_exact_entry_still_passes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         self._patch_flow(
@@ -1580,7 +1588,7 @@ class TestVerifyCli:
 class TestApplyStatusUpdates:
     def test_updates_metadata(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import get_entry
-        from rebrew.verify import apply_status_updates
+        from rebrew.verify.cli import apply_status_updates
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -1598,7 +1606,7 @@ class TestApplyStatusUpdates:
     ) -> None:
         """A tooling failure is reported once and does not replace EXACT."""
         from rebrew.metadata.functions import get_entry
-        from rebrew.verify import apply_status_updates
+        from rebrew.verify.cli import apply_status_updates
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -1620,7 +1628,7 @@ class TestApplyStatusUpdates:
         inline asm: there the blocker documents the asm, and lint W020 requires
         it on a matched function. Clearing it made every verify re-raise W020."""
         from rebrew.metadata.functions import get_entry, update_field
-        from rebrew.verify import apply_status_updates
+        from rebrew.verify.cli import apply_status_updates
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -1645,7 +1653,7 @@ class TestApplyStatusUpdates:
 
     def test_proven_demoted_to_byte_result(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import get_entry, update_source_status
-        from rebrew.verify import apply_status_updates
+        from rebrew.verify.cli import apply_status_updates
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -1668,7 +1676,7 @@ class TestApplyStatusUpdates:
         must not crash the verify run and lose the report.  The batched
         write is attempted once; a failure is logged and the run continues.
         """
-        from rebrew.verify import apply_status_updates
+        from rebrew.verify.cli import apply_status_updates
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
@@ -1692,7 +1700,7 @@ class TestApplyStatusUpdates:
     ) -> None:
         """A read error must not clear BLOCKER: the source may still hold asm."""
         from rebrew.metadata.functions import get_entry, update_field
-        from rebrew.verify import apply_status_updates
+        from rebrew.verify.cli import apply_status_updates
 
         cfg = _cfg(tmp_path)
         src = cfg.reversed_dir / "a.c"
@@ -1731,7 +1739,7 @@ class TestLoadBaseline:
         return cfg
 
     def test_missing_baseline_warning(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import load_baseline
+        from rebrew.verify.cache import load_baseline
 
         prev, warning = load_baseline(_cfg(tmp_path))
         assert prev is None
@@ -1739,7 +1747,7 @@ class TestLoadBaseline:
 
     def test_valid_baseline_loaded(self, tmp_path: Path) -> None:
 
-        from rebrew.verify_cache import load_baseline, save_baseline
+        from rebrew.verify.cache import load_baseline, save_baseline
 
         cfg = _cfg(tmp_path)
         save_baseline(cfg, {"target": "SERVER", "summary": {"total": 5}, "results": []})
@@ -1748,7 +1756,7 @@ class TestLoadBaseline:
         assert warning is None
 
     def test_wrong_target_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import baseline_path, load_baseline, toml_document
+        from rebrew.verify.cache import baseline_path, load_baseline, toml_document
 
         cfg = _cfg(tmp_path)
         path = baseline_path(cfg)
@@ -1767,7 +1775,7 @@ class TestLoadBaseline:
         reader fails on content is a parse error; the caller must see it and
         keep going rather than treat it as "no regression".
         """
-        from rebrew.verify_cache import baseline_path, load_baseline
+        from rebrew.verify.cache import baseline_path, load_baseline
 
         cfg = _cfg(tmp_path)
         path = baseline_path(cfg)
@@ -1781,7 +1789,7 @@ class TestLoadBaseline:
     def test_results_that_are_not_an_array_warn(self, tmp_path: Path, results: str) -> None:
         """``diff_reports`` iterates ``results``; a hand-edited non-array would
         raise TypeError after the whole verify run instead of this warning."""
-        from rebrew.verify_cache import (
+        from rebrew.verify.cache import (
             baseline_path,
             binary_id,
             compiler_config_hash,
@@ -1803,7 +1811,7 @@ class TestLoadBaseline:
 
 class TestSaveVerifyCacheBranches:
     def test_entries_without_filepath_skipped(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import save_verify_cache
+        from rebrew.verify.cache import save_verify_cache
 
         cfg = _cfg(tmp_path)
         results = [
@@ -1824,7 +1832,7 @@ class TestSaveVerifyCacheBranches:
         assert data["entries"] == {}
 
     def test_result_without_file_info_skipped(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import save_verify_cache
+        from rebrew.verify.cache import save_verify_cache
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -1844,7 +1852,7 @@ class TestSaveVerifyCacheBranches:
         assert data["entries"] == {}
 
     def test_roundtrip_cache_entry(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import save_verify_cache
+        from rebrew.verify.cache import save_verify_cache
 
         cfg = _cfg(tmp_path)
         f = cfg.reversed_dir / "f.c"
@@ -1884,8 +1892,8 @@ class TestPrintResults:
 
         from rich.console import Console
 
-        import rebrew.verify as verify_mod
-        from rebrew.verify import _print_results
+        import rebrew.verify.cli as verify_mod
+        from rebrew.verify.cli import _print_results
 
         buf = StringIO()
         monkeypatch.setattr(
@@ -1993,11 +2001,11 @@ class TestPrintResults:
 
 class TestVerifyWatch:
     def test_watch_dispatches_retest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         monkeypatch.setattr("rebrew.cli.stdin_is_tty", lambda: True)
         cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         calls = {"n": 0}
 
         def _watch(sources, retest, **kwargs):
@@ -2005,16 +2013,18 @@ class TestVerifyWatch:
             retest()  # invoke once to prove the nested main() path works
 
         monkeypatch.setattr("rebrew.utils.watch_files", _watch)
-        monkeypatch.setattr("rebrew.sources.iter_sources", lambda d, cfg=None: [])
+        monkeypatch.setattr("rebrew.source.discovery.iter_sources", lambda d, cfg=None: [])
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *a, **k: ([], 0, 0, [], [], 0, [], [], [], {}, 0),
         )
-        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        monkeypatch.setattr(
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 0, [], [], [])
+        )
+        monkeypatch.setattr("rebrew.verify.cache.load_baseline", lambda _cfg: (None, None))
+        monkeypatch.setattr("rebrew.verify.cli.save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._print_results", lambda *a, **k: None)
         result = CliRunner().invoke(app, ["--watch"])
         assert result.exit_code == 0
         assert calls["n"] == 1
@@ -2053,16 +2063,16 @@ class TestRemoteServiceFailureIsNoVerdict:
         from rebrew.compiler.compile import classify_compare_result
         from rebrew.compiler.recompile_client import RecompileError
         from rebrew.metadata.functions import get_entry, save_metadata
-        from rebrew.verify import app
-        from rebrew.verify_cache import load_verify_cache
+        from rebrew.verify.cache import load_verify_cache
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
         save_metadata(tmp_path, {("SERVER", 0x1000): {"status": stored, "size": 64}})
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         entry = _ann(0x1000, status=stored)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *a, **k: ([entry], 0, 0, [], [], 0, [], [], [], {}, 0),
         )
         error = RecompileError("recompile service could not compile", **refusal)
@@ -2078,11 +2088,11 @@ class TestRemoteServiceFailureIsNoVerdict:
                 error=error,
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _verify)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _verify)
         monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cache.load_baseline", lambda _cfg: (None, None))
+        monkeypatch.setattr("rebrew.verify.cli._print_results", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--json"])
 
@@ -2101,8 +2111,8 @@ class TestRemoteServiceFailureIsNoVerdict:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``rebrew test --all`` patches cached verdicts from its rows."""
-        import rebrew.verify_cache as vc_mod
-        from rebrew.verify import patch_cache_from_results
+        import rebrew.verify.cache as vc_mod
+        from rebrew.verify.cli import patch_cache_from_results
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         (tmp_path / ".rebrew").mkdir()
@@ -2131,7 +2141,7 @@ class TestProvenIsNotAPass:
         flags: list[str],
     ) -> tuple[Any, SimpleNamespace]:
         from rebrew.metadata.functions import save_metadata
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
@@ -2139,10 +2149,10 @@ class TestProvenIsNotAPass:
             tmp_path,
             {("SERVER", 0x1000): {"status": "PROVEN", "size": 64, "blocker": "reg alloc"}},
         )
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         proven_entry = _ann(0x1000, status="PROVEN", blocker="reg alloc")
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
         )
         passed = byte_status in ("EXACT", "RELOC")
@@ -2150,11 +2160,11 @@ class TestProvenIsNotAPass:
         fail_details = [] if passed else [(proven_entry, "9B diff")]
         deferred = [(proven_entry, byte_status, 0 if passed else 9)]
         monkeypatch.setattr(
-            "rebrew.verify.run_verification",
+            "rebrew.verify.cli.run_verification",
             lambda *a, **k: (int(passed), int(not passed), fail_details, results, deferred),
         )
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cache.load_baseline", lambda _cfg: (None, None))
+        monkeypatch.setattr("rebrew.verify.cli._print_results", lambda *a, **k: None)
         return CliRunner().invoke(app, flags), cfg
 
     @pytest.mark.parametrize("byte_status", ["NEAR_MATCHING", "STUB"])
@@ -2162,7 +2172,7 @@ class TestProvenIsNotAPass:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, byte_status: str
     ) -> None:
         from rebrew.metadata.functions import get_entry
-        from rebrew.verify_cache import load_verify_cache
+        from rebrew.verify.cache import load_verify_cache
 
         result, cfg = self._run(tmp_path, monkeypatch, byte_status, ["--json"])
         assert result.exit_code == 1
@@ -2231,12 +2241,12 @@ class TestRunVerification:
                 message=r.get("message", ""),
             )
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _verify)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _verify)
         monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
 
     def test_all_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import run_verification
+        from rebrew.verify.cli import run_verification
 
         self._patch(monkeypatch, {})
         entries = [_ann(0x1000), _ann(0x2000)]
@@ -2259,21 +2269,21 @@ class TestRunVerification:
         compile; cached verdicts count as done from the start.
         """
         from rebrew.call_progress import PROGRESS_FD_ENV, ProgressPipe
-        from rebrew.verify import run_verification
+        from rebrew.verify.cli import run_verification
 
         self._patch(monkeypatch, {})
         pipe = ProgressPipe()
         try:
             monkeypatch.setenv(PROGRESS_FD_ENV, str(pipe.write_fd))
             seen_before_compiles: list[tuple[int, int] | None] = []
-            from rebrew.verify import verify_entry as fake_verify
+            from rebrew.verify.cli import verify_entry as fake_verify
 
             def _first_sees_the_total(e, *a, **k):
                 if not seen_before_compiles:
                     seen_before_compiles.append(pipe.poll())
                 return fake_verify(e, *a, **k)
 
-            monkeypatch.setattr("rebrew.verify.verify_entry", _first_sees_the_total)
+            monkeypatch.setattr("rebrew.verify.cli.verify_entry", _first_sees_the_total)
             run_verification(
                 [_ann(0x1000 + i) for i in range(3)],
                 _cfg(tmp_path),
@@ -2291,7 +2301,7 @@ class TestRunVerification:
         """The bounded submit-as-you-go loop must process EVERY entry, not
         just the first pool's worth — a regression test for the refill
         indentation bug that silently dropped all but the last batch."""
-        from rebrew.verify import run_verification
+        from rebrew.verify.cli import run_verification
 
         self._patch(monkeypatch, {})
         entries = [_ann(0x1000 + i) for i in range(7)]
@@ -2314,7 +2324,7 @@ class TestRunVerification:
         the files those workers are still compiling against.
         """
         from rebrew.compiler import compile as compile_mod
-        from rebrew.verify import run_verification
+        from rebrew.verify.cli import run_verification
 
         batch_dir = tmp_path / "batch-objs"
         batch_dir.mkdir()
@@ -2325,7 +2335,7 @@ class TestRunVerification:
             yield SimpleNamespace()
             raise KeyboardInterrupt
 
-        monkeypatch.setattr("rebrew.verify.interruptible_pool", _interrupted_pool)
+        monkeypatch.setattr("rebrew.verify.cli.interruptible_pool", _interrupted_pool)
         with pytest.raises(KeyboardInterrupt):
             run_verification(
                 [],
@@ -2348,7 +2358,7 @@ class TestRunVerification:
         it creates missing metadata entries in that order, so two runs over
         the same corpus write rebrew-functions.toml differently.
         """
-        from rebrew.verify import run_verification
+        from rebrew.verify.cli import run_verification
 
         self._patch(
             monkeypatch,
@@ -2358,7 +2368,7 @@ class TestRunVerification:
                 0x3000: {"matched": False, "status": "STUB", "delta": 5, "message": "c"},
             },
         )
-        from rebrew.verify import verify_entry as real_verify
+        from rebrew.verify.cli import verify_entry as real_verify
 
         # Completion order is forced to be the reverse of entry order: entry i
         # blocks until entry i+1 has finished.  A sleep-based gap only proves
@@ -2375,7 +2385,7 @@ class TestRunVerification:
             finished[i].set()
             return real_verify(e, *a, **k)
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _slow_verify)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _slow_verify)
         passed, failed, fail_details, results, deferred = run_verification(
             [_ann(0x1000), _ann(0x2000), _ann(0x3000)],
             _cfg(tmp_path),
@@ -2390,7 +2400,7 @@ class TestRunVerification:
         assert [int(r["va"], 16) for r in results] == [0x1000, 0x2000, 0x3000]
 
     def test_failures_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import run_verification
+        from rebrew.verify.cli import run_verification
 
         self._patch(
             monkeypatch,
@@ -2422,7 +2432,7 @@ class TestRunVerification:
         counted in fail_details (plain verify exits 1; --compare reports it as
         a regression).  It is still not deferred for a STATUS write (the
         function's real status must survive)."""
-        from rebrew.verify import run_verification
+        from rebrew.verify.cli import run_verification
 
         calls: list[SourceBinding] = []
 
@@ -2430,7 +2440,7 @@ class TestRunVerification:
             calls.append(e)
             raise RuntimeError("crash")
 
-        monkeypatch.setattr("rebrew.verify.verify_entry", _boom)
+        monkeypatch.setattr("rebrew.verify.cli.verify_entry", _boom)
         monkeypatch.setattr("rebrew.compiler.cache.get_compile_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
         passed, failed, fail_details, results, deferred = run_verification(
@@ -2451,7 +2461,7 @@ class TestRunVerification:
         classification must survive a verify run (SIZE_MISMATCH would orphan
         its blocker and empty the stub work queue)."""
         from rebrew.metadata.functions import get_entry, update_source_status
-        from rebrew.verify import apply_status_updates
+        from rebrew.verify.cli import apply_status_updates
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -2468,7 +2478,7 @@ class TestRunVerification:
     def test_non_stub_promoted_to_size_mismatch(self, tmp_path: Path) -> None:
         """EXACT/NEAR_MATCHING regressing to SIZE_MISMATCH is real signal."""
         from rebrew.metadata.functions import get_entry, update_source_status
-        from rebrew.verify import apply_status_updates
+        from rebrew.verify.cli import apply_status_updates
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -2487,7 +2497,7 @@ class TestDiffReportsVaNormalization:
     """VA format drift (0x1000 vs 0x00001000) must not break diffing."""
 
     def test_format_drift_detects_change(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {"results": [{"va": "0x1000", "name": "a", "status": "EXACT", "delta": 0}]}
         current = {"results": [{"va": "0x00001000", "name": "a", "status": "STUB", "delta": 5}]}
@@ -2506,7 +2516,7 @@ class TestDiffReportsVaNormalization:
         assert diff["removed"] == []
 
     def test_format_drift_unchanged(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {"results": [{"va": "0x1000", "name": "a", "status": "EXACT"}]}
         current = {"results": [{"va": "0x00001000", "name": "a", "status": "EXACT"}]}
@@ -2516,7 +2526,7 @@ class TestDiffReportsVaNormalization:
         assert diff["new"] == []
 
     def test_int_va_matches_hex(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {"results": [{"va": 0x1000, "name": "a", "status": "EXACT"}]}
         current = {"results": [{"va": "0x00001000", "name": "a", "status": "EXACT"}]}
@@ -2529,7 +2539,7 @@ class TestStatusOrderDiffing:
     regressions/improvements the gate must see."""
 
     def test_same_rank_status_change_is_regression(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {"results": [{"va": "0x1000", "name": "a", "status": "NEAR_MATCHING"}]}
         current = {"results": [{"va": "0x1000", "name": "a", "status": "STUB"}]}
@@ -2539,7 +2549,7 @@ class TestStatusOrderDiffing:
         assert diff["unchanged_count"] == 0
 
     def test_same_rank_improvement(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {"results": [{"va": "0x1000", "name": "a", "status": "STUB"}]}
         current = {"results": [{"va": "0x1000", "name": "a", "status": "NEAR_MATCHING"}]}
@@ -2547,7 +2557,7 @@ class TestStatusOrderDiffing:
         assert diff["improvements"][0]["current_status"] == "NEAR_MATCHING"
 
     def test_match_percent_drop_is_regression(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {
             "results": [
@@ -2565,7 +2575,7 @@ class TestStatusOrderDiffing:
 
     def test_match_percent_display_floors(self) -> None:
         """A displayed 99.96% must not round up to 100.0."""
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {
             "results": [
@@ -2583,7 +2593,7 @@ class TestStatusOrderDiffing:
         assert row["current_match_percent"] == 40.0
 
     def test_small_match_percent_change_not_regression(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {
             "results": [
@@ -2600,7 +2610,7 @@ class TestStatusOrderDiffing:
 
     def test_nan_match_percent_not_regression(self) -> None:
         """NaN comparisons are always false — must not invent a regression."""
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {
             "results": [
@@ -2622,7 +2632,7 @@ class TestStatusOrderDiffing:
         assert diff["unchanged_count"] == 1
 
     def test_mixed_int_str_va_keys_no_crash(self) -> None:
-        from rebrew.verify import diff_reports
+        from rebrew.verify.cli import diff_reports
 
         previous = {"results": [{"va": "0x1000", "name": "a", "status": "EXACT"}]}
         current = {
@@ -2646,8 +2656,8 @@ class TestCompareBaseline:
         regressed run that advances it would let the gate self-heal on the
         next invocation (the regression becomes "pre-existing").
         """
-        from rebrew.verify import app
-        from rebrew.verify_cache import save_baseline
+        from rebrew.verify.cache import save_baseline
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         baseline = {
@@ -2658,27 +2668,27 @@ class TestCompareBaseline:
         }
         save_baseline(cfg, baseline)
         baseline_path = cfg.root / ".rebrew" / "verify_baseline.toml"
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *a, **k: ([entry], 0, 1, [], [], 0, [], [], [], {}, 0),
         )
         results = [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}]
         monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (0, 1, [], results, [])
         )
         previous = {
             "schema_version": 2,
             "results": [{"va": "0x00001000", "status": "EXACT", "passed": True}],
             "summary": {"total": 1, "passed": 1, "failed": 0},
         }
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (previous, None))
+        monkeypatch.setattr("rebrew.verify.cache.load_baseline", lambda _cfg: (previous, None))
         # NOTE: save_verify_cache is intentionally NOT mocked — a failed
         # gate run must not write the compile cache either, so a CI failure
         # records no new state.
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._print_results", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--compare", "--json"])
         # Gate fails (regression EXACT -> COMPILE_ERROR).
@@ -2693,8 +2703,8 @@ class TestCompareBaseline:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A clean --compare run records the new report as the baseline."""
-        from rebrew.verify import app
-        from rebrew.verify_cache import save_baseline
+        from rebrew.verify.cache import save_baseline
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         save_baseline(
@@ -2706,25 +2716,25 @@ class TestCompareBaseline:
                 "summary": {"total": 0, "passed": 0, "failed": 0},
             },
         )
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
+            "rebrew.verify.cli.prepare_entries",
             lambda *a, **k: ([entry], 1, 0, [], [], 0, [], [], [], {}, 0),
         )
         results = [{"va": "0x00001000", "status": "EXACT", "passed": True}]
         monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (1, 0, [], results, [])
+            "rebrew.verify.cli.run_verification", lambda *a, **k: (1, 0, [], results, [])
         )
         previous = {
             "schema_version": 2,
             "results": [],
             "summary": {"total": 0, "passed": 0, "failed": 0},
         }
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (previous, None))
-        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cache.load_baseline", lambda _cfg: (previous, None))
+        monkeypatch.setattr("rebrew.verify.cli.save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cli._print_results", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--compare", "--json"])
         assert result.exit_code == 0
@@ -2742,10 +2752,10 @@ class TestFixSizes:
     ) -> None:
         from bin_util import make_coff_obj, make_pe
 
-        from rebrew import verify
         from rebrew.compiler import compile as compiler
         from rebrew.compiler.toolchain import RunResult
         from rebrew.metadata.functions import get_entry
+        from rebrew.verify import cli as verify
 
         cfg = _cfg(tmp_path, compiler_profile="msvc-6.0", compile_timeout=3)
         code = b"\x31\xc0\x40\xc3"
@@ -2780,7 +2790,7 @@ class TestFixSizes:
 
     def test_applies_size_fix(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import get_entry
-        from rebrew.verify import _apply_size_fixes
+        from rebrew.verify.cli import _apply_size_fixes
 
         cfg = _cfg(tmp_path)
         divergences = [
@@ -2797,7 +2807,7 @@ class TestFixSizes:
 
     def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import get_entry, update_field
-        from rebrew.verify import _apply_size_fixes
+        from rebrew.verify.cli import _apply_size_fixes
 
         cfg = _cfg(tmp_path)
         update_field(cfg.metadata_dir, 0x1000, "size", 64, module="SERVER")
@@ -2815,7 +2825,7 @@ class TestFixSizes:
 
     def test_module_falls_back_to_marker(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import get_entry
-        from rebrew.verify import _apply_size_fixes
+        from rebrew.verify.cli import _apply_size_fixes
 
         cfg = _cfg(tmp_path)  # marker = "SERVER"
         divergences = [
@@ -2828,9 +2838,9 @@ class TestFixSizes:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """``--no-promote`` writes nothing to rebrew-functions.toml, SIZE included."""
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
         from rebrew.metadata.functions import get_entry, update_field
-        from rebrew.verify import BatchResult, _save_report
+        from rebrew.verify.cli import BatchResult, _save_report
 
         cfg = _cfg(tmp_path)
         update_field(cfg.metadata_dir, 0x1000, "size", 64, module="SERVER")
@@ -2843,7 +2853,7 @@ class TestFixSizes:
 
         monkeypatch.setattr(verify_mod, "_apply_size_fixes", _capture)
         monkeypatch.setattr(verify_mod, "save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify_cache.save_baseline", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cache.save_baseline", lambda *a, **k: None)
 
         batch = BatchResult(
             entries=[],
@@ -2898,7 +2908,7 @@ class TestVerifyEntry16BitFloor:
         then runs, rather than being rejected as INVALID_VA)."""
         import rebrew.compiler.compile
         import rebrew.formats.binary_loader
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         cfg = _cfg(tmp_path, arch="x86_16")
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -2922,7 +2932,7 @@ class TestVerifyEntry16BitFloor:
         assert result.status == "SIZE_MISMATCH"
 
     def test_low_va_still_invalid_for_x86_32(self, tmp_path: Path) -> None:
-        from rebrew.verify import verify_entry
+        from rebrew.verify.cli import verify_entry
 
         cfg = _cfg(tmp_path, arch="x86_32")
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -2940,7 +2950,7 @@ class TestVerifySymbolField:
     def test_batch_record_carries_symbol(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
         from rebrew.compiler.compile import CompareResult
 
         cfg = _cfg(tmp_path)
@@ -2965,7 +2975,7 @@ class TestVerifySymbolField:
     def test_symbol_falls_back_to_underscore_name(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
         from rebrew.compiler.compile import CompareResult
 
         cfg = _cfg(tmp_path)
@@ -2993,7 +3003,7 @@ class TestVerifySymbolField:
         ``hook@@4``, and ``__fastcall keeps(int)`` is ``@keeps@4``. A cdecl
         name that already starts with ``_`` is not given a second one.
         """
-        import rebrew.verify as verify_mod
+        import rebrew.verify.cli as verify_mod
 
         hook = SourceBinding(
             va=0x1000,
@@ -3039,7 +3049,7 @@ class TestReportInventory:
         """verify's report must show the annotation count beside the function
         inventory count, so a coarser inventor does not read as missing
         functions (IDEAS: 'verify denominator')."""
-        from rebrew.verify import build_report
+        from rebrew.verify.cli import build_report
 
         cfg = SimpleNamespace(target_name="SERVER", target_binary=Path("/x"))
         kw = {"inventory_count": inventory_count} if inventory_count else {}
@@ -3066,7 +3076,7 @@ class TestReportInventory:
         under a fixed instant are byte-identical."""
         from datetime import UTC, datetime
 
-        from rebrew.verify import build_report
+        from rebrew.verify.cli import build_report
 
         cfg = SimpleNamespace(target_name="SERVER", target_binary=Path("/x"))
         stamp = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
@@ -3148,8 +3158,8 @@ class TestLibraryAttributedPasses:
 
         from rich.console import Console
 
-        import rebrew.verify as verify_mod
-        from rebrew.verify import _print_results
+        import rebrew.verify.cli as verify_mod
+        from rebrew.verify.cli import _print_results
 
         buf = StringIO()
         monkeypatch.setattr(
@@ -3179,7 +3189,7 @@ class TestLibraryAttributedPasses:
             assert breakdown in out
 
     def test_report_counts_library_passes(self) -> None:
-        from rebrew.verify import build_report
+        from rebrew.verify.cli import build_report
 
         cfg = SimpleNamespace(target_name="SERVER", target_binary=Path("/x"))
         report = build_report(
@@ -3209,13 +3219,13 @@ class TestInventoryMergeOpeners:
         return b"\xc3" + b"\x90" * 3 + opener + b"\x00" * 16
 
     def test_seh_fs0_opener(self) -> None:
-        from rebrew.verify import _looks_like_inventory_merge
+        from rebrew.verify.cli import _looks_like_inventory_merge
 
         probe = self._after_ret(b"\x64\xa1\x00\x00\x00\x00")
         assert _looks_like_inventory_merge(probe, 0, 1, len(probe))
 
     def test_register_save_opener(self) -> None:
-        from rebrew.verify import _looks_like_inventory_merge
+        from rebrew.verify.cli import _looks_like_inventory_merge
 
         probe = self._after_ret(b"\x57\x8b\x7c\x24\x08")  # push edi; mov edi,[esp+8]
         assert _looks_like_inventory_merge(probe, 0, 1, len(probe))
@@ -3243,7 +3253,7 @@ class TestVerifyCacheEntryTypes:
         ],
     )
     def test_wrong_field_type_raises(self, field: str, value: object) -> None:
-        from rebrew.verify_cache import VerifyCache
+        from rebrew.verify.cache import VerifyCache
 
         raw = {"version": 2, "entries": {"0x1000": {"status": "EXACT", field: value}}}
         with pytest.raises(TypeError, match=f"verify cache field '{field}'"):
@@ -3251,7 +3261,7 @@ class TestVerifyCacheEntryTypes:
 
     def test_annotated_types_load(self) -> None:
         """Every annotated type loads, an integer for a float field included."""
-        from rebrew.verify_cache import VerifyCache
+        from rebrew.verify.cache import VerifyCache
 
         entry = {
             "status": "EXACT",

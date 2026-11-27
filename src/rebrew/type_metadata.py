@@ -21,7 +21,7 @@ lazy from rebrew.utils import (
     read_source_text,
     sha256_file,
 )
-lazy from rebrew.verify_hash import entry_headers_fp
+lazy from rebrew.verify.hash import entry_headers_fp
 
 TYPE_METADATA_FILENAME = "rebrew-types.toml"
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")

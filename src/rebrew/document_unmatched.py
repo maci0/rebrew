@@ -35,7 +35,7 @@ lazy from rebrew.catalog import cached_function_list
 lazy from rebrew.config import target_module
 lazy from rebrew.intake import classify_all
 lazy from rebrew.metadata.bindings import iter_source_bindings
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 
 app = typer.Typer(
     help="Document unmatched functions as STUB skeletons + blockers.",

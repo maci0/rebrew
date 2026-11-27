@@ -325,7 +325,7 @@ class TestUnshareArchive:
 
 class TestUnshareCacheIdentity:
     def test_verify_identity_separates_default_and_experiment(self, tmp_path: Path) -> None:
-        from rebrew.verify_hash import compiler_config_hash
+        from rebrew.verify.hash import compiler_config_hash
 
         cfg = ProjectConfig(root=tmp_path)
         normal = compiler_config_hash(cfg)
@@ -366,7 +366,7 @@ class TestUnshareCacheIdentity:
 
 class TestUnshareCli:
     def test_flag_help(self) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         result = CliRunner().invoke(app, ["--help"])
         assert result.exit_code == 0
@@ -375,7 +375,7 @@ class TestUnshareCli:
     def test_remote_conflict_before_probe(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        import rebrew.verify as verify
+        import rebrew.verify.cli as verify
 
         cfg = ProjectConfig(root=tmp_path, recompile_url="http://127.0.0.1:1234")
         monkeypatch.setattr(verify, "require_config", lambda **kw: cfg)
@@ -388,7 +388,7 @@ class TestUnshareCli:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         import rebrew.compiler.toolchain as tc
-        import rebrew.verify as verify
+        import rebrew.verify.cli as verify
 
         cfg = ProjectConfig(root=tmp_path)
         monkeypatch.setattr(verify, "require_config", lambda **kw: cfg)
@@ -644,7 +644,7 @@ class TestExecutionBackendConfig:
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
         import rebrew.compiler.toolchain as tc
-        import rebrew.verify as verify
+        import rebrew.verify.cli as verify
 
         cfg = ProjectConfig(root=tmp_path, execution_backend="unshare")
         monkeypatch.setattr(verify, "require_config", lambda **kw: cfg)

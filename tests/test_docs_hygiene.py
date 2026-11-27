@@ -407,7 +407,10 @@ def test_every_component_main_has_callback_decorator() -> None:
         if component.origin != "builtin":
             continue
         mod_file = component.module.removeprefix("rebrew.").replace(".", "/")
-        src = (ROOT / "src" / "rebrew" / f"{mod_file}.py").read_text(encoding="utf-8")
+        mod_path = ROOT / "src" / "rebrew" / f"{mod_file}.py"
+        if not mod_path.is_file():
+            mod_path = ROOT / "src" / "rebrew" / mod_file / "__init__.py"
+        src = mod_path.read_text(encoding="utf-8")
         # Single-command modules need @app.callback on main(); multi-command
         # apps register @app.command subcommands and run app() directly.
         if component.attr:
@@ -625,7 +628,7 @@ def _imported_modules(pkg: Path) -> set[str]:
         for node in _import_statements(path):
             if isinstance(node, ast.ImportFrom):
                 if node.module == "rebrew":
-                    # `from rebrew import sources` names rebrew.sources; a dunder
+                    # `from rebrew import sources` names rebrew.source.discovery; a dunder
                     # (`__version__`) is a root-package attribute, not a module.
                     found.update(
                         f"rebrew.{a.name}" for a in node.names if not a.name.startswith("__")

@@ -29,7 +29,7 @@ Source annotations and the locked metadata stores: every read and write of `rebr
 | `source_provenance.py` | Original-assembly evidence and target-scoped support file purposes |
 | `coordinated.py` | Coordinated metadata and source-file edits with failure rollback |
 
-Externals (the only packages this one may import): `c_parser`, `compiler.toolchain`, `config`, `errors`, `registry`, `rename_ops`, `utils`, `workspace`. `compiler.toolchain` is a lazy read of the toolchain table for `TOOLCHAIN` validation. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
+Externals (the only packages this one may import): `c_parser`, `compiler.toolchain`, `config`, `errors`, `registry`, `source.rename_ops`, `utils`, `workspace`. `compiler.toolchain` is a lazy read of the toolchain table for `TOOLCHAIN` validation. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 

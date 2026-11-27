@@ -205,7 +205,7 @@ def run_catalog(
     if fix_sizes:
         from rebrew.config import target_module
         from rebrew.metadata.bindings import grow_function_extent
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
         from rebrew.utils import rel_display_path
 
         # The scan above already parsed every source file; keep only the

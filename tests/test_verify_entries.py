@@ -7,9 +7,9 @@ import pytest
 from cache_util import cache_text as _cache_text
 from source_util import write_source
 
-import rebrew.verify as verify_mod
-import rebrew.verify_cache as verify_cache_mod
-import rebrew.verify_hash as verify_hash_mod
+import rebrew.verify.cache as verify_cache_mod
+import rebrew.verify.cli as verify_mod
+import rebrew.verify.hash as verify_hash_mod
 from rebrew.metadata.bindings import SourceBinding
 
 
@@ -796,7 +796,7 @@ class TestPrepareEntriesCache:
         """EXACT/RELOC/PROVEN at the annotation size proves that many real
         bytes; a smaller canonical (Ghidra fragment) is the unreliable side.
         PROVEN matches ``_partition_size_fixes`` protection."""
-        from rebrew.verify import _size_divergence_action
+        from rebrew.verify.cli import _size_divergence_action
 
         assert _size_divergence_action(752, 340, "RELOC") == "skip"
         assert _size_divergence_action(304, 24, "EXACT") == "skip"
@@ -806,7 +806,7 @@ class TestPrepareEntriesCache:
     def test_truncation_hazard_still_warns(self) -> None:
         """ann < canonical can false-EXACT on a prefix: never skip it, even
         when matched."""
-        from rebrew.verify import _size_divergence_action
+        from rebrew.verify.cli import _size_divergence_action
 
         assert _size_divergence_action(51, 239, "RELOC") == "warn"
         assert _size_divergence_action(396, 400, "EXACT") == "skip"  # pad, ann%16==12
@@ -985,7 +985,7 @@ def test_scope_entries_batch_file_filters_to_file(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
     from rebrew.metadata.bindings import SourceBinding
-    from rebrew.verify import scope_entries
+    from rebrew.verify.cli import scope_entries
 
     rev = tmp_path / "src"
     rev.mkdir()
@@ -1011,7 +1011,7 @@ def test_scope_entries_batch_file_empty_errors(tmp_path: Path) -> None:
     import typer
 
     from rebrew.metadata.bindings import SourceBinding
-    from rebrew.verify import scope_entries
+    from rebrew.verify.cli import scope_entries
 
     rev = tmp_path / "src"
     rev.mkdir()
@@ -1040,7 +1040,7 @@ def test_fix_sizes_never_rewrites_a_byte_matched_size() -> None:
     direction (the jump-table case, e.g. vfs_OpenStream body 667 against a
     canonical 704) was applied automatically and is what did the damage.
     """
-    from rebrew.verify import _partition_size_fixes
+    from rebrew.verify.cli import _partition_size_fixes
 
     fixes = [
         {"va": "0x1000cfe0", "annotation_size": 64, "binary_size": 96, "status": "RELOC"},
@@ -1065,7 +1065,7 @@ def test_scope_entries_skip_libraries_drops_header_attributed_functions(tmp_path
     """--skip-libraries uses `rebrew status`'s library rule: a compiled FUNCTION whose VA
     a library_*.h header of this target attributes is library code; another
     target's header attributes nothing here."""
-    from rebrew.verify import scope_entries
+    from rebrew.verify.cli import scope_entries
 
     rev = tmp_path / "src"
     rev.mkdir()

@@ -1545,7 +1545,7 @@ class TestInertDecompilerFallback:
         assert {node.type for node in tree.root_node.children} <= {"comment", "function_definition"}
 
     def test_recursive_prototype_and_calls_rename_together(self) -> None:
-        from rebrew.c_rename import rename_function_source
+        from rebrew.source.c_rename import rename_function_source
 
         source = "int orig(int n);\nint orig(int n) { return n ? orig(n-1) : 0; }"
         changed = rename_function_source(source, "target")

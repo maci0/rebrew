@@ -2,7 +2,7 @@
 
 import pytest
 
-from rebrew.verify import diff_reports
+from rebrew.verify.cli import diff_reports
 
 
 class TestVerifyDiff:
@@ -221,22 +221,22 @@ class TestApplyOrPreviewStatus:
         return SimpleNamespace(module="game", va=0x10001000, status="STUB")
 
     def test_dry_run_skips_writes(self, monkeypatch: object) -> None:
-        from rebrew.verify import _apply_or_preview_status
+        from rebrew.verify.cli import _apply_or_preview_status
 
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.verify.apply_status_updates",
+            "rebrew.verify.cli.apply_status_updates",
             lambda fixes, cfg: calls.append(fixes),
         )
         _apply_or_preview_status([(self._entry(), "EXACT", 0)], object(), dry_run=True)
         assert calls == []
 
     def test_apply_writes(self, monkeypatch: object) -> None:
-        from rebrew.verify import _apply_or_preview_status
+        from rebrew.verify.cli import _apply_or_preview_status
 
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.verify.apply_status_updates",
+            "rebrew.verify.cli.apply_status_updates",
             lambda fixes, cfg: calls.append(fixes),
         )
         entry = self._entry()
@@ -254,7 +254,7 @@ class TestApplyOrPreviewStatus:
         """
         from types import SimpleNamespace
 
-        from rebrew.verify import _apply_or_preview_status
+        from rebrew.verify.cli import _apply_or_preview_status
 
         parked = SimpleNamespace(module="game", va=0x10001000, status="SKIP")
         stub_mm = SimpleNamespace(module="game", va=0x10002000, status="STUB")
@@ -276,7 +276,7 @@ class TestApplyOrPreviewStatus:
     def test_unknown_status_ranks_worst(self) -> None:
         """Unknown statuses default to worse than any known failure (fail
         closed): a new INTERNAL-something status in `new` trips the gate."""
-        from rebrew.verify import _STATUS_RANK, _gate_fails
+        from rebrew.verify.cli import _STATUS_RANK, _gate_fails
 
         previous = {"results": []}
         current = {"results": [{"va": "0x10001000", "name": "new_fn", "status": "FUTURE_WEIRD"}]}
@@ -288,7 +288,7 @@ class TestApplyOrPreviewStatus:
 
     def test_data_and_whole_binary_fail_the_gate(self) -> None:
         """Auxiliary --data / --whole-binary drift must fail like --text."""
-        from rebrew.verify import _gate_fails
+        from rebrew.verify.cli import _gate_fails
 
         assert _gate_fails(None, 0) is False
         assert _gate_fails(None, 0, text_failed=1) is True
@@ -298,7 +298,7 @@ class TestApplyOrPreviewStatus:
     def test_compare_drop_threshold_named(self) -> None:
         """The same-rank match-percentage regression threshold is a named
         constant, not a magic literal."""
-        from rebrew.verify import _COMPARE_DROP_PCT, diff_reports
+        from rebrew.verify.cli import _COMPARE_DROP_PCT, diff_reports
 
         assert _COMPARE_DROP_PCT == 5.0
         previous = {

@@ -74,7 +74,7 @@ lazy from rebrew.metadata.source_provenance import (
     function_definition_hashes,
     load_source_provenance,
 )
-lazy from rebrew.sources import (
+lazy from rebrew.source.discovery import (
     iter_sources,
     source_exts,
 )
@@ -960,14 +960,14 @@ def _check_W037_data_definition(
     Skipped rather than guessed: a row or file without the name, a name with
     no definition (or span view) in the file, definitions that disagree with
     each other (``#if`` branches), and any size the x86_32 data model of
-    :func:`rebrew.data_layout.data_symbol_size` cannot compute (struct, union
+    :func:`rebrew.data.layout.data_symbol_size` cannot compute (struct, union
     and unknown typedef types, unsized arrays, other architectures).  Only
     byte sizes are compared, the row's ``size`` and its ``type``'s extent each
     against the source's: a spelling difference with equal size (``[0x104]``
     against ``[260]``, a typedef against its expansion) is not reported.
     """
     from rebrew.c_parser import find_extern_variables, find_variable_roles
-    from rebrew.data_layout import data_symbol_size
+    from rebrew.data.layout import data_symbol_size
     from rebrew.metadata.data import data_rows_for_path, module_visible_to_target
 
     try:
@@ -1088,7 +1088,7 @@ def _check_W038_data_row_overlap(cfg: ProjectConfig) -> list[LintResult]:
     """W038: two named ``rebrew-data.toml`` rows of one module overlap.
 
     Each row's extent is ``[va, va + size)`` with the size from
-    :func:`rebrew.data_layout.data_symbol_size` (explicit ``size``, else a
+    :func:`rebrew.data.layout.data_symbol_size` (explicit ``size``, else a
     computable ``type``); a row with no computable extent is skipped.  An
     ``alias`` row with a ``backing`` is a view inside another allocation and
     is excluded.  Two storage owners cannot share a byte, so an overlap is a
@@ -1096,7 +1096,7 @@ def _check_W038_data_row_overlap(cfg: ProjectConfig) -> list[LintResult]:
     as one; ``rebrew status`` otherwise reports only the byte count it had to
     discount.  Rows touching end-to-start do not overlap.
     """
-    from rebrew.data_layout import data_symbol_size
+    from rebrew.data.layout import data_symbol_size
     from rebrew.metadata.data import DATA_METADATA_FILENAME
 
     arch = str(getattr(cfg, "arch", "") or "x86_32")
@@ -1554,7 +1554,7 @@ def _check_W020_asm_dump(
     """
     if not any("__asm" in code or "_emit" in code for code in code_lines):
         return
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     selected_rows = [
         row

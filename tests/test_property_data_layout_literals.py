@@ -1,5 +1,5 @@
 """Property-based fuzzing for the C declaration/literal renderer
-(``rebrew.data_layout``).
+(``rebrew.data.layout``).
 
 ``c_type_size`` / ``estimate_type_size`` size a global and ``typed_array_literal``
 turns the target's raw ``.data`` bytes into the initializer written into the
@@ -31,7 +31,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.data_layout import (
+from rebrew.data.layout import (
     c_type_size,
     estimate_type_size,
     hex_list,

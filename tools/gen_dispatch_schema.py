@@ -3,9 +3,9 @@
 ``tests/fixtures/dispatch/rebrew.schema.json`` is the dispatch contract the
 backend mirrors byte for byte (``NOTE.txt``).  A request member rebrew refuses
 every value but a closed set of, and a reply member drawn from one, carries that
-set as its ``enum``; a reply :mod:`rebrew.ops_replies` declares is its op's
+set as its ``enum``; a reply :mod:`rebrew.ops.replies` declares is its op's
 ``response``, each reply member naming a workspace path
-(``rebrew.ops_replies.WORKSPACE_PATHS``) a string of ``format`` ``workspace-path``;
+(``rebrew.ops.replies.WORKSPACE_PATHS``) a string of ``format`` ``workspace-path``;
 the refusal codes and their statuses (``rebrew.ops.PROBLEMS``) are ``errors``, and
 each op's entry carries the ones that op answers as its own ``errors``
 (``rebrew.ops.DISPATCH_PROBLEMS`` and its ``OP_PROBLEMS``).  This script takes each
@@ -45,7 +45,7 @@ SCHEMA = _project_root() / "tests" / "fixtures" / "dispatch" / "rebrew.schema.js
 WORKER_SCHEMA = _project_root() / "src" / "rebrew" / SCHEMA.name
 
 #: The schema of a reply member naming a path in the engine's workspace
-#: (``rebrew.ops_replies.WORKSPACE_PATHS``), written inline on each: the backend's
+#: (``rebrew.ops.replies.WORKSPACE_PATHS``), written inline on each: the backend's
 #: renderer inlines every definition and has no ``$ref``.
 WORKSPACE_PATH = {"format": "workspace-path", "type": "string"}
 
@@ -57,11 +57,11 @@ UNRENDERABLE = ('"$ref"', '"$defs"', '"type": [', '"required": []')
 def enforced_sets() -> Iterator[tuple[str, tuple[str, ...], Collection[str]]]:
     """``(op, path inside the op's entry, values)`` for every closed set the schema publishes."""
     from rebrew import ops
+    from rebrew.coverage.report import SITE_DATA_KINDS
     from rebrew.decompiler import DecompilerReason, DecompilerState
     from rebrew.metadata.bindings import DATA_KINDS
-    from rebrew.report import SITE_DATA_KINDS
+    from rebrew.ops.snapshot_mutations import OPERATIONS
     from rebrew.security_scan import SEVERITY_ORDER
-    from rebrew.snapshot_mutations import OPERATIONS
 
     def request(field: str) -> tuple[str, ...]:
         return ("request", "properties", field)
@@ -98,13 +98,13 @@ def enforced_sets() -> Iterator[tuple[str, tuple[str, ...], Collection[str]]]:
 def render(text: str) -> str:
     """*text*, a dispatch schema, with what the code declares written into it.
 
-    Every enforced set as its ``enum``, every reply :mod:`rebrew.ops_replies`
+    Every enforced set as its ``enum``, every reply :mod:`rebrew.ops.replies`
     declares as its op's ``response``, each workspace path member as
     :data:`WORKSPACE_PATH`, :data:`rebrew.ops.PROBLEMS` as ``errors``, and
     each op's own codes as the ``errors`` of its entry.
     """
     from rebrew import ops
-    from rebrew.ops_replies import DECLARED, WORKSPACE_PATHS, SkippedRecords, json_schema
+    from rebrew.ops.replies import DECLARED, WORKSPACE_PATHS, SkippedRecords, json_schema
 
     schema = json.loads(text)
     analyse = schema["ops"]["rebrew.analyse"]["response"]["properties"]

@@ -30,7 +30,7 @@ from rebrew.config import (
 )
 from rebrew.decompme import DecompmeError
 from rebrew.errors import RebrewError
-from rebrew.sources import iter_library_headers, iter_sources
+from rebrew.source.discovery import iter_library_headers, iter_sources
 from rebrew.workspace.config import find_root as workspace_find_root
 from rebrew.workspace.config import read_config as workspace_read_config
 

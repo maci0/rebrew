@@ -11,7 +11,7 @@ def test_annotated_global_at_zero_has_a_location(tmp_path) -> None:
     from source_util import write_source
 
     from rebrew.config import ProjectConfig
-    from rebrew.data_scan import enrich_with_sections, scan_globals, verify_bss_layout
+    from rebrew.data.scan import enrich_with_sections, scan_globals, verify_bss_layout
 
     source = tmp_path / "src"
     source.mkdir()
@@ -34,7 +34,7 @@ def test_annotated_global_at_zero_has_a_location(tmp_path) -> None:
 def test_target_visibility_reads_the_cached_anchors(monkeypatch: pytest.MonkeyPatch) -> None:
     """The check passes the source as read, so a file ending in a newline is not parsed again."""
     import rebrew.metadata.anchors as anchors
-    from rebrew.data_scan import _source_visible_to_target
+    from rebrew.data.scan import _source_visible_to_target
 
     text = "// ADDRESS: VISCHECK 0x1000\nint visible_check;\n"
     anchors.parse_address_anchors(text)

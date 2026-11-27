@@ -13,7 +13,13 @@ lazy from pathlib import Path
 
 from rebrew.binding_replacement_conditions import macro_change_re, target_structural_view
 from rebrew.c_parser import mask_msvc_syntax, mask_va_arg_types, parse_c_source
-from rebrew.c_rename import (
+from rebrew.compiler.compile import effective_compile_flags
+from rebrew.compiler.overrides import resolve_compile_overrides_cached
+from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.metadata.binding_history import retired_binding
+from rebrew.metadata.functions import load_metadata
+from rebrew.metadata.storage import input_exists, metadata_store_paths, snapshot_input
+from rebrew.source.c_rename import (
     ORDINARY_ROLES,
     ROLE_COMMENT,
     ROLE_IDENT,
@@ -25,16 +31,10 @@ from rebrew.c_rename import (
     non_external_function_declarations,
     occurrences,
 )
-from rebrew.compiler.compile import effective_compile_flags
-from rebrew.compiler.overrides import resolve_compile_overrides_cached
-from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.metadata.binding_history import retired_binding
-from rebrew.metadata.functions import load_metadata
-from rebrew.metadata.storage import input_exists, metadata_store_paths, snapshot_input
-from rebrew.source_contracts import contract_contexts
-from rebrew.source_organization import organization_configs
-from rebrew.source_selection import collect_target_sources
-from rebrew.sources import iter_sources_and_headers
+from rebrew.source.contracts import contract_contexts
+from rebrew.source.discovery import iter_sources_and_headers
+from rebrew.source.organization import organization_configs
+from rebrew.source.selection import collect_target_sources
 from rebrew.utils import path_identity, read_source_text
 
 

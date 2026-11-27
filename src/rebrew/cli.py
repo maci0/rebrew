@@ -71,7 +71,7 @@ lazy from rebrew.metadata.bindings import (
     find_source_binding_by_symbol,
     read_source_bindings,
 )
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 
 console.push_theme(Theme(RICH_STYLES))
 
@@ -1616,7 +1616,7 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
             return src
 
     if va_int is None:
-        from rebrew.rename_ops import c_name_from_symbol
+        from rebrew.source.rename_ops import c_name_from_symbol
         from rebrew.utils import fold_ident
 
         want = fold_ident(arg_norm.strip())

@@ -563,7 +563,7 @@ class TestTypeCLI:
         cfg.reversed_dir = tmp_path
         monkeypatch.setattr("rebrew.types_cli.require_config", lambda **kwargs: cfg)
         monkeypatch.setattr("rebrew.type_metadata.compile_type", lambda *args: None)
-        monkeypatch.setattr("rebrew.sources.iter_sources", lambda *args: [])
+        monkeypatch.setattr("rebrew.source.discovery.iter_sources", lambda *args: [])
         runner = CliRunner()
         args = [
             "bind",

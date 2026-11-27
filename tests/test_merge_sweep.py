@@ -1,4 +1,4 @@
-"""Tests for :mod:`rebrew.merge_sweep` -- TU-partition search.
+"""Tests for :mod:`rebrew.source.merge_sweep` -- TU-partition search.
 
 The search itself runs through :func:`search_partitions` with a stub scorer,
 so merge/split acceptance, tie-breaks, determinism, memoization, and the
@@ -19,7 +19,8 @@ from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
-from rebrew.merge_sweep import (
+from rebrew.metadata.bindings import SourceBinding
+from rebrew.source.merge_sweep import (
     _apply_merge,
     _apply_split,
     _member_symbol,
@@ -30,7 +31,6 @@ from rebrew.merge_sweep import (
     app,
     search_partitions,
 )
-from rebrew.metadata.bindings import SourceBinding
 
 runner = CliRunner()
 
@@ -315,10 +315,10 @@ def _write_source(path: Path, va: int, symbol: str) -> None:
 
 def _patch_cli(monkeypatch: Any, cfg: Any) -> None:
     monkeypatch.setattr(
-        "rebrew.merge_sweep.require_config", lambda target=None, json_mode=False: cfg
+        "rebrew.source.merge_sweep.require_config", lambda target=None, json_mode=False: cfg
     )
     monkeypatch.setattr(
-        "rebrew.merge_sweep.load_binary",
+        "rebrew.source.merge_sweep.load_binary",
         lambda path: SimpleNamespace(text_va=0x10000000, text_size=0x10000),
     )
     monkeypatch.setattr(
@@ -329,20 +329,22 @@ def _patch_cli(monkeypatch: Any, cfg: Any) -> None:
         ],
     )
     monkeypatch.setattr(
-        "rebrew.merge_sweep.build_function_registry",
+        "rebrew.source.merge_sweep.build_function_registry",
         lambda funcs, cfg_arg, ghidra_path=None, bin_path=None: {
             A: {"canonical_size": 10},
             B: {"canonical_size": 10},
         },
     )
     monkeypatch.setattr(
-        "rebrew.merge_sweep._initial_partition", lambda registry, info, cfg_arg: [[A], [B]]
+        "rebrew.source.merge_sweep._initial_partition", lambda registry, info, cfg_arg: [[A], [B]]
     )
     monkeypatch.setattr(
-        "rebrew.merge_sweep._function_call_map", lambda registry, info, cfg_arg: {A: {B}}
+        "rebrew.source.merge_sweep._function_call_map", lambda registry, info, cfg_arg: {A: {B}}
     )
-    monkeypatch.setattr("rebrew.merge_sweep._function_strings", lambda info: {})
-    monkeypatch.setattr("rebrew.merge_sweep._gap_classes", lambda vas, registry, info, cfg_arg: {})
+    monkeypatch.setattr("rebrew.source.merge_sweep._function_strings", lambda info: {})
+    monkeypatch.setattr(
+        "rebrew.source.merge_sweep._gap_classes", lambda vas, registry, info, cfg_arg: {}
+    )
 
 
 class TestDryRunCli:
@@ -353,7 +355,7 @@ class TestDryRunCli:
         def _unexpected(**kwargs: object) -> None:
             pytest.fail("an invalid compile cap reached the project loader")
 
-        monkeypatch.setattr("rebrew.merge_sweep.require_config", _unexpected)
+        monkeypatch.setattr("rebrew.source.merge_sweep.require_config", _unexpected)
         result = runner.invoke(app, ["--max-compiles", limit])
         assert result.exit_code == 2, result.output
         assert "--max-compiles" in result.output
@@ -394,7 +396,7 @@ class TestDryRunCli:
 
 class TestAuditCli:
     def test_audit_log_written_on_search(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.merge_sweep as ms
+        import rebrew.source.merge_sweep as ms
 
         cfg = _make_cfg(tmp_path)
         cfg.target_binary.write_bytes(b"x")
@@ -404,7 +406,7 @@ class TestAuditCli:
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
         _write_source(cfg.reversed_dir / "b.c", B, "_func_b")
         _patch_cli(monkeypatch, cfg)
-        monkeypatch.setattr("rebrew.merge_sweep.build_name_to_va", lambda cfg_arg: {})
+        monkeypatch.setattr("rebrew.source.merge_sweep.build_name_to_va", lambda cfg_arg: {})
 
         values = {((A,), (B,)): 10, ((A, B),): 14}
 
@@ -425,7 +427,7 @@ class TestAuditCli:
         assert log[0]["after"] == 14
 
     def test_json_output_carries_partition(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.merge_sweep as ms
+        import rebrew.source.merge_sweep as ms
 
         cfg = _make_cfg(tmp_path)
         cfg.target_binary.write_bytes(b"x")
@@ -435,7 +437,7 @@ class TestAuditCli:
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
         _write_source(cfg.reversed_dir / "b.c", B, "_func_b")
         _patch_cli(monkeypatch, cfg)
-        monkeypatch.setattr("rebrew.merge_sweep.build_name_to_va", lambda cfg_arg: {})
+        monkeypatch.setattr("rebrew.source.merge_sweep.build_name_to_va", lambda cfg_arg: {})
         values = {((A,), (B,)): 10, ((A, B),): 9}
         monkeypatch.setattr(
             ms,
@@ -491,7 +493,7 @@ class TestPartitionScorer:
         import rebrew.coff_reloc
         import rebrew.compiler.compile
         import rebrew.matcher.parsers
-        import rebrew.merge_sweep as ms
+        import rebrew.source.merge_sweep as ms
 
         def fake_compile(
             cfg: Any, src: Any, cflags: list[str], workdir: Any, **kw: Any
@@ -516,7 +518,7 @@ class TestPartitionScorer:
         monkeypatch.setattr(ms, "extract_raw_bytes", lambda binary, va, n: bytes([0x90]) * n)
 
     def test_cluster_compiles_once_for_all_members(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.merge_sweep as ms
+        import rebrew.source.merge_sweep as ms
 
         cfg = _scorer_cfg(tmp_path)
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
@@ -536,7 +538,7 @@ class TestPartitionScorer:
     ) -> None:
         """A rebrew-libraries.toml beside the real sources shapes the TU
         compile; the temp staging dir carries no override file."""
-        import rebrew.merge_sweep as ms
+        import rebrew.source.merge_sweep as ms
 
         cfg = _scorer_cfg(tmp_path)
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")

@@ -254,7 +254,7 @@ class TestCollectStatus:
         )
 
         from rebrew.naming import load_data
-        from rebrew.sources import scan_files
+        from rebrew.source.discovery import scan_files
 
         tree = scan_files(src)
         loaded = load_data(cfg)  # type: ignore[arg-type]
@@ -262,7 +262,7 @@ class TestCollectStatus:
         def repeated_work(*_args: Any, **_kwargs: Any) -> None:
             raise AssertionError("collect_status repeated the source scan")
 
-        monkeypatch.setattr("rebrew.sources.scan_files", repeated_work)
+        monkeypatch.setattr("rebrew.source.discovery.scan_files", repeated_work)
         monkeypatch.setattr("rebrew.naming.load_data", repeated_work)
 
         report = collect_status(cfg, tree=tree, data=loaded)  # type: ignore[arg-type]
@@ -1325,7 +1325,7 @@ class TestVerifyCacheHelpers:
 
     def test_verify_readers_follow_cache_version(self, tmp_path: Path, monkeypatch) -> None:
         """Both readers validate against CACHE_VERSION, not a baked-in literal."""
-        import rebrew.verify_cache as vc
+        import rebrew.verify.cache as vc
         from rebrew.status import _load_verify_info, load_verify_details
 
         monkeypatch.setattr(vc, "CACHE_VERSION", 99)

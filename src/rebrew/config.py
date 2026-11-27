@@ -199,7 +199,7 @@ STRICT_REPLIES_ENV = "REBREW_OPS_STRICT_REPLIES"
 """Env var making an op fail on a reply member its declaration does not name.
 
 Set (to ``1``) by rebrew's test suite, so a member a reply builder adds and
-``rebrew.ops_replies`` does not declare fails the test that builds it.  Unset, the
+``rebrew.ops.replies`` does not declare fails the test that builds it.  Unset, the
 member is dropped and logged.  Parsed by :func:`parse_env_bool`."""
 
 GHIDRA_MCP_ENDPOINT_ENV = "REBREW_GHIDRA_MCP_ENDPOINT"
@@ -2696,7 +2696,7 @@ def _detect_binary_layout(
     Mach-O).
     """
     if root is not None and target:
-        from rebrew.layout_meta import read_layout_header
+        from rebrew.buildsys.layout_meta import read_layout_header
 
         hdr = read_layout_header(root, target, bin_path)
         if hdr is not None:

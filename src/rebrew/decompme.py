@@ -72,7 +72,7 @@ lazy from rebrew.config import (
     validate_http_url,
 )
 lazy from rebrew.metadata.locking import file_transaction
-lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.source.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import (
     atomic_write_text,
     close_response,
@@ -223,8 +223,8 @@ def build_scratch_payload(
     ready for :func:`httpx.post`.  The target object is synthesized from the
     reference binary's function bytes via the objdiff COFF writer.
     """
+    from rebrew.buildsys.objdiff import write_coff_object
     from rebrew.formats.binary_loader import extract_raw_bytes
-    from rebrew.objdiff_project import write_coff_object
 
     raw = extract_raw_bytes(cfg.target_binary, va, size)
     if not raw:
@@ -541,7 +541,7 @@ def scratch_digest(payload: dict[str, Any], api: str, *, scope: str = "") -> str
 
     ``surrogateescape`` on the text fields, as everywhere else a path or a
     name off disk is hashed (``rebrew.compiler.cache``,
-    ``rebrew.verify_hash``): a field carrying a lone surrogate for a
+    ``rebrew.verify.hash``): a field carrying a lone surrogate for a
     non-UTF-8 byte still gets a digest instead of raising out of the
     idempotency check.
     """

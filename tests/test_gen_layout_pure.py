@@ -14,13 +14,13 @@ from cli_json import cli_payload
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
-from rebrew.formats.pe_image import derive_link_options, parse_pe
-from rebrew.gen_layout import (
+from rebrew.buildsys.gen_layout import (
     _imp_suffix,
     _resolve_imports,
     gen_crt_imports,
     gen_def,
 )
+from rebrew.formats.pe_image import derive_link_options, parse_pe
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "mini_pe.exe"
 
@@ -179,7 +179,7 @@ class TestDeriveLinkOptions:
 
 class TestLinkSweepHelpers:
     def test_read_fields(self) -> None:
-        from rebrew.link_sweep import _read_fields
+        from rebrew.buildsys.link_sweep import _read_fields
 
         fields = _read_fields(_FIXTURE)
         assert fields["Machine"] == 0x14C
@@ -192,7 +192,7 @@ class TestLinkSweepHelpers:
         high byte, so a minor delta was invisible)."""
         import struct
 
-        from rebrew.link_sweep import _read_fields
+        from rebrew.buildsys.link_sweep import _read_fields
 
         d = bytearray(0x200)
         d[0:2] = b"MZ"
@@ -213,7 +213,7 @@ class TestLinkSweepHelpers:
         assert fields["SubsystemVersion"] == 0x040A
 
     def test_candidates_cover_alignment_probes(self) -> None:
-        from rebrew.link_sweep import _candidates
+        from rebrew.buildsys.link_sweep import _candidates
 
         _, _, _, pe = parse_pe(_FIXTURE.read_bytes())
         names = [c.name for c in _candidates(pe)]
@@ -256,7 +256,7 @@ class TestImportLibSymbolsFromImage:
     def _run_locally(monkeypatch: pytest.MonkeyPatch, lib_dir: Path) -> list[list[str]]:
         import subprocess
 
-        import rebrew.gen_layout as gen_layout
+        import rebrew.buildsys.gen_layout as gen_layout
 
         seen: list[list[str]] = []
         real_run = subprocess.run
@@ -274,7 +274,7 @@ class TestImportLibSymbolsFromImage:
     def test_matches_lib_name_case_insensitively(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.gen_layout import _import_lib_symbols_from_image
+        from rebrew.buildsys.gen_layout import _import_lib_symbols_from_image
 
         (tmp_path / "Kernel32.Lib").write_bytes(b"!<arch>\n\0__imp__Sleep@4\0junk")
         self._run_locally(monkeypatch, tmp_path)
@@ -288,7 +288,7 @@ class TestImportLibSymbolsFromImage:
         Vectorcall ``hook@@12`` is ``__imp_hook@@12``. Fastcall ``@keeps@4``
         is ``__imp_@keeps@4``. A cdecl ``__imp__printf`` has no ``@N``.
         """
-        from rebrew.gen_layout import (
+        from rebrew.buildsys.gen_layout import (
             _import_lib_symbols,
             _import_lib_symbols_from_image,
         )
@@ -303,7 +303,7 @@ class TestImportLibSymbolsFromImage:
     def test_hostile_stem_is_data_not_script(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.gen_layout import _import_lib_symbols_from_image
+        from rebrew.buildsys.gen_layout import _import_lib_symbols_from_image
 
         marker = tmp_path / "pwned"
         seen = self._run_locally(monkeypatch, tmp_path)
@@ -414,7 +414,7 @@ def test_deep_pe_sample_agrees_across_parsers() -> None:
     tables; the sample is the seed that makes the walks reach a name, an
     ordinal, and a forwarder-sized export directory.
     """
-    from rebrew.layout_meta import extract_layout
+    from rebrew.buildsys.layout_meta import extract_layout
 
     blob = _deep_pe()
     sections, exports, imports, pe = parse_pe(blob)
@@ -631,7 +631,7 @@ class TestLinkSweepTemplate:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.link_sweep import app
+        from rebrew.buildsys.link_sweep import app
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--link-cmd", template, "--json"])
@@ -640,7 +640,7 @@ class TestLinkSweepTemplate:
         assert list(tmp_path.iterdir()) == []
 
     def test_template_can_repeat_valid_placeholders(self) -> None:
-        from rebrew.link_sweep import _validate_link_template
+        from rebrew.buildsys.link_sweep import _validate_link_template
 
         # A template that repeats {out} is valid and must not raise; the
         # validation is the behavior, so assert the call completes and the

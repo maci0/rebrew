@@ -25,7 +25,7 @@ lazy from pathlib import Path
 
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
-    from rebrew.verify_cache import VerifyCacheEntry
+    from rebrew.verify.cache import VerifyCacheEntry
 
 import typer
 lazy from rich.panel import Panel
@@ -292,7 +292,7 @@ def _collect_setup_steps(
     Returns high-priority setup items that guide the user through initial
     project configuration. Scored 90-99 so they always appear first.
     """
-    from rebrew.verify_cache import cache_path_for
+    from rebrew.verify.cache import cache_path_for
 
     items: list[TodoItem] = []
 
@@ -751,13 +751,13 @@ def load_verify_entries(cfg: ProjectConfig) -> dict[str, VerifyCacheEntry]:
     entries must never drive todo's categories/deltas — a CLIENT run would
     otherwise surface SERVER's EXACTs as phantom fix-delta quick-wins.
     """
-    from rebrew.verify_cache import load_verify_cache_raw
+    from rebrew.verify.cache import load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg)
     if raw is None:
         return {}
     try:
-        from rebrew.verify_cache import VerifyCache
+        from rebrew.verify.cache import VerifyCache
 
         data = VerifyCache.from_dict(raw)
     except (ValueError, AttributeError, ImportError, TypeError) as exc:
@@ -776,7 +776,7 @@ def load_verify_entries(cfg: ProjectConfig) -> dict[str, VerifyCacheEntry]:
     # rejects — another target's entries surfaced as phantom quick-wins, and a
     # cache earned under a superseded compiler config kept driving categories
     # and deltas after `rebrew verify` had stopped serving it.
-    from rebrew.verify_cache import cache_identity_matches
+    from rebrew.verify.cache import cache_identity_matches
 
     if not cache_identity_matches(raw, cfg):
         return {}
@@ -1226,7 +1226,7 @@ def _caller_counts(
     source that does not contain ``extern`` is stored empty and is not parsed.
     """
     from rebrew.c_parser import find_extern_function_names
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
     from rebrew.utils import read_source_text
 
     counts: dict[str, int] = {}
@@ -1279,7 +1279,7 @@ def _collect_data_drift(
     :func:`rebrew.metadata.data.load_data_metadata`; the caller that also
     collects start-data loads it once for both lanes.
     """
-    from rebrew.data_layout import data_symbol_size
+    from rebrew.data.layout import data_symbol_size
     from rebrew.metadata.data import load_data_metadata, module_visible_to_target
     from rebrew.status import postlink_copied_ranges, span_is_copied
 
@@ -1333,7 +1333,7 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
     missing = object()
 
     def in_tail(fields: dict[str, Any]) -> bool:
-        from rebrew.data_layout import data_symbol_size
+        from rebrew.data.layout import data_symbol_size
 
         section = str(fields.get("section") or "")
         if section in ("", ".idata", ".bss"):
@@ -1396,7 +1396,7 @@ def _collect_start_data(
     them already correct (5 with file bytes byte-identical, 111 in the zero-fill
     tail, 84 import slots, 7 without a size).
     """
-    from rebrew.data_layout import data_symbol_size
+    from rebrew.data.layout import data_symbol_size
     from rebrew.metadata.data import (
         data_status_bucket,
         load_data_metadata,
@@ -1877,7 +1877,7 @@ def main(
     ):
         return
     cfg = require_config(target=target, json_mode=json_output)
-    from rebrew.sources import scan_files
+    from rebrew.source.discovery import scan_files
 
     tree = scan_files(cfg.reversed_dir)
     try:

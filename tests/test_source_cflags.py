@@ -34,7 +34,7 @@ class TestClearCflags:
         before = get_entry(cfg.metadata_dir, 0x401000, "GAME")
         path = cfg.metadata_dir / "rebrew-functions.toml"
         snapshot = path.read_bytes(), path.stat()
-        with patch("rebrew.source_cflags.require_config", return_value=cfg):
+        with patch("rebrew.source.cflags.require_config", return_value=cfg):
 
             def invoke(*options: str) -> dict[str, Any]:
                 result = CliRunner().invoke(

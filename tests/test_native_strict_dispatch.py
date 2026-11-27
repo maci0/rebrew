@@ -23,7 +23,8 @@ def test_real_elf_strict_dispatch() -> None:
 
 
 def test_empty_scan_and_failures_are_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
-    from rebrew import catalog, data_scan
+    from rebrew import catalog
+    from rebrew.data import scan as data_scan
 
     binary = Path("/bin/true")
     if not binary.is_file():
@@ -53,7 +54,7 @@ def test_pe64_uses_input_pointer_width(tmp_path: Path, monkeypatch: pytest.Monke
     subprocess.run([compiler, str(source), "-o", str(binary)], check=True, capture_output=True)
     info = load_binary(binary)
     assert info.format == "pe" and info.pointer_size == 8
-    from rebrew import data_scan
+    from rebrew.data import scan as data_scan
 
     scan = data_scan.find_dispatch_tables
     seen = []
@@ -70,7 +71,7 @@ def test_pe64_uses_input_pointer_width(tmp_path: Path, monkeypatch: pytest.Monke
 def test_unscanned_and_invalid_sections_are_not_complete(monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 
-    from rebrew import data_scan
+    from rebrew.data import scan as data_scan
 
     def section(name: str, va: int, offset: int, size: int) -> SimpleNamespace:
         return SimpleNamespace(name=name, va=va, size=size, file_offset=offset, raw_size=size)

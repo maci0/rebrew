@@ -934,7 +934,7 @@ class TestSourceTextMemo:
 
     def test_source_hash_reuses_cached_bytes(self, tmp_path: Path) -> None:
         """A hash after read_source_text must not open the file again."""
-        from rebrew.verify_hash import clear_source_memo, source_hash
+        from rebrew.verify.hash import clear_source_memo, source_hash
 
         path = tmp_path / "hashed.c"
         path.write_text("int f(void) { return 1; }\n", encoding="utf-8")
@@ -2342,7 +2342,7 @@ class TestSourceMemoPreservedMtime:
     def test_text_and_hash_notice_in_place_edit_with_restored_mtime(self, tmp_path: Path) -> None:
         import os
 
-        from rebrew.verify_hash import clear_source_memo, source_hash
+        from rebrew.verify.hash import clear_source_memo, source_hash
 
         path = tmp_path / "body.c"
         path.write_text("int f(void) { return 1; }\n")

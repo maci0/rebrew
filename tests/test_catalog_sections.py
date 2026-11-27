@@ -262,7 +262,7 @@ class TestGetGlobalsSizes:
     def test_sizes_match_shared_estimator(self, tmp_path: Path) -> None:
         """get_globals must size through data_layout.estimate_type_size —
         the single source of truth (a second heuristic here drifts)."""
-        from rebrew.data_layout import estimate_type_size
+        from rebrew.data.layout import estimate_type_size
         from rebrew.sections import get_globals
 
         decls = [

@@ -91,7 +91,7 @@ def promote_in_process(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
     monkeypatch.setattr(ops, "run_rebrew", run)
     monkeypatch.setattr(
-        "rebrew.test.compile_and_compare",
+        "rebrew.verify.test.compile_and_compare",
         lambda *a, **k: CompareResult(
             matched=True,
             status="EXACT",
@@ -195,7 +195,7 @@ def test_a_candidate_that_no_longer_matches_is_refused(
     from rebrew.compiler.compile import CompareResult
 
     monkeypatch.setattr(
-        "rebrew.test.compile_and_compare",
+        "rebrew.verify.test.compile_and_compare",
         lambda *a, **k: CompareResult(
             matched=False,
             status="NEAR_MATCHING",
@@ -1718,7 +1718,7 @@ def test_a_compile_the_toolchain_never_ran_applies_nothing(
 
     monkeypatch.setattr(ops, "run_rebrew", run)
     monkeypatch.setattr(
-        "rebrew.test.compile_and_compare",
+        "rebrew.verify.test.compile_and_compare",
         lambda *a, **k: classify_compare_result(
             False,
             f"COMPILE_ERROR: {daemon}",

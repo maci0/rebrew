@@ -1,0 +1,681 @@
+"""rebrew build layout — generate linker-script scaffolding from a target binary.
+
+Onboarding a new binary leaves the byte-identity build machinery (object
+order, .def exports, IAT forcing, .data restore, PE-normalization params)
+to be hand-built per project.  This command derives that scaffolding
+directly from the original binary, so a project can generate the layout
+template when needed instead of reverse-engineering it later.
+
+What it emits (source scaffolding in the target's ``reversed_dir`` unless
+overridden; the layout package in ``layout/<target>/`` under the project root):
+
+  ``<target>.def``
+      EXPORTS table with the original's ordinals (``name @ ordinal``).
+
+  ``layout/<target>/`` (text-only layout package, committed to git)
+      Everything ``rebrew build postlink --layout`` needs to reconstruct the
+      reference with **zero binary blobs at rest**: a structured
+      ``rebrew-layout.toml`` (image base, sections with raw pointers, exports,
+      imports with reference IAT-slot VAs, export-directory stamp) plus hex
+      dumps of the opaque linker-stamped regions (header block, IAT,
+      import bookkeeping + drift-check prefix, ``.data`` raw, ``.reloc``
+      content) and sparse ``.text`` maps (data operands, E8/E9 call
+      targets).  The original DLL is not needed at build time.
+
+  ``crt_region/crt_imports.c``
+      ``#pragma comment(linker, "/include:__imp_...")`` forcing list in the
+      binary's true IAT order (the seed for the first-linked import TU).
+      These retain imports; the linker can still allocate slots in a different
+      order depending on its other inputs.
+      Name-only imports resolve their ``@N`` suffix from the toolchain
+      import libraries when available; ordinal imports (e.g. WS2_32) are
+      emitted as comments next to their ordinal.
+
+  ``crt_region/data_restore.c``
+      The .data restore translation unit (globals declared in original VA
+      order, initial values copied from the binary) — generated only when
+      ``rebrew-data.toml`` has entries for this target's module.
+
+This command covers everything readable from the binary itself, so it can
+run immediately after ``rebrew intake``; it never reads a catalog artifact.
+
+Usage::
+
+    rebrew build layout --target server.dll
+    rebrew build layout --target game.dll --def-only
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+lazy import subprocess
+lazy import uuid
+lazy from pathlib import Path
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+lazy from rebrew.buildsys.layout_meta import LayoutMetadata, extract_layout, write_package
+lazy from rebrew.config import compiler_dir, target_module
+lazy from rebrew.formats.pe_headers import pe_image_base, pe_layout
+lazy from rebrew.formats.pe_image import PeImport, derive_link_options, parse_pe
+lazy from rebrew.utils import (
+    atomic_write_text,
+    container_runtime,
+    fold_ident,
+    pe_name_token,
+    run_process_group,
+)
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew build layout --dry-run  # Show the generated script, write nothing\n\n"
+    "  rebrew build layout --def-only  # Only the module .def\n\n"
+    "  rebrew build layout --data-gap 0x40  # Copy a reference .data tail\n"
+)
+
+
+app = typer.Typer(
+    help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore).",
+    epilog=_EPILOG,
+)
+
+log = logging.getLogger(__name__)
+
+#: Ordinal imports can't be /included by name from the binary alone; the
+#: small stable ordinal tables let the generator still emit usable seeds.
+#: WS2_32 ordinals are fixed by the Winsock spec.
+_WS2_32_ORDINALS: dict[int, str] = {
+    # Ordinals fixed by the Winsock spec (verified against the export table
+    # of the classic ws2_32.dll — Wine 1.8's ws2_32.spec matches the Windows
+    # 2000/XP-era DLL, and the 1-23 / 51-57 / 101-116 / 151 ranges stayed
+    # stable through Windows 10).  The previous table was a garbled blend of
+    # Win95-era guesses and modern ordinals: WSAStartup appeared at FOUR
+    # ordinals (48/112/116/301) and the 51-57 block claimed internal WSAp*
+    # helpers where the real DLL exports gethostbyaddr & co.
+    1: "accept",
+    2: "bind",
+    3: "closesocket",
+    4: "connect",
+    5: "getpeername",
+    6: "getsockname",
+    7: "getsockopt",
+    8: "htonl",
+    9: "htons",
+    10: "ioctlsocket",
+    11: "inet_addr",
+    12: "inet_ntoa",
+    13: "listen",
+    14: "ntohl",
+    15: "ntohs",
+    16: "recv",
+    17: "recvfrom",
+    18: "select",
+    19: "send",
+    20: "sendto",
+    21: "setsockopt",
+    22: "shutdown",
+    23: "socket",
+    51: "gethostbyaddr",
+    52: "gethostbyname",
+    53: "getprotobyname",
+    54: "getprotobynumber",
+    55: "getservbyname",
+    56: "getservbyport",
+    57: "gethostname",
+    101: "WSAAsyncSelect",
+    102: "WSAAsyncGetHostByAddr",
+    103: "WSAAsyncGetHostByName",
+    104: "WSAAsyncGetProtoByNumber",
+    105: "WSAAsyncGetProtoByName",
+    106: "WSAAsyncGetServByPort",
+    107: "WSAAsyncGetServByName",
+    108: "WSACancelAsyncRequest",
+    109: "WSASetBlockingHook",
+    110: "WSAUnhookBlockingHook",
+    111: "WSAGetLastError",
+    112: "WSASetLastError",
+    113: "WSACancelBlockingCall",
+    114: "WSAIsBlocking",
+    115: "WSAStartup",
+    116: "WSACleanup",
+    151: "__WSAFDIsSet",
+}
+#: Common WS2_32 stack-argument byte counts for the decorated /include names.
+_WS2_32_ARGS: dict[str, int] = {
+    "accept": 12,
+    "bind": 12,
+    "closesocket": 4,
+    "connect": 12,
+    "ioctlsocket": 12,
+    "listen": 8,
+    "recv": 16,
+    "send": 16,
+    "sendto": 24,
+    "setsockopt": 20,
+    "shutdown": 8,
+    "socket": 12,
+    "htonl": 4,
+    "htons": 4,
+    "WSAGetLastError": 0,
+    "WSAStartup": 8,
+    "WSACleanup": 0,
+}
+
+
+# ``__imp_`` plus the decorated symbol.  Stdcall ``_Sleep@4`` is stored as
+# ``__imp__Sleep@4``.  Vectorcall ``hook@@12`` is ``__imp_hook@@12``.
+# Fastcall ``@keeps@4`` is ``__imp_@keeps@4``.  A cdecl ``__imp__printf``
+# has no ``@N`` and stays out.  The image grep below matches the same three.
+_IMP_LIB_SYMBOL_RE = re.compile(
+    rb"__imp_(?:_[A-Za-z_][A-Za-z0-9_]*@\d+"
+    rb"|[A-Za-z_][A-Za-z0-9_]*@@\d+"
+    rb"|@[A-Za-z_][A-Za-z0-9_]*@\d+)"
+)
+
+
+def _import_lib_symbols(lib_path: Path) -> set[str]:
+    """Collect decorated ``__imp_`` thunk names from a COFF import library.
+
+    MSVC import libraries store the thunk symbols (``__imp__GetLocalTime@4``,
+    ``__imp_hook@@12``, ``__imp_@keeps@4``) as plain NUL-terminated strings
+    inside the archive members (the archive's linker-member layout is the
+    Microsoft variant with an index table — simpler to regex the whole file
+    than to walk it).  The thunk name is exactly what ``/include:`` needs.
+    """
+    out: set[str] = set()
+    try:
+        d = lib_path.read_bytes()
+    except OSError as exc:
+        # An empty set means "this LIB exports nothing", which would seed an
+        # import-ordinal table with every import undecorated.
+        log.warning("cannot read import library %s: %s", lib_path, exc)
+        return out
+    if d[:8] != b"!<arch>\n":
+        return out
+    for m in _IMP_LIB_SYMBOL_RE.finditer(d):
+        out.add(m.group(0).decode("latin1"))
+    return out
+
+
+#: POSIX sh run in the toolchain image: grep the ``__imp_`` symbols out of
+#: the file in dir ``$1`` whose upper-cased name equals ``$2``.
+#: Same three spellings as ``_IMP_LIB_SYMBOL_RE``.
+_IMAGE_LIB_GREP_SCRIPT = (
+    'for f in "$1"/*; do '
+    'if [ "$(basename "$f" | tr \'[:lower:]\' \'[:upper:]\')" = "$2" ]; then '
+    "exec grep -aoE '__imp_(_[A-Za-z_][A-Za-z0-9_]*@[0-9]+"
+    "|[A-Za-z_][A-Za-z0-9_]*@@[0-9]+"
+    '|@[A-Za-z_][A-Za-z0-9_]*@[0-9]+)\' "$f"; fi; '
+    "done; exit 1"
+)
+
+
+def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
+    """Collect the decorated import symbols from the toolchain image's own libs.
+
+    The project config's ``libs`` dir (host MSVC tree) is gone on container-only
+    setups — the import libraries now live inside the toolchain image.  Grep
+    the same ``__imp_`` thunk strings out of the image's ``Lib/<DLL>.LIB``.
+    """
+    from rebrew.compiler.toolchain import TOOLCHAINS, docker_hardening_args
+
+    spec = TOOLCHAINS.get("msvc-6.0")
+    if spec is None or spec.image is None or spec.tool_root is None:
+        return set()
+    lib_dir = str(Path(spec.tool_root).parent / "Lib")
+    # Unique name: a fixed ``rebrew-libgrep-{dll}`` collided when two
+    # rebrew build layout runs hit the same DLL, and a timed-out orphan blocked the
+    # next attempt until manual ``docker rm``.
+    # The stem comes from the target's import table, so it stays out of the
+    # container name (docker rejects most punctuation) and out of the script
+    # body: it travels as a positional arg, matched case-insensitively
+    # because the image filesystem is case-sensitive.
+    name = f"rebrew-libgrep-{uuid.uuid4().hex[:12]}"
+    try:
+        r = run_process_group(
+            [
+                container_runtime(),
+                "run",
+                "--rm",
+                *docker_hardening_args(pull=False),
+                "--name",
+                name,
+                "--entrypoint",
+                "sh",
+                spec.image,
+                "-c",
+                _IMAGE_LIB_GREP_SCRIPT,
+                "sh",
+                lib_dir,
+                f"{dll_stem}.LIB".upper(),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        log.warning("container %s timed out listing symbols; library assumed empty", name)
+        return set()
+    except OSError as exc:
+        # An empty set means "this LIB exports nothing", which would seed an
+        # import-ordinal table with every import undecorated.
+        log.warning("cannot run container %s to list symbols: %s", name, exc)
+        return set()
+    except BaseException:
+        # Ctrl+C kills the docker CLI but leaves the container running.
+        from rebrew.compiler.toolchain import kill_container
+
+        kill_container(name)
+        raise
+    if r.returncode != 0:
+        log.warning(
+            "container %s exited %d listing symbols for %s: %s",
+            name,
+            r.returncode,
+            dll_stem,
+            (r.stderr or "").strip()[:200],
+        )
+        return set()
+    return set(r.stdout.split())
+
+
+def _imp_suffix(name: str, lib_symbols: set[str], ordinal_map: dict[str, int]) -> str | None:
+    """Return the ``__imp_...`` thunk ``/include`` should name.
+
+    ``sorted`` because a lib can carry more than one decorated variant of the
+    same name.  Iterating the set directly makes the winner a function of
+    ``PYTHONHASHSEED``, so two runs of ``rebrew build layout`` in different processes
+    can emit different ``/include`` decorations for the same input.
+
+    The thunk is ``__imp_`` plus the decorated symbol.  Stdcall ``_Sleep@4``
+    is ``__imp__Sleep@4``.  Vectorcall ``hook@@12`` is ``__imp_hook@@12``.
+    Fastcall ``@keeps@4`` is ``__imp_@keeps@4``.
+    """
+    imp = "__imp_"
+    heads = (f"_{name}@", f"{name}@@", f"@{name}@")
+    for sym in sorted(lib_symbols):
+        if not sym.startswith(imp):
+            continue
+        decorated = sym[len(imp) :]
+        if any(decorated.startswith(head) for head in heads):
+            return sym
+    if name in ordinal_map:
+        return f"__imp__{name}@{ordinal_map[name]}"
+    return None
+
+
+def _resolve_imports(imports: list[PeImport], lib_symbols: set[str]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for imp in imports:
+        name = imp.name
+        if name is None and imp.ordinal is not None and imp.dll.upper() == "WS2_32.DLL":
+            name = _WS2_32_ORDINALS.get(imp.ordinal)
+        entry: dict[str, Any] = {
+            "dll": imp.dll,
+            "name": name,
+            "ordinal": imp.ordinal,
+            # Always present: gen_crt_imports indexes it unconditionally, even
+            # for an ordinal-only import (name None) from a DLL other than WS2_32.
+            "include": None,
+        }
+        if name:
+            entry["include"] = _imp_suffix(name, lib_symbols, _WS2_32_ARGS)
+        out.append(entry)
+    return out
+
+
+def gen_def(target: str, exports: list[dict[str, Any]]) -> str:
+    """Render the `.def` export block: LIBRARY name + one EXPORTS line per ordinal."""
+    lines = [f"LIBRARY {target.rsplit('.', 1)[0]}", "EXPORTS"]
+    for ex in exports:
+        name = pe_name_token(ex["name"]) or f"ORDINAL_{ex['ordinal']}"
+        lines.append(f"    {name} @{ex['ordinal']}")
+    return "\n".join(lines) + "\n"
+
+
+def gen_crt_imports(
+    target_module_name: str, imports: list[dict[str, Any]], iat_va: int | None
+) -> str:
+    """Retain imports with /include directives listed in reference IAT order."""
+    lines = [
+        (
+            f"/* IAT {target_module_name} 0x{iat_va:x} */"
+            if iat_va
+            else f"/* IAT-forcing /include list ({target_module_name}) */"
+        ),
+        "// AUTO-GENERATED by rebrew build layout — imports in the original's IAT order.",
+        "// Retains imports; linker input order also determines IAT placement.",
+    ]
+    cur_dll = None
+    for imp in imports:
+        dll = pe_name_token(imp["dll"])
+        name = pe_name_token(imp["name"])
+        if dll != cur_dll:
+            cur_dll = dll
+            lines.append(f"// {dll}")
+        if imp["include"]:
+            include = pe_name_token(imp["include"])
+            lines.append(f'#pragma comment(linker, "/include:{include}")')
+        elif name:
+            lines.append(
+                f'// #pragma comment(linker, "/include:__imp__{name}")  /* suffix unknown */'
+            )
+        else:
+            lines.append(
+                f"// #pragma comment(linker, ...)  /* ordinal {imp['ordinal']} of {dll} */"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def layout_config_dict(
+    meta: LayoutMetadata,
+    resolved_imports: list[dict[str, Any]],
+    link_options: list[str],
+    resolve_names: bool = True,
+) -> dict[str, Any]:
+    """The layout package dict (``rebrew-layout.toml`` content + extras).
+
+    *resolved_imports* is the import list with ordinal names resolved (the
+    same order as ``meta.imports``).  With ``resolve_names=True`` (the
+    reviewable package) those names are kept and the reference IAT-slot
+    VA from ``meta.imports`` is attached by position.  With
+    ``resolve_names=False`` (the exact input the post-link fixers compare
+    against) the raw imports are used — ordinal-only entries stay
+    ordinal-only, which is what the import-set signature and the IAT-slot
+    remap compare against.
+    """
+    if not resolve_names:
+        imports: list[dict[str, Any]] = [i.as_dict() for i in meta.imports]
+    else:
+        imports = []
+        for i, imp in enumerate(resolved_imports):
+            entry: dict[str, Any] = {"dll": imp["dll"]}
+            if imp.get("name"):
+                entry["name"] = imp["name"]
+            if imp.get("ordinal") is not None:
+                entry["ordinal"] = imp["ordinal"]
+            if i < len(meta.imports):
+                entry["iat"] = meta.imports[i].iat_va
+            imports.append(entry)
+    return {
+        "target": meta.target,
+        "link_options": link_options,
+        "image_base": meta.image_base,
+        "sections": [s.as_dict() for s in meta.sections],
+        "exports": [
+            {
+                "name": ex.get("name") or f"ORD_{ex['ordinal']}",
+                "ordinal": ex["ordinal"],
+                "va": ex["va"],
+            }
+            for ex in meta.exports
+        ],
+        "imports": imports,
+        "export_stamp": list(meta.export_stamp),
+        "exp_rva": meta.exp_rva,
+    }
+
+
+def fmt_layout_toml(
+    meta: LayoutMetadata, resolved_imports: list[dict[str, Any]], link_options: list[str]
+) -> str:
+    """Render the ``rebrew-layout.toml`` structured file (TOML) for a layout package.
+
+    Uses the raw import list (ordinal-only entries stay ordinal-only) so the
+    package is the exact input the post-link fixers compare against.
+    """
+    import tomlkit
+
+    lay = tomlkit.inline_table()
+    for k, v in layout_config_dict(
+        meta, resolved_imports, link_options, resolve_names=False
+    ).items():
+        lay[k] = v
+    doc = tomlkit.document()
+    doc["layout"] = lay
+    return tomlkit.dumps(doc)
+
+
+def gen_data_restore(
+    data: bytes, target_module_name: str, raw_start: int, *, syntax: Any = None
+) -> str:
+    """The ``.data`` gap TU: the reference's raw ``.data`` bytes ``[raw_start : raw_end]``.
+
+    This copies a caller-selected range; it does not inspect project objects
+    or establish that they lack those bytes. The blob can duplicate native
+    contributions and preserves reference pointer values without relocations.
+    """
+    if syntax is not None and syntax.style == "delphi":
+        raise ValueError("C data generation requires c89 or cpp address_comments.style")
+    layout = pe_layout(data)
+    if layout is None:
+        raise ValueError("reference binary is not a PE")
+    section = next((s for s in layout.sections if s.name == ".data"), None)
+    if section is None:
+        raise ValueError("no .data section in the reference binary")
+    data_va = section.virtual_address
+    data_raw = section.size_of_raw_data
+    data_ro = section.pointer_to_raw_data
+    image_base = pe_image_base(data)
+    if image_base is None:
+        raise ValueError("truncated or unsupported optional header")
+    if not 0 <= raw_start < data_raw:
+        raise ValueError(f"raw-size {raw_start:#x} outside [0, {data_raw:#x})")
+    blob = data[data_ro + raw_start : data_ro + data_raw]
+    from rebrew.metadata.anchors import address_comment
+
+    lines = [
+        "/* data_restore.c - AUTO-GENERATED by rebrew build layout --data-gap",
+        f" * Copies the reference's raw .data bytes [{raw_start:#x}:{data_raw:#x}].",
+        " * Project-object ownership is not checked; native data may overlap.",
+        " * Reference pointer values are copied without linker relocations.",
+        " * This is reference scaffolding, not evidence of native reconstruction.",
+        " * Regenerate with: rebrew build layout --data-gap <raw-size>",
+        " */",
+        "#pragma pack(push, 1)",
+        address_comment(target_module_name, image_base + data_va + raw_start, syntax=syntax),
+        f"unsigned char g_data_restore_gap[0x{len(blob):x}] = {{",
+    ]
+    for i in range(0, len(blob), 16):
+        chunk = blob[i : i + 16]
+        lines.append("\t" + ",".join(f"0x{b:02x}" for b in chunk) + ",")
+    lines.append("};")
+    lines.append("#pragma pack(pop)")
+    return "\n".join(lines) + "\n"
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    def_only: bool = typer.Option(False, "--def-only", help="Only emit <target>.def"),
+    link_config: bool = typer.Option(
+        False,
+        "--link-config",
+        help=r"Print the derived \[link] toml block for rebrew-project.toml",
+    ),
+    layout_config: bool = typer.Option(
+        False,
+        "--layout-config",
+        help="Print standalone layout TOML for layout/<target>/rebrew-layout.toml",
+    ),
+    data_gap: str | None = typer.Option(
+        None,
+        "--data-gap",
+        help=r"Also emit crt_region/data_restore.c: the reference's raw .data bytes "
+        r"\[<raw-size>:raw_end] (hex, e.g. 0x3000). Copies reference scaffolding; "
+        r"does not check native data ownership or relocate pointers",
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Generate the linker-script scaffolding for a target binary."""
+    cfg = require_config(target, json_mode=json_output)
+    if not cfg.target_binary.exists():
+        error_exit(f"binary not found: {cfg.target_binary}", json_mode=json_output)
+    data = cfg.target_binary.read_bytes()
+    try:
+        sections, exports, imports_raw, pe = parse_pe(data)
+    except ValueError as exc:
+        error_exit(f"{cfg.target_binary}: {exc}", json_mode=json_output)
+
+    link_options, link_toml = derive_link_options(pe)
+
+    # resolve import lib symbols for @N suffixes (readable list + the
+    # crt_imports.c /include seed).  Host lib dir first (legacy); fall back
+    # to the toolchain image's own Lib dir (container-only setups have no host
+    # MSVC tree anymore).
+    lib_symbols: set[str] = set()
+    libs_dir = Path(compiler_dir(cfg.compiler_libs))
+    # Path("") is the "no lib dir" config and reports is_dir() for the current
+    # directory, which would import lib symbols out of whatever .lib happens to
+    # sit next to the project.
+    has_libs_dir = bool(libs_dir.parts) and libs_dir.is_dir()
+    # The lib directory is invariant across imports; scan it once, not per DLL.
+    by_name: dict[str, Path] = (
+        {fold_ident(p.name): p for p in libs_dir.iterdir() if p.is_file()} if has_libs_dir else {}
+    )
+    for dll in {i.dll for i in imports_raw}:
+        # binary names imports "KERNEL32.dll"; the import libs on disk are
+        # "KERNEL32.LIB" (case and extension differ, and Linux is
+        # case-sensitive) — match "<stem>.lib", then the DLL name, ignoring case.
+        stem = Path(dll).stem
+        lib: Path | None = None
+        if has_libs_dir:
+            # NFC then casefold, as compile_cache's include search does: a
+            # lib shipped as NFD "Café.lib" would otherwise never match the
+            # cp1252-decoded NFC name the import table carries, and the
+            # fallback silently drops every stdcall decoration.
+            lib = by_name.get(fold_ident(f"{stem}.lib")) or by_name.get(fold_ident(dll))
+        if lib is not None:
+            lib_symbols |= _import_lib_symbols(lib)
+        else:
+            lib_symbols |= _import_lib_symbols_from_image(stem)
+    imports = _resolve_imports(imports_raw, lib_symbols)
+
+    if link_config:
+        if json_output:
+            json_print({"link_toml": link_toml})
+        else:
+            print(link_toml)
+        return
+    if layout_config:
+        try:
+            meta = extract_layout(data, cfg.target_name)
+        except ValueError as exc:
+            error_exit(f"{cfg.target_binary}: {exc}", json_mode=json_output)
+        layout_toml = fmt_layout_toml(meta, imports, link_options)
+        if json_output:
+            json_print({"layout_toml": layout_toml})
+        else:
+            print(layout_toml)
+        return
+
+    target_module_name = target_module(cfg)
+    out_dir = cfg.reversed_dir
+
+    result = {
+        "target": cfg.target_name,
+        "exports": len(exports),
+        "imports": len(imports),
+        "written": [],
+    }
+    if dry_run:
+        if json_output:
+            result["dry_run"] = True
+            json_print(result)
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would write {len(exports)} exports, "
+                f"{len(imports)} imports scaffolding under {out_dir} "
+                f"and layout/{cfg.target_name}/"
+            )
+        return
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "crt_region").mkdir(parents=True, exist_ok=True)
+
+    # Text-only layout package (committed, no binary blobs): the structured
+    # rebrew-layout.toml + hex dumps of the opaque linker-stamped regions + sparse
+    # .text maps land in layout/<target>/, which the build's
+    # 'rebrew build postlink --layout' consumes without the original DLL.
+    try:
+        meta = extract_layout(data, cfg.target_name)
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+
+    pkg_dir = cfg.root / "layout" / cfg.target_name
+    tname = cfg.target_name.rsplit(".", 1)[0]
+    written: list[str] = []
+
+    def write(rel: Path, text: str) -> None:
+        atomic_write_text(out_dir / rel, text)
+        written.append(str(out_dir / rel))
+
+    write(Path(f"{cfg.target_name}.def"), gen_def(tname, exports))
+    if not def_only:
+        written.extend(
+            str(p)
+            for p in write_package(
+                meta, pkg_dir, fmt_toml=lambda m: fmt_layout_toml(m, imports, link_options)
+            )
+        )
+        from rebrew.binary_gate import layout_fingerprint
+
+        fingerprint = layout_fingerprint(cfg.target_binary)
+        if fingerprint:
+            atomic_write_text(pkg_dir / "layout.fingerprint", fingerprint + "\n")
+            written.append(str(pkg_dir / "layout.fingerprint"))
+        # `Section.va` is an RVA, but the IAT address this header records is a
+        # VA; every other generator here adds the image base (see
+        # gen_data_restore).  Emitting the bare RVA wrote `0x24000` for an IAT
+        # that lives at 0x10024000, an address outside every section range.
+        iat_section = next((s for s in sections if s.name == ".rdata"), None)
+        write(
+            Path("crt_region/crt_imports.c"),
+            gen_crt_imports(
+                target_module_name,
+                imports,
+                pe["image_base"] + iat_section.va if iat_section else None,
+            ),
+        )
+        if data_gap:
+            from rebrew.utils import parse_int_literal
+
+            write(
+                Path("crt_region/data_restore.c"),
+                gen_data_restore(
+                    data,
+                    target_module_name,
+                    parse_int_literal(data_gap),
+                    syntax=getattr(cfg, "address_comments", None),
+                ),
+            )
+
+    result = {
+        "target": cfg.target_name,
+        "exports": len(exports),
+        "imports": len(imports),
+        "written": written,
+        "dry_run": False,
+    }
+    if json_output:
+        json_print(result)
+    else:
+        console.print(f"build layout: {len(exports)} exports, {len(imports)} imports")
+        for w in written:
+            console.print(f"  wrote {w}")
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

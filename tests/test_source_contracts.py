@@ -10,8 +10,8 @@ from tree_snapshot import snapshot, snapshot_with_stat
 
 from rebrew.config import ProjectConfig
 from rebrew.metadata.functions import record_function_identity
-from rebrew.rename_ops import RenameError
-from rebrew.source_contracts import audit_contracts, contract_contexts, reconcile_contract
+from rebrew.source.contracts import audit_contracts, contract_contexts, reconcile_contract
+from rebrew.source.rename_ops import RenameError
 
 
 def _project(tmp_path: Path) -> ProjectConfig:
@@ -66,7 +66,7 @@ class TestContracts:
     def test_shared_header_is_extracted_once_with_each_context_preserved(
         self, tmp_path: Path, name: str | None
     ) -> None:
-        import rebrew.source_contracts as contracts
+        import rebrew.source.contracts as contracts
 
         cfg = _project(tmp_path)
         header = cfg.reversed_dir / "api.h"
@@ -285,7 +285,7 @@ class TestContractReconciliation:
             atomic_write_text(path, text, **kwargs)
 
         with (
-            patch("rebrew.rename_ops.atomic_write_text", side_effect=write),
+            patch("rebrew.source.rename_ops.atomic_write_text", side_effect=write),
             pytest.raises(RenameError, match="failed"),
         ):
             reconcile_contract([cfg], "queue", Path("src/api.h"), "int queue(int value)")
@@ -626,7 +626,7 @@ class TestScopedUnknowns:
 
 
 def test_named_audit_does_not_extract_unrelated_bodies(tmp_path: Path) -> None:
-    import rebrew.source_contracts as contracts
+    import rebrew.source.contracts as contracts
 
     cfg = _project(tmp_path)
     other = cfg.reversed_dir / "extra.c"

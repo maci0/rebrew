@@ -35,8 +35,8 @@ from rebrew.cli import (
 from rebrew.theme import TOKENS
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.metadata.bindings import read_source_bindings
-lazy from rebrew.rename_ops import c_name_from_symbol
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
+lazy from rebrew.source.rename_ops import c_name_from_symbol
 lazy from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
 lazy from rebrew.utils import atomic_write_text, fold_ident
 lazy from rebrew.workspace.names import is_placeholder_name
@@ -258,7 +258,7 @@ def build_graph(
         reversed_dir: Directory containing reversed .c source files.
         cfg: Optional project configuration.
         dispatch_tables: Optional list of ``DispatchTable`` objects (from
-            ``rebrew.data_scan.find_dispatch_tables``).  When provided, a virtual
+            ``rebrew.data.scan.find_dispatch_tables``).  When provided, a virtual
             ``dispatch_0x<VA>`` node is created per table and connected to each
             entry function target via dispatch edges.
 
@@ -349,7 +349,7 @@ def build_graph(
         library_inventory_bindings,
         min_valid_va_for,
     )
-    from rebrew.sources import iter_library_headers
+    from rebrew.source.discovery import iter_library_headers
 
     for header in iter_library_headers(reversed_dir, cfg):
         header_rel = rel_display_path(header, reversed_dir)
@@ -829,7 +829,7 @@ def main(
                 json_mode=json_output,
             )
         try:
-            from rebrew.data_scan import build_source_known_functions, find_dispatch_tables
+            from rebrew.data.scan import build_source_known_functions, find_dispatch_tables
             from rebrew.formats.binary_loader import load_binary, section_dict
 
             info = load_binary(bin_path)

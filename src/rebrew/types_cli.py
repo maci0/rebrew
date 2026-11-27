@@ -83,7 +83,7 @@ def check(
 ) -> None:
     """Check declared structs against decompiler offset evidence."""
     cfg = require_config(target=target, json_mode=json_output)
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
     from rebrew.type_metadata import check_types
     from rebrew.types import check_struct, parse_structs
 
@@ -324,7 +324,7 @@ def contracts_cmd(
 ) -> None:
     """Audit C declaration contracts separately from native byte matches."""
     from rebrew.cli import all_targets_run
-    from rebrew.source_contracts import audit_contracts
+    from rebrew.source.contracts import audit_contracts
 
     if all_targets_run(
         target=target,
@@ -371,8 +371,8 @@ def reconcile_cmd(
 ) -> None:
     """Reconcile one reviewed signature and enumerate all caller verification contexts."""
     from rebrew.config import load_config
-    from rebrew.rename_ops import RenameError
-    from rebrew.source_contracts import reconcile_contract
+    from rebrew.source.contracts import reconcile_contract
+    from rebrew.source.rename_ops import RenameError
     from rebrew.workspace.config import read_config, targets_table
 
     cfg = require_config(json_mode=json_output)

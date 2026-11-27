@@ -6,13 +6,13 @@ reuses the module that owns the check, never reimplements it):
 * **TU layout** (``merge``/``split``/``move``): :mod:`rebrew.cu_map`
   clusters vs current source files.
 * **link-order**: sources not in VA order in ``CMakeLists.txt``
-  (:mod:`rebrew.link_order`).
+  (:mod:`rebrew.buildsys.link_order`).
 * **orphans**: metadata blocks with no source binding
   (:mod:`rebrew.orphans`, prunable subset only).
 * **lint-fixable**: ``rebrew lint --fix`` would change files (W029 redundant
   cflags, W016 backfillable SECTION).
 * **shared-twins**: per-target twin copies collapsible via
-  ``rebrew source merge --shared`` (:mod:`rebrew.merge` normalization).
+  ``rebrew source merge --shared`` (:mod:`rebrew.source.merge` normalization).
 * **next-action**: highest-impact item from :mod:`rebrew.todo` (pointer only,
   so ``recommend`` never duplicates the todo ranking logic).
 * **flag-split**: one file holds functions with divergent per-function
@@ -21,7 +21,7 @@ reuses the module that owns the check, never reimplements it):
   backfills from the binary.
 * **lint-errors**: E-code findings need human fixes (``rebrew lint`` shows).
 * **foreign-sources**: files carrying no binding for this target are excluded
-  from the build (:func:`rebrew.source_selection.collect_target_sources`).
+  from the build (:func:`rebrew.source.selection.collect_target_sources`).
 
 ``--apply`` executes only the safe mechanical fixes (``lint --fix``,
 ``build link-order --apply``, ``orphans prune`` of the prunable subset,
@@ -50,7 +50,7 @@ from rebrew.cli import (
     require_config,
 )
 lazy from rebrew.config import ProjectConfig, inventory_path_for
-lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.source.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import TerminalTable, last_change_ns, untrusted_ident
 lazy from rebrew.workspace.names import is_placeholder_name
 lazy from rebrew.workspace.status import EARNED_STATUSES
@@ -327,7 +327,7 @@ def recommend_shared_twins(
     """Advise ``rebrew source merge --shared`` per twin group.
 
     *groups* are file lists with identical normalized bodies (grouped by
-    :func:`rebrew.merge.normalize_body`); singletons never arrive here.
+    :func:`rebrew.source.merge.normalize_body`); singletons never arrive here.
     """
     recs = []
     for i, files in enumerate(groups):
@@ -850,7 +850,7 @@ def load_layout(
     """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import read_source_bindings
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
     from rebrew.utils import rel_display_path
 
     if sources is None:
@@ -916,7 +916,7 @@ def _collect_hygiene(
     unfiltered walk it came from. Every lane reads the same tree, so the walk
     runs once instead of once per lane.
     """
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
 
     if sources is None:
         sources = iter_sources(cfg.reversed_dir, cfg)
@@ -924,8 +924,8 @@ def _collect_hygiene(
     names = names or {}
 
     with _lane("link-order"):
-        from rebrew.link_order import find_sources_block, normalize_listed, order_sources
-        from rebrew.sources import source_exts
+        from rebrew.buildsys.link_order import find_sources_block, normalize_listed, order_sources
+        from rebrew.source.discovery import source_exts
         from rebrew.utils import rel_display_path
 
         cmake = cfg.root / "CMakeLists.txt"
@@ -1066,7 +1066,7 @@ def _collect_hygiene(
             recs.append(start)
 
     with _lane("build-check"):
-        from rebrew.build_check import check as build_check
+        from rebrew.buildsys.check import check as build_check
 
         result = build_check()
         if result.get("status") == "drift":
@@ -1080,7 +1080,7 @@ def _collect_hygiene(
         recs.extend(recommend_verify_failures(load_verify_entries(cfg)))
 
     with _lane("stale-cache"):
-        from rebrew.verify_cache import cache_path_for
+        from rebrew.verify.cache import cache_path_for
 
         cache_path = cache_path_for(cfg, for_read=True)
         try:
@@ -1149,7 +1149,7 @@ def _collect_hygiene(
 
     with _lane("foreign-sources"):
         from rebrew.config import target_module
-        from rebrew.source_selection import collect_target_sources
+        from rebrew.source.selection import collect_target_sources
         from rebrew.utils import rel_display_path
 
         target_module_name = target_module(cfg) or cfg.target_name
@@ -1226,7 +1226,7 @@ def main(
     from rebrew.catalog import build_function_registry, cached_function_list
     from rebrew.cu_map import cluster_functions
     from rebrew.formats.binary_loader import load_binary
-    from rebrew.sources import iter_sources, scan_files
+    from rebrew.source.discovery import iter_sources, scan_files
 
     funcs = cached_function_list(cfg)
     if not funcs:

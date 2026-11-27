@@ -687,8 +687,8 @@ class TestBackendIntegration:
     ) -> None:
         from bin_util import make_pe
 
-        from rebrew.cmake_sources import app
-        from rebrew.coverage_project import load_project_coverage
+        from rebrew.buildsys.cmake_sources import app
+        from rebrew.coverage.project import load_project_coverage
 
         _project(tmp_path, backend)
         (tmp_path / "game.exe").write_bytes(make_pe(b"\xc3"))

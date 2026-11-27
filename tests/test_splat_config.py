@@ -22,8 +22,8 @@ from hypothesis import strategies as st
 from source_util import write_source
 from typer.testing import CliRunner
 
-import rebrew.splat_config as splat_config
-from rebrew.splat_config import (
+import rebrew.buildsys.splat_config as splat_config
+from rebrew.buildsys.splat_config import (
     UNKNOWN_OPTION_REASON,
     ImportPlan,
     SplatConfig,
@@ -608,7 +608,7 @@ class TestRegistration:
         from rebrew.app.builtins import DOMAIN_COMPONENTS
 
         component = next(c for c in DOMAIN_COMPONENTS["source"] if c.name == "import-splat")
-        assert component.module == "rebrew.splat_config"
+        assert component.module == "rebrew.buildsys.splat_config"
 
 
 class TestApply:

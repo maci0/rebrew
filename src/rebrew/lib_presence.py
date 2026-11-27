@@ -27,7 +27,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-lazy from rebrew.data_layout import obj_text_symbol_offsets
+lazy from rebrew.data.layout import obj_text_symbol_offsets
 lazy from rebrew.formats.binary_loader import load_binary
 lazy from rebrew.gen_flirt_pat import parse_coff_obj
 

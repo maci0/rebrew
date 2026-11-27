@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 import typer
 
-import rebrew.test as test_mod
+import rebrew.verify.test as test_mod
 from rebrew.cli import EXIT_ERROR
 
 #: ``main`` leaves omitted parameters as typer ``OptionInfo`` sentinels, which

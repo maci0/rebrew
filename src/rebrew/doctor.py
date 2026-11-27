@@ -904,7 +904,7 @@ def check_source_files(cfg: ProjectConfig) -> CheckResult:
             fix=f"Create the directory: mkdir -p {shlex.quote(str(reversed_dir))}",
         )
 
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
 
     sources = iter_sources(reversed_dir, cfg)
     if not sources:
@@ -935,7 +935,7 @@ def check_function_bindings(cfg: ProjectConfig) -> CheckResult:
     """
     from rebrew.config import target_module
     from rebrew.metadata.bindings import binding_conflicts, iter_source_bindings
-    from rebrew.sources import iter_sources
+    from rebrew.source.discovery import iter_sources
 
     name = "Function bindings"
     if not cfg.reversed_dir.exists():

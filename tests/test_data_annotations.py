@@ -2,8 +2,8 @@
 
 import json
 
-from rebrew.data_layout import estimate_type_size as _estimate_type_size
-from rebrew.data_scan import (
+from rebrew.data.layout import estimate_type_size as _estimate_type_size
+from rebrew.data.scan import (
     BssEntry,
     BssGap,
     BssReport,

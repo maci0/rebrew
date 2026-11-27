@@ -39,7 +39,7 @@ def test_the_request_takes_no_fields(tmp_path: Path) -> None:
 def test_cache_files_name_every_file_the_verify_cache_writes(tmp_path: Path) -> None:
     from test_target_result_cache import _cfg, _rows
 
-    from rebrew.verify_cache import cache_path_for, load_verify_cache, save_verify_cache
+    from rebrew.verify.cache import cache_path_for, load_verify_cache, save_verify_cache
 
     status, reply = _call(_config(tmp_path / "worker"), "rebrew.vocabulary", {})
     assert status == 200, reply

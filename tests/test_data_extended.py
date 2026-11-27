@@ -9,8 +9,7 @@ from cli_json import cli_payload
 from source_util import write_source, write_store_fixture
 from typer.testing import CliRunner
 
-from rebrew.data import _generate_bss_fix
-from rebrew.data_annotate import (
+from rebrew.data.annotate import (
     _emit_extern_decl,
     gen_globals_header,
     set_data_names,
@@ -18,13 +17,14 @@ from rebrew.data_annotate import (
     set_data_sizes,
     set_data_types,
 )
-from rebrew.data_render import (
+from rebrew.data.cli import _generate_bss_fix
+from rebrew.data.render import (
     render_bss,
     render_globals,
     render_summary,
     section_summary,
 )
-from rebrew.data_scan import (
+from rebrew.data.scan import (
     BssEntry,
     BssGap,
     BssReport,
@@ -758,10 +758,10 @@ class TestDataCli:
         args: list[str],
         **cfg_overrides: object,
     ) -> object:
-        from rebrew.data import app
+        from rebrew.data.cli import app
 
         cfg = _cfg(tmp_path, **cfg_overrides)
-        monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.data.cli.require_config", lambda **kw: cfg)
         return CliRunner().invoke(app, args)
 
     def _write_global(self, cfg: SimpleNamespace) -> None:
@@ -1002,7 +1002,7 @@ class TestDataCli:
             bss_size=0x200,
             gaps=[BssGap(offset=0x1004, size=16, before="g_counter", after="next")],
         )
-        monkeypatch.setattr("rebrew.data.verify_bss_layout", lambda scan, sections: report)
+        monkeypatch.setattr("rebrew.data.cli.verify_bss_layout", lambda scan, sections: report)
         result = self._invoke(tmp_path, monkeypatch, ["fix-bss"])
         assert result.exit_code == 0
         assert (cfg.reversed_dir / "bss_padding.c").exists()
@@ -1019,7 +1019,7 @@ class TestDataCli:
             bss_size=0x200,
             gaps=[BssGap(offset=0x1004, size=16, before="g_counter", after="next")],
         )
-        monkeypatch.setattr("rebrew.data.verify_bss_layout", lambda scan, sections: report)
+        monkeypatch.setattr("rebrew.data.cli.verify_bss_layout", lambda scan, sections: report)
         result = self._invoke(tmp_path, monkeypatch, ["fix-bss"])
         assert result.exit_code == 0
         assert padding.read_text(encoding="utf-8") == "char my_own_pad[8];\n"
@@ -1037,7 +1037,7 @@ class TestDataCli:
             "rebrew.formats.binary_loader.load_binary",
             lambda p: SimpleNamespace(data=b"\x00" * 16, sections={}),
         )
-        monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
+        monkeypatch.setattr("rebrew.data.cli.find_dispatch_tables", lambda *a, **k: [])
         result = self._invoke(tmp_path, monkeypatch, ["dispatch", "--json"])
         assert result.exit_code == 0
         assert cli_payload(result) == {"items": [], "total": 0}
@@ -1057,7 +1057,7 @@ class TestDataCli:
             )
 
         monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", _fake_load)
-        monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: [])
+        monkeypatch.setattr("rebrew.data.cli.find_dispatch_tables", lambda *a, **k: [])
         result = self._invoke(tmp_path, monkeypatch, ["dispatch", "--json"])
         assert result.exit_code == 0
         assert calls["n"] == 1
@@ -1075,7 +1075,7 @@ class TestSectionSummary:
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x100}}
-        from rebrew.data_scan import enrich_with_sections
+        from rebrew.data.scan import enrich_with_sections
 
         enrich_with_sections(scan, sections)
         rows = section_summary(scan, sections)
@@ -1106,7 +1106,7 @@ class TestSectionSummary:
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x100}}
-        from rebrew.data_scan import enrich_with_sections
+        from rebrew.data.scan import enrich_with_sections
 
         enrich_with_sections(scan, sections)
         data_row = next(r for r in section_summary(scan, sections) if r["name"] == ".data")
@@ -1125,7 +1125,7 @@ class TestSectionSummary:
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x400}}
-        from rebrew.data_scan import enrich_with_sections
+        from rebrew.data.scan import enrich_with_sections
 
         enrich_with_sections(scan, sections)
         data_row = next(r for r in section_summary(scan, sections) if r["name"] == ".data")
@@ -1147,7 +1147,7 @@ class TestSectionSummary:
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 4}}
-        from rebrew.data_scan import enrich_with_sections
+        from rebrew.data.scan import enrich_with_sections
 
         enrich_with_sections(scan, sections)
         rows = section_summary(scan, sections)
@@ -1177,7 +1177,7 @@ class TestRenderDispatchAndBss:
     def testrender_dispatch_empty(self) -> None:
         from io import StringIO
 
-        from rebrew.data_render import render_dispatch
+        from rebrew.data.render import render_dispatch
 
         buf = StringIO()
         render_dispatch(_console(buf), [])  # type: ignore[arg-type]
@@ -1186,8 +1186,8 @@ class TestRenderDispatchAndBss:
     def testrender_dispatch_with_tables(self) -> None:
         from io import StringIO
 
-        from rebrew.data_render import render_dispatch
-        from rebrew.data_scan import DispatchEntry, DispatchTable
+        from rebrew.data.render import render_dispatch
+        from rebrew.data.scan import DispatchEntry, DispatchTable
 
         buf = StringIO()
         tbl = DispatchTable(
@@ -1209,8 +1209,8 @@ class TestRenderDispatchAndBss:
         """199 of 200 resolved is 99.5%: it must not render as "100%"."""
         from io import StringIO
 
-        from rebrew.data_render import render_dispatch
-        from rebrew.data_scan import DispatchEntry, DispatchTable
+        from rebrew.data.render import render_dispatch
+        from rebrew.data.scan import DispatchEntry, DispatchTable
 
         buf = StringIO()
         entries = [
@@ -1348,8 +1348,8 @@ class TestGenGlobalsHeaderMetadata:
 
 class TestDataMoreBranches:
     def testrender_summary_with_conflicts(self, tmp_path: Path) -> None:
-        from rebrew.data_render import render_summary
-        from rebrew.data_scan import scan_globals
+        from rebrew.data.render import render_summary
+        from rebrew.data.scan import scan_globals
 
         cfg = _cfg(tmp_path)
         write_source(
@@ -1375,7 +1375,7 @@ class TestDataMoreBranches:
         assert scan.globals == {}
 
     def test_gen_header_underscore_strip_and_unknown_section(self, tmp_path: Path) -> None:
-        from rebrew.data_annotate import gen_globals_header
+        from rebrew.data.annotate import gen_globals_header
         from rebrew.metadata.data import set_data_field
 
         cfg = _cfg(tmp_path)
@@ -1564,7 +1564,7 @@ class TestSetDataFile:
     def test_points_a_row_at_an_existing_source(self, tmp_path: Path) -> None:
         import tomllib
 
-        from rebrew.data_annotate import set_data_files
+        from rebrew.data.annotate import set_data_files
 
         cfg = _cfg(tmp_path)
         meta = cfg.metadata_dir / "rebrew-data.toml"
@@ -1585,7 +1585,7 @@ class TestSetDataFile:
         assert fields["name"] == "g_x"
 
     def test_rejects_a_missing_source(self, tmp_path: Path) -> None:
-        from rebrew.data_annotate import set_data_files
+        from rebrew.data.annotate import set_data_files
 
         cfg = _cfg(tmp_path)
         with pytest.raises(ValueError, match="missing source"):
@@ -1599,10 +1599,10 @@ class TestDataSetMarkerTypeAndNote:
     def _invoke(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
     ) -> tuple[object, Path]:
-        from rebrew.data import app
+        from rebrew.data.cli import app
 
         cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.data.cli.require_config", lambda **kw: cfg)
         meta = cfg.metadata_dir / "rebrew-data.toml"
         if not meta.exists():
             write_store_fixture(
@@ -1682,10 +1682,10 @@ class TestDataMove:
     def _invoke(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
     ) -> tuple[object, Path]:
-        from rebrew.data import app
+        from rebrew.data.cli import app
 
         cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.data.cli.require_config", lambda **kw: cfg)
         meta = cfg.metadata_dir / "rebrew-data.toml"
         if not meta.exists():
             write_store_fixture(meta, self._ROW, encoding="utf-8")
@@ -1778,12 +1778,12 @@ class TestDataOptionContracts:
     def test_removed_options_fail_before_execution(
         self, monkeypatch: pytest.MonkeyPatch, args: list[str]
     ) -> None:
-        from rebrew.data import app
+        from rebrew.data.cli import app
 
         def _unexpected(**kwargs: object) -> None:
             pytest.fail("an invalid option reached the data writer")
 
-        monkeypatch.setattr("rebrew.data.execute_data", _unexpected)
+        monkeypatch.setattr("rebrew.data.cli.execute_data", _unexpected)
         result = CliRunner().invoke(app, args)
         assert result.exit_code == 2, result.output
         assert "No such option" in result.output
@@ -1792,18 +1792,18 @@ class TestDataOptionContracts:
     def test_fill_forwards_bss_selection_to_layout_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bss_only: bool
     ) -> None:
-        from rebrew.data import app
+        from rebrew.data.cli import app
 
         cfg = _cfg(tmp_path, shared_dir=tmp_path / "shared")
         write_store_fixture(tmp_path / "rebrew-data.toml", "format = 2\n")
-        monkeypatch.setattr("rebrew.data.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.data.cli.require_config", lambda **kw: cfg)
         seen: dict = {}
 
         def _fill(*args: object, **kwargs: object) -> dict[str, int]:
             seen.update(args=args, kwargs=kwargs)
             return {"init_pads": 0, "bss_pads": 1}
 
-        monkeypatch.setattr("rebrew.data_layout.fill_data", _fill)
+        monkeypatch.setattr("rebrew.data.layout.fill_data", _fill)
         args = ["layout", "fill", "--dry-run", "--json", "--target", "SERVER"]
         if bss_only:
             args.append("--bss-only")

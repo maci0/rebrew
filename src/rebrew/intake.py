@@ -51,8 +51,8 @@ lazy from rebrew.config import (
 )
 lazy from rebrew.metadata.bindings import derive_c_symbol, iter_source_bindings
 lazy from rebrew.metadata.storage import metadata_store
-lazy from rebrew.rename_ops import is_valid_new_name
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
+lazy from rebrew.source.rename_ops import is_valid_new_name
 lazy from rebrew.utils import preset_module_key
 
 _EPILOG = (

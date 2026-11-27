@@ -228,8 +228,8 @@ class TestCompiledSources:
         assert covered[0x10001000] == row["filename"]
         entries = scan_reversed_dir(cfg.reversed_dir, cfg)
         assert [(entry.va, entry.kind) for entry in entries] == [(0x10001000, kind)]
-        from rebrew.source_selection import collect_target_sources
-        from rebrew.verify import _library_header_rows
+        from rebrew.source.selection import collect_target_sources
+        from rebrew.verify.cli import _library_header_rows
 
         assert collect_target_sources(cfg, "GAME")[0] == [source]
         assert (0x10001000 in _library_header_rows(cfg)) is (kind == "LIBRARY")
@@ -243,7 +243,7 @@ class TestCompiledSources:
         from typer.testing import CliRunner
 
         from rebrew.library import app
-        from rebrew.verify import _library_header_rows
+        from rebrew.verify.cli import _library_header_rows
 
         cfg = _project(tmp_path)
         source = tmp_path / "vendor.c"
@@ -291,7 +291,7 @@ class TestCompiledSources:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.metadata import functions
-        from rebrew.verify import _library_header_rows
+        from rebrew.verify.cli import _library_header_rows
 
         cfg = _project(tmp_path)
         records: list[dict[str, Any]] = []
@@ -335,7 +335,7 @@ class TestCompiledSources:
             SourceBinding(va=0x10001000, filepath="library_vendor.h", kind="LIBRARY"),
             {"file": "references/missing.c", "symbol": "_missing"},
         )
-        from rebrew.verify import verify_entry
+        from rebrew.verify.cli import verify_entry
 
         assert verify_entry(entry, cfg).status == "MISSING_FILE"
 
@@ -488,7 +488,7 @@ class TestProviderEvidence:
         )
 
     def test_report_keeps_verified_library_counts_separate_from_provider_inventory(self) -> None:
-        from rebrew.verify import build_report
+        from rebrew.verify.cli import build_report
 
         report = build_report(
             ProjectConfig(root=Path(".")),
@@ -578,7 +578,7 @@ class TestExactProviderPaths:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.metadata.bindings import read_source_bindings
-        from rebrew.test import _run_test_impl
+        from rebrew.verify.test import _run_test_impl
 
         source = tmp_path / "src/shared/f.c"
         source.parent.mkdir(parents=True)
@@ -615,7 +615,7 @@ class TestExactProviderPaths:
         monkeypatch.setattr(
             "rebrew.compiler.overrides.resolve_compile_overrides", lambda *args: (None, "")
         )
-        monkeypatch.setattr("rebrew.test._cmake_pin_for", lambda *args: (None, None))
+        monkeypatch.setattr("rebrew.verify.test._cmake_pin_for", lambda *args: (None, None))
 
         class ReachedSelectedBytes(Exception):
             pass
@@ -624,7 +624,7 @@ class TestExactProviderPaths:
             assert (binary, va, size) == (cfg.target_binary, 0x401000, 4)
             raise ReachedSelectedBytes
 
-        monkeypatch.setattr("rebrew.test.extract_raw_bytes", extract)
+        monkeypatch.setattr("rebrew.verify.test.extract_raw_bytes", extract)
         with pytest.raises(ReachedSelectedBytes):
             _run_test_impl(
                 cfg, str(source), lint_annos=rows, name_to_va={}, json_output=True, no_promote=True

@@ -985,7 +985,7 @@ def test_parse_yaml_subset_random_text_no_crash(text: str) -> None:
     ValueError or return a dict/list — never an unexpected exception."""
     from contextlib import suppress
 
-    from rebrew.splat_config import parse_yaml_subset
+    from rebrew.buildsys.splat_config import parse_yaml_subset
 
     with suppress(ValueError):
         out = parse_yaml_subset(text)
@@ -1009,7 +1009,7 @@ def test_parse_yaml_subset_line_shaped_no_crash(raw_lines: list[str]) -> None:
     sequence / scalar / comment paths without crashing."""
     from contextlib import suppress
 
-    from rebrew.splat_config import parse_yaml_subset
+    from rebrew.buildsys.splat_config import parse_yaml_subset
 
     # Force a mix of indent widths so nested blocks get exercised.
     lines: list[str] = []

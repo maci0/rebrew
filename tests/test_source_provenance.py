@@ -16,7 +16,7 @@ from rebrew.metadata.source_provenance import (
     function_definition_hashes,
     load_source_provenance,
 )
-lazy from rebrew.rename_ops import RenamePlan
+lazy from rebrew.source.rename_ops import RenamePlan
 
 SOURCE = (
     "/* ü: offsets must survive masking */\n"
@@ -284,7 +284,7 @@ class TestDocumentAssemblyCLI:
 
 class TestRenameProvenance:
     def _plan(self, root: Path, *, move: bool = False) -> tuple[ProjectConfig, RenamePlan]:
-        from rebrew.rename_ops import plan_symbol_rename
+        from rebrew.source.rename_ops import plan_symbol_rename
 
         cfg = ProjectConfig(root=root, reversed_dir=root, module="CLIENT")
         return cfg, plan_symbol_rename(
@@ -302,7 +302,7 @@ class TestRenameProvenance:
     def test_rename_preserves_targets_callers_and_stale_evidence(
         self, tmp_path: Path, stale: bool
     ) -> None:
-        from rebrew.rename_ops import apply_rename_plan
+        from rebrew.source.rename_ops import apply_rename_plan
 
         file = _source(tmp_path)
         file.write_text(SOURCE + "void caller(void) { fill0(); __asm { nop } }\n")
@@ -328,7 +328,7 @@ class TestRenameProvenance:
                 assert record.source_hash == hashes[record.symbol]
 
     def test_file_move_and_definition_name_follow_the_same_rename(self, tmp_path: Path) -> None:
-        from rebrew.rename_ops import apply_rename_plan
+        from rebrew.source.rename_ops import apply_rename_plan
 
         file = _source(tmp_path)
         document_assembly(tmp_path, file, "fill0", "CLIENT", "Original macro")
@@ -341,7 +341,7 @@ class TestRenameProvenance:
         assert record.source_hash == function_definition_hashes(new_file.read_text())["fill"]
 
     def test_corrupt_store_is_rejected_before_sources_change(self, tmp_path: Path) -> None:
-        from rebrew.rename_ops import RenameError, apply_rename_plan
+        from rebrew.source.rename_ops import RenameError, apply_rename_plan
 
         file = _source(tmp_path)
         path = tmp_path / SOURCE_PROVENANCE_FILENAME
@@ -353,7 +353,7 @@ class TestRenameProvenance:
         assert path.read_text() == "invalid = ["
 
     def test_existing_destination_evidence_is_not_overwritten(self, tmp_path: Path) -> None:
-        from rebrew.rename_ops import RenameError, apply_rename_plan
+        from rebrew.source.rename_ops import RenameError, apply_rename_plan
 
         file = _source(tmp_path)
         file.write_text(SOURCE + "void fill(void) { __asm { nop } }\n")
@@ -370,7 +370,7 @@ class TestRenameProvenance:
     def test_failed_provenance_write_restores_the_source_and_move(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.rename_ops import RenameError, apply_rename_plan
+        from rebrew.source.rename_ops import RenameError, apply_rename_plan
 
         file = _source(tmp_path)
         document_assembly(tmp_path, file, "fill0", "CLIENT", "Original macro")
@@ -389,7 +389,7 @@ class TestRenameProvenance:
         assert path.read_bytes() == before
 
     def test_data_rename_refreshes_current_evidence_in_users(self, tmp_path: Path) -> None:
-        from rebrew.rename_ops import apply_rename_plan, plan_symbol_rename
+        from rebrew.source.rename_ops import apply_rename_plan, plan_symbol_rename
 
         file = _source(tmp_path)
         file.write_text("int counter;\n" + SOURCE.replace("mov eax, 1", "mov eax, counter"))

@@ -9,7 +9,7 @@ from source_util import write_source
 
 from rebrew.compiler.overrides import resolve_compile_overrides_cached
 from rebrew.config import load_config
-from rebrew.coverage_project import load_project_coverage
+from rebrew.coverage.project import load_project_coverage
 from rebrew.lint import _check_W031_metadata_store
 from rebrew.metadata.functions import (
     get_entry,
@@ -21,7 +21,7 @@ from rebrew.metadata.functions import (
     validate_metadata_field,
 )
 from rebrew.status import collect_status
-from rebrew.verify_hash import comparison_inputs
+from rebrew.verify.hash import comparison_inputs
 
 
 def _evidence(status: str = "SIZE_MISMATCH", **extra: Any) -> dict[str, Any]:

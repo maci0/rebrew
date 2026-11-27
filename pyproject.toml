@@ -142,11 +142,14 @@ addopts = [
     "hypothesis_profile",
 ]
 filterwarnings = [
-    # LIEF C extension emits this when parsing minimal Mach-O stubs with zeroed headers
+    # LIEF C extension emits enum RuntimeWarnings when parsing minimal stubs
+    # or Hypothesis-mutated binaries with out-of-range header enum values.
     "ignore:0 is not a valid CPU_TYPE:RuntimeWarning",
+    "ignore:\\d+ is not a valid [A-Z0-9_]+\\.:RuntimeWarning",
     # Test fixtures routinely load configs whose fake target binary does not
-    # exist; the load-time warning is for real users, not the suite.
+    # exist or contains dummy bytes; load-time warnings are for real users, not the suite.
     "ignore:target binary not found:UserWarning",
+    "ignore:Could not detect binary layout for .*:UserWarning",
     # Fixture trees contain 0444-locked metadata TOMLs; pytest's tmp_path
     # teardown warns (rm_rf) when removing them. The files are in /tmp and
     # harmless — the warning drowns real ones (~2400 per full run). Scoped to

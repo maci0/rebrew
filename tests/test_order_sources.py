@@ -1,10 +1,10 @@
-"""Tests for rebrew.link_order VA-ordered source helpers (order-sources CLI)."""
+"""Tests for rebrew.buildsys.link_order VA-ordered source helpers (order-sources CLI)."""
 
 from pathlib import Path
 
 from source_util import SourceFixture, write_source
 
-from rebrew.link_order import _base_key, file_va, order_sources
+from rebrew.buildsys.link_order import _base_key, file_va, order_sources
 from rebrew.metadata.functions import record_function_identity
 
 

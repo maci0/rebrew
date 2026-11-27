@@ -26,8 +26,8 @@ lazy from rebrew.metadata.bindings import (
     resolve_symbol,
 )
 lazy from rebrew.metadata.functions import canonical_status, get_entry, update_source_status
-lazy from rebrew.rename_ops import c_name_from_symbol
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
+lazy from rebrew.source.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import atomic_write_text, read_source_text
 
 log = logging.getLogger(__name__)

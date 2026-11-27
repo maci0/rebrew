@@ -76,7 +76,7 @@ lazy from rebrew.metadata.bindings import (
     resolve_symbol,
 )
 lazy from rebrew.prove_simprocs import get_win32_simprocs
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 lazy from rebrew.utils import parse_int_literal, safe_shlex_split, untrusted_ident
 lazy from rebrew.workspace.status import NEAR_MATCH_CANDIDATE_STATUSES
 
@@ -151,7 +151,7 @@ def _cached_verify_status(cfg: Any, va: int) -> str | None:
     measured truth rather than refuse a function the verifier already
     classified as nearly matching.
     """
-    from rebrew.verify_cache import VerifyCache, cache_identity_matches, load_verify_cache_raw
+    from rebrew.verify.cache import VerifyCache, cache_identity_matches, load_verify_cache_raw
 
     # The shared loader warns on an unreadable/corrupt file, so a broken cache
     # is not mistaken for "no measured status".
@@ -1656,7 +1656,7 @@ def _resolve_watched_dir32(
             exc_info=True,
         )
         return {}
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     for rec in records:
         if rec.type != 0x06:  # IMAGE_REL_I386_DIR32
@@ -1701,7 +1701,7 @@ def _promote_already_matched(
     match_count/total, so the percent goes in directly.
     """
     from rebrew.metadata.functions import update_source_status
-    from rebrew.verify_cache import patch_verify_cache_entries
+    from rebrew.verify.cache import patch_verify_cache_entries
 
     if not update_source_status(
         cfg.metadata_dir, new_status, ann.module, ann.va, updated_by="prove"
@@ -1799,7 +1799,7 @@ def _prepare_prove_inputs(
     )
     cflags_list = safe_shlex_split(cflags_str)
 
-    from rebrew.verify_hash import comparison_inputs, comparison_inputs_current
+    from rebrew.verify.hash import comparison_inputs, comparison_inputs_current
 
     measured_inputs = comparison_inputs(
         cfg,

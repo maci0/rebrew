@@ -32,8 +32,8 @@ from typing import Any
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.data_layout import c_type_size, estimate_type_size, hex_list, typed_array_literal
-from rebrew.data_scan import (
+from rebrew.data.layout import c_type_size, estimate_type_size, hex_list, typed_array_literal
+from rebrew.data.scan import (
     GlobalEntry,
     ScanResult,
     find_dispatch_tables,

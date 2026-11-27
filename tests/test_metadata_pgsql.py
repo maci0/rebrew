@@ -277,7 +277,7 @@ class TestPgsqlStore:
         assert get_entry(roots[0], 0x1000, "GAME")["size"] == 10
 
     def test_live_coverage_fingerprint_detects_remote_updates(self, tmp_path: Path) -> None:
-        from rebrew.coverage_project import coverage_inputs
+        from rebrew.coverage.project import coverage_inputs
 
         project = uuid4().hex
         first, second = tmp_path / "one", tmp_path / "two"

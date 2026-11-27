@@ -402,8 +402,8 @@ class TestScanReversedDirStoreReads:
         """Checking a stored score hashes each function's compile inputs; callers can skip it."""
         from types import SimpleNamespace
 
-        from rebrew import verify_hash
         from rebrew.catalog.loaders import scan_reversed_dir
+        from rebrew.verify import hash as verify_hash
 
         src = tmp_path / "src"
         src.mkdir()

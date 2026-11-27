@@ -2,7 +2,7 @@
 
 from rebrew.c_parser import function_definition_spans, function_signatures
 from rebrew.metadata.source_provenance import function_definition_hashes
-from rebrew.source_binding import has_unique_source_definition
+from rebrew.source.binding import has_unique_source_definition
 
 # Reduced from zlib 1.1.3 infblock.c: a statement macro used without a
 # semicolon before a conditional expression leaves the body unclosed.

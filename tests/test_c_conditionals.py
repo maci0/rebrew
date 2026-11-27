@@ -6,7 +6,7 @@ from rebrew.c_parser import (
     find_variable_roles,
     function_definition_spans,
 )
-from rebrew.split import source_layout
+from rebrew.source.split import source_layout
 
 SOURCE = """int counter = 3;
 extern int left, right;

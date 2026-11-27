@@ -1,6 +1,6 @@
 """Hypothesis fuzz for the residue image parsers (untrusted PE bytes).
 
-``rebrew.residue`` reads the built image and the reference target byte for
+``rebrew.buildsys.residue`` reads the built image and the reference target byte for
 byte, so every field it takes from the PE header (section count, raw pointers,
 raw sizes, virtual sizes) is attacker-controlled when the input is not the
 image the toolchain produced.  These targets assert the invariants that make
@@ -17,7 +17,7 @@ import pytest
 from hypothesis import assume, example, given, settings
 from hypothesis import strategies as st
 
-from rebrew.residue import (
+from rebrew.buildsys.residue import (
     ResidueError,
     _name_column,
     _sections,
@@ -252,7 +252,7 @@ def test_name_column_is_exactly_the_declared_width(text: str) -> None:
     """
     from rich.cells import cell_len
 
-    from rebrew.residue import _NAME_COLUMN
+    from rebrew.buildsys.residue import _NAME_COLUMN
 
     assert cell_len(_name_column(text)) == _NAME_COLUMN
 

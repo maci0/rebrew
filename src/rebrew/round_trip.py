@@ -61,7 +61,7 @@ lazy from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_
 lazy from rebrew.metadata.bindings import iter_source_bindings, resolve_symbol
 lazy from rebrew.metadata.functions import load_metadata
 lazy from rebrew.sections import trim_trailing_padding
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 lazy from rebrew.status_style import STATUS_COLORS
 lazy from rebrew.utils import (
     TerminalTable,

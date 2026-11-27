@@ -34,8 +34,8 @@ from test_ops import (
 
 import rebrew.ops
 from rebrew.metadata.sqlite import DATABASE_FILENAME
-from rebrew.named_snapshot import unique_json_object
 from rebrew.ops import OPS, WorkerConfig, dispatch
+from rebrew.ops.named_snapshot import unique_json_object
 
 Intake = tuple[Path, dict[str, Any]]
 

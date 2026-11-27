@@ -20,7 +20,7 @@ lazy from rebrew.metadata.bindings import (
     library_inventory_bindings,
     read_source_bindings,
 )
-lazy from rebrew.sources import iter_library_headers, iter_sources, scan_files
+lazy from rebrew.source.discovery import iter_library_headers, iter_sources, scan_files
 lazy from rebrew.utils import parse_int_literal, preset_module_key, read_json_text
 
 # ---------------------------------------------------------------------------
@@ -428,7 +428,7 @@ def scan_reversed_dir(
     is provided, otherwise *reversed_dir* itself.  Its volatile fields (STATUS,
     CFLAGS, SIZE, BLOCKER, etc.) are then visible to catalog tools.
 
-    *scanned* is a :func:`rebrew.sources.scan_files` result for
+    *scanned* is a :func:`rebrew.source.discovery.scan_files` result for
     *reversed_dir*, so a caller that already walked the tree does not walk it
     again for sources and headers.  *source_bindings* is a
     :func:`scan_source_bindings` result for the same sources, so a caller that
@@ -515,7 +515,7 @@ def scan_reversed_dir(
                 seen.add((entry.module, entry.va))
 
     if cfg is not None and similarity:
-        from rebrew.verify_hash import current_similarity
+        from rebrew.verify.hash import current_similarity
 
         for entry in entries:
             entry.similarity = current_similarity(cfg, metadata.get((entry.module, entry.va), {}))

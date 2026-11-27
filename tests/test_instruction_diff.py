@@ -210,7 +210,7 @@ class TestTestInstructionsOption:
 
         blob = self._project(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=True,
                 status="RELOC",
@@ -354,12 +354,12 @@ class TestDirectCallWithoutInstructions:
     def test_test_main(self, tmp_path: Path, monkeypatch: Any, capsys: Any) -> None:
         import json
 
-        import rebrew.test as testmod
+        import rebrew.verify.test as testmod
         from rebrew.compiler.compile import CompareResult
 
         blob = TestTestInstructionsOption()._project(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.test.compile_and_compare",
+            "rebrew.verify.test.compile_and_compare",
             lambda *a, **k: CompareResult(
                 matched=True,
                 status="RELOC",

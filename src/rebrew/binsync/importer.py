@@ -209,7 +209,7 @@ def rename_struct_member(cfg: Any, record: str, old_name: str, new_name: str) ->
     Returns ``None`` on success, else the reason the rename was refused
     (nothing is written then).
     """
-    from rebrew.rename_ops import RenameError, apply_rename_plan, plan_field_rename
+    from rebrew.source.rename_ops import RenameError, apply_rename_plan, plan_field_rename
 
     try:
         apply_rename_plan(cfg, plan_field_rename(cfg, record, old_name, new_name))
@@ -221,20 +221,20 @@ def rename_struct_member(cfg: Any, record: str, old_name: str, new_name: str) ->
 def rename_global(cfg: Any, module: str, va: int, old_name: str, new_name: str) -> str | None:
     """Rename the global bound to row ``module.va`` in the sources and the store.
 
-    Goes through the project rename engine (:mod:`rebrew.rename_ops`), so the
+    Goes through the project rename engine (:mod:`rebrew.source.rename_ops`), so the
     definition, declarations, references and every bound row (including the
     native ``link_symbol``) move together.  Returns ``None`` on success, else
     the reason the rename was refused; nothing is written then.
     """
     from rebrew.metadata.data import get_data_entry
-    from rebrew.rename_ops import (
+    from rebrew.source.discovery import contained_path, source_roots
+    from rebrew.source.rename_ops import (
         KIND_DATA,
         RenameError,
         Selection,
         apply_rename_plan,
         plan_symbol_rename,
     )
-    from rebrew.sources import contained_path, source_roots
 
     stored = str(get_data_entry(cfg.metadata_dir, va, module).get("file") or "")
     definition = contained_path(source_roots(cfg), stored) if stored else None
@@ -291,7 +291,7 @@ def strip_cdecl_prefix(name: str) -> str:
     ``@@N`` and ``@name@N`` decorations in place, so a stub of either
     was not a C identifier.
     """
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     return c_name_from_symbol(name)
 
@@ -409,7 +409,7 @@ def apply_binsync_func_name(cfg: Any, local: Any, bs_name: str, local_filepath: 
     on the definition but left a call site behind: reporting True there would
     tell the drift report the name is in sync while the tree no longer builds.
     """
-    from rebrew.rename_ops import RenameError, rename_function_everywhere
+    from rebrew.source.rename_ops import RenameError, rename_function_everywhere
 
     if not local_filepath:
         return False
@@ -1510,7 +1510,7 @@ def _definition_files(cfg: ProjectConfig) -> list[Path]:
     """
     reversed_dir = Path(cfg.reversed_dir)
     try:
-        from rebrew.sources import iter_sources_and_headers
+        from rebrew.source.discovery import iter_sources_and_headers
 
         files = iter_sources_and_headers(reversed_dir, cfg)
     except OSError as exc:

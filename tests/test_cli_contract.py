@@ -221,9 +221,9 @@ class TestSharedOptionHelp:
     def test_test_scope_flags_require_all(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import typer
 
-        from rebrew.test import main
+        from rebrew.verify.test import main
 
-        monkeypatch.setattr("rebrew.test.require_config", lambda **_kwargs: object())
+        monkeypatch.setattr("rebrew.verify.test.require_config", lambda **_kwargs: object())
         for kwargs in ({"batch_dir": "src"}, {"origin": "GAME"}, {"jobs": 2}):
             with pytest.raises(typer.Exit) as caught:
                 main(
@@ -836,8 +836,8 @@ class TestStandaloneEvidenceCommands:
         "module,expected",
         [
             ("types_cli", ["contracts", "reconcile"]),
-            ("source_binding", ["retire", "rebind"]),
-            ("source_organize", ["review", "check"]),
+            ("source.binding", ["retire", "rebind"]),
+            ("source.organize", ["review", "check"]),
             ("inventory_repair", ["--reason", "--dry-run"]),
         ],
     )

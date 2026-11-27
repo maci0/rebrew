@@ -23,13 +23,13 @@ class TestRebrewTargets:
     def test_absolute_module_import(self) -> None:
         node = _from_import("from rebrew.formats.pe_image import PeImport")
         assert cl._rebrew_targets(
-            "rebrew.verify", False, node, {"rebrew.formats.pe_image", "rebrew.verify"}
+            "rebrew.verify.cli", False, node, {"rebrew.formats.pe_image", "rebrew.verify.cli"}
         ) == {"rebrew.formats.pe_image"}
 
     def test_dotted_absolute_import_resolves_to_package(self) -> None:
         node = _from_import("from rebrew.catalog.loaders import cached_function_list")
         assert cl._rebrew_targets(
-            "rebrew.verify", False, node, {"rebrew.catalog", "rebrew.verify"}
+            "rebrew.verify.cli", False, node, {"rebrew.catalog", "rebrew.verify.cli"}
         ) == {"rebrew.catalog"}
 
     def test_relative_import_of_sibling(self) -> None:
@@ -101,27 +101,27 @@ class TestCheckLayering:
 
     def test_composition_import_is_reported(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
-        self._write(pkg, "dashboard.py", "def render() -> None:\n    pass\n")
-        self._write(pkg, "verify.py", "from rebrew.dashboard import render\n")
+        self._write(pkg, "coverage/dashboard.py", "def render() -> None:\n    pass\n")
+        self._write(pkg, "status.py", "from rebrew.coverage.dashboard import render\n")
         violations = cl.check_layering(str(pkg))
         assert [(v.module, v.rule, v.target) for v in violations] == [
-            ("rebrew.verify", "composition-layer import", "rebrew.dashboard")
+            ("rebrew.status", "composition-layer import", "rebrew.coverage.dashboard")
         ]
 
     def test_composition_layer_may_import_itself(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
         self._write(pkg, "app/plugin.py", "def render() -> None:\n    pass\n")
-        self._write(pkg, "dashboard.py", "from rebrew.app.plugin import render\n")
+        self._write(pkg, "app/main.py", "from rebrew.app.plugin import render\n")
         assert cl.check_layering(str(pkg)) == []
 
     def test_relative_import_resolves_inside_package(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
         self._write(pkg, "commands/__init__.py", "from .cli import command\n")
-        self._write(pkg, "dashboard.py", "def render() -> None:\n    pass\n")
-        self._write(pkg, "commands/cli.py", "from rebrew.dashboard import render\n")
+        self._write(pkg, "coverage/dashboard.py", "def render() -> None:\n    pass\n")
+        self._write(pkg, "commands/cli.py", "from rebrew.coverage.dashboard import render\n")
         violations = cl.check_layering(str(pkg))
         assert [(v.module, v.target) for v in violations] == [
-            ("rebrew.commands.cli", "rebrew.dashboard")
+            ("rebrew.commands.cli", "rebrew.coverage.dashboard")
         ]
 
 
@@ -223,51 +223,51 @@ class TestLibraryDoesNotImportCommand:
 
     def test_library_importing_a_command_is_reported(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
-        self._write(pkg, "build_db.py", self._COMMAND)
-        self._write(pkg, "coverage_db.py", self._LIBRARY)
-        self._write(pkg, "coverage_toml.py", "from rebrew.build_db import resolve\n")
+        self._write(pkg, "coverage/build_db.py", self._COMMAND)
+        self._write(pkg, "coverage/db.py", self._LIBRARY)
+        self._write(pkg, "coverage/toml.py", "from rebrew.coverage.build_db import resolve\n")
         assert [(v.module, v.rule, v.target) for v in cl.check_layering(str(pkg))] == [
-            ("rebrew.coverage_toml", "library imports a command", "rebrew.build_db")
+            ("rebrew.coverage.toml", "library imports a command", "rebrew.coverage.build_db")
         ]
 
     def test_library_may_import_a_library(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
-        self._write(pkg, "build_db.py", self._COMMAND)
-        self._write(pkg, "coverage_db.py", self._LIBRARY)
-        self._write(pkg, "coverage_toml.py", "from rebrew.coverage_db import resolve\n")
+        self._write(pkg, "coverage/build_db.py", self._COMMAND)
+        self._write(pkg, "coverage/db.py", self._LIBRARY)
+        self._write(pkg, "coverage/toml.py", "from rebrew.coverage.db import resolve\n")
         assert cl.check_layering(str(pkg)) == []
 
     def test_a_command_may_import_another_command(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
-        self._write(pkg, "build_db.py", self._COMMAND)
+        self._write(pkg, "coverage/build_db.py", self._COMMAND)
         self._write(
             pkg,
             "rebrew_cli.py",
-            "import typer\napp = typer.Typer()\nfrom rebrew.build_db import resolve\n"
+            "import typer\napp = typer.Typer()\nfrom rebrew.coverage.build_db import resolve\n"
             "def main_entry() -> None:\n    pass\n",
         )
         assert cl.check_layering(str(pkg)) == []
 
     def test_lazy_library_import_of_a_command_is_reported(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
-        self._write(pkg, "build_db.py", self._COMMAND)
+        self._write(pkg, "coverage/build_db.py", self._COMMAND)
         self._write(
             pkg,
             "match_run.py",
-            "def run() -> int:\n    from rebrew.build_db import resolve\n    return resolve()\n",
+            "def run() -> int:\n    from rebrew.coverage.build_db import resolve\n    return resolve()\n",
         )
         assert [(v.rule, v.target) for v in cl.check_layering(str(pkg))] == [
-            ("library imports a command", "rebrew.build_db")
+            ("library imports a command", "rebrew.coverage.build_db")
         ]
 
     def test_type_checking_re_export_of_a_command_is_allowed(self, tmp_path: Path) -> None:
         pkg = tmp_path / "src" / "rebrew"
-        self._write(pkg, "build_db.py", self._COMMAND)
+        self._write(pkg, "coverage/build_db.py", self._COMMAND)
         self._write(
             pkg,
             "errors.py",
             "from typing import TYPE_CHECKING\n"
-            "if TYPE_CHECKING:\n    from rebrew.build_db import BuildDbError as BuildDbError\n",
+            "if TYPE_CHECKING:\n    from rebrew.coverage.build_db import BuildDbError as BuildDbError\n",
         )
         assert cl.check_layering(str(pkg)) == []
 

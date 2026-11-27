@@ -9,10 +9,10 @@ from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
 from rebrew.config import ProjectConfig
-from rebrew.merge import app
 from rebrew.metadata.functions import load_metadata
 from rebrew.metadata.storage import metadata_store
-from rebrew.source_selection import collect_target_sources
+from rebrew.source.merge import app
+from rebrew.source.selection import collect_target_sources
 
 
 def _project(
@@ -52,9 +52,9 @@ def _project(
         paths.append(path)
     cfg = ProjectConfig(root=root, reversed_dir=root, module="GOLDTL", target_name="TL")
     server = ProjectConfig(root=root, reversed_dir=root, module="SERVER", target_name="SERVER")
-    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
     monkeypatch.setattr(
-        "rebrew.source_organization.organization_configs", lambda cfg: [cfg, server]
+        "rebrew.source.organization.organization_configs", lambda cfg: [cfg, server]
     )
     return paths, root / "merged.c", cfg
 

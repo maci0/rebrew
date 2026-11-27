@@ -5,9 +5,9 @@ lazy from pathlib import Path
 import pytest
 
 from rebrew.binding_replacement_plan import plan_binding_replacement
-from rebrew.c_rename import ParsedSource, occurrences
 from rebrew.config import ProjectConfig, load_config
 from rebrew.metadata.functions import record_function_identity
+from rebrew.source.c_rename import ParsedSource, occurrences
 
 
 def project(tmp_path: Path):
@@ -192,7 +192,7 @@ def test_transitive_header_and_new_source_invalidate_review(tmp_path: Path):
 
 
 def test_header_changed_after_closure_read_is_rejected(tmp_path: Path, monkeypatch):
-    import rebrew.source_contracts as contracts
+    import rebrew.source.contracts as contracts
 
     cfg, donor, replacement, caller = project(tmp_path)
     header = caller.parent / "api.h"

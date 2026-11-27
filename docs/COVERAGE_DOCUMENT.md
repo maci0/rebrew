@@ -523,7 +523,7 @@ Clients read the applied values back from the envelope.
 > response size, and elapsed time. Use the request ID from the response to
 > find related errors. A disconnected client is logged at INFO. An unhandled
 > server failure is logged at ERROR and counts toward server errors. The
-> server prints totals on shutdown. See [dashboard.py](../src/rebrew/dashboard.py).
+> server prints totals on shutdown. See [dashboard.py](../src/rebrew/coverage/dashboard.py).
 
 
 Global ownership fields are optional additions to version 1. Readers of older

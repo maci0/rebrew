@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from rebrew import cmake_cache
+from rebrew.buildsys import cmake_cache
 from rebrew.compiler.cache import get_project_cache
 from rebrew.compiler.toolchain import TOOLCHAINS
 from rebrew.config import load_compile_cache_config
@@ -520,6 +520,6 @@ def test_multicomponent_casefold_ambiguity_bypasses_driver_cache(project: Any) -
 )
 @pytest.mark.parametrize("delimiters", ['"{}"', "<{}>"])
 def test_nonleaf_literal_include_spellings_are_not_admitted(name: str, delimiters: str) -> None:
-    from rebrew.cmake_cache import _ordinary_text
+    from rebrew.buildsys.cmake_cache import _ordinary_text
 
     assert not _ordinary_text(("#include " + delimiters.format(name) + "\n").encode())

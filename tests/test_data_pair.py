@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 from rebrew.app.main import app
 from rebrew.cast_rewrite import declare_externs
 from rebrew.config import ProjectConfig
-from rebrew.data_pair import OperandPair, pair_data_operands, plan_pairs
+from rebrew.data.pair import OperandPair, pair_data_operands, plan_pairs
 from rebrew.metadata.data import load_data_metadata, record_data_rows
 
 X86 = (capstone.CS_ARCH_X86, capstone.CS_MODE_32)
@@ -49,7 +49,7 @@ def targets(
         assert cfg.metadata_dir == directory
         configs[module] = (cfg, base + 0x1000, address)
     monkeypatch.setattr(
-        "rebrew.data_pair.require_config", lambda *, target, **kwargs: configs[target][0]
+        "rebrew.data.pair.require_config", lambda *, target, **kwargs: configs[target][0]
     )
     return configs
 

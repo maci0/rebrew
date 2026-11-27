@@ -1,0 +1,452 @@
+"""residue.py — how far is the build from byte identity, after postlink?
+
+Applies the postlink fixers to the linked image, diffs the result against
+the reference section by section, and attributes the remaining ``.text``
+bytes to the functions ``rebrew verify`` reports as not byte-matched.
+Read the result as the *remaining work*: everything outside ``.text`` is
+either produced by the link already or copied from the layout package, so
+a difference there means a pipeline bug, while the ``.text`` residue is
+the code that still has to be made to match.
+
+This is the linked truth that object scores (``rebrew test``'s
+``match_count``, ``rebrew diagnose probe``'s ``aligned``) only proxy — a size change
+anywhere moves every byte after it, so only this number decides whether a
+candidate lands.
+
+Generalized from guild-rebrew's ``scripts/postlink_residual.py`` +
+``scripts/residue_diff.py`` + ``scripts/linktest.sh`` (MSVC6/x86-32
+campaign).  Layout package, binary paths, and image base resolve from the
+project config — no hardcoded ``build/split_poc.dll`` or ``0x10000000``.
+"""
+
+from __future__ import annotations
+
+lazy import bisect
+lazy import contextlib
+lazy from pathlib import Path
+lazy from typing import Any
+
+import typer
+lazy import numpy as np
+lazy from rich.cells import cell_len
+
+from rebrew.cli import (
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
+from rebrew.errors import RebrewError
+lazy from rebrew.formats.pe_headers import pe_layout
+lazy from rebrew.utils import atomic_write_text, read_json_text, try_parse_int, untrusted_ident
+
+#: Width of the function-name column in the residue table.
+_NAME_COLUMN = 40
+
+
+class ResidueError(RebrewError, ValueError):
+    """Raised when an input image is not a PE that residue can measure."""
+
+
+def _name_column(name: str) -> str:
+    """*name* truncated and padded to :data:`_NAME_COLUMN` terminal columns.
+
+    ``f"{name:40s}"`` counts code points, but a terminal lays out CJK,
+    emoji, and combining marks in two or zero columns, so a Japanese symbol
+    name pushed every figure to its right out of alignment.  Truncation uses
+    the same unit as the padding: cutting by code points would let a long CJK
+    name overflow the column instead of fitting it.  Widths do not add up across
+    a join (a trailing zero-width joiner takes the first padding space into its
+    cluster), so the padding is measured on the padded text.
+    """
+    out = name
+    while cell_len(out) > _NAME_COLUMN:
+        out = out[:-1]
+    while cell_len(out) < _NAME_COLUMN:
+        out += " "
+    return out
+
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  # Measure residue against the baseline\n"
+    "  rebrew build residue build/game.exe\n\n"
+    "  # Record today's bytes as baseline\n"
+    "  rebrew build residue build/game.exe --new-baseline baseline.json\n\n"
+    "  # Compare against a file\n"
+    "  rebrew build residue build/game.exe --baseline old.json --json\n"
+)
+
+
+app = typer.Typer(
+    help="Measure linked byte-identity residue after postlink fixers.",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+
+def _sections(raw: bytes) -> dict[str, tuple[int, int, int, int]]:
+    """name -> (va, vsize, raw_ptr, raw_size), extents clipped to *raw*.
+
+    Geometry comes from :func:`rebrew.formats.pe_headers.pe_layout`, which bounds every
+    read against the buffer; a section whose raw extent runs past the end of
+    the image keeps the part that is present, so the caller's byte comparison
+    stays in bounds.  A section with no bytes in the file (BSS) is dropped.
+    """
+    layout = pe_layout(raw)
+    if layout is None:
+        raise ResidueError(f"not a PE image: no MZ/PE header in {len(raw)} bytes")
+    out: dict[str, tuple[int, int, int, int]] = {}
+    for section in layout.sections:
+        end = min(section.pointer_to_raw_data + section.size_of_raw_data, len(raw))
+        if end <= section.pointer_to_raw_data:
+            continue
+        out[section.name] = (
+            section.virtual_address,
+            section.virtual_size,
+            section.pointer_to_raw_data,
+            end - section.pointer_to_raw_data,
+        )
+    return out
+
+
+def residue_report(
+    built: bytes, reference: bytes, bad: list[tuple[int, int, str]], image_base: int
+) -> dict[str, Any]:
+    """Section diffs plus per-function attribution of remaining .text bytes.
+
+    Both images must carry a ``.text`` section; a missing one means there is
+    nothing to attribute, so this raises :class:`ResidueError` rather than
+    reporting a zero residue for an image that was never compared.
+    """
+    sr, sp = _sections(reference), _sections(built)
+    for label, table in (("reference", sr), ("built", sp)):
+        if ".text" not in table:
+            raise ResidueError(f"{label} image has no .text section")
+    sections: dict[str, dict[str, Any]] = {}
+    for name in sorted(set(sr) | set(sp)):
+        if name not in sr or name not in sp:
+            sections[name] = {"status": "missing-on-one-side"}
+            continue
+        _, _, pr_r, rs_r = sr[name]
+        _, _, pr_p, rs_p = sp[name]
+        span = min(rs_r, rs_p)
+        ref_arr = np.frombuffer(reference, dtype=np.uint8, count=span, offset=pr_r)
+        built_arr = np.frombuffer(built, dtype=np.uint8, count=span, offset=pr_p)
+        diff = int(np.count_nonzero(ref_arr != built_arr))
+        sections[name] = {"ref_raw": rs_r, "built_raw": rs_p, "differing": diff, "span": span}
+
+    # The bound is the section's *raw* size, not its virtual size: the indices
+    # below read from ``pointer_to_raw_data``, and a virtual tail larger than
+    # ``SizeOfRawData`` (a BSS-style .text) would otherwise compare the next
+    # section's file bytes and inflate text_differing and text_percent.
+    t_rva, t_vs, t_ptr, t_rs = sr[".text"]
+    _p_rva, p_vs, p_ptr, p_rs = sp[".text"]
+    n = max(
+        0,
+        min(t_vs, p_vs, t_rs, p_rs, len(reference) - t_ptr, len(built) - p_ptr),
+    )
+    ref_text = np.frombuffer(reference, dtype=np.uint8, count=n, offset=t_ptr)
+    built_text = np.frombuffer(built, dtype=np.uint8, count=n, offset=p_ptr)
+    diffs: list[int] = np.flatnonzero(ref_text != built_text).tolist()
+
+    # Attribute trailing tables to their owner: extend each extent to the
+    # next function start (a body's jump table lives past its size).
+    ordered = sorted(bad, key=lambda row: row[0])
+    starts = [lo for lo, _size, _name in ordered]
+    extents: list[tuple[int, int, str]] = []
+    for lo, size, name in ordered:
+        if extents and lo == extents[-1][0]:
+            continue  # duplicate rows share a start; the first one owns it
+        nxt = bisect.bisect_right(starts, lo)
+        end = ordered[nxt][0] if nxt < len(starts) else lo + size
+        extents.append((lo, end, name))
+
+    # ``diffs`` is ascending, so each extent's share is two bisections.
+    counts: dict[str, int] = {}
+    first: dict[str, int] = {}
+    for lo, end, name in extents:
+        left = bisect.bisect_left(diffs, lo)
+        right = bisect.bisect_left(diffs, end)
+        if right > left:
+            counts[name] = counts.get(name, 0) + (right - left)
+            first.setdefault(name, diffs[left])
+    outside = len(diffs) - sum(counts.values())
+    if outside:
+        # Extents tile [first start, last end), so residue outside them is
+        # either before the first function or after the last one.
+        if extents and bisect.bisect_left(diffs, extents[0][0]) == 0:
+            first_outside = diffs[bisect.bisect_left(diffs, extents[-1][1])]
+        else:
+            first_outside = diffs[0]
+        counts["<outside the non-matching functions>"] = outside
+        first["<outside the non-matching functions>"] = first_outside
+    funcs = [
+        {"name": name, "bytes": count, "first_diff_va": hex(first[name] + t_rva + image_base)}
+        for name, count in sorted(counts.items(), key=lambda kv: -kv[1])
+    ]
+    return {
+        "text_differing": len(diffs),
+        "text_size": n,
+        "text_percent": round(100.0 * len(diffs) / max(1, n), 2),
+        "inside_nonmatching": len(diffs) - outside,
+        "outside": outside,
+        "nonmatching_count": len(bad),
+        "sections": sections,
+        "functions": funcs,
+    }
+
+
+def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tuple[int, int, str]]:
+    """(text-relative offset, size, name) for every non-byte-matched function."""
+    from rebrew.verify.cache import cache_identity_matches, load_verify_cache_raw
+
+    raw = load_verify_cache_raw(cfg)
+    if not isinstance(raw, dict) or not cache_identity_matches(raw, cfg):
+        return []
+
+    entries = raw.get("entries") or raw.get("functions")
+    if not isinstance(entries, dict):
+        return []
+
+    out = []
+    for entry in entries.values():
+        if not isinstance(entry, dict):
+            continue
+        status = entry.get("status")
+        delta = entry.get("delta") or 0
+        passed = entry.get("passed", False)
+        if not passed or delta > 0 or status in ("STUB", "SIZE_MISMATCH"):
+            va = try_parse_int(entry.get("va", "0"))
+            if va is None:
+                continue
+            out.append((va - image_base - text_rva, entry.get("size") or 0, entry.get("name", "?")))
+    return out
+
+
+def _is_int(value: Any) -> bool:
+    """True for a JSON integer (``bool`` is an ``int`` subclass but not one)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _load_baseline(path: Path) -> tuple[int | None, dict[str, int]]:
+    """``(text_differing, {function name: bytes})`` from a ``--new-baseline`` report.
+
+    The file is user-supplied, so anything but the report's own shape raises
+    :class:`ResidueError` naming *path* and the offending field: unreadable or
+    invalid JSON, a top level that is not an object, a non-integer
+    ``text_differing``, a ``functions`` that is not an array, or a row without
+    a string ``name`` and an integer ``bytes``.
+    """
+    import json
+
+    try:
+        old = json.loads(read_json_text(path))
+    except (OSError, ValueError) as exc:
+        raise ResidueError(f"cannot read baseline {path}: {exc}") from exc
+    if not isinstance(old, dict):
+        raise ResidueError(f"baseline {path} must be a JSON object, got {type(old).__name__}")
+    text_differing = old.get("text_differing")
+    if text_differing is not None and not _is_int(text_differing):
+        raise ResidueError(f"baseline {path}: text_differing must be an integer")
+    rows = old.get("functions", [])
+    if not isinstance(rows, list):
+        raise ResidueError(f"baseline {path}: functions must be an array")
+    functions: dict[str, int] = {}
+    for n, row in enumerate(rows):
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("name"), str)
+            or not _is_int(row.get("bytes"))
+        ):
+            raise ResidueError(
+                f"baseline {path}: functions[{n}] must be an object with a string "
+                "name and integer bytes"
+            )
+        functions[row["name"]] = row["bytes"]
+    return text_differing, functions
+
+
+def layout_map_gate_note(cover: tuple[int, int, int, int]) -> str | None:
+    """Warning text for a ``map_coverage`` result, or None when it passes.
+
+    *cover* is ``(operands_ok, operands_total, calls_ok, calls_total)``.  A
+    total of zero means the layout package carries no ``.text`` map entries,
+    so alignment was never measured: that is reported as unmeasured, not as
+    the 0.00% coverage a ratio over an empty denominator used to produce.
+    """
+    from rebrew.buildsys.postlink import MIN_LAYOUT_MAP_COVERAGE
+
+    op_ok, op_tot, call_ok, call_tot = cover
+    map_total = op_tot + call_tot
+    if map_total == 0:
+        return (
+            "WARNING: layout package has no .text layout-map entries; "
+            "position alignment was not measured"
+        )
+    frac = (op_ok + call_ok) / map_total
+    if frac >= MIN_LAYOUT_MAP_COVERAGE:
+        return None
+    return (
+        f"WARNING: layout-map coverage {100 * frac:.2f}% below gate; "
+        "fixers rewrite by fixed offset — output is intermediate, not runnable."
+    )
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    built: str = typer.Argument(
+        None,
+        help="Built image to measure (default: build/<target>)",
+    ),
+    baseline: str | None = typer.Option(
+        None,
+        "--baseline",
+        help="Baseline JSON file: also print per-function deltas vs it",
+        metavar="<path>",
+    ),
+    new_baseline: str | None = typer.Option(
+        None,
+        "--new-baseline",
+        help="Write this run's report as JSON to PATH (adopt as baseline)",
+        metavar="<path>",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Apply postlink fixers to BUILT and report the remaining byte residue."""
+    import json
+
+    cfg = require_config(target=target, json_mode=json_output)
+    built_path = Path(built) if built else Path(cfg.root) / "build" / cfg.target_name
+    if not built_path.is_file():
+        error_exit(f"Built image not found: {built_path}", json_mode=json_output)
+    # Read before anything runs or --new-baseline writes, so a bad file fails
+    # first and the same path names the previous report.
+    old_text: int | None = None
+    old_map: dict[str, int] = {}
+    if baseline:
+        try:
+            old_text, old_map = _load_baseline(Path(baseline))
+        except ResidueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+
+    from rebrew.buildsys.layout_meta import load_package
+    from rebrew.buildsys.postlink import (
+        FIXER_ORDER,
+        FIXERS,
+        binary_info_from_bytes,
+        map_coverage,
+    )
+    from rebrew.formats.binary_loader import load_binary
+
+    layout_dir = Path(cfg.root) / "layout" / cfg.target_name
+    meta = None
+    if layout_dir.is_dir():
+        try:
+            meta = load_package(layout_dir)
+        except (OSError, ValueError) as exc:
+            # Without the package every fixer is skipped, so the residue would
+            # be measured on the unpatched image.
+            error_exit(f"cannot load layout package {layout_dir}: {exc}", json_mode=json_output)
+    else:
+        console.print(
+            f"WARNING: no layout package at {untrusted_ident(layout_dir)}; postlink fixers skipped "
+            "(run 'rebrew build layout')"
+        )
+    info_b = load_binary(built_path)
+    try:
+        cover = map_coverage(bytes(info_b.data), meta, info_b) if meta else (1, 1, 1, 1)
+    except ValueError as exc:
+        console.print(f"WARNING: layout-map coverage unavailable: {untrusted_ident(exc)}")
+    else:
+        note = layout_map_gate_note(cover)
+        if note:
+            console.print(note)
+    patched = bytearray(info_b.data)
+    if meta is not None:
+        for name in FIXER_ORDER:
+            before = bytes(patched)
+            with contextlib.suppress(ValueError):
+                info_b = binary_info_from_bytes(bytes(patched), built_path)
+            try:
+                report = FIXERS[name](patched, meta, info_b)
+            except ValueError as exc:
+                # A part-fixed image is neither the link nor the postlink output.
+                error_exit(f"postlink fixer {name} failed: {exc}", json_mode=json_output)
+            console.print(f"{name:11s} changed={before != bytes(patched)} {report.stats}")
+
+    reference = Path(cfg.target_binary).read_bytes()
+    image_base = getattr(cfg, "image_base", 0)
+    try:
+        sr = _sections(reference)
+        if ".text" not in sr:
+            raise ResidueError("reference image has no .text section")
+        bad = _nonmatching_from_cache(cfg, image_base, sr[".text"][0])
+        summary = residue_report(bytes(patched), reference, bad, image_base)
+    except ResidueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+
+    if new_baseline:
+        atomic_write_text(Path(new_baseline), json.dumps(summary, indent=2), encoding="utf-8")
+        console.print(f"baseline written ({untrusted_ident(new_baseline)})")
+    if baseline:
+        new_map = {f["name"]: f["bytes"] for f in summary["functions"]}
+        delta_rows = [
+            {
+                "name": name,
+                "before": old_map.get(name, 0),
+                "after": new_map.get(name, 0),
+                "delta": new_map.get(name, 0) - old_map.get(name, 0),
+            }
+            for name in sorted(set(old_map) | set(new_map))
+            if old_map.get(name, 0) != new_map.get(name, 0)
+        ]
+        summary["delta_vs_baseline"] = {
+            "text_before": old_text,
+            "text_after": summary["text_differing"],
+            "text_delta": summary["text_differing"] - (old_text or 0),
+            "functions": delta_rows,
+        }
+
+    if json_output:
+        json_print(summary)
+        return
+    console.print(
+        f".text differing {summary['text_differing']:#x} of {summary['text_size']:#x} "
+        f"({summary['text_percent']:.2f}%)"
+    )
+    for sec, s in summary["sections"].items():
+        if s.get("status") == "missing-on-one-side":
+            console.print(f"{untrusted_ident(sec):9s} MISSING on one side")
+        else:
+            console.print(
+                f"{untrusted_ident(sec):9s} raw {s['ref_raw']:#7x}/{s['built_raw']:#7x}  "
+                f"differing {s['differing']:#7x}"
+            )
+    console.print(f"\n{'function':40s} {'bytes':>6s} {'1st diff':>10s}")
+    for f in summary["functions"]:
+        if f["bytes"] > 8 or f["name"].startswith("<"):
+            console.print(
+                f"{_name_column(untrusted_ident(f['name']))} {f['bytes']:6d} {f['first_diff_va']:>10s}"
+            )
+    if "delta_vs_baseline" in summary:
+        d = summary["delta_vs_baseline"]
+        console.print(f"\n.text {d['text_before']} -> {d['text_after']} ({d['text_delta']:+d})")
+        for row in d["functions"]:
+            console.print(
+                f"  {_name_column(untrusted_ident(row['name']))} {row['before']:6d} -> "
+                f"{row['after']:6d} ({row['delta']:+d})"
+            )
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

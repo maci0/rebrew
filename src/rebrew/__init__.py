@@ -9,7 +9,7 @@ Library consumers typically import submodules directly, for example:
 * ``rebrew.errors`` — ``RebrewError``, the base of every error raised below
 * ``rebrew.compiler.compile`` — ``CompareResult``, ``CompareStatus``, ``compile_and_compare``
 * ``rebrew.config`` — ``ProjectConfig``, ``load_config``, ``ConfigError``
-* ``rebrew.sources`` — ``iter_sources``, ``iter_library_headers``
+* ``rebrew.source.discovery`` — ``iter_sources``, ``iter_library_headers``
 * ``rebrew.compiler.toolchain`` — ``ToolchainError``, ``get_toolchain``, ``require_toolchains_repo``
 * ``rebrew.compiler.recompile_client`` — remote compile transport
 * ``rebrew.decompme`` — decomp.me scratch upload, same injectable-client shape
@@ -38,8 +38,8 @@ if TYPE_CHECKING:
     from rebrew.config import ProjectConfig as ProjectConfig
     from rebrew.config import load_config as load_config
     from rebrew.errors import RebrewError as RebrewError
-    from rebrew.sources import iter_library_headers as iter_library_headers
-    from rebrew.sources import iter_sources as iter_sources
+    from rebrew.source.discovery import iter_library_headers as iter_library_headers
+    from rebrew.source.discovery import iter_sources as iter_sources
 
 # NumPy's bundled OpenBLAS starts a full-width thread pool at import and
 # busy-spins it while the rest of the interpreter loads.  Importing
@@ -62,8 +62,8 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
     "compile_and_compare": ("rebrew.compiler.compile", "compile_and_compare"),
     "get_toolchain": ("rebrew.compiler.toolchain", "get_toolchain"),
-    "iter_library_headers": ("rebrew.sources", "iter_library_headers"),
-    "iter_sources": ("rebrew.sources", "iter_sources"),
+    "iter_library_headers": ("rebrew.source.discovery", "iter_library_headers"),
+    "iter_sources": ("rebrew.source.discovery", "iter_sources"),
     "load_config": ("rebrew.config", "load_config"),
 }
 

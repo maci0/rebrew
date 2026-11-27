@@ -11,10 +11,10 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 from typer.testing import Result
 
-from rebrew.calibrate_bss import find_link_cmd, read_data_vs
-from rebrew.gen_layout import gen_data_restore
-from rebrew.gen_link_stubs import gen_link_stubs, load_data_symbols, read_calibrated_tail
-from rebrew.link_order import file_va, order_sources
+from rebrew.buildsys.gen_layout import gen_data_restore
+from rebrew.buildsys.gen_link_stubs import gen_link_stubs, load_data_symbols, read_calibrated_tail
+from rebrew.buildsys.link_order import file_va, order_sources
+from rebrew.data.calibrate_bss import find_link_cmd, read_data_vs
 
 # ---------------------------------------------------------------------------
 # order-sources
@@ -110,7 +110,7 @@ def test_gen_link_stubs_json_still_writes(tmp_path: Path, monkeypatch: pytest.Mo
 
     from typer.testing import CliRunner
 
-    from rebrew.gen_link_stubs import app
+    from rebrew.buildsys.gen_link_stubs import app
 
     monkeypatch.chdir(tmp_path)
     meta = tmp_path / "src" / "rebrew-data.toml"
@@ -141,7 +141,7 @@ def test_gen_link_stubs_keeps_calibrated_tail(
 
     from typer.testing import CliRunner
 
-    from rebrew.gen_link_stubs import app
+    from rebrew.buildsys.gen_link_stubs import app
 
     monkeypatch.chdir(tmp_path)
     meta = tmp_path / "src" / "rebrew-data.toml"
@@ -279,7 +279,7 @@ class TestOrderSourcesCli:
     def _run(*args: str) -> Result:
         from typer.testing import CliRunner
 
-        from rebrew import order_sources as mod
+        from rebrew.source import order as mod
 
         return CliRunner().invoke(mod.app, list(args))
 

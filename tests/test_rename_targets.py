@@ -293,7 +293,7 @@ class TestRenameAnnotations:
     def test_one_file_carries_every_target_identity(self, tmp_path: Path) -> None:
         """A shared source is parsed once, not once per module."""
         from rebrew.config import load_config
-        from rebrew.rename_ops import _rename_annotations
+        from rebrew.source.rename_ops import _rename_annotations
 
         root = _project(tmp_path)
         cfg = load_config(root)

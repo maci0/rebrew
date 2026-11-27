@@ -14,7 +14,7 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `inventory.py` | `repair_inventory_extents` (guarded native inventory extent repairs) |
 | `cli.py` | `run_catalog` + Typer entry |
 
-Externals (the only packages this one may import): `cli`, `config`, `function_providers`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `present`, `sections`, `sources`, `status`, `utils`, `verify_hash`, `workspace`, `formats.binary_loader` (lazy, inside functions), `formats.binary_model` (`BinaryInfo`), and `formats.import_table` (import stubs). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
+Externals (the only packages this one may import): `cli`, `config`, `function_providers`, `metadata.bindings`, `metadata.document`, `metadata.data`, `metadata.functions`, `present`, `sections`, `source.discovery`, `status`, `utils`, `verify.hash`, `workspace`, `formats.binary_loader` (lazy, inside functions), `formats.binary_model` (`BinaryInfo`), and `formats.import_table` (import stubs). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
 
 ## Data flow
 

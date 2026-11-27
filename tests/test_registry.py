@@ -1322,7 +1322,7 @@ class TestDetectionTablesSnapshot:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.toolchain_detect as td
-        from rebrew.cmake_tc import _cmake_c_compiler_versions
+        from rebrew.buildsys.cmake_tc import _cmake_c_compiler_versions
 
         def _detector_provider() -> dict[str, list[str]]:
             return {"msvc": ["mytc2"]}

@@ -244,44 +244,44 @@ still reviewed as discovery/ownership boundaries.
 | Baseline route (after `rebrew`) | Implemented disposition | Reason / preserved distinction | Source owner |
 |---|---|---|---|
 | `rebrew` | Keep one executable | Use workflow groups to reduce the 103-entry landing page; keep third-party registration on the component graph. | [app/main.py](../../src/rebrew/app/main.py) |
-| `rename` | source rename | Keep rename propagation and canonical metadata writes; do not reduce it to text substitution. | [rename.py](../../src/rebrew/rename.py) |
-| `test` | Keep test | Immediate compile/comparison and earned STATUS recording; keep raw-byte and linked comparison inputs distinct. | [test.py](../../src/rebrew/test.py) |
-| `verify` | Keep verify | Incremental project/CI verification and regression baselines; separate advanced linked/data scopes in help. | [verify.py](../../src/rebrew/verify.py) |
+| `rename` | source rename | Keep rename propagation and canonical metadata writes; do not reduce it to text substitution. | [rename.py](../../src/rebrew/source/rename.py) |
+| `test` | Keep test | Immediate compile/comparison and earned STATUS recording; keep raw-byte and linked comparison inputs distinct. | [test.py](../../src/rebrew/verify/test.py) |
+| `verify` | Keep verify | Incremental project/CI verification and regression baselines; separate advanced linked/data scopes in help. | [verify.py](../../src/rebrew/verify/cli.py) |
 | `skeleton` | Keep skeleton | The normal source-creation entry; retain append, batch, and optional decompilation distinctions. | [skeleton.py](../../src/rebrew/skeleton.py) |
 | `sync` | Keep sync; split its operations | Expose named field-sync and MCP structural operations; preserve their different state and transport owners. | [cli.py](../../src/rebrew/ghidra/cli.py) |
 | `lint` | Keep lint | A daily validation command; keep explicit fixing separate from the default check. | [lint.py](../../src/rebrew/lint.py) |
-| `register` | source register | Record identities from address anchors, or a support file purpose, through locked metadata APIs. | [source_register.py](../../src/rebrew/source_register.py) |
+| `register` | source register | Record identities from address anchors, or a support file purpose, through locked metadata APIs. | [source_register.py](../../src/rebrew/source/register.py) |
 | `fix` | source fix | Decompiler-output sanitization is different from lint fixing; make the output file clear. | [fixup.py](../../src/rebrew/fixup.py) |
 | `recover-structs` | types recover | Type recovery belongs with type checking/application; keep inference separate from source writes. | [struct_recover.py](../../src/rebrew/struct_recover.py) |
 | `decompile` | Keep decompile | Useful daily operation; use the same backend-option spelling as skeleton and type recovery. | [name_decomp.py](../../src/rebrew/name_decomp.py) |
 | `match` | match run / batch / flags / toolchains / history | Split mutually scoped algorithms and reporting from the 50-option command; retain shared matcher primitives. | [match.py](../../src/rebrew/match.py) |
 | `diff` | Keep diff | Readable byte/disassembly comparison; do not merge its output with STATUS recording. | [diff.py](../../src/rebrew/diff.py) |
-| `postlink` | build postlink | Mutates a built artifact; retain distinct reference/output paths and dry-run. | [postlink.py](../../src/rebrew/postlink.py) |
+| `postlink` | build postlink | Mutates a built artifact; retain distinct reference/output paths and dry-run. | [postlink.py](../../src/rebrew/buildsys/postlink.py) |
 | `stack-cmp` | diagnose stack | A specialized byte-mismatch explanation, rather than another top-level workflow. | [stack_cmp.py](../../src/rebrew/stack_cmp.py) |
 | `asm` | binary asm | Keep hex/NASM/CFG output formats; move batch extraction modes behind named operations. | [asm.py](../../src/rebrew/asm.py) |
 | `switch` | binary switches | Jump-table decoding is binary inspection; preserve its VA/window and all-functions scopes. | [switch.py](../../src/rebrew/switch.py) |
 | `init` | Keep init | Project creation and idempotent scaffold refresh/check remain one cohesive lifecycle command; optional runner setup is available as toolchain install-wibo. | [init.py](../../src/rebrew/init.py) |
 | `intake` | Keep intake | The onboarding orchestrator adds value over manually chaining init, detection, discovery, and documentation. | [intake.py](../../src/rebrew/intake.py) |
-| `gen-layout` | build layout | Linker layout generation belongs with build reconstruction; preserve reference-derived ownership evidence. | [gen_layout.py](../../src/rebrew/gen_layout.py) |
-| `cmake-toolchain` | build cmake-toolchain | Generate configuration for CMake; do not conflate this with the raw compiler driver. | [cmake_tc.py](../../src/rebrew/cmake_tc.py) |
-| `cmake-driver` | build driver | Build-tool protocol adapter; preserve the mode argument and -- forwarding boundary. | [cmake_tc.py](../../src/rebrew/cmake_tc.py) |
-| `objdiff-build` | build objdiff-driver | Build-tool protocol adapter; keep it out of the ordinary reversing quick path. | [objdiff_project.py](../../src/rebrew/objdiff_project.py) |
-| `cmake-flags` | build cmake-flags | Per-file flag export differs from source-list export; retain separate output artifacts. | [cmake_flags.py](../../src/rebrew/cmake_flags.py) |
-| `cmake-sources` | build cmake-sources | Target-filtered source selection; preserve target scoping and external-library inputs. | [cmake_sources.py](../../src/rebrew/cmake_sources.py) |
-| `build-check` | build check | Checks generated-build drift; distinguish this from verifying reversed machine code. | [build_check.py](../../src/rebrew/build_check.py) |
-| `order-sources` | build order-sources | Produces VA ordering; link-order applies/checks that ordering in CMake, so keep both operations. | [order_sources.py](../../src/rebrew/order_sources.py) |
-| `calibrate-bss` | build calibrate-bss | Compile/link calibration is a write operation; preserve explicit raw-link and pad constraints. | [calibrate_bss.py](../../src/rebrew/calibrate_bss.py) |
-| `gen-link-stubs` | build link-stubs | Data/BSS placeholders differ from unresolved-symbol stubs; make storage ownership restrictions visible. | [gen_link_stubs.py](../../src/rebrew/gen_link_stubs.py) |
-| `gen-stubs` | build symbol-stubs | Resolves linker failures; keep library exclusion and generated-storage safety. | [gen_stubs.py](../../src/rebrew/gen_stubs.py) |
-| `inline-strings` | source inline-strings | Source rewriting with a reference binary; unify source selection before renaming options. | [inline_strings.py](../../src/rebrew/inline_strings.py) |
-| `verify-placement` | build check-data-placement | Checks addresses and ownership, not initialized-data byte equality; retain the distinction. | [verify_placement.py](../../src/rebrew/verify_placement.py) |
+| `gen-layout` | build layout | Linker layout generation belongs with build reconstruction; preserve reference-derived ownership evidence. | [gen_layout.py](../../src/rebrew/buildsys/gen_layout.py) |
+| `cmake-toolchain` | build cmake-toolchain | Generate configuration for CMake; do not conflate this with the raw compiler driver. | [cmake_tc.py](../../src/rebrew/buildsys/cmake_tc.py) |
+| `cmake-driver` | build driver | Build-tool protocol adapter; preserve the mode argument and -- forwarding boundary. | [cmake_tc.py](../../src/rebrew/buildsys/cmake_tc.py) |
+| `objdiff-build` | build objdiff-driver | Build-tool protocol adapter; keep it out of the ordinary reversing quick path. | [objdiff_project.py](../../src/rebrew/buildsys/objdiff.py) |
+| `cmake-flags` | build cmake-flags | Per-file flag export differs from source-list export; retain separate output artifacts. | [cmake_flags.py](../../src/rebrew/buildsys/cmake_flags.py) |
+| `cmake-sources` | build cmake-sources | Target-filtered source selection; preserve target scoping and external-library inputs. | [cmake_sources.py](../../src/rebrew/buildsys/cmake_sources.py) |
+| `build-check` | build check | Checks generated-build drift; distinguish this from verifying reversed machine code. | [build_check.py](../../src/rebrew/buildsys/check.py) |
+| `order-sources` | build order-sources | Produces VA ordering; link-order applies/checks that ordering in CMake, so keep both operations. | [order_sources.py](../../src/rebrew/source/order.py) |
+| `calibrate-bss` | build calibrate-bss | Compile/link calibration is a write operation; preserve explicit raw-link and pad constraints. | [calibrate_bss.py](../../src/rebrew/data/calibrate_bss.py) |
+| `gen-link-stubs` | build link-stubs | Data/BSS placeholders differ from unresolved-symbol stubs; make storage ownership restrictions visible. | [gen_link_stubs.py](../../src/rebrew/buildsys/gen_link_stubs.py) |
+| `gen-stubs` | build symbol-stubs | Resolves linker failures; keep library exclusion and generated-storage safety. | [gen_stubs.py](../../src/rebrew/buildsys/gen_stubs.py) |
+| `inline-strings` | source inline-strings | Source rewriting with a reference binary; unify source selection before renaming options. | [inline_strings.py](../../src/rebrew/source/inline_strings.py) |
+| `verify-placement` | build check-data-placement | Checks addresses and ownership, not initialized-data byte equality; retain the distinction. | [verify_placement.py](../../src/rebrew/verify/placement.py) |
 | `text-audit` | build check-text-placement | Address/layout check; make the relationship to verify --text clear. | [text_audit.py](../../src/rebrew/text_audit.py) |
-| `link-sweep` | build sweep-link-flags | Linker-option search is separate from compiler/source search; retain raw command forwarding. | [link_sweep.py](../../src/rebrew/link_sweep.py) |
-| `link-order` | build link-order | An explicit CMake check/apply operation; keep its difference from order-sources output. | [link_order.py](../../src/rebrew/link_order.py) |
+| `link-sweep` | build sweep-link-flags | Linker-option search is separate from compiler/source search; retain raw command forwarding. | [link_sweep.py](../../src/rebrew/buildsys/link_sweep.py) |
+| `link-order` | build link-order | An explicit CMake check/apply operation; keep its difference from order-sources output. | [link_order.py](../../src/rebrew/buildsys/link_order.py) |
 | `document-unmatched` | source document-unmatched | Creates skeletons and blocker evidence; do not hand-set earned byte-match status. | [document_unmatched.py](../../src/rebrew/document_unmatched.py) |
 | `pdb-info` | binary pdb show / import-cflags | Inspect compiler evidence separately from importing it into configuration. | [pdb_info.py](../../src/rebrew/pdb_info.py) |
 | `discover-functions` | binary functions | Standalone binary discovery remains useful outside a configured project. | [discover.py](../../src/rebrew/discover.py) |
-| `data` | data list / set / dispatch / bss / header / layout | Split inventory, metadata edits, generated declarations, and layout repair; preserve one storage owner per allocation. | [data.py](../../src/rebrew/data.py) |
+| `data` | data list / set / dispatch / bss / header / layout | Split inventory, metadata edits, generated declarations, and layout repair; preserve one storage owner per allocation. | [data.py](../../src/rebrew/data/cli.py) |
 | `graph` | source graph | Project/source dependency analysis; keep optional binary/dispatch edges and CU-map output explicit. | [depgraph.py](../../src/rebrew/depgraph.py) |
 | `status` | Keep status | Fast progress/accounting view; its different denominators must remain visible. | [status.py](../../src/rebrew/status.py) |
 | `todo` | Keep todo | Prioritized per-function work; keep it distinct from project-level recommend. | [todo.py](../../src/rebrew/todo.py) |
@@ -293,25 +293,25 @@ still reviewed as discovery/ownership boundaries.
 | `pe-info` | binary pe | Format-specific inspection is intentionally PE-only; do not hide that behind generic binary-info. | [pe_info.py](../../src/rebrew/pe_info.py) |
 | `crypto-scan` | binary crypto | Binary constants/imports scan; separate it from source security scanning. | [crypto_scan.py](../../src/rebrew/crypto_scan.py) |
 | `security-scan` | source security | C-source scanning; its input is a directory, unlike binary crypto inspection. | [security_scan.py](../../src/rebrew/security_scan.py) |
-| `verify-exports` | build check-exports | Built/reference export-table comparison; retain mismatch exit 1. | [verify_exports.py](../../src/rebrew/verify_exports.py) |
+| `verify-exports` | build check-exports | Built/reference export-table comparison; retain mismatch exit 1. | [verify_exports.py](../../src/rebrew/verify/exports.py) |
 | `strings` | binary strings | Standalone extraction with optional xrefs; keep VA and string-filter semantics explicit. | [strings.py](../../src/rebrew/strings.py) |
 | `xrefs` | binary xrefs | Address references and calls-from are different directions; keep their selection readable. | [xrefs.py](../../src/rebrew/xrefs.py) |
 | `drift` | diagnose drift | Branch/region drift localization; share compilation/selection plumbing rather than collapse its analysis. | [drift_cli.py](../../src/rebrew/drift_cli.py) |
 | `describe` | binary function | Project-backed function dossier; analyze --function uses the same dossier builder; document configured-project versus standalone inputs. | [describe.py](../../src/rebrew/describe.py) |
 | `analyze` | binary analyze | Whole-binary dossier; its per-function mode delegates to the shared describe dossier builder. | [analyze.py](../../src/rebrew/analyze.py) |
-| `report` | coverage report | Static HTML output differs from serving existing coverage snapshots. | [report.py](../../src/rebrew/report.py) |
+| `report` | coverage report | Static HTML output differs from serving existing coverage snapshots. | [report.py](../../src/rebrew/coverage/report.py) |
 | `diagnose` | diagnose config | Explains toolchain/flag resolution; does not diagnose the machine-code mismatch itself. | [diagnose.py](../../src/rebrew/diagnose.py) |
 | `flirt` | library scan-signatures | Signature scanning differs from writing identified library headers; initialization uses library init-signatures. | [flirt.py](../../src/rebrew/flirt.py) |
 | `identify-library` | library identify | Aggregates identification evidence and can write headers; retain dry-run and provenance. | [identify_library.py](../../src/rebrew/identify_library.py) |
 | `gen-flirt-pat` | library signatures | Signature production from archives is separate from signature scanning. | [gen_flirt_pat.py](../../src/rebrew/gen_flirt_pat.py) |
 | `doctor` | Keep doctor | Project readiness checks; optional runner installation lives under toolchain install-wibo. | [doctor.py](../../src/rebrew/doctor.py) |
-| `split` | source split | Preserve metadata identities and source preimages; document its overwrite/backup behavior. | [split.py](../../src/rebrew/split.py) |
-| `merge` | source merge | Preserve explicit input deletion and declaration-order controls; not just the inverse of textual split. | [merge.py](../../src/rebrew/merge.py) |
+| `split` | source split | Preserve metadata identities and source preimages; document its overwrite/backup behavior. | [split.py](../../src/rebrew/source/split.py) |
+| `merge` | source merge | Preserve explicit input deletion and declaration-order controls; not just the inverse of textual split. | [merge.py](../../src/rebrew/source/merge.py) |
 | `prove` | Keep prove | Semantic equivalence is not earned byte equality; keep PROVEN distinct and non-sticky. | [prove.py](../../src/rebrew/prove.py) |
 | `solutions` | match solutions | Read-only matcher history/solutions discovery belongs with matching, not binary inspection. | [solutions_db.py](../../src/rebrew/solutions_db.py) |
 | `round-trip` | build round-trip | Splicing compiled bytes into a target is an artifact operation; preserve its byte-equality gate. | [round_trip.py](../../src/rebrew/round_trip.py) |
-| `build-db` | coverage build | Coverage document generation; name the artifact rather than imply a generic database. | [build_db.py](../../src/rebrew/build_db.py) |
-| `dashboard` | coverage serve | Read-only serving of coverage artifacts; keep host/port security and shutdown ownership. | [dashboard.py](../../src/rebrew/dashboard.py) |
+| `build-db` | coverage build | Coverage document generation; name the artifact rather than imply a generic database. | [build_db.py](../../src/rebrew/coverage/build_db.py) |
+| `dashboard` | coverage serve | Read-only serving of coverage artifacts; keep host/port security and shutdown ownership. | [dashboard.py](../../src/rebrew/coverage/dashboard.py) |
 | `binsync-export` | binsync export | Keep raw export options --git/--clean; push has different Git defaults and cannot replace it unchanged. | [export.py](../../src/rebrew/binsync/export.py) |
 | `binsync-import` | binsync import | Keep local import independent of git pull; share the existing importer owner. | [importer.py](../../src/rebrew/binsync/importer.py) |
 | `binsync-diff` | Remove flat route; keep binsync diff | Exact callback duplicate of the grouped route. | [diff.py](../../src/rebrew/binsync/diff.py) |
@@ -320,22 +320,22 @@ still reviewed as discovery/ownership boundaries.
 | `catalog` | coverage catalog | Annotation/catalog validation differs from rendering coverage documents; keep the artifact boundary clear. | [cli.py](../../src/rebrew/catalog/cli.py) |
 | `similar` | similarity function | Single-function/submatch/cluster search; separate output modes and retain score semantics. | [similar.py](../../src/rebrew/similar.py) |
 | `binary-similarity` | similarity binary | Whole-binary comparison needs its own paired input and inventory selection. | [binary_similarity.py](../../src/rebrew/binary_similarity.py) |
-| `merge-sweep` | match partitions | Translation-unit partition search is distinct from source merge; keep rollback and compile-budget controls. | [merge_sweep.py](../../src/rebrew/merge_sweep.py) |
+| `merge-sweep` | match partitions | Translation-unit partition search is distinct from source merge; keep rollback and compile-budget controls. | [merge_sweep.py](../../src/rebrew/source/merge_sweep.py) |
 | `climb` | match climb | Deterministic statement search differs from GA; use common function selection and compiler overrides. | [climb.py](../../src/rebrew/climb.py) |
 | `qual-sweep` | match qualifiers | Qualifier search remains a separate algorithm; -j now matches every other --jobs option. | [qual_sweep.py](../../src/rebrew/qual_sweep.py) |
 | `cross-import` | source import-related | Imports actual source across targets; keep it distinct from BinSync field overlays. Negative limits now fail with exit 2. | [cross_import.py](../../src/rebrew/cross_import.py) |
 | `probe` | diagnose probe | Measurement without metadata writes; reuse compilation logic with test --no-promote while preserving evidence inputs. | [probe.py](../../src/rebrew/probe.py) |
-| `residue` | build residue | Linked whole-artifact residue/baseline measurement; not the same as one-function diff. | [residue.py](../../src/rebrew/residue.py) |
+| `residue` | build residue | Linked whole-artifact residue/baseline measurement; not the same as one-function diff. | [residue.py](../../src/rebrew/buildsys/residue.py) |
 | `near-diag` | diagnose near | Byte mismatch classification and optional blocker writes; keep them separate from compiler-resolution diagnose. | [near_diag.py](../../src/rebrew/near_diag.py) |
 | `gap-trace` | diagnose gap | Instruction-stream length-gap tracing; keep its distinct output and shared selection/compile primitives. | [gap_trace.py](../../src/rebrew/gap_trace.py) |
 | `recommend` | Keep recommend | Project-level layout/hygiene advice complements per-function todo; make optional application explicit. | [recommend.py](../../src/rebrew/recommend.py) |
-| `refactor` | dev refactor | Scans Python under --repository without requiring a reversing project config. | [refactor.py](../../src/rebrew/refactor.py) |
+| `refactor` | dev refactor | Scans Python under --repository without requiring a reversing project config. | [refactor.py](../../src/rebrew/source/refactor.py) |
 | `symbol-addrs` | export symbols | Splat symbol/reference export; distinguish address symbols from C context declarations. | [symbol_addrs.py](../../src/rebrew/symbol_addrs.py) |
 | `context` | export context | Universal C declaration export; distinguish this from --context input on comparison commands. | [context.py](../../src/rebrew/context.py) |
-| `objdiff` | export objdiff | Writes reference objects and GUI config; generation differs from the build protocol callback. | [objdiff_project.py](../../src/rebrew/objdiff_project.py) |
+| `objdiff` | export objdiff | Writes reference objects and GUI config; generation differs from the build protocol callback. | [objdiff_project.py](../../src/rebrew/buildsys/objdiff.py) |
 | `decompme` | export decompme | Remote upload and upload provenance; retain explicit dry-run and network boundary. | [decompme.py](../../src/rebrew/decompme.py) |
-| `layout-map` | build layout-map | Reference layout measurements; do not merge read-only inventory with gen-layout scaffolding. | [layout_map.py](../../src/rebrew/layout_map.py) |
-| `import-splat` | source import-splat | Preview is the default and --write opts in; preserve that explicit contract during any naming change. | [splat_config.py](../../src/rebrew/splat_config.py) |
+| `layout-map` | build layout-map | Reference layout measurements; do not merge read-only inventory with gen-layout scaffolding. | [layout_map.py](../../src/rebrew/buildsys/layout_map.py) |
+| `import-splat` | source import-splat | Preview is the default and --write opts in; preserve that explicit contract during any naming change. | [splat_config.py](../../src/rebrew/buildsys/splat_config.py) |
 | `blocker` | Keep blocker | A cohesive metadata group; keep its set/clear/show model. | [blocker.py](../../src/rebrew/blocker.py) |
 | `blocker set` | Keep blocker set | Sets blocker evidence only; preserve validated blocker and delta shapes. | [blocker.py](../../src/rebrew/blocker.py) |
 | `blocker clear` | Keep blocker clear | Removes BLOCKER and BLOCKER_DELTA together through metadata APIs. | [blocker.py](../../src/rebrew/blocker.py) |

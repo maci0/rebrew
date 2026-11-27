@@ -27,20 +27,20 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "source": (
         CliComponent(
             name="consolidate",
-            module="rebrew.source_consolidate",
+            module="rebrew.source.consolidate",
             help="Fold source evidence into the format-3 function metadata store.",
             panel="",
         ),
         CliComponent(
             name="organize",
-            module="rebrew.source_organize",
+            module="rebrew.source.organize",
             is_group=True,
             help="Review target providers, TU contexts and native orders before reorganizing source.",
             panel="",
         ),
         CliComponent(
             name="units",
-            module="rebrew.source_units",
+            module="rebrew.source.units",
             help="Inventory native source-path strings and bounded direct references.",
             panel="",
         ),
@@ -52,32 +52,32 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="binding",
-            module="rebrew.source_binding",
+            module="rebrew.source.binding",
             is_group=True,
             help="Review and change source bindings while retaining native inventory and evidence.",
             panel="",
         ),
         CliComponent(
             name="anchors",
-            module="rebrew.source_anchors",
+            module="rebrew.source.anchors",
             help="Materialize ADDRESS anchors for existing canonical function bindings.",
             panel="",
         ),
         CliComponent(
             name="register",
-            module="rebrew.source_register",
+            module="rebrew.source.register",
             help="Register address-only source bindings, or a support file purpose, in metadata.",
             panel="",
         ),
         CliComponent(
             name="rename",
-            module="rebrew.rename",
+            module="rebrew.source.rename",
             help="Rename a function, global, type or struct member and update every reference.",
             panel="",
         ),
         CliComponent(
             name="rename-batch",
-            module="rebrew.rename_batch",
+            module="rebrew.source.rename_batch",
             help="Run a list of renames in one process, each line one `rebrew source rename`.",
             panel="",
         ),
@@ -89,7 +89,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="inline-strings",
-            module="rebrew.inline_strings",
+            module="rebrew.source.inline_strings",
             help=(
                 "Inline string-literal globals from the reference binary: "
                 "s_<hint>_<ADDR> placeholders and g_<hex> externs bound to "
@@ -117,13 +117,13 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="split",
-            module="rebrew.split",
+            module="rebrew.source.split",
             help="Split multi-function C files into single-function files.",
             panel="",
         ),
         CliComponent(
             name="merge",
-            module="rebrew.merge",
+            module="rebrew.source.merge",
             help="Merge single-function C files into one multi-function file.",
             panel="",
         ),
@@ -135,13 +135,13 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="import-splat",
-            module="rebrew.splat_config",
+            module="rebrew.buildsys.splat_config",
             help="Seed a Rebrew project from splat YAML: names, layout, and metadata.",
             panel="",
         ),
         CliComponent(
             name="rehome",
-            module="rebrew.rehome",
+            module="rebrew.source.rehome",
             help="Point function and data rows at the source file that now defines them.",
             panel="",
         ),
@@ -159,7 +159,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="clear-cflags",
-            module="rebrew.source_cflags",
+            module="rebrew.source.cflags",
             help="Clear a saved per-function compiler flag override.",
             panel="",
         ),
@@ -175,37 +175,37 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "build": (
         CliComponent(
             name="anchors",
-            module="rebrew.link_anchors",
+            module="rebrew.buildsys.link_anchors",
             help="Generate VA-ordered native function anchors and explicitly selected data anchors.",
             panel="",
         ),
         CliComponent(
             name="delphi",
-            module="rebrew.delphi_build",
+            module="rebrew.buildsys.delphi",
             help="Compile a complete Delphi 1.0 Pascal program through its Docker image.",
             panel="",
         ),
         CliComponent(
             name="postlink",
-            module="rebrew.postlink",
+            module="rebrew.buildsys.postlink",
             help="Normalize a built binary's layout onto a reference (post-link fixes).",
             panel="",
         ),
         CliComponent(
             name="layout",
-            module="rebrew.gen_layout",
+            module="rebrew.buildsys.gen_layout",
             help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore).",
             panel="",
         ),
         CliComponent(
             name="cmake-toolchain",
-            module="rebrew.cmake_tc",
+            module="rebrew.buildsys.cmake_tc",
             help="Write a CMake toolchain file that drives a docker toolchain via rebrew.",
             panel="",
         ),
         CliComponent(
             name="driver",
-            module="rebrew.cmake_tc",
+            module="rebrew.buildsys.cmake_tc",
             attr="driver_main",
             help="Run a CMake tool: rebrew build driver <cl|link|lib> -- <arguments>.",
             panel="",
@@ -217,7 +217,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="warm-sessions",
-            module="rebrew.cmake_tc",
+            module="rebrew.buildsys.cmake_tc",
             attr="warm_sessions_main",
             help="Run a build command with warm Wine sessions for its unshare tool runs.",
             panel="",
@@ -230,7 +230,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="objdiff-driver",
-            module="rebrew.objdiff_project",
+            module="rebrew.buildsys.objdiff",
             attr="build_main",
             help="Rebuild an objdiff base object using its source's toolchain and flags.",
             panel="",
@@ -243,49 +243,49 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="cmake-flags",
-            module="rebrew.cmake_flags",
+            module="rebrew.buildsys.cmake_flags",
             help="Emit the per-file CFLAGS a CMake build must compile with.",
             panel="",
         ),
         CliComponent(
             name="cmake-sources",
-            module="rebrew.cmake_sources",
+            module="rebrew.buildsys.cmake_sources",
             help="Emit the per-target source list a CMake build must compile.",
             panel="",
         ),
         CliComponent(
             name="check",
-            module="rebrew.build_check",
+            module="rebrew.buildsys.check",
             help="Check that build/ still holds what CMake generated (hand-edit drift).",
             panel="",
         ),
         CliComponent(
             name="order-sources",
-            module="rebrew.order_sources",
+            module="rebrew.source.order",
             help="Order source files by their first function's original VA (position-aligned .text).",
             panel="",
         ),
         CliComponent(
             name="calibrate-bss",
-            module="rebrew.calibrate_bss",
+            module="rebrew.data.calibrate_bss",
             help="Calibrate a BSS tail pad so the raw link's .data VirtualSize matches the reference.",
             panel="",
         ),
         CliComponent(
             name="link-stubs",
-            module="rebrew.gen_link_stubs",
+            module="rebrew.buildsys.gen_link_stubs",
             help="Generate a link_stubs.c-style BSS placeholder TU from the data metadata.",
             panel="",
         ),
         CliComponent(
             name="symbol-stubs",
-            module="rebrew.gen_stubs",
+            module="rebrew.buildsys.gen_stubs",
             help="Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019).",
             panel="",
         ),
         CliComponent(
             name="check-data-placement",
-            module="rebrew.verify_placement",
+            module="rebrew.verify.placement",
             help="Compare .data symbol VAs of the current build against the data metadata.",
             panel="",
         ),
@@ -297,19 +297,19 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="sweep-link-flags",
-            module="rebrew.link_sweep",
+            module="rebrew.buildsys.link_sweep",
             help="Sweep LINK options to reproduce the reference PE header.",
             panel="",
         ),
         CliComponent(
             name="link-order",
-            module="rebrew.link_order",
+            module="rebrew.buildsys.link_order",
             help="Enforce VA-ordered sources into CMakeLists.txt SOURCES (drift gate).",
             panel="",
         ),
         CliComponent(
             name="check-exports",
-            module="rebrew.verify_exports",
+            module="rebrew.verify.exports",
             help="Verify the recompiled binary's export table matches the original target.",
             panel="",
         ),
@@ -321,19 +321,19 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="residue",
-            module="rebrew.residue",
+            module="rebrew.buildsys.residue",
             help="Measure linked byte-identity residue after postlink fixers.",
             panel="",
         ),
         CliComponent(
             name="layout-map",
-            module="rebrew.layout_map",
+            module="rebrew.buildsys.layout_map",
             help="Dump reference-side layout measurements (sections, gaps, IAT, exports).",
             panel="",
         ),
         CliComponent(
             name="check-tu-data",
-            module="rebrew.tu_data_check",
+            module="rebrew.data.tu_check",
             help="Flag linked objects whose .data/.rdata breaks the MSVC6 one-TU shape.",
             panel="",
         ),
@@ -569,25 +569,25 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "coverage": (
         CliComponent(
             name="import-history",
-            module="rebrew.coverage_history",
+            module="rebrew.coverage.history",
             help="Import status history from portable snapshots without changing verdicts.",
             panel="",
         ),
         CliComponent(
             name="report",
-            module="rebrew.report",
+            module="rebrew.coverage.report",
             help="Generate a static HTML documentation site for a decomp project.",
             panel="",
         ),
         CliComponent(
             name="export",
-            module="rebrew.build_db",
+            module="rebrew.coverage.build_db",
             help="Export portable coverage snapshots for offline viewing.",
             panel="",
         ),
         CliComponent(
             name="serve",
-            module="rebrew.dashboard",
+            module="rebrew.coverage.dashboard",
             help="Serve a read-only dashboard from live project metadata or portable snapshots.",
             panel="",
         ),
@@ -607,7 +607,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="partitions",
-            module="rebrew.merge_sweep",
+            module="rebrew.source.merge_sweep",
             help="Deterministic TU-partition search over cu-map clusters.",
             panel="",
         ),
@@ -655,7 +655,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
     "dev": (
         CliComponent(
             name="refactor",
-            module="rebrew.refactor",
+            module="rebrew.source.refactor",
             help="Analyze the rebrew source tree and suggest refactoring opportunities.",
             panel="",
         ),
@@ -681,7 +681,7 @@ DOMAIN_COMPONENTS: dict[str, tuple[CliComponent, ...]] = {
         ),
         CliComponent(
             name="objdiff",
-            module="rebrew.objdiff_project",
+            module="rebrew.buildsys.objdiff",
             help="Generate an objdiff project (target objects + objdiff.json) for GUI diffing.",
             panel="",
         ),
@@ -805,13 +805,13 @@ def __getattr__(name: str) -> typer.Typer:
 BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="test",
-        module="rebrew.test",
+        module="rebrew.verify.test",
         help="Compile-and-compare for reversed functions (auto-updates STATUS by default).",
         panel=Panel.DEVELOPMENT,
     ),
     CliComponent(
         name="verify",
-        module="rebrew.verify",
+        module="rebrew.verify.cli",
         help="Rebrew verification pipeline: compile each .c and verify bytes match.",
         panel=Panel.DEVELOPMENT,
     ),
@@ -860,7 +860,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="data",
-        module="rebrew.data",
+        module="rebrew.data.cli",
         help="Inspect global data, edit metadata, and generate declarations and layout repairs.",
         panel=Panel.ANALYSIS,
         is_group=True,

@@ -332,9 +332,9 @@ class TestDropinIntegration:
         assert all(path.stat().st_mode & 0o777 == 0o444 for path in (one, two))
 
     def test_data_layout_and_verification_read_directory_only_store(self, tmp_path: Path) -> None:
-        from rebrew.data_layout import data_symbols
-        from rebrew.data_verify import verify_data_bytes
-        from rebrew.gen_link_stubs import load_data_symbols
+        from rebrew.buildsys.gen_link_stubs import load_data_symbols
+        from rebrew.data.layout import data_symbols
+        from rebrew.data.verify import verify_data_bytes
 
         save_data_metadata(
             tmp_path,

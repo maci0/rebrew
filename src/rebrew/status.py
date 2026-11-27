@@ -36,7 +36,7 @@ from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 lazy from rebrew.config import ProjectConfig
 lazy from rebrew.formats.binary_model import BinaryInfo
 lazy from rebrew.present import BAR_WIDTH, filled_cells, ratio_bar
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 lazy from rebrew.utils import (
     TerminalTable,
     clip_span,
@@ -489,12 +489,12 @@ def _load_cache_raw(cfg: ProjectConfig) -> dict[str, Any] | None:
     One guard for every status reader: a cache written for another target,
     another binary, another compiler config, or another cache schema
     version must not drive this project's summary or effective statuses.
-    The predicate itself lives in :mod:`rebrew.verify_cache` so status, todo,
+    The predicate itself lives in :mod:`rebrew.verify.cache` so status, todo,
     residue, and the compile path cannot drift apart on what "ours" means —
     each re-deriving it is how a cache earned under an older toolchain kept
     being reported as current while ``rebrew verify`` recompiled it away.
     """
-    from rebrew.verify_cache import cache_identity_matches, load_verify_cache_raw
+    from rebrew.verify.cache import cache_identity_matches, load_verify_cache_raw
 
     # Every status reader only looks at the document, so share the memoized
     # entries instead of deep-copying the whole cache per reader.
@@ -519,7 +519,7 @@ def _load_verify_info(
     needs the effective statuses reads the cache once.
     """
     from rebrew.metadata.functions import metadata_path
-    from rebrew.verify_cache import cache_path_for
+    from rebrew.verify.cache import cache_path_for
 
     cache_path = cache_path_for(cfg, for_read=True)
     if raw is None:
@@ -915,7 +915,7 @@ def collect_status(
     metadata STUB wins over the cache's STUB/SIZE_MISMATCH/MISSING_SIZE
     placeholders (see :func:`effective_status`).
 
-    *tree* and *data* are a :func:`rebrew.sources.scan_files` result and the
+    *tree* and *data* are a :func:`rebrew.source.discovery.scan_files` result and the
     matching :func:`rebrew.naming.load_data` result for this config.  A caller
     that already loaded them (``todo`` does) passes both so the scan and
     source-binding pass are not repeated.
@@ -925,7 +925,7 @@ def collect_status(
     (``trusted.bind``); the source scan and the bind are not repeated.
     """
     from rebrew.naming import load_data
-    from rebrew.sources import iter_sources, scan_files
+    from rebrew.source.discovery import iter_sources, scan_files
 
     report = StatusReport(
         target=cfg.target_name,
@@ -1241,7 +1241,7 @@ def collect_status(
     # Data verdicts: count rebrew-data.toml STATUS values written by
     # `verify --data`.  Named symbols only — unnamed inventory rows carry
     # no verdict.
-    from rebrew.data_layout import data_symbol_size
+    from rebrew.data.layout import data_symbol_size
     from rebrew.metadata.data import (
         DATA_STATUS_DISPLACED,
         DATA_STATUS_EXACT,

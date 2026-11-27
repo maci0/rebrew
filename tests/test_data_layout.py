@@ -1,4 +1,4 @@
-"""Tests for rebrew.data_layout — the shared .data placement model."""
+"""Tests for rebrew.data.layout — the shared .data placement model."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from source_util import write_source, write_store_fixture
 
-from rebrew.data_layout import (
+from rebrew.data.layout import (
     c_type_size,
     data_symbols,
     estimate_type_size,
@@ -85,7 +85,7 @@ def test_unreadable_source_fails_ownership_scan(
             raise OSError(f"cannot read {path}")
         return real(path)
 
-    monkeypatch.setattr("rebrew.data_layout.read_source_text", _boom)
+    monkeypatch.setattr("rebrew.data.layout.read_source_text", _boom)
     with pytest.raises(OSError, match="b.c"):
         reference_counts([a, b])
     with pytest.raises(OSError, match="b.c"):
@@ -135,7 +135,7 @@ def test_insert_definition(tmp_path: Path) -> None:
 def test_dry_run_absent_name_reads_file_without_compiling_patterns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rebrew import data_layout
+    from rebrew.data import layout as data_layout
 
     f = tmp_path / "owner.c"
     f.write_text("int other;\n")
@@ -410,7 +410,7 @@ def test_insert_definition_scalar(tmp_path: Path) -> None:
 
 
 def test_own_data_keeps_existing_multidimensional_indexing(tmp_path: Path) -> None:
-    from rebrew.data_layout import own_data_globals
+    from rebrew.data.layout import own_data_globals
 
     data_base = 0x10027000
     _write_layout(tmp_path, data_base, 16, 16)
@@ -437,7 +437,7 @@ def test_own_data_keeps_existing_multidimensional_indexing(tmp_path: Path) -> No
 
 
 def test_parse_stub_globals(tmp_path: Path) -> None:
-    from rebrew.data_layout import _parse_stub_globals
+    from rebrew.data.layout import _parse_stub_globals
 
     stub = tmp_path / "link_stubs.c"
     stub.write_text(
@@ -458,7 +458,7 @@ def test_parse_stub_globals_counts_zero_length_array_as_one(tmp_path: Path) -> N
     """``T[0]`` is a flexible-array extension. estimate_type_size counts it as
     one element; the declarator parser must agree, or the symbol reaches the
     layout with size 0 and is silently dropped."""
-    from rebrew.data_layout import _parse_stub_globals
+    from rebrew.data.layout import _parse_stub_globals
 
     stub = tmp_path / "link_stubs.c"
     stub.write_text("int g_flex[0] = {0};\n", encoding="utf-8")
@@ -469,7 +469,7 @@ def test_parse_stub_globals_folds_constant_expression_bounds(tmp_path: Path) -> 
     """A constant expression is a bound. ``estimate_type_size`` folds it; the
     stub parser must report the same element count, or ``data --own`` drops
     the symbol. A name (``[N]``) stays unknown."""
-    from rebrew.data_layout import _parse_stub_globals, c_type_size, estimate_type_size
+    from rebrew.data.layout import _parse_stub_globals, c_type_size, estimate_type_size
 
     stub = tmp_path / "link_stubs.c"
     stub.write_text(
@@ -500,7 +500,7 @@ def test_parse_stub_globals_accepts_nested_bracket_bound(tmp_path: Path) -> None
     the symbol was dropped. ``int g[sizeof(int[2])]`` was dropped the same
     way.
     """
-    from rebrew.data_layout import _parse_stub_globals
+    from rebrew.data.layout import _parse_stub_globals
 
     stub = tmp_path / "link_stubs.c"
     stub.write_text(
@@ -522,7 +522,7 @@ def test_scalar_literal_float_emits_decimal_not_hex() -> None:
     would be implicitly converted by C and silently change the value."""
     import struct
 
-    from rebrew.data_layout import _scalar_literal
+    from rebrew.data.layout import _scalar_literal
 
     assert _scalar_literal(struct.pack("<f", 123.0), "float", 4) == "123.0f"
     assert _scalar_literal(struct.pack("<f", 123.0), "FLOAT", 4) == "123.0f"
@@ -534,7 +534,7 @@ def test_scalar_literal_float_round_trips_bits() -> None:
     must reproduce the original 4 bytes exactly."""
     import struct
 
-    from rebrew.data_layout import _scalar_literal
+    from rebrew.data.layout import _scalar_literal
 
     for bits in (0x3DCCCCCD, 0x7F7FFFFF, 0x00000001, 0x80000000, 0x4B18967F):
         raw = struct.pack("<I", bits)
@@ -550,7 +550,7 @@ def test_scalar_literal_non_finite_returns_none() -> None:
     import math
     import struct
 
-    from rebrew.data_layout import _scalar_literal
+    from rebrew.data.layout import _scalar_literal
 
     assert _scalar_literal(struct.pack("<I", 0x7FC00000), "float", 4) is None  # qNaN
     assert _scalar_literal(struct.pack("<I", 0x7F800000), "float", 4) is None  # inf
@@ -561,7 +561,7 @@ def test_scalar_literal_non_finite_returns_none() -> None:
 def test_typed_array_literal_rejects_non_finite_element() -> None:
     import struct
 
-    from rebrew.data_layout import typed_array_literal
+    from rebrew.data.layout import typed_array_literal
 
     good = struct.pack("<f", 1.0)
     inf = struct.pack("<I", 0x7F800000)
@@ -573,7 +573,7 @@ def test_typed_array_literal_big_endian_target() -> None:
     """Big-endian targets (GameCube PPC, N64 MIPS) decode MSB-first."""
     import struct
 
-    from rebrew.data_layout import typed_array_literal
+    from rebrew.data.layout import typed_array_literal
 
     data = struct.pack(">HH", 1, 0x1234) + struct.pack(">f", 2.5)
     assert typed_array_literal("short", data[:4], ">") == ("{\n    1, 4660,\n}", 2)
@@ -583,7 +583,7 @@ def test_typed_array_literal_big_endian_target() -> None:
 def test_own_data_globals_skips_nan_float_and_materializes_finite(tmp_path: Path) -> None:
     import struct
 
-    from rebrew.data_layout import own_data_globals
+    from rebrew.data.layout import own_data_globals
 
     data_base = 0x10027000
     raw = (
@@ -638,7 +638,7 @@ def test_own_data_globals_skips_a_scalar_past_the_reference_raw_data(tmp_path: P
     past the file's ``.data`` is skipped instead of unpacked from a short slice."""
     import struct
 
-    from rebrew.data_layout import own_data_globals
+    from rebrew.data.layout import own_data_globals
 
     data_base = 0x10027000
     binp = _own_fixture(tmp_path, struct.pack("<I", 7), data_base)
@@ -672,7 +672,7 @@ def test_own_data_globals_skips_symbol_the_owner_typed_differently(
     declaration broke the rebuilt TU with C2371, so the symbol stays in the stub
     and the owner text is left alone.
     """
-    from rebrew.data_layout import own_data_globals
+    from rebrew.data.layout import own_data_globals
 
     data_base = 0x10027000
     raw = b"\x01\x00\x00\x00" + b"\x00" * 32
@@ -700,7 +700,7 @@ def test_own_data_globals_skips_symbol_the_owner_typed_differently(
 
 
 def test_own_data_globals_scalar_and_string(tmp_path: Path) -> None:
-    from rebrew.data_layout import own_data_globals
+    from rebrew.data.layout import own_data_globals
 
     data_base = 0x10027000
     raw = b"\x2a\x00\x00\x00" + b"hello\x00" + b"\x00" * 20  # g_count=42, g_msg="hello"
@@ -727,7 +727,7 @@ def test_own_data_globals_scalar_and_string(tmp_path: Path) -> None:
 
 
 def test_own_data_globals_skips_bss_and_unmapped(tmp_path: Path) -> None:
-    from rebrew.data_layout import own_data_globals
+    from rebrew.data.layout import own_data_globals
 
     data_base = 0x10027000
     raw = b"\x2a\x00\x00\x00"
@@ -777,7 +777,7 @@ def _write_rsp(tmp_path: Path, objs: list[Path]) -> None:
 
 
 def test_fix_ownership_partitions_across_tus(tmp_path: Path) -> None:
-    from rebrew.data_layout import fix_ownership
+    from rebrew.data.layout import fix_ownership
 
     data_base = 0x10027000
     obj_a = _mingw_obj(tmp_path, "a", "int g_a = 1;\nint g_ab = 2;\n")
@@ -832,7 +832,7 @@ def _fix_ownership_two_tu(tmp_path: Path, a_body: str) -> tuple[Path, Path]:
 
 
 def test_fix_ownership_uses_selected_metadata_and_link_order(tmp_path: Path) -> None:
-    from rebrew.data_layout import fix_ownership
+    from rebrew.data.layout import fix_ownership
 
     meta, binary = _fix_ownership_two_tu(tmp_path, "int g_a = 1;\n")
     project = tmp_path / "rebrew-project.toml"
@@ -863,7 +863,7 @@ def test_fix_ownership_uses_selected_metadata_and_link_order(tmp_path: Path) -> 
 
 
 def test_fix_ownership_moves_scalar_declarators_and_initializers(tmp_path: Path) -> None:
-    from rebrew.data_layout import fix_ownership
+    from rebrew.data.layout import fix_ownership
 
     meta, binary = _fix_ownership_two_tu(tmp_path, '#include "globals.h"\nint g_a = 1;\n')
     src = tmp_path / "src"
@@ -889,7 +889,7 @@ def test_fix_ownership_sees_array_of_pointers_to_array(tmp_path: Path) -> None:
     The symbol moved and the original definition stayed, leaving two
     definitions.
     """
-    from rebrew.data_layout import fix_ownership
+    from rebrew.data.layout import fix_ownership
 
     meta, binp = _fix_ownership_two_tu(tmp_path, "int g_a = 1;\nint (*table[2])[3] = {0};\n")
     fix_ownership(tmp_path, meta, binp, tmp_path / "src", dry_run=False)
@@ -907,7 +907,7 @@ def test_fix_ownership_keeps_pointer_array_extern(tmp_path: Path) -> None:
     pointee ``[3]`` were gone, so the original file no longer declared
     an array of pointers to an array.
     """
-    from rebrew.data_layout import fix_ownership
+    from rebrew.data.layout import fix_ownership
 
     meta, binp = _fix_ownership_two_tu(tmp_path, "int g_a = 1;\nint (*table[2])[3] = {0};\n")
     fix_ownership(tmp_path, meta, binp, tmp_path / "src", dry_run=False)
@@ -921,7 +921,7 @@ def test_fix_ownership_keeps_const_pointer_array_extern(tmp_path: Path) -> None:
     ``const`` sat between the star and the name, so the scan did not own
     ``table`` and the definition stayed in the original file.
     """
-    from rebrew.data_layout import fix_ownership
+    from rebrew.data.layout import fix_ownership
 
     meta, binp = _fix_ownership_two_tu(tmp_path, "int g_a = 1;\nint (* const table[2])[3] = {0};\n")
     fix_ownership(tmp_path, meta, binp, tmp_path / "src", dry_run=False)
@@ -935,7 +935,7 @@ def test_fix_ownership_keeps_const_pointer_array_extern(tmp_path: Path) -> None:
 
 
 def test_built_data_va(tmp_path: Path) -> None:
-    from rebrew.data_layout import built_data_va
+    from rebrew.data.layout import built_data_va
 
     pe = _make_pe(b"\x00" * 64, image_base=0x10000000, data_va=0x18000)
     dll = tmp_path / "server.dll"
@@ -944,7 +944,7 @@ def test_built_data_va(tmp_path: Path) -> None:
 
 
 def test_converge_layout_single_tu(tmp_path: Path) -> None:
-    from rebrew.data_layout import converge_layout
+    from rebrew.data.layout import converge_layout
 
     data_base = 0x10027000
     obj_a = _mingw_obj(tmp_path, "a", "int g_a = 1;\n")
@@ -979,7 +979,7 @@ def test_converge_layout_single_tu(tmp_path: Path) -> None:
 def test_converge_layout_resolves_target_from_config(tmp_path: Path) -> None:
     """The build output is ``build/<target>``, never hardcoded: with a
     ``default_target`` of game.dll only ``build/game.dll`` is consulted."""
-    from rebrew.data_layout import _converge_target, converge_layout
+    from rebrew.data.layout import _converge_target, converge_layout
 
     data_base = 0x10027000
     obj_a = _mingw_obj(tmp_path, "a", "int g_a = 1;\n")
@@ -1030,7 +1030,7 @@ def test_converge_layout_resolves_target_from_config(tmp_path: Path) -> None:
 
 def test_converge_layout_missing_output_names_target(tmp_path: Path) -> None:
     """The not-built error names the resolved output, not a hardcoded name."""
-    from rebrew.data_layout import converge_layout
+    from rebrew.data.layout import converge_layout
 
     _write_layout(tmp_path, 0x10027000, 0x1000, 0x1000)
     (tmp_path / "original").mkdir(exist_ok=True)
@@ -1050,7 +1050,7 @@ def test_converge_layout_missing_output_names_target(tmp_path: Path) -> None:
 
 
 def test_obj_data_symbols_raises_on_bad_object(tmp_path: Path) -> None:
-    from rebrew.data_layout import obj_data_symbols
+    from rebrew.data.layout import obj_data_symbols
 
     bad = tmp_path / "bad.obj"
     bad.write_text("this is not an object file\n", encoding="utf-8")
@@ -1060,7 +1060,7 @@ def test_obj_data_symbols_raises_on_bad_object(tmp_path: Path) -> None:
 
 def test_audit_layout_records_objdump_error(tmp_path: Path) -> None:
     """A broken object must surface as a flagged row, not silent zeros."""
-    from rebrew.data_layout import audit_layout
+    from rebrew.data.layout import audit_layout
 
     bad = tmp_path / "bad.obj"
     bad.write_text("not an object\n", encoding="utf-8")
@@ -1081,7 +1081,7 @@ def test_audit_layout_records_objdump_error(tmp_path: Path) -> None:
 
 def test_find_definition_crlf_offsets() -> None:
     """Splice offsets must account for CRLF, not drift one byte per line."""
-    from rebrew.data_layout import _find_definition
+    from rebrew.data.layout import _find_definition
 
     text = "int g_a = 1;\r\nstatic char g_pad[4];\r\n\r\nint g_b = { 2, 3 };\r\n"
     r = _find_definition(text, "g_b")
@@ -1098,7 +1098,7 @@ def test_find_definition_crlf_offsets() -> None:
 
 
 def test_find_definition_crlf_scalar_form() -> None:
-    from rebrew.data_layout import _find_definition
+    from rebrew.data.layout import _find_definition
 
     text = "extern int g_x;\r\nint g_y = 5;\r\nint g_z = 7;\r\n"
     r = _find_definition(text, "g_z")
@@ -1112,7 +1112,7 @@ def test_find_definition_accepts_constant_bounds() -> None:
     The bracket pattern was decimal digits only, so ``g[0x10]`` was not a
     definition and an ownership move could not find it to replace.
     """
-    from rebrew.data_layout import _decl_info, _defined_globals_in_text, _find_definition
+    from rebrew.data.layout import _decl_info, _defined_globals_in_text, _find_definition
 
     text = "int g_hex[0x10] = {1};\nint g_expr[2 + 2] = {1};\nint g_2d[2][4] = {1};\n"
     hex_def = _find_definition(text, "g_hex")
@@ -1140,7 +1140,7 @@ def test_find_definition_accepts_nested_bracket_bound() -> None:
     The bracket pattern stopped at the inner ``]``, so an ownership move
     could not find the line. ``sizeof(int[2])`` is 8 elements.
     """
-    from rebrew.data_layout import _decl_info, _defined_globals_in_text, _find_definition
+    from rebrew.data.layout import _decl_info, _defined_globals_in_text, _find_definition
 
     text = "int g_wide[sizeof(wchar_t[3])] = {1};\nint g_ints[sizeof(int[2])] = {1};\n"
     wide = _find_definition(text, "g_wide")
@@ -1164,7 +1164,7 @@ def test_decl_info_pointer_array_counts_every_element() -> None:
     parentheses, so the declaration was invisible. ``[4]`` is the element
     count. ``extern char (*g_row)[4]`` stays one pointer.
     """
-    from rebrew.data_layout import _decl_info
+    from rebrew.data.layout import _decl_info
 
     assert _decl_info("extern int *table[4];\n", "table") == ("extern int *", 4)
     assert _decl_info("extern int (*table[4]);\n", "table") == ("extern int *", 4)
@@ -1179,7 +1179,7 @@ def test_decl_info_pointer_to_array_is_not_an_array() -> None:
     The name sits inside parentheses, so the declaration was invisible.
     ``[4]`` is the array that pointer addresses, not four elements.
     """
-    from rebrew.data_layout import _decl_info
+    from rebrew.data.layout import _decl_info
 
     assert _decl_info("extern char (*g_row)[4];\n", "g_row") == ("extern char", None)
     assert _decl_info("extern char (**g_ptrs)[4];\n", "g_ptrs") == ("extern char", None)
@@ -1193,7 +1193,7 @@ def test_decl_info_array_of_pointers_to_array_counts_the_pointers() -> None:
     declaration was invisible. ``[3]`` is the array each pointer addresses.
     ``extern char (*g_row)[4]`` stays one pointer.
     """
-    from rebrew.data_layout import _decl_info
+    from rebrew.data.layout import _decl_info
 
     assert _decl_info("extern int (*table[2])[3];\n", "table") == ("extern int *", 2)
     assert _decl_info("extern char (**rows[2])[4];\n", "rows") == ("extern char **", 2)
@@ -1206,7 +1206,7 @@ def test_find_definition_sees_function_pointer_array() -> None:
     The parameter list sat after the brackets, so the scan did not own
     the symbol. ``int (*table[2])[3] = {0}`` stays that definition.
     """
-    from rebrew.data_layout import _defined_globals_in_text, _find_definition
+    from rebrew.data.layout import _defined_globals_in_text, _find_definition
 
     line = "void (*cbs[4])(int) = {0};"
     assert _defined_globals_in_text(line) == ["cbs"]
@@ -1225,7 +1225,7 @@ def test_find_definition_sees_cdecl_pointer_array() -> None:
     ``void (__cdecl *cbs[4])(int) = {0}`` defines ``cbs``.
     ``int (*table[2])[3] = {0}`` stays that definition.
     """
-    from rebrew.data_layout import _defined_globals_in_text, _find_definition
+    from rebrew.data.layout import _defined_globals_in_text, _find_definition
 
     line = "int (__cdecl *table[2])[3] = {0};"
     assert _defined_globals_in_text(line) == ["table"]
@@ -1245,7 +1245,7 @@ def test_find_definition_sees_scalar_function_pointer() -> None:
     definition it already owned. ``void (__cdecl *cb)(int) = NULL`` is
     the same definition. ``int g_a = 1`` stays that definition.
     """
-    from rebrew.data_layout import _find_definition
+    from rebrew.data.layout import _find_definition
 
     line = "void (*cb)(int) = 0;"
     found = _find_definition(line + "\n", "cb")
@@ -1272,7 +1272,7 @@ def test_decl_info_function_pointer_array_counts_the_pointers() -> None:
     The parameter list sat after the brackets, so the declaration was
     invisible. ``extern int (*table[2])[3]`` stays two pointers.
     """
-    from rebrew.data_layout import _decl_info
+    from rebrew.data.layout import _decl_info
 
     assert _decl_info("extern void (*cbs[4])(int);\n", "cbs") == ("extern void *", 4)
     assert _decl_info("extern int (*table[4])(int);\n", "table") == ("extern int *", 4)
@@ -1287,7 +1287,7 @@ def test_decl_info_cdecl_pointer_array_counts_the_pointers() -> None:
     ``extern char (__cdecl *row)[4]`` stays one pointer.
     ``extern void (__cdecl *cbs[4])(int)`` is four function pointers.
     """
-    from rebrew.data_layout import _decl_info
+    from rebrew.data.layout import _decl_info
 
     assert _decl_info("extern int (__cdecl *table[2])[3];\n", "table") == (
         "extern int __cdecl *",
@@ -1326,7 +1326,7 @@ def test_decl_info_const_pointer_array_counts_the_pointers() -> None:
     ``const`` sat between the star and the name, so the declaration was
     invisible. ``extern char (* const row)[4]`` stays one pointer.
     """
-    from rebrew.data_layout import _decl_info
+    from rebrew.data.layout import _decl_info
 
     assert _decl_info("extern int (* const table[2])[3];\n", "table") == (
         "extern int * const",
@@ -1347,7 +1347,7 @@ def test_decl_info_const_pointer_array_counts_the_pointers() -> None:
 
 def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
     """CMake builds keep link order via build/CMakeFiles/*/objects*.rsp."""
-    from rebrew.data_layout import link_objects
+    from rebrew.data.layout import link_objects
 
     rsp_dir = tmp_path / "build/CMakeFiles/game.dir"
     rsp_dir.mkdir(parents=True)
@@ -1366,7 +1366,7 @@ def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
 
 def test_link_objects_in_reads_an_alternate_cmake_tree(tmp_path: Path) -> None:
     """A build tree outside build/ keeps its own object order."""
-    from rebrew.data_layout import link_objects_in
+    from rebrew.data.layout import link_objects_in
 
     build = tmp_path / "build-goldtl-audit"
     rsp_dir = build / "CMakeFiles/game.dir"
@@ -1385,7 +1385,7 @@ def test_audit_layout_filters_the_target_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Two binaries keep different VAs for one name; audit must read one module."""
-    from rebrew import data_layout as dl
+    from rebrew.data import layout as dl
 
     (tmp_path / "rebrew-project.toml").write_text(
         "[project]\ndefault_target = 'client.dll'\n"
@@ -1416,7 +1416,7 @@ def test_converge_layout_reads_only_the_target_module(tmp_path: Path) -> None:
     unfiltered map, so a client run read a server VA (0x100xxxxx) against a
     0x68xxxxx build and proposed a pad of gigabytes.
     """
-    from rebrew import data_layout as dl
+    from rebrew.data import layout as dl
 
     (tmp_path / "rebrew-project.toml").write_text(
         "[project]\ndefault_target = 'client.dll'\n"
@@ -1435,7 +1435,7 @@ def test_link_objects_selects_the_named_target(tmp_path: Path) -> None:
     Sorted by directory name the server target came first, so converge measured
     another target's objects and reported no adjustments for the client.
     """
-    from rebrew.data_layout import link_objects
+    from rebrew.data.layout import link_objects
 
     for name, output, source in (
         ("server", "Euro_TL.exe.backup", "src/server.c.obj"),
@@ -1457,7 +1457,7 @@ def test_link_objects_selects_the_named_target(tmp_path: Path) -> None:
 def test_link_objects_refuses_nonunique_exact_output(
     tmp_path: Path, suffix: str, expected: str
 ) -> None:
-    from rebrew.data_layout import link_objects
+    from rebrew.data.layout import link_objects
 
     for target in ("first", "second"):
         directory = tmp_path / "build" / "CMakeFiles" / f"{target}.dir"
@@ -1473,7 +1473,7 @@ def test_link_objects_refuses_nonunique_exact_output(
 
 def test_link_objects_cmake_rsp_backslash_paths(tmp_path: Path) -> None:
     """Wine/MSVC CMake rsp lines may use ``\\``; POSIX Path must still join."""
-    from rebrew.data_layout import link_objects
+    from rebrew.data.layout import link_objects
 
     rsp_dir = tmp_path / "build/CMakeFiles/game.dir"
     rsp_dir.mkdir(parents=True)
@@ -1490,7 +1490,7 @@ def test_link_objects_cmake_rsp_backslash_paths(tmp_path: Path) -> None:
 
 def test_obj_to_source_backslash_cmake_path(tmp_path: Path) -> None:
     """Object paths with embedded ``\\`` still resolve to the owning ``.c``."""
-    from rebrew.data_layout import _obj_to_source
+    from rebrew.data.layout import _obj_to_source
 
     src = tmp_path / "src" / "zed.c"
     src.parent.mkdir(parents=True)
@@ -1507,7 +1507,7 @@ def test_link_objects_makefile_out_fallback(tmp_path: Path) -> None:
     Regression: verify-placement --built np_recompiled.exe on notepad's
     Makefile build errored 'no build/CMakeFiles/*/objects*.rsp found — build
     the project first' even though the project was built."""
-    from rebrew.data_layout import link_objects
+    from rebrew.data.layout import link_objects
 
     out = tmp_path / "out"
     out.mkdir()
@@ -1524,7 +1524,7 @@ def test_link_objects_makefile_out_fallback(tmp_path: Path) -> None:
 
 def test_link_objects_makefile_build_fallback(tmp_path: Path) -> None:
     """build/*.obj is tried after out/ (and only when out/ has no objects)."""
-    from rebrew.data_layout import link_objects
+    from rebrew.data.layout import link_objects
 
     build = tmp_path / "build"
     build.mkdir()
@@ -1535,7 +1535,7 @@ def test_link_objects_makefile_build_fallback(tmp_path: Path) -> None:
 
 
 def test_link_objects_missing_raises(tmp_path: Path) -> None:
-    from rebrew.data_layout import link_objects
+    from rebrew.data.layout import link_objects
 
     with pytest.raises(FileNotFoundError, match="build the project first"):
         link_objects(tmp_path)
@@ -1591,7 +1591,7 @@ def _make_multi_section_coff(
 
 class TestObjSectionSymbols:
     def test_rdata_bucket(self, tmp_path: Path) -> None:
-        from rebrew.data_layout import obj_section_symbols
+        from rebrew.data.layout import obj_section_symbols
 
         obj = tmp_path / "f.obj"
         obj.write_bytes(
@@ -1607,7 +1607,7 @@ class TestObjSectionSymbols:
         assert buckets[".rdata"] == {"g_const"}
 
     def test_legacy_wrapper_unchanged(self, tmp_path: Path) -> None:
-        from rebrew.data_layout import obj_data_symbols
+        from rebrew.data.layout import obj_data_symbols
 
         obj = tmp_path / "f.obj"
         obj.write_bytes(
@@ -1624,7 +1624,7 @@ class TestObjSectionSymbols:
         The C names are ``_g_foo`` and ``g_foo``. ``hook@@12`` is ``hook``.
         A cdecl ``_g_plain`` is still ``g_plain``.
         """
-        from rebrew.data_layout import obj_data_symbol_offsets, obj_section_symbols
+        from rebrew.data.layout import obj_data_symbol_offsets, obj_section_symbols
 
         obj = tmp_path / "f.obj"
         obj.write_bytes(
@@ -1641,7 +1641,7 @@ class TestObjSectionSymbols:
 
 class TestAuditLayoutSection:
     def test_rdata_audit(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.data_layout import audit_layout
+        from rebrew.data.layout import audit_layout
 
         meta = tmp_path / "rebrew-data.toml"
         write_store_fixture(
@@ -1656,7 +1656,7 @@ class TestAuditLayoutSection:
                 [("_g_d", 1, 0), ("_g_c", 2, 4)],
             )
         )
-        import rebrew.data_layout as dl
+        import rebrew.data.layout as dl
 
         monkeypatch.setattr(dl, "link_objects", lambda root, target=None: [obj])
         report = audit_layout(tmp_path, meta, ".rdata")
@@ -1671,7 +1671,7 @@ def test_converge_layout_preserves_source_encoding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A legacy-encoded TU must not be rewritten as UTF-8 (byte 0xA9 kept)."""
-    from rebrew import data_layout as dl
+    from rebrew.data import layout as dl
 
     src = tmp_path / "src"
     src.mkdir()
@@ -1708,7 +1708,7 @@ def test_converge_layout_negative_delta_without_pad_leaves_tu_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A TU placed too late with no lead pad has nothing to shrink: no edit, every run."""
-    from rebrew import data_layout as dl
+    from rebrew.data import layout as dl
 
     src = tmp_path / "src"
     src.mkdir()
@@ -1819,7 +1819,7 @@ def test_fill_data_keeps_one_pad_per_address(tmp_path: Path) -> None:
     `fill` re-emitted a pad when the most-referencing owner changed between
     runs, producing two declarations of different sizes for one address.
     """
-    from rebrew.data_layout import fill_data
+    from rebrew.data.layout import fill_data
 
     data_base = 0x10027000
     raw = b"\x01\x00\x00\x00" + b"\x00" * 0xFC
@@ -1850,7 +1850,7 @@ def test_fill_data_keeps_one_pad_per_address(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("known", [True, False])
 def test_fill_data_leaves_global_allocations_unmodified(tmp_path: Path, known: bool) -> None:
-    from rebrew.data_layout import fill_data
+    from rebrew.data.layout import fill_data
 
     data_base = 0x10027000
     raw = bytes(range(128))
@@ -1914,7 +1914,7 @@ class TestMergedDefinitionLine:
     def test_unsized_extern_array_takes_the_array_form(self) -> None:
         """An unsized `extern char g[];` plus a brace initializer used to emit
         `extern char g = { … };` — uncompilable C."""
-        from rebrew.data_layout import _merged_definition_line
+        from rebrew.data.layout import _merged_definition_line
 
         out = _merged_definition_line(
             "extern char", None, "g_buf", "char g_buf[4] = {0x68, 1, 2, 3};"
@@ -1923,13 +1923,13 @@ class TestMergedDefinitionLine:
         assert not out.startswith("extern")
 
     def test_sized_declaration_keeps_its_size(self) -> None:
-        from rebrew.data_layout import _merged_definition_line
+        from rebrew.data.layout import _merged_definition_line
 
         out = _merged_definition_line("extern int", 8, "g_a", "int g_a[4] = {1, 2, 3, 4};")
         assert out == "int g_a[8] = {1, 2, 3, 4};"
 
     def test_scalar_initializer_stays_scalar(self) -> None:
-        from rebrew.data_layout import _merged_definition_line
+        from rebrew.data.layout import _merged_definition_line
 
         assert _merged_definition_line("extern int", None, "g_a", "int g_a = 7;") == "int g_a = 7;"
 
@@ -1942,7 +1942,7 @@ class TestDataModeTarget:
     def test_data_modes_forward_the_target_to_the_geometry(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.data_layout as dl
+        import rebrew.data.layout as dl
 
         seen: list[str | None] = []
 
@@ -1978,7 +1978,7 @@ class TestSharedScans:
     """DATA tooling sees src/shared (DATA markers belong to every target)."""
 
     def test_scan_files_includes_shared(self, tmp_path: Path) -> None:
-        from rebrew.data_layout import scan_files
+        from rebrew.data.layout import scan_files
 
         src = tmp_path / "src" / "V1"
         src.mkdir(parents=True)
@@ -1991,7 +1991,7 @@ class TestSharedScans:
         assert (shared / "s.c") in files
 
     def test_scan_files_no_shared_unchanged(self, tmp_path: Path) -> None:
-        from rebrew.data_layout import scan_files
+        from rebrew.data.layout import scan_files
 
         src = tmp_path / "src"
         src.mkdir(parents=True)
@@ -2003,7 +2003,7 @@ class TestSharedScans:
         """--own finds the extern in a shared TU and defines it there."""
         import struct
 
-        from rebrew.data_layout import own_data_globals
+        from rebrew.data.layout import own_data_globals
 
         data_base = 0x10027000
         raw = struct.pack("<i", 42) + b"\x00" * 20
@@ -2030,7 +2030,7 @@ class TestSharedScans:
 
 
 def test_find_dlead_pad() -> None:
-    from rebrew.data_layout import _find_dlead_pad
+    from rebrew.data.layout import _find_dlead_pad
 
     text = "// note\nunsigned char _dlead_foo[16] = {0x00, 0x01};\nint x = 0;\n"
     res = _find_dlead_pad(text)
@@ -2055,7 +2055,7 @@ def test_converge_layout_rerun_updates_existing_pad_idempotent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Running converge_layout twice updates the existing pad without duplicate declarations or syntax corruption."""
-    from rebrew import data_layout as dl
+    from rebrew.data import layout as dl
 
     src = tmp_path / "src"
     src.mkdir()
@@ -2114,7 +2114,7 @@ def test_converge_layout_shrinks_to_zero_removes_pad(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """When a pad shrinks to 0 on rerun, it is removed cleanly without leaving dangling syntax."""
-    from rebrew import data_layout as dl
+    from rebrew.data import layout as dl
 
     src = tmp_path / "src"
     src.mkdir()
@@ -2177,7 +2177,7 @@ class TestLongLongSize:
         assert estimate_type_size("int tbl[4]") == 16
 
     def test_explicit_int_spellings_keep_their_width(self) -> None:
-        from rebrew.data_layout import data_symbol_size
+        from rebrew.data.layout import data_symbol_size
 
         for spelling in ("short int", "signed short int", "unsigned short int"):
             assert c_type_size(spelling) == 2
@@ -2193,7 +2193,7 @@ def test_data_symbol_size_pointer_to_array_is_a_pointer() -> None:
     The parentheses made the extent unknown. An array of pointers stays
     16 bytes. A function pointer stays unknown. An explicit size wins.
     """
-    from rebrew.data_layout import data_symbol_size
+    from rebrew.data.layout import data_symbol_size
 
     assert data_symbol_size({"type": "char (*)[4]"}) == 4
     assert data_symbol_size({"type": "char (**)[4]"}) == 4
@@ -2207,7 +2207,7 @@ def test_data_symbol_size_sizeof_pointer_in_bound() -> None:
 
     ``int[sizeof(char (*)[4])]`` was 4. ``char[sizeof(char *[2])]`` was 0.
     """
-    from rebrew.data_layout import data_symbol_size
+    from rebrew.data.layout import data_symbol_size
 
     assert data_symbol_size({"type": "int[sizeof(char (*)[4])]"}) == 16
     assert data_symbol_size({"type": "char[sizeof(char *[2])]"}) == 8
@@ -2242,7 +2242,7 @@ def test_fix_ownership_rolls_back_when_a_write_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A failure after the extern pass must not leave definitions stranded."""
-    import rebrew.data_layout as dl
+    import rebrew.data.layout as dl
 
     meta, binp, src, before = _fix_ownership_rollback_fixture(tmp_path)
     real_write = dl.atomic_write_text
@@ -2275,7 +2275,7 @@ def test_fix_ownership_rollback_survives_a_non_oserror_restore_failure(
     exception it is cleaning up after is the one most likely to land in the
     loop again.
     """
-    import rebrew.data_layout as dl
+    import rebrew.data.layout as dl
 
     meta, binp, src, before = _fix_ownership_rollback_fixture(tmp_path)
     real_write = dl.atomic_write_text

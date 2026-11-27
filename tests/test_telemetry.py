@@ -208,13 +208,13 @@ def test_compile_request_carries_a_child_traceparent(
 
     monkeypatch.setattr(httpx, "Client", lambda **kwargs: Client())
     stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
-    with telemetry.span("POST /rebrew.verify", kind=telemetry.KIND_SERVER, traceparent=INBOUND):
+    with telemetry.span("POST /rebrew.verify.cli", kind=telemetry.KIND_SERVER, traceparent=INBOUND):
         assert compile_source("http://svc", "msvc-6.0", "int f(void){}", ["/c"]).ok
     stop()
     client_span = collector.named("recompile.compile")
     assert sent[0]["traceparent"] == f"00-{TRACE_ID}-{client_span['spanId']}-01"
     assert client_span["kind"] == 3
-    assert client_span["parentSpanId"] == collector.named("POST /rebrew.verify")["spanId"]
+    assert client_span["parentSpanId"] == collector.named("POST /rebrew.verify.cli")["spanId"]
     assert _attributes(client_span) == {
         "rebrew.compiler": "msvc-6.0",
         "http.response.status_code": "200",
@@ -333,10 +333,10 @@ def test_run_rebrew_hands_its_open_span_to_the_child(
 
     monkeypatch.setenv("REBREW_OTLP_ENDPOINT", collector.url)
     stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
-    with telemetry.span("POST /rebrew.verify", kind=telemetry.KIND_SERVER, traceparent=INBOUND):
+    with telemetry.span("POST /rebrew.verify.cli", kind=telemetry.KIND_SERVER, traceparent=INBOUND):
         ops.run_rebrew(["schema"], tmp_path, WAIT_SECONDS)
     stop()
-    server = collector.named("POST /rebrew.verify")
+    server = collector.named("POST /rebrew.verify.cli")
     child = collector.named("rebrew schema")
     assert (child["traceId"], child["parentSpanId"]) == (TRACE_ID, server["spanId"])
 

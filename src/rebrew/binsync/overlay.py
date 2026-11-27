@@ -77,7 +77,7 @@ lazy from rebrew.cross_import import (
     target_bytes_by_va,
     unmatched_dest_bytes,
 )
-lazy from rebrew.sources import contained_path, source_roots
+lazy from rebrew.source.discovery import contained_path, source_roots
 lazy from rebrew.utils import (
     TerminalTable,
     fold_ident,

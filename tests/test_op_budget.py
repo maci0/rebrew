@@ -93,7 +93,7 @@ def world(
     tmp_path_factory: pytest.TempPathFactory, fresh_analysis: tuple[Path, dict[str, Any]]
 ) -> tuple[WorkerConfig, dict[str, Any]]:
     """A worker over a copy of one analysis, and the cases' requests."""
-    from rebrew.coverage_input_contract import coverage_input_digest, plan_coverage_readset
+    from rebrew.coverage.input_contract import coverage_input_digest, plan_coverage_readset
     from rebrew.ops import RetainedFile, retained_target_snapshot
 
     config, project = _copy_analysed(fresh_analysis, tmp_path_factory.mktemp("op-budget"))

@@ -8,7 +8,7 @@ lazy from pathlib import Path
 import pytest
 
 from rebrew.config import ProjectConfig
-from rebrew.verify_cache import (
+from rebrew.verify.cache import (
     baseline_path,
     cache_path_for,
     load_baseline,
@@ -180,8 +180,8 @@ def test_matching_legacy_baseline_is_read_then_isolated_without_deleting_legacy(
 def test_promotion_patches_are_target_local_and_migrate_matching_legacy(tmp_path: Path) -> None:
     from rebrew.status import _load_cache_raw
     from rebrew.todo import load_verify_entries
-    from rebrew.verify_cache import patch_verify_cache_entries
-    from rebrew.verify_hash import DEFAULT_TOOLCHAIN, comparison_inputs
+    from rebrew.verify.cache import patch_verify_cache_entries
+    from rebrew.verify.hash import DEFAULT_TOOLCHAIN, comparison_inputs
 
     gold, tl = _cfg(tmp_path, "Gold"), _cfg(tmp_path, "TL")
     legacy = replace(gold, all_targets=["Gold"])
@@ -223,12 +223,12 @@ def test_promotion_patches_are_target_local_and_migrate_matching_legacy(tmp_path
 def test_coverage_import_and_invalidation_select_target_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rebrew.coverage_db import import_verify_rows
-    from rebrew.coverage_project import _inputs
+    from rebrew.coverage.db import import_verify_rows
+    from rebrew.coverage.project import _inputs
 
     cfgs = {target: _cfg(tmp_path, target) for target in ("Gold", "TL")}
     (tmp_path / "rebrew-project.toml").write_text("")
-    monkeypatch.setattr("rebrew.coverage_db.load_config", lambda root, target: cfgs[target])
+    monkeypatch.setattr("rebrew.coverage.db.load_config", lambda root, target: cfgs[target])
     for target, cfg in cfgs.items():
         entries, rows = _rows(cfg, 0x1000)
         save_verify_cache(cache_path_for(cfg), cfg, rows, entries)
@@ -245,23 +245,23 @@ def test_compare_cli_does_not_skip_gold_gate_after_tl_baseline(
     from cli_json import cli_payload
     from typer.testing import CliRunner
 
-    from rebrew.verify import app
+    from rebrew.verify.cli import app
 
     gold, tl = _cfg(tmp_path, "Gold"), _cfg(tmp_path, "TL")
     entries, rows = _rows(gold, 0x1000)
     for cfg in (gold, tl):
         save_baseline(cfg, {"target": cfg.target_name, "results": rows})
     original = baseline_path(gold).read_bytes()
-    monkeypatch.setattr("rebrew.verify.require_config", lambda **kwargs: gold)
+    monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kwargs: gold)
     monkeypatch.setattr(
-        "rebrew.verify.prepare_entries",
+        "rebrew.verify.cli.prepare_entries",
         lambda *args, **kwargs: (entries, 0, 0, [], [], 0, [], [], [], {}, 0),
     )
     current = [{**rows[0], "status": "NEAR_MATCHING", "passed": False, "delta": 1}]
     monkeypatch.setattr(
-        "rebrew.verify.run_verification", lambda *args, **kwargs: (0, 1, [], current, [])
+        "rebrew.verify.cli.run_verification", lambda *args, **kwargs: (0, 1, [], current, [])
     )
-    monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *args, **kwargs: None)
     result = CliRunner().invoke(app, ["--compare", "--json"])
     assert result.exit_code == 1, result.output
     data = cli_payload(result)
@@ -288,8 +288,8 @@ def test_same_target_identity_changes_do_not_evict_sibling(
 
 
 def test_save_drops_a_verdict_measured_against_a_replaced_target(tmp_path: Path) -> None:
-    from rebrew.verify_cache import binary_id
-    from rebrew.verify_hash import entry_fingerprint
+    from rebrew.verify.cache import binary_id
+    from rebrew.verify.hash import entry_fingerprint
 
     cfg = _cfg(tmp_path, "Gold")
     cfg.target_binary.write_bytes(b"old target")
@@ -317,7 +317,7 @@ def test_save_drops_a_verdict_measured_against_a_replaced_target(tmp_path: Path)
 
 
 def test_one_target_cache_refresh_invalidates_only_its_coverage_inputs(tmp_path: Path) -> None:
-    from rebrew.coverage_project import _inputs
+    from rebrew.coverage.project import _inputs
 
     gold, tl = _cfg(tmp_path, "Gold"), _cfg(tmp_path, "TL")
     entries, rows = _rows(gold, 0x1000)
@@ -332,11 +332,11 @@ def test_one_target_cache_refresh_invalidates_only_its_coverage_inputs(tmp_path:
 def test_absent_shared_dir_is_not_warned_about_and_still_invalidates(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    from rebrew.coverage_project import _inputs
+    from rebrew.coverage.project import _inputs
 
     gold = _cfg(tmp_path, "Gold")
     gold.shared_dir = tmp_path / "src" / "shared"
-    with caplog.at_level("WARNING", logger="rebrew.sources"):
+    with caplog.at_level("WARNING", logger="rebrew.source.discovery"):
         before = _inputs(gold)
     assert "unreadable source directory" not in caplog.text
     gold.shared_dir.mkdir()

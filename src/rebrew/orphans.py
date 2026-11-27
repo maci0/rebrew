@@ -71,7 +71,7 @@ def find_orphans(
     otherwise report every first-target block as an orphan, and a prune
     would delete the other target's earned STATUS wholesale.
 
-    *scanned* is a :func:`rebrew.sources.scan_files` result for
+    *scanned* is a :func:`rebrew.source.discovery.scan_files` result for
     ``cfg.reversed_dir``; the walk runs only when a caller has none.
     """
     from rebrew.catalog import scan_reversed_dir

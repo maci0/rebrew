@@ -1,4 +1,4 @@
-"""Tests for rebrew.match near-miss NEAR_MATCHING mode and rebrew.data dispatch table detection."""
+"""Tests for rebrew.match near-miss NEAR_MATCHING mode and rebrew.data.cli dispatch table detection."""
 
 import re
 import struct
@@ -6,7 +6,7 @@ lazy from pathlib import Path
 
 from source_util import write_source
 
-from rebrew.data_scan import DispatchEntry, DispatchTable, find_dispatch_tables
+from rebrew.data.scan import DispatchEntry, DispatchTable, find_dispatch_tables
 from rebrew.match_batch import find_near_miss, parse_matching_info
 
 
@@ -265,7 +265,7 @@ class TestNeDispatchTables:
         p.write_bytes(raw)
         info = load_binary(p)
 
-        from rebrew.data_scan import find_dispatch_tables
+        from rebrew.data.scan import find_dispatch_tables
         from rebrew.formats.binary_loader import section_dict
 
         sec_dict = section_dict(info)
@@ -304,7 +304,7 @@ class TestNeDispatchTables:
         p.write_bytes(raw)
         info = load_binary(p)
 
-        from rebrew.data_scan import find_dispatch_tables
+        from rebrew.data.scan import find_dispatch_tables
         from rebrew.formats.binary_loader import section_dict
 
         sec_dict = section_dict(info)

@@ -1417,7 +1417,7 @@ class TestFlagSweepMatchValidation:
         monkeypatch.setattr(
             "rebrew.metadata.functions.update_source_status", lambda *a, **k: calls.append("status")
         )
-        monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
         # update_cflags_annotation is a module-level function in match.py —
         # bypass it so the test asserts promotion behavior, not the cflags write.
@@ -1486,7 +1486,7 @@ class TestFlagSweepMatchValidation:
         monkeypatch.setattr(
             "rebrew.metadata.functions.update_source_status", lambda *a, **k: calls.append("status")
         )
-        monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.match_run.update_cflags_annotation", lambda *a, **k: True)
 
@@ -1536,7 +1536,7 @@ class TestFlagSweepMatchValidation:
         monkeypatch.setattr(
             "rebrew.metadata.functions.update_source_status", lambda *a, **k: calls.append("status")
         )
-        monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
 
         exact, not_exact = _run_batch_flag_sweep(

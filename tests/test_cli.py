@@ -526,14 +526,14 @@ class TestLoadVerifyCacheRaw:
 
     @staticmethod
     def _allow_current(monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.verify_hash.comparison_inputs_current", lambda *_args: True)
+        monkeypatch.setattr("rebrew.verify.hash.comparison_inputs_current", lambda *_args: True)
 
     def test_verify_cache_copy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """load_verify_cache_raw returns a copy: mutating the result must not
         corrupt the memo for later readers in the same process."""
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
+        import rebrew.verify.cache as vc_mod
 
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
@@ -552,7 +552,7 @@ class TestLoadVerifyCacheRaw:
         """An ``isolate=False`` reader skips the copy; the default still isolates."""
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
+        import rebrew.verify.cache as vc_mod
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
@@ -571,7 +571,7 @@ class TestLoadVerifyCacheRaw:
         """A rewrite must not leave the previous full JSON under an old mtime key."""
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
+        import rebrew.verify.cache as vc_mod
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
@@ -595,7 +595,7 @@ class TestLoadVerifyCacheRaw:
         """A second process reads the decoded document and does not parse TOML."""
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
+        import rebrew.verify.cache as vc_mod
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
@@ -628,7 +628,7 @@ class TestLoadVerifyCacheRaw:
         import os
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
+        import rebrew.verify.cache as vc_mod
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
@@ -653,7 +653,7 @@ class TestLoadVerifyCacheRaw:
         """A write must drop the memo even when ``cfg.root`` is a symlink."""
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
+        import rebrew.verify.cache as vc_mod
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         real = tmp_path / "real"
@@ -677,7 +677,7 @@ class TestLoadVerifyCacheRaw:
         """
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
+        import rebrew.verify.cache as vc_mod
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
@@ -729,8 +729,8 @@ class TestLoadVerifyCacheRaw:
         """A verify row without a byte delta must not store 100 - percent."""
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
-        from rebrew.verify import patch_cache_from_results
+        import rebrew.verify.cache as vc_mod
+        from rebrew.verify.cli import patch_cache_from_results
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
@@ -774,8 +774,8 @@ class TestLoadVerifyCacheRaw:
         """
         from types import SimpleNamespace
 
-        import rebrew.verify_cache as vc_mod
-        from rebrew.verify import patch_cache_from_results
+        import rebrew.verify.cache as vc_mod
+        from rebrew.verify.cli import patch_cache_from_results
 
         monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
@@ -1131,27 +1131,27 @@ class TestResolveCflags:
 
 class TestSourceExtensions:
     def test_single_ext_default(self) -> None:
-        from rebrew.sources import source_exts, source_glob
+        from rebrew.source.discovery import source_exts, source_glob
 
         cfg = SimpleNamespace(source_ext=".c")
         assert source_exts(cfg) == [".c"]
         assert source_glob(cfg) == "*.c"
 
     def test_multi_ext_list(self) -> None:
-        from rebrew.sources import source_exts, source_glob
+        from rebrew.source.discovery import source_exts, source_glob
 
         cfg = SimpleNamespace(source_ext=".c,.cpp")
         assert source_exts(cfg) == [".c", ".cpp"]
         assert source_glob(cfg) == "*.{c,cpp}"
 
     def test_missing_ext_falls_back(self) -> None:
-        from rebrew.sources import source_exts, source_glob
+        from rebrew.source.discovery import source_exts, source_glob
 
         assert source_exts(None) == [".c"]
         assert source_glob(None) == "*.c"
 
     def test_iter_sources_multi_ext(self, tmp_path: Path) -> None:
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
 
         (tmp_path / "a.c").write_text("int a;")
         (tmp_path / "b.cpp").write_text("int b;")
@@ -1161,7 +1161,7 @@ class TestSourceExtensions:
         assert found == ["a.c", "b.cpp"]
 
     def test_iter_sources_single_ext(self, tmp_path: Path) -> None:
-        from rebrew.sources import iter_sources
+        from rebrew.source.discovery import iter_sources
 
         (tmp_path / "a.c").write_text("int a;")
         (tmp_path / "b.cpp").write_text("int b;")

@@ -28,12 +28,12 @@ from rebrew.cli import (
     require_config,
     require_non_negative,
 )
-lazy from rebrew.data_layout import built_text_va
-lazy from rebrew.verify_hash import expected_text_function_extents as _expected_extents
-lazy from rebrew.verify_hash import expected_text_functions as _expected_functions
+lazy from rebrew.data.layout import built_text_va
+lazy from rebrew.verify.hash import expected_text_function_extents as _expected_extents
+lazy from rebrew.verify.hash import expected_text_functions as _expected_functions
 
 if TYPE_CHECKING:
-    from rebrew.data_ownership import LinkSymbol
+    from rebrew.data.ownership import LinkSymbol
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
@@ -65,7 +65,7 @@ def exported_symbol_vas(binary: Path) -> dict[str, int]:
     """
     import lief
 
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     try:
         pe = lief.PE.parse(str(binary))
@@ -87,7 +87,7 @@ def exported_symbol_vas(binary: Path) -> dict[str, int]:
 
 def map_function_vas(symbols: Iterable[LinkSymbol]) -> dict[str, int]:
     """C function names and linked VAs from the parsed MSVC map."""
-    from rebrew.rename_ops import c_name_from_symbol
+    from rebrew.source.rename_ops import c_name_from_symbol
 
     actual: dict[str, int] = {}
     for symbol in symbols:
@@ -103,12 +103,12 @@ def collect_actual_vas(root: Path, binary: Path) -> dict[str, int]:
     The object fallback estimates placement by concatenating contributions;
     missing objects fall back to exports. Read failures remain errors.
     """
-    from rebrew.data_layout import link_objects, obj_text_symbol_offsets
+    from rebrew.data.layout import link_objects, obj_text_symbol_offsets
 
     text_base = built_text_va(binary)
     link_map = binary.with_suffix(".map")
     if link_map.is_file():
-        from rebrew.data_ownership import parse_link_map
+        from rebrew.data.ownership import parse_link_map
 
         return map_function_vas(
             parse_link_map(link_map.read_text(encoding="utf-8", errors="replace"))

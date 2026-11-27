@@ -2,7 +2,7 @@
 
 The dashboard derives its default view from project inputs; portable mode reads
 ``coverage-<target>.toml`` documents, one per target (see
-:mod:`rebrew.coverage_toml`).  Fixtures therefore build project metadata for the
+:mod:`rebrew.coverage.toml`).  Fixtures therefore build project metadata for the
 live path and documents for the portable reader: ``_write_config`` + the
 ``catalog`` fixture for the live view, and ``_write_document`` for the shapes a
 real catalog never emits (a history row with no ``old_status``, an aggregate
@@ -31,15 +31,8 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew import dashboard as dashboard_module
-from rebrew.coverage_db import write_coverage
-from rebrew.coverage_toml import (
-    CoverageSnapshot,
-    CoverageTomlError,
-    Function,
-    snapshot_from_document,
-)
-from rebrew.dashboard import (
+from rebrew.coverage import dashboard as dashboard_module
+from rebrew.coverage.dashboard import (
     _APP_JS,
     _APP_JS_URL,
     _APP_JS_VERSION,
@@ -52,6 +45,13 @@ from rebrew.dashboard import (
     _DashboardServer,
     _files_display,
     _Handler,
+)
+from rebrew.coverage.db import write_coverage
+from rebrew.coverage.toml import (
+    CoverageSnapshot,
+    CoverageTomlError,
+    Function,
+    snapshot_from_document,
 )
 from rebrew.status_style import STATUS_HEX
 
@@ -298,7 +298,7 @@ def _write_document(db_dir: Path, target: str, body: str = "") -> Path:
     needs a row the writer never emits (an absent ``old_status``, an aggregate
     past its section size) writes the document itself rather than a database
     the reader no longer opens.  ``version`` and ``target`` are the two keys every
-    document has to carry (``rebrew.coverage_toml._snapshot``).
+    document has to carry (``rebrew.coverage.toml._snapshot``).
     """
     db_dir.mkdir(parents=True, exist_ok=True)
     path = db_dir / f"coverage-{target}.toml"
@@ -320,7 +320,7 @@ def empty_dashboard(tmp_path: Path) -> Dashboard:
     That is the state ``/api/health`` answers 500 ``database_error`` for; every
     other route still answers 200 with zero targets, because a project that has
     not run ``coverage export`` yet is not an error (see the module docstring of
-    ``rebrew.dashboard``).
+    ``rebrew.coverage.dashboard``).
     """
     return Dashboard(tmp_path / "db", snapshots=True)
 
@@ -483,7 +483,7 @@ cells = []
 """,
         )
         dashboard = Dashboard(db_dir, snapshots=True)
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             summary = dashboard._summary_lookup("cap")
         assert summary is not None
         assert summary["coverage_pct"] == 100.0
@@ -566,7 +566,7 @@ size = 64
 
     def test_search_folds_each_row_once(self, dashboard: Dashboard) -> None:
         """A second query must not fold names again. Wall clock is not the check."""
-        import rebrew.dashboard as dash
+        import rebrew.coverage.dashboard as dash
 
         dash._FOLDED.clear()
         calls = 0
@@ -693,7 +693,7 @@ size = 64
         """
         import tomllib
 
-        from rebrew.coverage_toml import render_coverage_toml
+        from rebrew.coverage.toml import render_coverage_toml
 
         db_dir = tmp_path / "db"
         db_dir.mkdir(parents=True)
@@ -1118,7 +1118,7 @@ class TestHandle:
 
     def test_boot_guard_is_inline_and_runs_after_the_client(self, dashboard: Dashboard) -> None:
         """The guard is inline but still ordered after the deferred client."""
-        from rebrew.dashboard import _BOOT_GUARD_HASH
+        from rebrew.coverage.dashboard import _BOOT_GUARD_HASH
 
         _, _, html = dashboard.handle("GET", "/", {})
         assert f'<script src="{_APP_JS_URL}" defer fetchpriority="high"></script>' in html
@@ -1150,7 +1150,12 @@ class TestHandle:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _BOOT_GUARD_HASH, _INDEX_HTML, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import (
+            _BOOT_GUARD_HASH,
+            _INDEX_HTML,
+            _Handler,
+            allowed_hosts_for,
+        )
 
         match = re.search(r"<script>(.*?)</script>", _INDEX_HTML, re.S)
         assert match is not None
@@ -1471,7 +1476,7 @@ class TestHandle:
         """A blank module is its own summary bucket and ``module=`` selects it."""
         from io import BytesIO
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         data = _catalog_data()
         data["functions"]["0x10001000"].pop("module")
@@ -1656,7 +1661,7 @@ changed_at = "2026-01-01T00:00:00Z"
 
     def test_api_functions_offset_past_page_size_cap(self, dashboard: Dashboard) -> None:
         """offset must not be clamped to _MAX_LIMIT (page size ≠ skip)."""
-        from rebrew.dashboard import _MAX_LIMIT
+        from rebrew.coverage.dashboard import _MAX_LIMIT
 
         status, _, body = dashboard.handle(
             "GET",
@@ -1809,7 +1814,7 @@ changed_at = "2026-01-01T00:00:00Z"
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         ids: set[str] = set()
         for method, path in (("GET", "/api/targets"), ("POST", "/api/targets")):
@@ -1885,8 +1890,8 @@ class TestCli:
         def refuse(*args: object, **kwargs: object) -> None:
             raise AssertionError("Invalid JSON mode must stop before reading config or binding")
 
-        monkeypatch.setattr("rebrew.dashboard.require_root", refuse)
-        monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
+        monkeypatch.setattr("rebrew.coverage.dashboard.require_root", refuse)
+        monkeypatch.setattr("rebrew.coverage.dashboard._DashboardServer", refuse)
         result = CliRunner().invoke(app, ["coverage", "serve", "--json"])
         assert result.exit_code == 2, result.output
         assert cli_payload(result) == {
@@ -1900,13 +1905,13 @@ class TestCli:
     def test_print_url_is_plain_text_and_never_opens_a_socket(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str, url: str
     ) -> None:
-        from rebrew.dashboard import app
+        from rebrew.coverage.dashboard import app
 
         def refuse(*args: object, **kwargs: object) -> None:
             raise AssertionError("Printing a URL must not bind a listening socket")
 
         _write_document(tmp_path / "db", "t")
-        monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
+        monkeypatch.setattr("rebrew.coverage.dashboard._DashboardServer", refuse)
         result = CliRunner().invoke(
             app,
             ["--snapshots", str(tmp_path / "db"), "--print-url", "--host", host, "--port", "9123"],
@@ -1918,12 +1923,12 @@ class TestCli:
     def test_print_url_refuses_unreadable_coverage_before_binding(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.dashboard import app
+        from rebrew.coverage.dashboard import app
 
         def refuse(*args: object, **kwargs: object) -> None:
             raise AssertionError("Unreadable coverage must not start a server")
 
-        monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
+        monkeypatch.setattr("rebrew.coverage.dashboard._DashboardServer", refuse)
         result = CliRunner().invoke(
             app, ["--snapshots", str(tmp_path / "db"), "--print-url", "--json"]
         )
@@ -1932,7 +1937,7 @@ class TestCli:
 
     def test_missing_db_errors(self, tmp_path: Path) -> None:
         """An empty coverage directory fails fast, naming what to run."""
-        from rebrew.dashboard import app
+        from rebrew.coverage.dashboard import app
 
         result = CliRunner().invoke(app, ["--snapshots", str(tmp_path / "db")])
         assert result.exit_code == 2
@@ -1950,7 +1955,7 @@ class TestCli:
         """`--target` was accepted and silently ignored (the dashboard serves
         every target in the directory through per-request ?target=), so it must
         not appear in the command's options."""
-        from rebrew.dashboard import app
+        from rebrew.coverage.dashboard import app
 
         result = CliRunner().invoke(app, ["--help"])
         assert result.exit_code == 0
@@ -1962,7 +1967,7 @@ class TestCli:
         """``--print-url --json`` prints URL + db path and exits
         (never ``serve_forever``)."""
 
-        from rebrew.dashboard import app
+        from rebrew.coverage.dashboard import app
 
         db_dir = tmp_path / "db"
         _write_document(db_dir, "t")
@@ -1970,7 +1975,7 @@ class TestCli:
         def refuse(*args: object, **kwargs: object) -> None:
             raise AssertionError("Printing a URL must not bind a listening socket")
 
-        monkeypatch.setattr("rebrew.dashboard._DashboardServer", refuse)
+        monkeypatch.setattr("rebrew.coverage.dashboard._DashboardServer", refuse)
 
         result = CliRunner().invoke(
             app, ["--snapshots", str(tmp_path / "db"), "--print-url", "--json", "--port", "9123"]
@@ -1988,7 +1993,7 @@ class TestCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A configuration failure after bind must not strand the listening socket."""
-        from rebrew.dashboard import _DashboardServer, app
+        from rebrew.coverage.dashboard import _DashboardServer, app
 
         _write_document(tmp_path / "db", "t")
         servers: list[_DashboardServer] = []
@@ -2002,8 +2007,10 @@ class TestCli:
         def invalid_telemetry(*_args: Any) -> Any:
             raise ValueError("bad collector")
 
-        monkeypatch.setattr("rebrew.dashboard._DashboardServer", tracked_server)
-        monkeypatch.setattr("rebrew.dashboard.telemetry.configure_from_env", invalid_telemetry)
+        monkeypatch.setattr("rebrew.coverage.dashboard._DashboardServer", tracked_server)
+        monkeypatch.setattr(
+            "rebrew.coverage.dashboard.telemetry.configure_from_env", invalid_telemetry
+        )
         result = CliRunner().invoke(app, ["--snapshots", str(tmp_path / "db"), "--port", "0"])
         assert result.exit_code == 2, result.output
         assert len(servers) == 1
@@ -2013,7 +2020,7 @@ class TestCli:
         """A taken port says which one and how to pick another, not a bare errno."""
         import socket
 
-        from rebrew.dashboard import app
+        from rebrew.coverage.dashboard import app
 
         _write_document(tmp_path / "db", "t")
 
@@ -2033,7 +2040,7 @@ class TestIntParam:
     """limit query parsing: non-positive / invalid → default, else clamp."""
 
     def test_missing_and_invalid(self) -> None:
-        from rebrew.dashboard import _DEFAULT_LIMIT, _MAX_LIMIT, _int_param
+        from rebrew.coverage.dashboard import _DEFAULT_LIMIT, _MAX_LIMIT, _int_param
 
         assert _int_param({}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
         assert _int_param({"limit": [""]}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
@@ -2052,7 +2059,7 @@ class TestIntParam:
         documented fallback is the honest answer for a value outside the
         parameter's own schema.
         """
-        from rebrew.dashboard import _DEFAULT_LIMIT, _MAX_LIMIT, _int_param
+        from rebrew.coverage.dashboard import _DEFAULT_LIMIT, _MAX_LIMIT, _int_param
 
         for raw in (
             "1_0",
@@ -2086,7 +2093,7 @@ class TestOffsetParam:
     """offset query parsing: zero valid, not clamped to page-size max."""
 
     def test_missing_invalid_and_large(self) -> None:
-        from rebrew.dashboard import _MAX_LIMIT, _offset_param
+        from rebrew.coverage.dashboard import _MAX_LIMIT, _offset_param
 
         assert _offset_param({}) == 0
         assert _offset_param({"offset": [""]}) == 0
@@ -2105,7 +2112,7 @@ class TestOffsetParam:
         million are the two failure directions: a skip the client did not ask
         for, and one past ``VA_MAX`` that parses at all.
         """
-        from rebrew.dashboard import _offset_param
+        from rebrew.coverage.dashboard import _offset_param
         from rebrew.workspace.va import VA_MAX
 
         for raw in ("1_0", "1_000_000", "+5", "٥", "1e3", "0x10"):
@@ -2180,7 +2187,7 @@ class TestLiteralSearch:
     def test_fold_cache_rejects_identity_collision(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
 
-        import rebrew.dashboard as dash
+        import rebrew.coverage.dashboard as dash
 
         monkeypatch.setattr(dash, "id", lambda _: 1, raising=False)
         monkeypatch.setattr(dash, "_FOLDED", {})
@@ -2207,7 +2214,7 @@ class TestLiteralSearch:
         import weakref
         from types import SimpleNamespace
 
-        import rebrew.dashboard as dash
+        import rebrew.coverage.dashboard as dash
 
         class Snapshot(SimpleNamespace):
             pass
@@ -2229,7 +2236,7 @@ class TestLiteralSearch:
         """Overflow drops the oldest snapshot, not every cached one."""
         from types import SimpleNamespace
 
-        import rebrew.dashboard as dash
+        import rebrew.coverage.dashboard as dash
 
         class Snapshot(SimpleNamespace):
             pass
@@ -2258,7 +2265,7 @@ class TestLiteralSearch:
         """Concurrent requests never share a correlation id."""
         from concurrent.futures import ThreadPoolExecutor
 
-        import rebrew.dashboard as dash
+        import rebrew.coverage.dashboard as dash
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             minted = list(pool.map(lambda _: dash._next_request_id(), range(400)))
@@ -2274,7 +2281,7 @@ class TestVaQuery:
     """Address-shaped search terms parse to the same integer the table shows."""
 
     def test_equivalent_spellings(self) -> None:
-        from rebrew.dashboard import _va_query
+        from rebrew.coverage.dashboard import _va_query
 
         assert _va_query("0x10001000") == 0x10001000
         assert _va_query("0X10001000") == 0x10001000
@@ -2284,7 +2291,7 @@ class TestVaQuery:
         assert _va_query("  0x10001000  ") == 0x10001000
 
     def test_name_fragments_are_not_addresses(self) -> None:
-        from rebrew.dashboard import _va_query
+        from rebrew.coverage.dashboard import _va_query
 
         assert _va_query("func_a") is None
         assert _va_query("add") is None
@@ -2317,7 +2324,7 @@ class TestHttpMethods:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.rfile = BytesIO(
@@ -2345,7 +2352,7 @@ class TestHttpMethods:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         assert _Handler.protocol_version == "HTTP/1.1"
@@ -2374,7 +2381,7 @@ class TestHttpMethods:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.rfile = BytesIO(
@@ -2399,7 +2406,7 @@ class TestHttpMethods:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.rfile = BytesIO(b"GET / HTTP/9.9\r\nHost: 127.0.0.1:8000\r\n\r\n")
@@ -2428,7 +2435,7 @@ class TestHttpMethods:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         rlo = "\u202e"  # RIGHT-TO-LEFT OVERRIDE
         handler = _Handler.__new__(_Handler)
@@ -2487,7 +2494,7 @@ class TestEncodingNegotiation:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": accept}
@@ -2521,7 +2528,7 @@ class TestEncodingNegotiation:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import (
+        from rebrew.coverage.dashboard import (
             _INDEX_HTML_BYTES,
             _Handler,
             _index_html_zstd,
@@ -2555,7 +2562,7 @@ class TestEncodingNegotiation:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": "gzip"}
@@ -2585,7 +2592,7 @@ class TestEncodingNegotiation:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import (
+        from rebrew.coverage.dashboard import (
             _ENTRY_PATHS,
             _ENTRY_WIRE_BUDGET_BYTES,
             _Handler,
@@ -2633,7 +2640,7 @@ class TestEncodingNegotiation:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import (
+        from rebrew.coverage.dashboard import (
             _ENTRY_PATHS,
             _INITCWND_BYTES,
             _Handler,
@@ -2684,8 +2691,8 @@ class TestEncodingNegotiation:
         whose compressed size can change without any asset edits; its portable
         contract is the advertised wire budget, not one host's byte count.
         """
-        import rebrew.dashboard as dashboard_module
-        from rebrew.dashboard import (
+        import rebrew.coverage.dashboard as dashboard_module
+        from rebrew.coverage.dashboard import (
             _ENTRY_PATHS,
             _ENTRY_WIRE_BUDGET_BYTES,
             _precompressed_static,
@@ -2727,7 +2734,7 @@ class TestEncodingNegotiation:
         that gates interactivity, and a compatibility branch there is the same
         cost.
         """
-        from rebrew.dashboard import _APP_JS_WIRE, _INDEX_HTML
+        from rebrew.coverage.dashboard import _APP_JS_WIRE, _INDEX_HTML
 
         for asset in (_INDEX_HTML, _APP_JS_WIRE):
             assert "-webkit-overflow-scrolling" not in asset
@@ -2744,7 +2751,7 @@ class TestEncodingNegotiation:
         squeeze lands: ``0x00401000`` breaks across two lines and the row's key
         is no longer scannable.
         """
-        from rebrew.dashboard import _INDEX_HTML
+        from rebrew.coverage.dashboard import _INDEX_HTML
 
         assert "td.va { white-space: nowrap; }" in _INDEX_HTML
         # It is inert on `th`, which is nowrap, so it shares the rule with `td`.
@@ -2768,7 +2775,7 @@ class TestEncodingNegotiation:
         replaces the per-element ``[hidden]`` rules, so a new author ``display``
         stays covered by construction.
         """
-        from rebrew.dashboard import _INDEX_HTML
+        from rebrew.coverage.dashboard import _INDEX_HTML
 
         assert "[hidden] { display: none !important; }" in _INDEX_HTML
         # No per-element one-off: the reset is the only mechanism, so an author
@@ -2782,7 +2789,7 @@ class TestEncodingNegotiation:
         box, which shifts every card and tab after the selected one and, on a
         wrapped tab strip, moves the control the reader is aiming at.
         """
-        from rebrew.dashboard import _INDEX_HTML
+        from rebrew.coverage.dashboard import _INDEX_HTML
 
         active = _INDEX_HTML.split("button.card.active")[1].split("}")[0]
         assert "box-shadow: 0 0 0 2px" in active
@@ -2795,7 +2802,7 @@ class TestEncodingNegotiation:
         unpaged and passes neither ``tip`` nor ``tipCapped``, so the count has
         to stand alone rather than end in a stray ``undefined``.
         """
-        from rebrew.dashboard import _APP_JS_WIRE
+        from rebrew.coverage.dashboard import _APP_JS_WIRE
 
         assert "hint.textContent = tail ? msg" in _APP_JS_WIRE
 
@@ -2807,7 +2814,7 @@ class TestEncodingNegotiation:
         renderer used to unpack is a branch no response can reach, and it ships
         on the cold path.
         """
-        from rebrew.dashboard import _APP_JS_WIRE
+        from rebrew.coverage.dashboard import _APP_JS_WIRE
 
         assert "const historyRowHtml = (r) =>" in _APP_JS_WIRE
         assert "Array.isArray(h)" not in _APP_JS_WIRE
@@ -2826,7 +2833,7 @@ class TestEncodingNegotiation:
             GZIP_PRECOMPRESS_LEVEL,
             ZSTD_PRECOMPRESS_LEVEL,
         )
-        from rebrew.dashboard import _GZIP_LEVEL, _ZSTD_LEVEL, _maybe_compress
+        from rebrew.coverage.dashboard import _GZIP_LEVEL, _ZSTD_LEVEL, _maybe_compress
 
         # A 100-function first page, the shape the cold start actually sends.
         body = json.dumps(
@@ -2867,7 +2874,7 @@ class TestEncodingNegotiation:
         growing first page, so it is bounded on its own: carrying the full
         interactive page here measured 1083 B (zstd) and is over the ceiling.
         """
-        from rebrew.dashboard import _BOOTSTRAP_WIRE_BUDGET_BYTES, _maybe_compress
+        from rebrew.coverage.dashboard import _BOOTSTRAP_WIRE_BUDGET_BYTES, _maybe_compress
 
         # The body the route serves, so this measures the wire: ``bootstrap()``
         # itself hands back the snapshot's frozen mappings, which are not JSON.
@@ -2923,7 +2930,7 @@ class TestServerTiming:
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": "gzip"}
@@ -2938,7 +2945,7 @@ class TestServerTiming:
         return dict(call.args for call in handler.send_header.call_args_list)
 
     def test_api_response_reports_route_duration(self, dashboard: Dashboard) -> None:
-        from rebrew.dashboard import _APP_JS_URL
+        from rebrew.coverage.dashboard import _APP_JS_URL
 
         timing = self._headers(dashboard, "/api/targets")["Server-Timing"]
         assert timing.startswith("route;dur=")
@@ -2963,7 +2970,7 @@ class TestServerTiming:
         header write, so the duration must be exactly 75.0 ms — a route
         timer measured from the wrong point (or not at all) fails exactly.
         """
-        import rebrew.dashboard as dashboard_module
+        import rebrew.coverage.dashboard as dashboard_module
 
         real_handle = dashboard.handle
         real_etag = dashboard.response_etag
@@ -2994,7 +3001,7 @@ class TestHostValidation:
     """Requests with a foreign Host header must be rejected (DNS rebinding)."""
 
     def test_loopback_bind_accepts_aliases(self) -> None:
-        from rebrew.dashboard import _host_allowed, allowed_hosts_for
+        from rebrew.coverage.dashboard import _host_allowed, allowed_hosts_for
 
         allowed = allowed_hosts_for("127.0.0.1", 8000)
         assert "127.0.0.1:8000" in allowed
@@ -3005,14 +3012,14 @@ class TestHostValidation:
         assert not _host_allowed("", allowed)
 
     def test_port_80_allows_bare_host(self) -> None:
-        from rebrew.dashboard import _host_allowed, allowed_hosts_for
+        from rebrew.coverage.dashboard import _host_allowed, allowed_hosts_for
 
         allowed = allowed_hosts_for("127.0.0.1", 80)
         assert _host_allowed("localhost", allowed)
         assert _host_allowed("127.0.0.1", allowed)
 
     def test_non_loopback_bind_rejects_aliases(self) -> None:
-        from rebrew.dashboard import _host_allowed, allowed_hosts_for
+        from rebrew.coverage.dashboard import _host_allowed, allowed_hosts_for
 
         allowed = allowed_hosts_for("192.168.1.10", 8000)
         assert _host_allowed("192.168.1.10:8000", allowed)
@@ -3024,7 +3031,7 @@ class TestHostValidation:
         actually makes (`localhost`, `127.0.0.1`, the machine's own address)
         must be answered — the allow-list used to hold only the literal
         wildcard, so every real request got 403."""
-        from rebrew.dashboard import _host_allowed, _local_interface_ips, allowed_hosts_for
+        from rebrew.coverage.dashboard import _host_allowed, _local_interface_ips, allowed_hosts_for
 
         allowed = allowed_hosts_for("0.0.0.0", 8000)
         assert _host_allowed("0.0.0.0:8000", allowed)
@@ -3037,7 +3044,7 @@ class TestHostValidation:
 
     def test_handler_rejects_foreign_host(self) -> None:
         """A request whose Host is not the bound host gets 403 without touching the DB."""
-        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import Dashboard, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
         handler.headers = {"Host": "attacker.example:8000"}
@@ -3086,7 +3093,7 @@ class TestHostValidation:
         reaching for this server by name from ordinary traffic, and to pivot
         from the record to the request by its correlation id.
         """
-        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import Dashboard, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
         handler.headers = {"Host": "attacker.example:8000"}
@@ -3104,7 +3111,7 @@ class TestHostValidation:
 
         handler.wfile = _FakeWFile()
 
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             handler._respond("GET")
 
         records = [r for r in caplog.records if "rejected request with Host" in r.message]
@@ -3117,7 +3124,7 @@ class TestHostValidation:
         """HTML/JSON over Accept-Encoding: gzip shrink on the wire; ETag enables 304."""
         import gzip
 
-        from rebrew.dashboard import _INDEX_ETAG, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _INDEX_ETAG, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {
@@ -3178,7 +3185,7 @@ class TestHostValidation:
         self, dashboard: Dashboard, path: str, cache_control: str
     ) -> None:
         """The shell's hashed client URLs skip revalidation; other URLs revalidate."""
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.path = path
@@ -3246,13 +3253,13 @@ class TestHostValidation:
     def test_favicon_hash_matches_the_served_bytes(self, dashboard: Dashboard) -> None:
         """The version in the icon URL is the hash of the body behind it, so
         a changed mark is a changed URL and the immutable header stays true."""
-        from rebrew.dashboard import _FAVICON_SVG_BYTES
+        from rebrew.coverage.dashboard import _FAVICON_SVG_BYTES
 
         assert hashlib.sha256(_FAVICON_SVG_BYTES).hexdigest()[:16] == _FAVICON_VERSION
 
     def test_handler_304_skips_the_route_query(self, dashboard: Dashboard) -> None:
         """A matching If-None-Match on a JSON route answers 304 without querying."""
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.path = "/api/functions?target=server_dll"
@@ -3329,7 +3336,7 @@ class TestHostValidation:
         """A DB rebuilt mid-query must not tag the old body with the new ETag."""
         import os
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.path = "/api/targets"
@@ -3407,7 +3414,7 @@ class TestHostValidation:
 
     def test_etag_of_one_route_does_not_304_another(self, dashboard: Dashboard) -> None:
         """A validator held from one route must not stand in for another."""
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
@@ -3502,8 +3509,8 @@ class TestHostValidation:
         import gzip
         from compression.zstd import decompress as zstd_decompress
 
-        import rebrew.dashboard as dash
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        import rebrew.coverage.dashboard as dash
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         blob = getattr(dash, blob_attr)()
         raw_bytes = getattr(dash, raw_attr)
@@ -3555,11 +3562,11 @@ class TestHostValidation:
 
         from rich.console import Console
 
-        from rebrew.dashboard import _Handler
+        from rebrew.coverage.dashboard import _Handler
 
         output = StringIO()
         monkeypatch.setattr(
-            "rebrew.dashboard.console",
+            "rebrew.coverage.dashboard.console",
             Console(file=output, width=200, color_system=None, highlight=False),
         )
         handler = _Handler.__new__(_Handler)
@@ -3583,7 +3590,7 @@ class TestHostValidation:
 
         from rich.console import Console
 
-        from rebrew.dashboard import _attach_server_log_handler, _Handler
+        from rebrew.coverage.dashboard import _attach_server_log_handler, _Handler
 
         # TZ is set by hand: monkeypatch would restore the variable only after
         # the test body, leaving the process on Warsaw time for later tests.
@@ -3593,7 +3600,7 @@ class TestHostValidation:
         try:
             access_out = StringIO()
             monkeypatch.setattr(
-                "rebrew.dashboard.console",
+                "rebrew.coverage.dashboard.console",
                 Console(file=access_out, width=200, color_system=None, highlight=False),
             )
             handler = _Handler.__new__(_Handler)
@@ -3602,7 +3609,7 @@ class TestHostValidation:
 
             error_out = StringIO()
             restore_log = _attach_server_log_handler()
-            server_log = logging.getLogger("rebrew.dashboard")
+            server_log = logging.getLogger("rebrew.coverage.dashboard")
             attached = [h for h in server_log.handlers if h.get_name() == "rebrew-dashboard"]
             try:
                 for h in attached:
@@ -3644,9 +3651,9 @@ class TestHostValidation:
         """The attach is an effect: its inverse restores level, propagation,
         and the handler list.  A host that serves the dashboard and then logs
         again must not keep a handler writing to the finished run's console."""
-        from rebrew.dashboard import _attach_server_log_handler
+        from rebrew.coverage.dashboard import _attach_server_log_handler
 
-        server_log = logging.getLogger("rebrew.dashboard")
+        server_log = logging.getLogger("rebrew.coverage.dashboard")
         before_level, before_propagate = server_log.level, server_log.propagate
         before_handlers = list(server_log.handlers)
 
@@ -3659,9 +3666,9 @@ class TestHostValidation:
         assert server_log.handlers == before_handlers
 
     def test_log_handler_dispose_is_idempotent(self) -> None:
-        from rebrew.dashboard import _attach_server_log_handler
+        from rebrew.coverage.dashboard import _attach_server_log_handler
 
-        server_log = logging.getLogger("rebrew.dashboard")
+        server_log = logging.getLogger("rebrew.coverage.dashboard")
         package_log = logging.getLogger("rebrew")
         before_handlers = list(server_log.handlers)
         before_package_handlers = list(package_log.handlers)
@@ -3675,9 +3682,9 @@ class TestHostValidation:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A failure after the module logger is swapped must not leave that swap."""
-        from rebrew.dashboard import _attach_server_log_handler
+        from rebrew.coverage.dashboard import _attach_server_log_handler
 
-        server_log = logging.getLogger("rebrew.dashboard")
+        server_log = logging.getLogger("rebrew.coverage.dashboard")
         package_log = logging.getLogger("rebrew")
         before_level, before_propagate = server_log.level, server_log.propagate
         before_handlers = list(server_log.handlers)
@@ -3718,11 +3725,11 @@ class TestHostValidation:
 
         from rich.console import Console
 
-        from rebrew.dashboard import _attach_server_log_handler, _stamp_request
+        from rebrew.coverage.dashboard import _attach_server_log_handler, _stamp_request
 
         output = StringIO()
         monkeypatch.setattr(
-            "rebrew.dashboard.console",
+            "rebrew.coverage.dashboard.console",
             Console(file=output, width=200, color_system=None, highlight=False),
         )
         restore = _attach_server_log_handler()
@@ -3731,7 +3738,7 @@ class TestHostValidation:
             attached.stream = output
         try:
             _stamp_request("r7", "GET /api/targets HTTP/1.1")
-            logging.getLogger("rebrew.coverage_toml").warning("skipping %s: %s", "a\tb", "bad")
+            logging.getLogger("rebrew.coverage.toml").warning("skipping %s: %s", "a\tb", "bad")
         finally:
             _stamp_request("-", "")
             restore()
@@ -3744,7 +3751,7 @@ class TestHostValidation:
         assert " UTC" in rendered
 
     def test_package_handler_dispose_restores_the_package_logger(self) -> None:
-        from rebrew.dashboard import _attach_server_log_handler
+        from rebrew.coverage.dashboard import _attach_server_log_handler
 
         package_log = logging.getLogger("rebrew")
         before_handlers = list(package_log.handlers)
@@ -3760,7 +3767,7 @@ class TestHostValidation:
 
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""
-        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import Dashboard, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
         handler.headers = {"Host": "127.0.0.1:8000"}
@@ -3795,8 +3802,8 @@ class TestHostValidation:
         stream, which is the only place the operator needs it.  This is the
         shape the removed ``except sqlite3.Error`` had, and it keeps the code.
         """
-        from rebrew.coverage_toml import CoverageTomlError
-        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import Dashboard, _Handler, allowed_hosts_for
+        from rebrew.coverage.toml import CoverageTomlError
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000"}
@@ -3818,7 +3825,7 @@ class TestHostValidation:
                 return len(data)
 
         handler.wfile = _FakeWFile()
-        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.ERROR, logger="rebrew.coverage.dashboard"):
             handler._respond("GET")
         assert [v for k, v in sent if k == "status"] == [500]
         body = b"".join(written)
@@ -3837,7 +3844,7 @@ class TestHostValidation:
         ``_readable_snapshots``, so it is the one that raises; ``_respond`` is
         what turns that into the envelope.
         """
-        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import Dashboard, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000"}
@@ -3864,7 +3871,7 @@ class TestHostValidation:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """A handler bug must leave a traceback, not just the wire's 500."""
-        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import Dashboard, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
         handler.headers = {"Host": "127.0.0.1:8000"}
@@ -3878,7 +3885,7 @@ class TestHostValidation:
         handler.end_headers = lambda: None  # type: ignore[method-assign]
         handler.wfile = _NullWFile()
 
-        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.ERROR, logger="rebrew.coverage.dashboard"):
             handler._respond("GET")
 
         errors = [r for r in caplog.records if r.levelno == logging.ERROR]
@@ -3902,7 +3909,7 @@ class TestHostValidation:
 
         from rich.console import Console
 
-        from rebrew.dashboard import (
+        from rebrew.coverage.dashboard import (
             Dashboard,
             _attach_server_log_handler,
             _Handler,
@@ -3911,7 +3918,7 @@ class TestHostValidation:
 
         output = StringIO()
         monkeypatch.setattr(
-            "rebrew.dashboard.console",
+            "rebrew.coverage.dashboard.console",
             Console(file=output, width=200, color_system=None, highlight=False),
         )
         handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
@@ -3946,7 +3953,7 @@ class TestHostValidation:
         report a 5xx that arrives without an exception, so the branch is driven
         from a stubbed route rather than left unexercised.
         """
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000"}
@@ -3963,7 +3970,7 @@ class TestHostValidation:
         handler.end_headers = lambda: None  # type: ignore[method-assign]
         handler.wfile = _NullWFile()
 
-        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.ERROR, logger="rebrew.coverage.dashboard"):
             handler._respond("GET")
 
         errors = [r for r in caplog.records if r.levelno == logging.ERROR]
@@ -3975,9 +3982,9 @@ class TestHostValidation:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The traceback carries remote text, so it is escaped like the request line."""
-        from rebrew.dashboard import _log_failed_request
+        from rebrew.coverage.dashboard import _log_failed_request
 
-        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.ERROR, logger="rebrew.coverage.dashboard"):
             try:
                 raise RuntimeError("no such table: secrets\x1b")
             except RuntimeError as exc:
@@ -3998,11 +4005,11 @@ class TestAccessLog:
 
         from rich.console import Console
 
-        from rebrew.dashboard import _Handler
+        from rebrew.coverage.dashboard import _Handler
 
         output = StringIO()
         monkeypatch.setattr(
-            "rebrew.dashboard.console",
+            "rebrew.coverage.dashboard.console",
             Console(file=output, width=40, color_system=None, highlight=False),
         )
         handler = _Handler.__new__(_Handler)
@@ -4020,7 +4027,7 @@ class TestAccessLog:
         """A keep-alive handler serves many requests; the clock must reset each time."""
         from io import BytesIO
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.rfile = BytesIO(
@@ -4041,7 +4048,7 @@ class TestAccessLog:
         """The id has to advance per request, or an error line cannot be pivoted."""
         from io import BytesIO
 
-        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import Dashboard, _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.rfile = BytesIO(b"GET / HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n")
@@ -4075,7 +4082,7 @@ class TestParseRejectionLog:
     def test_rejected_request_logs_at_warning_with_its_id(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             self._handler().send_error(400, "Bad request syntax")
         assert [(r.levelname, r.getMessage()) for r in caplog.records] == [
             (
@@ -4086,14 +4093,14 @@ class TestParseRejectionLog:
 
     def test_server_side_rejection_logs_at_error(self, caplog: pytest.LogCaptureFixture) -> None:
 
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             self._handler().send_error(500, "Internal error")
         assert [r.levelname for r in caplog.records] == ["ERROR"]
 
     def test_control_chars_in_the_message_are_escaped(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             self._handler().send_error(400, "Bad request syntax\x1b")
         assert "\x1b" not in caplog.records[0].getMessage()
 
@@ -4127,11 +4134,11 @@ class TestLifecycleLines:
 
         from rich.console import Console
 
-        from rebrew.dashboard import _server_notice
+        from rebrew.coverage.dashboard import _server_notice
 
         output = StringIO()
         monkeypatch.setattr(
-            "rebrew.dashboard.console", Console(file=output, width=200, color_system=None)
+            "rebrew.coverage.dashboard.console", Console(file=output, width=200, color_system=None)
         )
         _server_notice("WARNING", "bound wide open")
         rendered = output.getvalue()
@@ -4144,18 +4151,18 @@ class TestLifecycleLines:
 
         from rich.console import Console
 
-        from rebrew.dashboard import app
+        from rebrew.coverage.dashboard import app
 
         _write_document(tmp_path / "db", "t")
         output = StringIO()
         monkeypatch.setattr(
-            "rebrew.dashboard.console", Console(file=output, width=200, color_system=None)
+            "rebrew.coverage.dashboard.console", Console(file=output, width=200, color_system=None)
         )
 
         def _stop(self: object) -> None:
             raise KeyboardInterrupt
 
-        monkeypatch.setattr("rebrew.dashboard._DashboardServer.serve_forever", _stop)
+        monkeypatch.setattr("rebrew.coverage.dashboard._DashboardServer.serve_forever", _stop)
         result, port = self._invoke_free_port(
             app, ["--snapshots", str(tmp_path / "db"), "--host", "0.0.0.0", "--port", "{port}"]
         )
@@ -4174,23 +4181,23 @@ class TestLifecycleLines:
     ) -> None:
         """A fault in the accept loop must not read as a clean shutdown."""
 
-        from rebrew.dashboard import _attach_server_log_handler, app
+        from rebrew.coverage.dashboard import _attach_server_log_handler, app
 
         _write_document(tmp_path / "db", "t")
 
         def _crash(self: object) -> None:
             raise RuntimeError("accept loop died")
 
-        monkeypatch.setattr("rebrew.dashboard._DashboardServer.serve_forever", _crash)
+        monkeypatch.setattr("rebrew.coverage.dashboard._DashboardServer.serve_forever", _crash)
 
         restore_log = _attach_server_log_handler()
-        server_log = logging.getLogger("rebrew.dashboard")
+        server_log = logging.getLogger("rebrew.coverage.dashboard")
         # The run turns propagation off (that is the point of the attach), so
         # caplog's handler is bound to the server logger directly: the record
         # must reach the server's own stream, not the root logger's.
         server_log.addHandler(caplog.handler)
         try:
-            with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+            with caplog.at_level(logging.ERROR, logger="rebrew.coverage.dashboard"):
                 result, _port = self._invoke_free_port(
                     app, ["--snapshots", str(tmp_path / "db"), "--port", "{port}"]
                 )
@@ -4208,7 +4215,7 @@ class TestServedCounters:
     """The access log also feeds the lifetime totals printed on shutdown."""
 
     def test_requests_errors_and_slowest_are_counted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.dashboard import _Handler
+        from rebrew.coverage.dashboard import _Handler
 
         monkeypatch.setattr(_Handler, "_requests", 0)
         monkeypatch.setattr(_Handler, "_server_errors", 0)
@@ -4234,7 +4241,7 @@ class TestServedCounters:
         A run whose every request 404s reported no error at all, and a rebuild
         that invalidated every ETag looked like one that did not.
         """
-        from rebrew.dashboard import _Handler, served_totals
+        from rebrew.coverage.dashboard import _Handler, served_totals
 
         monkeypatch.setattr(_Handler, "_requests", 0)
         monkeypatch.setattr(_Handler, "_server_errors", 0)
@@ -4257,7 +4264,7 @@ class TestServedCounters:
         assert totals["server_errors"] == 0
 
     def test_reset_zeroes_every_total(self) -> None:
-        from rebrew.dashboard import _Handler, served_totals
+        from rebrew.coverage.dashboard import _Handler, served_totals
 
         _Handler._client_errors = 7
         _Handler._not_modified = 9
@@ -4272,7 +4279,7 @@ class TestSlowRequestLine:
 
     @staticmethod
     def _handler(elapsed_s: float) -> Any:
-        from rebrew.dashboard import _Handler
+        from rebrew.coverage.dashboard import _Handler
 
         handler = _Handler.__new__(_Handler)
         handler.client_address = ("127.0.0.1", 8000)
@@ -4285,10 +4292,10 @@ class TestSlowRequestLine:
     def test_slow_request_is_named_with_its_id(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.dashboard import _SLOW_REQUEST_MS, _Handler
+        from rebrew.coverage.dashboard import _SLOW_REQUEST_MS, _Handler
 
         monkeypatch.setattr(_Handler, "_requests", 0)
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             self._handler(_SLOW_REQUEST_MS / 1000.0 + 0.05).log_request(200, 1024)
 
         assert len(caplog.records) == 1
@@ -4301,10 +4308,10 @@ class TestSlowRequestLine:
     def test_an_ordinary_request_is_not_reported(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.dashboard import _Handler
+        from rebrew.coverage.dashboard import _Handler
 
         monkeypatch.setattr(_Handler, "_requests", 0)
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             self._handler(0.02).log_request(200, 1024)
 
         assert caplog.records == []
@@ -4318,7 +4325,7 @@ class TestSlowRequestLine:
         sits just under the threshold on every request never moves it, so the
         probe needs the count to see either.
         """
-        from rebrew.dashboard import _SLOW_REQUEST_MS, _Handler, served_totals
+        from rebrew.coverage.dashboard import _SLOW_REQUEST_MS, _Handler, served_totals
 
         _Handler.reset_served_totals()
         try:
@@ -4332,7 +4339,7 @@ class TestSlowRequestLine:
             _Handler.reset_served_totals()
 
     def test_reset_zeroes_the_slow_count(self) -> None:
-        from rebrew.dashboard import _Handler, served_totals
+        from rebrew.coverage.dashboard import _Handler, served_totals
 
         _Handler._slow_requests = 4
         _Handler.reset_served_totals()
@@ -4351,7 +4358,7 @@ class TestConnectionTimeoutLine:
 
     @staticmethod
     def _handler() -> Any:
-        from rebrew.dashboard import _Handler
+        from rebrew.coverage.dashboard import _Handler
 
         handler = _Handler.__new__(_Handler)
         handler.client_address = ("127.0.0.1", 8000)
@@ -4361,10 +4368,10 @@ class TestConnectionTimeoutLine:
     def test_timeout_is_a_warning_carrying_its_id(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.dashboard import _Handler
+        from rebrew.coverage.dashboard import _Handler
 
         monkeypatch.setattr(_Handler, "_timeouts", 0)
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             self._handler().log_error("Request timed out: %r", TimeoutError("timed out"))
 
         assert len(caplog.records) == 1
@@ -4378,7 +4385,7 @@ class TestConnectionTimeoutLine:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """No status means no other total sees it, so it needs its own."""
-        from rebrew.dashboard import _Handler, served_totals
+        from rebrew.coverage.dashboard import _Handler, served_totals
 
         _Handler.reset_served_totals()
         self._handler().log_error("Request timed out: %r", TimeoutError("timed out"))
@@ -4389,7 +4396,7 @@ class TestConnectionTimeoutLine:
         assert served_totals()["timeouts"] == 0
 
     def test_health_reports_the_timeout_total(self, dashboard: Dashboard) -> None:
-        from rebrew.dashboard import _Handler, served_totals
+        from rebrew.coverage.dashboard import _Handler, served_totals
 
         _Handler.reset_served_totals()
         try:
@@ -4438,12 +4445,12 @@ cells = []
     def test_summary_warning_carries_the_request_id(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from rebrew.dashboard import _stamp_request
+        from rebrew.coverage.dashboard import _stamp_request
 
         dashboard = self._dashboard(tmp_path)
         _stamp_request("r52", "GET /api/summary?target=broken HTTP/1.1")
         try:
-            with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
                 status, _, _ = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
         finally:
             _stamp_request("-", "")
@@ -4458,11 +4465,11 @@ cells = []
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The CLI reaches the same Dashboard with no request in flight."""
-        from rebrew.dashboard import _stamp_request
+        from rebrew.coverage.dashboard import _stamp_request
 
         dashboard = self._dashboard(tmp_path)
         _stamp_request("-", "")
-        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
             status, _, _ = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
 
         assert status == 200
@@ -4483,11 +4490,11 @@ class TestThreadFaults:
     def test_fault_is_logged_with_the_request_id(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.dashboard import _Handler, _stamp_request
+        from rebrew.coverage.dashboard import _Handler, _stamp_request
 
         monkeypatch.setattr(_Handler, "_server_errors", 0)
         _stamp_request("r42", "GET /api/targets HTTP/1.1\x1b")
-        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.ERROR, logger="rebrew.coverage.dashboard"):
             try:
                 raise RuntimeError("boom")
             except RuntimeError:
@@ -4505,11 +4512,11 @@ class TestThreadFaults:
     def test_client_disconnect_is_info_and_not_a_server_error(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.dashboard import _Handler, _stamp_request
+        from rebrew.coverage.dashboard import _Handler, _stamp_request
 
         monkeypatch.setattr(_Handler, "_server_errors", 0)
         _stamp_request("r43", "GET /api/functions HTTP/1.1")
-        with caplog.at_level(logging.INFO, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.INFO, logger="rebrew.coverage.dashboard"):
             try:
                 raise BrokenPipeError(32, "Broken pipe")
             except BrokenPipeError:
@@ -4529,11 +4536,11 @@ class TestThreadFaults:
         did not match, so it was reported as an unhandled fault with a
         traceback and counted against the 5xx total a probe reads.
         """
-        from rebrew.dashboard import _Handler, _stamp_request
+        from rebrew.coverage.dashboard import _Handler, _stamp_request
 
         monkeypatch.setattr(_Handler, "_server_errors", 0)
         _stamp_request("r45", "GET /api/summary HTTP/1.1")
-        with caplog.at_level(logging.INFO, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.INFO, logger="rebrew.coverage.dashboard"):
             try:
                 raise ConnectionAbortedError(103, "Software caused connection abort")
             except ConnectionAbortedError:
@@ -4552,12 +4559,12 @@ class TestThreadFaults:
         A write that ran past the per-handler timeout raised through here and
         was logged as an unhandled fault with a traceback, counted as a 5xx.
         """
-        from rebrew.dashboard import _Handler, _stamp_request, served_totals
+        from rebrew.coverage.dashboard import _Handler, _stamp_request, served_totals
 
         _Handler.reset_served_totals()
         _stamp_request("r46", "GET /api/globals HTTP/1.1")
         try:
-            with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            with caplog.at_level(logging.WARNING, logger="rebrew.coverage.dashboard"):
                 try:
                     raise TimeoutError(110, "Connection timed out")
                 except TimeoutError:
@@ -4578,13 +4585,13 @@ class TestThreadFaults:
         """A keep-alive thread must not blame the previous request's line."""
         from io import BytesIO
 
-        from rebrew.dashboard import _Handler, _stamp_request
+        from rebrew.coverage.dashboard import _Handler, _stamp_request
 
         _stamp_request("r44", "GET /api/globals HTTP/1.1")
         handler = _Handler.__new__(_Handler)
         handler.rfile = BytesIO(b"")  # no request: the handler returns at once
         handler.handle_one_request()
-        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+        with caplog.at_level(logging.ERROR, logger="rebrew.coverage.dashboard"):
             try:
                 raise RuntimeError("boom")
             except RuntimeError:
@@ -4600,7 +4607,7 @@ class TestThreadFaults:
         import http.client
         import threading
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         class _FaultingHandler(_Handler):
             def _respond(self, method: str) -> None:
@@ -4616,7 +4623,7 @@ class TestThreadFaults:
         )
         thread.start()
         try:
-            with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+            with caplog.at_level(logging.ERROR, logger="rebrew.coverage.dashboard"):
                 conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
                 conn.request("GET", "/", headers={"Host": f"127.0.0.1:{server.server_port}"})
                 assert conn.getresponse().status == 200
@@ -4662,7 +4669,7 @@ class TestRequestSpans:
         import http.client
 
         from rebrew import telemetry
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
         server = _DashboardServer(("127.0.0.1", 0), _Handler)
@@ -4715,7 +4722,7 @@ class TestRequestSpans:
         import http.client
 
         from rebrew import telemetry
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
         server = _DashboardServer(("127.0.0.1", 0), _Handler)
@@ -4754,7 +4761,7 @@ class TestRequestSpans:
         import http.client
 
         from rebrew import telemetry
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         stop = telemetry.configure(collector.url, "relumea-rebrew", "1.2.3")
         server = _DashboardServer(("127.0.0.1", 0), _Handler)
@@ -4803,7 +4810,7 @@ class TestHealthRoute:
     ) -> None:
         """A wildcard bind has no auth, so the probe must not hand every LAN
         client the operator's absolute project path."""
-        from rebrew.dashboard import Dashboard
+        from rebrew.coverage.dashboard import Dashboard
 
         _write_config(tmp_path, "server_dll")
         write_coverage(tmp_path, tmp_path / "db", target=None, json_output=False)
@@ -4818,7 +4825,7 @@ class TestHealthRoute:
         self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A run that fails queries must not probe "ok" with no error count."""
-        from rebrew.dashboard import Dashboard, _Handler, served_totals
+        from rebrew.coverage.dashboard import Dashboard, _Handler, served_totals
 
         monkeypatch.setattr(_Handler, "_requests", 12)
         monkeypatch.setattr(_Handler, "_server_errors", 3)
@@ -4836,7 +4843,7 @@ class TestHealthRoute:
 
     def test_health_is_not_an_etag_route(self) -> None:
         """A 304 on the probe would report a stale 'healthy' for a dead db."""
-        from rebrew.dashboard import _ROUTES
+        from rebrew.coverage.dashboard import _ROUTES
 
         assert "/api/health" not in _ROUTES
 
@@ -4848,7 +4855,7 @@ class TestHealthRoute:
         still replay the validator by hand and read a stored "ok" long after
         the coverage read that produced it stopped working.
         """
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)
         handler.path = "/api/health"
@@ -4882,7 +4889,7 @@ class TestHealthRoute:
         BESIDE readable ones is not -- the loader skips it and the probe
         stays 200.
         """
-        from rebrew.dashboard import Dashboard
+        from rebrew.coverage.dashboard import Dashboard
 
         empty = Dashboard(tmp_path / "db", snapshots=True)
         with pytest.raises(CoverageTomlError):
@@ -4909,7 +4916,7 @@ class TestKeepAliveTimeout:
         import threading
         from http.server import ThreadingHTTPServer
 
-        from rebrew.dashboard import _KEEPALIVE_IDLE_TIMEOUT_S, _Handler
+        from rebrew.coverage.dashboard import _KEEPALIVE_IDLE_TIMEOUT_S, _Handler
 
         assert _Handler.timeout == _KEEPALIVE_IDLE_TIMEOUT_S
         monkeypatch.setattr(_Handler, "timeout", 0.2)
@@ -4937,7 +4944,7 @@ class TestConnectionCap:
     def _server(
         dashboard: Dashboard, cap: int, monkeypatch: pytest.MonkeyPatch
     ) -> tuple[_DashboardServer, threading.Thread]:
-        from rebrew.dashboard import allowed_hosts_for
+        from rebrew.coverage.dashboard import allowed_hosts_for
 
         server = _DashboardServer(("127.0.0.1", 0), _Handler)
         server.daemon_threads = True
@@ -5023,7 +5030,7 @@ class TestConnectionCap:
         """
         import socket
 
-        from rebrew.dashboard import served_totals
+        from rebrew.coverage.dashboard import served_totals
 
         monkeypatch.setattr(_Handler, "timeout", 5.0)
         _Handler.reset_served_totals()
@@ -5125,7 +5132,7 @@ class TestConnectionCap:
         import http.client
         import socket
 
-        from rebrew.dashboard import served_totals
+        from rebrew.coverage.dashboard import served_totals
 
         monkeypatch.setattr(_Handler, "timeout", 5.0)
         served = Dashboard(dashboard.source, served=served_totals, snapshots=True)
@@ -5166,7 +5173,7 @@ class TestResponseFraming:
     """
 
     def test_nagle_is_disabled(self) -> None:
-        from rebrew.dashboard import _Handler
+        from rebrew.coverage.dashboard import _Handler
 
         assert _Handler.disable_nagle_algorithm is True
 
@@ -5175,7 +5182,7 @@ class TestResponseFraming:
         import threading
         from http.server import ThreadingHTTPServer
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         class Bound(_Handler):
             allowed_hosts: frozenset[str] = frozenset()
@@ -5211,7 +5218,7 @@ class TestInvisibleControlScrub:
     """API text must not carry bidi or zero-width controls into the DOM."""
 
     def test_nested_payload_scrubbed(self) -> None:
-        from rebrew.dashboard import _scrub_invisible
+        from rebrew.coverage.dashboard import _scrub_invisible
 
         payload = {
             "target": "server\u202e_dll",
@@ -5252,7 +5259,7 @@ class TestOpenApiSpec:
     """The published contract is checked against the code, not trusted."""
 
     def test_spec_lists_exactly_the_served_routes(self) -> None:
-        from rebrew.dashboard import _KNOWN_ROUTES
+        from rebrew.coverage.dashboard import _KNOWN_ROUTES
 
         assert set(_spec()["paths"]) == set(_KNOWN_ROUTES)
 
@@ -5301,7 +5308,11 @@ class TestOpenApiSpec:
         pinned URL.  The version constants are the server's, so an asset that
         gains a hashed URL without a spec entry fails here.
         """
-        from rebrew.dashboard import _APP_JS_VERSION, _CACHE_IMMUTABLE, _success_cache_control
+        from rebrew.coverage.dashboard import (
+            _APP_JS_VERSION,
+            _CACHE_IMMUTABLE,
+            _success_cache_control,
+        )
 
         spec = _spec()
         for path, version in (("/app.js", _APP_JS_VERSION), ("/favicon.svg", _FAVICON_VERSION)):
@@ -5316,7 +5327,7 @@ class TestOpenApiSpec:
 
     def test_error_codes_are_all_reachable(self) -> None:
         """A documented code the server can never emit is a lie to branch on."""
-        from rebrew import dashboard
+        from rebrew.coverage import dashboard
 
         from_http = set(dashboard._HTTP_ERROR_CODES.values()) | {"request_error"}
         source = Path(dashboard.__file__).read_text(encoding="utf-8")
@@ -5390,7 +5401,7 @@ new_status = "EXACT"
         declared but optional, since a non-loopback bind withholds it; see
         :meth:`test_health_coverage_dir_is_optional_and_withheld_off_loopback`.
         """
-        from rebrew.dashboard import served_totals
+        from rebrew.coverage.dashboard import served_totals
 
         schemas = _spec()["components"]["schemas"]
         served = Dashboard(dashboard.source, served=served_totals, snapshots=True)
@@ -5412,7 +5423,7 @@ new_status = "EXACT"
         stays declared and optional, and every other required field is present
         either way.
         """
-        from rebrew.dashboard import served_totals
+        from rebrew.coverage.dashboard import served_totals
 
         schemas = _spec()["components"]["schemas"]
         health = schemas["Health"]
@@ -5439,7 +5450,7 @@ new_status = "EXACT"
         answers with, so the loopback body, which is the widest one, is the
         reference.
         """
-        from rebrew.dashboard import served_totals
+        from rebrew.coverage.dashboard import served_totals
 
         doc = (Path(__file__).resolve().parents[1] / "docs" / "COVERAGE_DOCUMENT.md").read_text(
             encoding="utf-8"
@@ -5463,7 +5474,7 @@ new_status = "EXACT"
         request the route rejects, and a generated client would never null-check
         the field it was never told about.
         """
-        from rebrew import dashboard as module
+        from rebrew.coverage import dashboard as module
 
         description = _spec()["components"]["schemas"]["Summary"]["properties"]["function_stats"][
             "description"
@@ -5476,7 +5487,7 @@ new_status = "EXACT"
         route.  A client generated from a spec that omits one has no branch
         for it and treats the response as an unlisted failure.
         """
-        from rebrew.dashboard import _UNCACHEABLE_ROUTES
+        from rebrew.coverage.dashboard import _UNCACHEABLE_ROUTES
 
         spec = _spec()
         for path, item in spec["paths"].items():
@@ -5506,7 +5517,7 @@ new_status = "EXACT"
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         for name in ("MissingTarget", "InvalidRequest", "UnknownTarget", "DatabaseError"):
             headers = _spec()["components"]["responses"][name]["headers"]
@@ -5540,8 +5551,8 @@ new_status = "EXACT"
         from io import BytesIO
         from unittest.mock import Mock
 
-        from rebrew import dashboard as module
-        from rebrew.dashboard import _Handler, allowed_hosts_for
+        from rebrew.coverage import dashboard as module
+        from rebrew.coverage.dashboard import _Handler, allowed_hosts_for
 
         description = _spec()["info"]["description"]
         for code in (*module._HTTP_ERROR_CODES.values(), "request_error"):
@@ -5571,7 +5582,7 @@ new_status = "EXACT"
             assert handler.close_connection is True
 
     def test_documented_cols_match_the_row_layout(self, dashboard: Dashboard) -> None:
-        from rebrew import dashboard as module
+        from rebrew.coverage import dashboard as module
 
         schemas = _spec()["components"]["schemas"]
         for schema_name, key, cols in (
@@ -5910,7 +5921,7 @@ class TestHumanReadableContract:
         parameter, and a page that names ``/app.js`` alone reads as a favicon
         that revalidates on every load.
         """
-        from rebrew.dashboard import _CACHE_IMMUTABLE, _success_cache_control
+        from rebrew.coverage.dashboard import _CACHE_IMMUTABLE, _success_cache_control
 
         sentence = _sentence_containing(_coverage_note_block(), "`Cache-Control` is")
         for path, version in (("/app.js", _APP_JS_VERSION), ("/favicon.svg", _FAVICON_VERSION)):

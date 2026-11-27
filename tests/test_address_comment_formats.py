@@ -10,7 +10,7 @@ from rebrew.config import AddressCommentFormat, address_comments_for_file, load_
 from rebrew.errors import ConfigError
 from rebrew.metadata.anchors import add_address_anchor, address_comment, parse_address_anchors
 from rebrew.metadata.bindings import read_source_bindings
-from rebrew.source_register import plan_registration
+from rebrew.source.register import plan_registration
 
 
 class TestCommentFormats:
@@ -139,8 +139,8 @@ class TestCommentConfiguration:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.merge import app
         from rebrew.metadata.functions import record_function_rows
+        from rebrew.source.merge import app
 
         (tmp_path / "rebrew-project.toml").write_text(
             "[project.address_comments]\n"
@@ -160,7 +160,7 @@ class TestCommentConfiguration:
             sources.append(path)
         rows, _ = plan_registration(cfg, sources)
         record_function_rows(cfg.metadata_dir, rows)
-        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
         output = cfg.reversed_dir / "combined.c"
         result = CliRunner().invoke(app, ["--force", "--output", str(output), *map(str, sources)])
         assert result.exit_code == 0, result.output

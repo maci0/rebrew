@@ -10,7 +10,7 @@ from tree_snapshot import snapshot_with_stat
 
 from rebrew.config import ProjectConfig
 from rebrew.metadata.functions import record_function_identity, set_fields
-from rebrew.source_organization import check_reorganization, review_organization
+from rebrew.source.organization import check_reorganization, review_organization
 
 
 def _project(tmp_path: Path) -> tuple[ProjectConfig, ProjectConfig, list[Path]]:
@@ -218,7 +218,7 @@ class TestOrganizationRejectingControls:
             return snapshot_binary(path)
 
         with (
-            patch("rebrew.source_organization.snapshot_binary", side_effect=swapped),
+            patch("rebrew.source.organization.snapshot_binary", side_effect=swapped),
             pytest.raises(ValueError, match="changed after"),
         ):
             check_reorganization(before, after)

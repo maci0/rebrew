@@ -7,8 +7,8 @@ import pytest
 from cli_json import cli_payload
 from typer.testing import CliRunner
 
-from rebrew import gen_stubs
-from rebrew.gen_stubs import (
+from rebrew.buildsys import gen_stubs
+from rebrew.buildsys.gen_stubs import (
     collect_extern_info,
     collect_rdata_symbols,
     collect_written_symbols,
@@ -636,7 +636,7 @@ class TestCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
 
-        from rebrew.gen_link_stubs import app as link_stubs_app
+        from rebrew.buildsys.gen_link_stubs import app as link_stubs_app
         from rebrew.metadata.data import record_data_rows
 
         monkeypatch.chdir(tmp_path)
@@ -672,7 +672,7 @@ class TestCli:
         assert (symbol_path.read_bytes(), symbol_path.stat().st_mtime_ns) == before_symbol
 
     def test_stdin_dry_run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
@@ -682,7 +682,7 @@ class TestCli:
         assert "int __cdecl write_log(char* a)" in result.output
 
     def test_log_file_writes_out(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
@@ -703,7 +703,7 @@ class TestCli:
         in ``.data`` and which shortened the linked image's ``.rdata``. A
         caller store keeps the object writable.
         """
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
         from rebrew.metadata.data import record_data_rows
 
         monkeypatch.chdir(tmp_path)
@@ -756,7 +756,7 @@ class TestCli:
     ) -> None:
         """``--json`` is encoding only — the stub TU must still be written."""
 
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
@@ -774,7 +774,7 @@ class TestCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A non-UTF-8 --footer must not degrade to U+FFFD in the output."""
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\n")
@@ -795,7 +795,7 @@ class TestCli:
     def test_warns_before_dropping_existing_stub(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\n")
@@ -814,7 +814,7 @@ class TestCli:
         functions, so ``WINAPI`` and ``__vectorcall`` were dropped
         without a trace.
         """
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\n")
@@ -838,7 +838,7 @@ class TestCli:
         it without the overwrite warning. ``char (*row)[4]`` is one
         pointer and is named too.
         """
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\n")
@@ -861,7 +861,7 @@ class TestCli:
         and the overwrite warning skipped it. ``(* const rows[2])[3]`` and
         ``void (__cdecl *cb)(int) = 0`` are named too.
         """
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\n")
@@ -883,7 +883,7 @@ class TestCli:
     def test_conflicting_fastcall_is_a_clean_cli_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "")
@@ -898,7 +898,7 @@ class TestCli:
         assert "Traceback" not in result.output
 
     def test_no_unresolved_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--dry-run"], input="fatal error C1083\n")
@@ -906,7 +906,7 @@ class TestCli:
         assert "no unresolved symbols" in result.output
 
     def test_specials_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
@@ -946,7 +946,7 @@ class TestCli:
     ) -> None:
         """``--specials`` is a user file: each wrongly typed field is named,
         instead of escaping ``generate_stubs`` as TypeError or AttributeError."""
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
@@ -963,8 +963,8 @@ class TestCli:
     def test_dry_run_rejects_a_mutating_build_before_it_runs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import gen_stubs
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys import gen_stubs
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
 
@@ -985,7 +985,7 @@ class TestCli:
     def test_cmake_stub_var_patched_and_restored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
@@ -1029,7 +1029,7 @@ class TestCli:
     def test_exclude_file_renamed_and_restored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
@@ -1067,7 +1067,7 @@ class TestCli:
     ) -> None:
         """A run killed mid-build leaves CMakeLists blanked and the TU at .c.off;
         the next run must put both back instead of failing or losing them."""
-        from rebrew.gen_stubs import app
+        from rebrew.buildsys.gen_stubs import app
 
         monkeypatch.chdir(tmp_path)
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
@@ -1419,7 +1419,7 @@ class TestStrippedSourceMemo:
 def test_conditional_callable_alias_requires_reviewed_special(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rebrew.gen_stubs import app
+    from rebrew.buildsys.gen_stubs import app
 
     monkeypatch.chdir(tmp_path)
     _write_src(
@@ -1449,7 +1449,7 @@ def test_conditional_callable_alias_requires_reviewed_special(
 def test_conditional_alias_conflicting_prototypes_and_known_data(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rebrew.gen_stubs import app
+    from rebrew.buildsys.gen_stubs import app
 
     monkeypatch.chdir(tmp_path)
     _write_src(

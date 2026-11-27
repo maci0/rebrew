@@ -316,7 +316,7 @@ class TestResidueHelpers:
     def test_residue_report_identical(self) -> None:
         import struct
 
-        from rebrew.residue import residue_report
+        from rebrew.buildsys.residue import residue_report
 
         def _pe_with_text() -> bytes:
             raw = bytearray(0x400)
@@ -343,7 +343,7 @@ class TestResidueHelpers:
         """
         import struct
 
-        from rebrew.residue import _sections
+        from rebrew.buildsys.residue import _sections
 
         raw = bytearray(0x400)
         raw[0:2] = b"MZ"
@@ -361,9 +361,11 @@ class TestResidueHelpers:
     def test_residue_report_attributes_until_next_start(
         self, monkeypatch: pytest.MonkeyPatch, first_size: int
     ) -> None:
-        from rebrew.residue import residue_report
+        from rebrew.buildsys.residue import residue_report
 
-        monkeypatch.setattr("rebrew.residue._sections", lambda raw: {".text": (0x1000, 16, 0, 16)})
+        monkeypatch.setattr(
+            "rebrew.buildsys.residue._sections", lambda raw: {".text": (0x1000, 16, 0, 16)}
+        )
         report = residue_report(
             b"\x01" * 16, bytes(16), [(0, first_size, "first"), (8, 4, "last")], 0x400000
         )
@@ -385,7 +387,7 @@ class TestResidueHelpers:
     ) -> None:
         from types import SimpleNamespace
 
-        from rebrew.residue import _nonmatching_from_cache
+        from rebrew.buildsys.residue import _nonmatching_from_cache
 
         cfg = SimpleNamespace(target_name="client")
         cache_data = {
@@ -408,7 +410,7 @@ class TestResidueHelpers:
                 },
             },
         }
-        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache_raw", lambda _cfg: cache_data)
+        monkeypatch.setattr("rebrew.verify.cache.load_verify_cache_raw", lambda _cfg: cache_data)
         res = _nonmatching_from_cache(cfg, image_base=0x400000, text_rva=0x1000)
         assert res == [(0, 32, "foo")]
 
@@ -437,7 +439,7 @@ class TestCommandWiring:
 
         from typer.testing import CliRunner
 
-        from rebrew.residue import app
+        from rebrew.buildsys.residue import app
 
         root = tmp_path
         (root / "rebrew-project.toml").write_text(
@@ -455,7 +457,7 @@ class TestCommandWiring:
 
         from typer.testing import CliRunner
 
-        from rebrew.residue import app
+        from rebrew.buildsys.residue import app
 
         root = tmp_path
         (root / "rebrew-project.toml").write_text(
@@ -496,7 +498,7 @@ class TestCommandWiring:
         from test_postlink import make_full_pe
         from typer.testing import CliRunner
 
-        from rebrew.residue import app
+        from rebrew.buildsys.residue import app
 
         reference = make_full_pe(imports=[("KERNEL32.dll", ["GetLocalTime"])])
         self._residue_project(
@@ -519,7 +521,7 @@ class TestCommandWiring:
         from test_postlink import apply_package_edit, make_full_pe
         from typer.testing import CliRunner
 
-        from rebrew.residue import app
+        from rebrew.buildsys.residue import app
 
         reference = make_full_pe()
         self._residue_project(tmp_path, reference, reference)
@@ -558,7 +560,7 @@ class TestCommandWiring:
         from test_postlink import make_full_pe
         from typer.testing import CliRunner
 
-        from rebrew.residue import app
+        from rebrew.buildsys.residue import app
 
         reference = make_full_pe()
         self._residue_project(tmp_path, reference, reference)
@@ -581,7 +583,7 @@ class TestCommandWiring:
         from test_postlink import make_full_pe
         from typer.testing import CliRunner
 
-        from rebrew.residue import app
+        from rebrew.buildsys.residue import app
 
         reference = make_full_pe()
         self._residue_project(tmp_path, reference, reference)

@@ -8,7 +8,7 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
-from rebrew.inline_strings import c_literal, inline_string_uses
+from rebrew.source.inline_strings import c_literal, inline_string_uses
 
 
 class TestCLiteral:
@@ -105,7 +105,7 @@ class TestDefineRemaining:
     def test_owner_chosen_by_real_uses_not_extern_or_comments(self, tmp_path: Path) -> None:
         """The owner is the file with the most non-extern uses: extern lines and
         comment mentions must not outvote the single real use."""
-        from rebrew.inline_strings import define_remaining_strings
+        from rebrew.source.inline_strings import define_remaining_strings
 
         a = tmp_path / "a.c"
         write_source(
@@ -127,7 +127,7 @@ class TestDefineRemaining:
         assert "char s_msg_10027000[3]" not in a.read_text()
 
     def test_owner_tie_uses_first_referencing_file(self, tmp_path: Path) -> None:
-        from rebrew.inline_strings import define_remaining_strings
+        from rebrew.source.inline_strings import define_remaining_strings
 
         files = [tmp_path / f"{name}.c" for name in ("unrelated", "first", "second")]
         files[0].write_text("int unrelated;\n", encoding="utf-8")
@@ -153,7 +153,7 @@ class TestDefineRemaining:
     def test_defines_asm_referenced_string(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.inline_strings import app
+        from rebrew.source.inline_strings import app
 
         (tmp_path / "src").mkdir(parents=True)
         src = tmp_path / "src" / "a.c"
@@ -198,7 +198,7 @@ class TestEncodingSafety:
 
     def test_define_keeps_nel_inside_string_literal(self, tmp_path: Path) -> None:
         """0x85 decodes as NEL in a Latin-1 source; it must not become a newline."""
-        from rebrew.inline_strings import define_remaining_strings
+        from rebrew.source.inline_strings import define_remaining_strings
 
         f = tmp_path / "a.c"
         f.write_bytes(
@@ -222,7 +222,7 @@ class TestEncodingSafety:
         assert b'char s_msg_10027000[3] = "hi";' in raw
 
     def test_define_keeps_missing_trailing_newline_missing(self, tmp_path: Path) -> None:
-        from rebrew.inline_strings import define_remaining_strings
+        from rebrew.source.inline_strings import define_remaining_strings
 
         f = tmp_path / "a.c"
         write_source(
@@ -259,7 +259,7 @@ class TestGLiteralNames:
         return src
 
     def _run(self, *args: str) -> dict[str, object]:
-        from rebrew.inline_strings import app
+        from rebrew.source.inline_strings import app
 
         result = CliRunner().invoke(app, ["--json", *args])
         assert result.exit_code == 0, result.output
@@ -510,7 +510,7 @@ class TestNamedMode:
 
     def _run(self, *args: str) -> dict[str, object]:
 
-        from rebrew.inline_strings import app
+        from rebrew.source.inline_strings import app
 
         result = CliRunner().invoke(app, ["--named", "--json", *args])
         assert result.exit_code == 0, result.output
@@ -639,7 +639,7 @@ class TestNamedScanBudget:
     ) -> None:
         from unittest.mock import Mock
 
-        from rebrew import inline_strings
+        from rebrew.source import inline_strings
 
         source = tmp_path / "owner.c"
         source.write_text(
@@ -660,7 +660,7 @@ class TestNamedScanBudget:
     def test_edit_during_scan_does_not_reuse_old_parse(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import inline_strings
+        from rebrew.source import inline_strings
 
         source = tmp_path / "owner.c"
         source.write_text(
@@ -687,7 +687,7 @@ class TestNamedScanBudget:
 
 class TestOccurrenceIndex:
     def test_literals_comments_and_identifier_boundaries_stay_distinct(self) -> None:
-        from rebrew.inline_strings import _code_occurrences, _parse_source
+        from rebrew.source.inline_strings import _code_occurrences, _parse_source
 
         source = (
             '/* s_value */ char *example = "s_value";\n'
@@ -702,7 +702,7 @@ class TestOccurrenceIndex:
         import re
         from bisect import bisect_right
 
-        from rebrew.inline_strings import _code_occurrences, _parse_source
+        from rebrew.source.inline_strings import _code_occurrences, _parse_source
 
         text = (
             '/* s_a */ char *literal = "s_a s_b";\n'
@@ -722,7 +722,7 @@ class TestOccurrenceIndex:
         assert parsed.code_counts is not None
 
     def test_single_query_does_not_build_index(self) -> None:
-        from rebrew.inline_strings import _code_occurrences, _parse_source
+        from rebrew.source.inline_strings import _code_occurrences, _parse_source
 
         _, parsed = _parse_source("int s_one; int another;", "s_")
         assert _code_occurrences(parsed, "s_one") == 1
@@ -731,7 +731,7 @@ class TestOccurrenceIndex:
     def test_edit_after_index_build_uses_new_source_text(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew import inline_strings
+        from rebrew.source import inline_strings
         from rebrew.utils import read_source_text
 
         source = tmp_path / "owner.c"

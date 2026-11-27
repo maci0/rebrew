@@ -39,7 +39,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.config import ProjectConfig
 lazy from rebrew.metadata.bindings import read_source_bindings
-lazy from rebrew.sources import iter_sources
+lazy from rebrew.source.discovery import iter_sources
 
 app = typer.Typer(
     help="Explain why a function compiles with its toolchain+flags (resolution trace).",

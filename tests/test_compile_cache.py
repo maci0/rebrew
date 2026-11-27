@@ -2534,7 +2534,7 @@ class TestSourceDateEpochCacheIdentity:
     def test_epoch_separates_objects_and_verdicts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify_hash import compiler_config_hash
+        from rebrew.verify.hash import compiler_config_hash
 
         cfg = ProjectConfig(root=tmp_path)
         monkeypatch.delenv("SOURCE_DATE_EPOCH", raising=False)

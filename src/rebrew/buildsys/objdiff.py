@@ -1,0 +1,366 @@
+"""objdiff-project — generate an objdiff project for GUI byte-diffing.
+
+objdiff (https://github.com/encounter/objdiff) is the decomp-scene's diffing
+GUI: it shows per-function byte diffs between a *target* object (from the
+original binary) and a *base* object (compiled from current source), with
+instruction-level rendering.  It fully supports x86/x86_64 COFF/ELF objects,
+so rebrew's MSVC/mingw-16.2.0 targets fit natively.
+
+This module provides two entry points:
+
+- ``rebrew export objdiff --output objdiff.json`` — synthesize one target COFF object
+  per annotated source file (the functions' bytes from the reference binary
+  at their original VAs, with the annotation symbols) and emit an objdiff
+  project configuration with one unit per file.  Opening ``objdiff.json`` in
+  the objdiff GUI shows the project's match state immediately.
+- ``rebrew build objdiff-driver <target> <base-object>`` — the ``custom_make``
+  shim objdiff invokes to rebuild a base object: maps the object path back
+  to its source file and compiles it with the project's per-file toolchain
+  and flags (the same resolution ``rebrew test``/``verify`` use).
+
+Target objects carry no relocations (the reference binary gives raw bytes);
+objdiff diffs them byte-wise, which is exactly the `rebrew match run` model.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+lazy import json
+lazy import struct
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.bindings import iter_source_bindings
+lazy from rebrew.source.discovery import contained_path, iter_sources, source_exts, source_roots
+lazy from rebrew.utils import atomic_write_bytes, atomic_write_text
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew export objdiff  # Write objdiff.json and copy the target objects\n\n"
+    "  # Custom paths\n"
+    "  rebrew export objdiff --output objdiff.json --target-dir build/objdiff\n\n"
+    "  # Write the project and target objects; print a JSON summary\n"
+    "  rebrew export objdiff --output output/objdiff.json --json\n"
+)
+
+
+app = typer.Typer(
+    help="Generate an objdiff project (target objects + objdiff.json) for GUI diffing.",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+# COFF constants (i386, little-endian).
+_IMAGE_FILE_MACHINE_I386 = 0x014C
+_IMAGE_SCN_CNT_CODE = 0x00000020
+_IMAGE_SCN_MEM_EXECUTE = 0x20000000
+_IMAGE_SCN_MEM_READ = 0x40000000
+_IMAGE_SYM_CLASS_EXTERNAL = 2
+_SECTION_CHARS = _IMAGE_SCN_CNT_CODE | _IMAGE_SCN_MEM_EXECUTE | _IMAGE_SCN_MEM_READ
+
+
+def write_coff_object(
+    path: Path,
+    functions: list[tuple[str, int, bytes]],
+    *,
+    machine: int = _IMAGE_FILE_MACHINE_I386,
+) -> None:
+    """Write a minimal COFF object with one ``.text`` section.
+
+    *functions* is ``(symbol_name, offset_in_section, bytes)`` — the caller
+    places each function at its file-relative offset (usually
+    ``va - min_va``) so symbol offsets mirror the original addresses.
+    Relocations are omitted (target objects are raw-byte references).
+
+    *machine* defaults to i386; pass another COFF machine constant when
+    rebrew grows a non-x86 target (e.g. ``0x01C0`` ARM — the multi-arch
+    path is a parameter, not a fork).
+    """
+    body = b""
+    symbols: list[tuple[str, int]] = []  # (name, section offset)
+    for name, offset, blob in functions:
+        pad = offset - len(body)
+        if pad > 0:
+            body += b"\x00" * pad
+        elif pad < 0:
+            raise ValueError(
+                f"overlapping placement for {name!r} at offset {offset} "
+                f"(section already {len(body)} bytes)"
+            )
+        body += blob
+        symbols.append((name, offset))
+
+    # --- section header ---
+    raw_offset = 20 + 40  # file header + one section header
+    sec_name = b".text"
+    sec_hdr = sec_name.ljust(8, b"\x00") + struct.pack(
+        "<IIIIIIHHI", len(body), 0, len(body), raw_offset, 0, 0, 0, 0, _SECTION_CHARS
+    )
+
+    # --- symbol table ---
+    sym_entries: list[bytes] = []
+    long_names: list[bytes] = []
+
+    def _name_field(name: str) -> bytes:
+        # ``errors="replace"`` would write U+FFFD over a character that is not
+        # Unicode, renaming the symbol so the object no longer names the function.
+        try:
+            raw = name.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"symbol name {name!r} is not valid Unicode") from exc
+        if len(raw) <= 8:
+            return raw.ljust(8, b"\x00")
+        long_names.append(raw + b"\x00")
+        return struct.pack("<II", 0, 4 + sum(len(n) for n in long_names[:-1]))
+
+    for name, offset in symbols:
+        # COFF symbol: Name[8] Value(4) Section(2) Type(2) Class(1) Aux(1) = 18
+        # bytes.  Type is a 2-byte field — packing it as 1 shifted every
+        # subsequent symbol and corrupted the string-table offset.
+        sym_entries.append(
+            _name_field(name) + struct.pack("<IHHBB", offset, 1, 0x20, _IMAGE_SYM_CLASS_EXTERNAL, 0)
+        )
+    string_table = struct.pack("<I", 4 + sum(len(n) for n in long_names)) + b"".join(long_names)
+
+    sym_offset = raw_offset + len(body)
+    n_syms = len(sym_entries)
+    file_hdr = struct.pack(
+        "<HHIIIHH",
+        machine,
+        1,  # NumberOfSections
+        0,  # TimeDateStamp
+        sym_offset,
+        n_syms,
+        0,  # SizeOfOptionalHeader
+        0,  # Characteristics (relocatable object)
+    )
+    atomic_write_bytes(path, file_hdr + sec_hdr + body + b"".join(sym_entries) + string_table)
+
+
+def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
+    """Write one target COFF object per annotated source file.
+
+    Returns the unit descriptors (name, target_path, base_path).
+    """
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    target_module_name = target_module(cfg)
+    units: list[dict[str, Any]] = []
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    from rebrew.formats.binary_loader import extract_raw_bytes
+
+    for path, annos in iter_source_bindings(
+        sources,
+        target=target_module_name,
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    ):
+        fns: list[tuple[str, int, bytes]] = []
+        for a in annos:
+            if a.is_data:
+                continue
+            va = int(a.va)
+            size = int(a.size or 0)
+            if size <= 0:
+                continue
+            try:
+                raw = extract_raw_bytes(cfg.target_binary, va, size)
+            except Exception as exc:
+                console.print(
+                    f"[yellow]warning:[/yellow] skipping 0x{va:08x} "
+                    f"({a.symbol or a.name or 'unnamed'}): failed to extract bytes "
+                    f"({exc.__class__.__name__}: {exc})"
+                )
+                continue
+            if not raw:
+                console.print(
+                    f"[yellow]warning:[/yellow] skipping 0x{va:08x} "
+                    f"({a.symbol or a.name or 'unnamed'}): empty extract "
+                    f"(VA/size outside the binary?)"
+                )
+                continue
+            fns.append((a.symbol or a.name or f"func_{va:08x}", va, raw))
+        if not fns:
+            continue
+        # write_coff_object writes functions in list order and rejects a
+        # decreasing offset as an overlap; annotations come in source order,
+        # which need not be VA order, so sort by VA first.
+        fns.sort(key=lambda t: t[1])
+        base_va = fns[0][1]
+        # Place functions at their (va - base_va) offsets so the object's
+        # address space mirrors the binary layout.
+        placed = [(name, va - base_va, raw) for name, va, raw in fns]
+        file_rel = path.relative_to(cfg.reversed_dir).as_posix()
+        target_path = out_dir / f"{file_rel}.o"
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        write_coff_object(target_path, placed)
+        base_path = Path("build/objdiff/current") / f"{file_rel}.o"
+        units.append(
+            {
+                "name": file_rel,
+                "target_path": target_path.as_posix(),
+                "base_path": base_path.as_posix(),
+            }
+        )
+    return units
+
+
+def _build_one_object(cfg: Any, base_object: Path, *, json_mode: bool = False) -> None:
+    """Compile the source file behind *base_object* and write the object.
+
+    The object path is ``build/objdiff/current/<filepath>.o``; the source is
+    ``<reversed_dir>/<filepath>``.  Compiles with the same per-file
+    toolchain/flag resolution as ``rebrew test``/``verify``.
+    """
+    rel = base_object.as_posix()
+    target_module_name = "build/objdiff/current/"
+    idx = rel.find(target_module_name)
+    if idx >= 0:
+        # Strip the base dir whether the path arrived relative
+        # ("build/objdiff/current/funcs/a.c.o") or absolute — objdiff
+        # passes the configured base_path verbatim, which may be either.
+        rel = rel[idx + len(target_module_name) :]
+    if not rel.endswith(".o"):
+        error_exit(
+            f"rebrew build objdiff-driver: unexpected object path {base_object}",
+            json_mode=json_mode,
+        )
+    source_rel = rel[: -len(".o")]
+    source = contained_path(source_roots(cfg), source_rel)
+    if source is None:
+        error_exit(
+            f"rebrew build objdiff-driver: source path escapes the project: {source_rel}",
+            json_mode=json_mode,
+        )
+    if not source.exists():
+        error_exit(
+            f"rebrew build objdiff-driver: no source file for {source_rel} ({source})",
+            json_mode=json_mode,
+        )
+
+    # Per-file override resolution — the same inputs test/verify use, from the
+    # file's own annotation.  Passing empty strings dropped a persisted
+    # per-function TOOLCHAIN/CFLAGS (and the per-module cflags preset), so
+    # objdiff rebuilt the base object with different flags and showed a
+    # mismatch for a function rebrew reports EXACT.
+    from rebrew.compiler.compile import compile_to_obj
+    from rebrew.compiler.overrides import resolve_compile_overrides
+    from rebrew.metadata.bindings import read_source_bindings
+
+    annos = read_source_bindings(
+        source,
+        target_name=target_module(cfg),
+        metadata_dir=cfg.metadata_dir,
+        project_root=getattr(cfg, "root", None),
+    )
+    ann = annos[0] if annos else None
+    toolchain, cflags = resolve_compile_overrides(
+        cfg,
+        source.parent,
+        getattr(ann, "toolchain", "") if ann else "",
+        getattr(ann, "cflags", "") if ann else "",
+        getattr(ann, "module", "") if ann else "",
+    )
+    obj_path, err = compile_to_obj(
+        cfg,
+        source,
+        cflags.split(),
+        base_object.parent,
+        obj_name=base_object.name,
+        toolchain=toolchain,
+        use_cache=False,
+    )
+    if obj_path is None:
+        error_exit(f"rebrew build objdiff-driver: compile failed: {err}", json_mode=json_mode)
+    if json_mode:
+        json_print({"output": str(base_object)})
+    else:
+        console.print(f"[green]Built {base_object}[/green]")
+
+
+def _watch_patterns(cfg: Any) -> list[str]:
+    """objdiff watch globs for the project's source tree.
+
+    Derived from ``cfg.reversed_dir`` (the tree the units come from), not a
+    literal ``src/``: a project whose reversed_dir is ``reversed/`` (or whose
+    sources live anywhere else) would never trigger a rebuild on edit, so the
+    GUI kept showing stale diffs.
+    """
+    from rebrew.utils import rel_display_path
+
+    root = getattr(cfg, "root", None)
+    prefix = ""
+    if root:
+        rel = rel_display_path(cfg.reversed_dir, root)
+        if rel not in (".", ""):
+            prefix = f"{rel}/"
+    return [f"{prefix}**/*{ext}" for ext in source_exts(cfg)] + [f"{prefix}**/*.h"]
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    output: Path = typer.Option(
+        Path("objdiff.json"), "--output", "-o", help="Output objdiff config path"
+    ),
+    target_dir: Path = typer.Option(
+        Path("build/objdiff/target"),
+        "--target-dir",
+        help="Where synthesized target objects are written",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Generate an objdiff project: target objects + objdiff.json."""
+    cfg = require_config(target=target, json_mode=json_output)
+    units = _synthesize_target_objects(cfg, target_dir)
+    if not units:
+        error_exit("no annotated functions found — nothing to diff", json_mode=json_output)
+
+    doc: dict[str, Any] = {
+        "min_version": "2.0.0",
+        "custom_make": "rebrew",
+        "custom_args": ["build", "objdiff-driver", cfg.target_name],
+        "build_base": True,
+        "units": units,
+        "watch_patterns": _watch_patterns(cfg),
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(output, json.dumps(doc, indent=2), encoding="utf-8")
+
+    if json_output:
+        from rebrew.cli import json_print
+
+        json_print({"output": str(output), "units": len(units)})
+        return
+    console.print(f"[green]Wrote objdiff project: {output}[/green]")
+    console.print(
+        f"  [dim]{len(units)} unit(s), {len(units)} target object(s) in {target_dir}[/dim]"
+    )
+    console.print(
+        "[dim]Open objdiff.json in the objdiff GUI; it rebuilds base objects "
+        "via `rebrew build objdiff-driver` on demand.[/dim]"
+    )
+
+
+def build_main(
+    target_name: str = typer.Argument(..., help="Project target to compile"),
+    base_object: Path = typer.Argument(..., help="Base object path supplied by objdiff"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Rebuild an objdiff base object using its source's toolchain and flags."""
+    cfg = require_config(target=target_name, json_mode=json_output)
+    _build_one_object(cfg, base_object, json_mode=json_output)
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

@@ -10,8 +10,8 @@ from typer.testing import CliRunner
 from rebrew.c_parser import prototype_type_key
 from rebrew.cast_rewrite import declare_externs
 from rebrew.cfg import app as cfg_app
-from rebrew.data_pair import OperandPair, pair_data_operands, plan_pairs
-from rebrew.source_binding import _is_call_target, _refuse_conflicting_prototype
+from rebrew.data.pair import OperandPair, pair_data_operands, plan_pairs
+from rebrew.source.binding import _is_call_target, _refuse_conflicting_prototype
 
 
 class TestQuotedKeys:
@@ -63,7 +63,7 @@ class TestDataPlan:
     ) -> None:
         import json
 
-        from rebrew import data_pair
+        from rebrew.data import pair as data_pair
         from rebrew.metadata.data import load_data_metadata, record_data_rows
         from rebrew.metadata.functions import record_function_identity
 

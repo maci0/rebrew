@@ -52,13 +52,13 @@ class TestMergeDryRunIdempotent:
     def test_twice_identical_output_and_no_writes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.merge import app
+        from rebrew.source.merge import app
 
         a = _write(tmp_path / "a.c", _single(0x10001000, "_func_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_func_b"))
         out = tmp_path / "merged.c"
         monkeypatch.setattr(
-            "rebrew.merge.require_config",
+            "rebrew.source.merge.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
                 module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
@@ -78,14 +78,14 @@ class TestSplitDryRunIdempotent:
     def test_twice_identical_output_and_no_writes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.split import app
+        from rebrew.source.split import app
 
         multi = _write(
             tmp_path / "multi.c",
             _single(0x10001000, "_func_a") + "\n" + _single(0x10002000, "_func_b"),
         )
         monkeypatch.setattr(
-            "rebrew.split.require_config",
+            "rebrew.source.split.require_config",
             lambda target=None, json_mode=False: SimpleNamespace(
                 module="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
             ),
@@ -241,7 +241,7 @@ class TestConvergeLayoutIdempotent:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """converge_layout adjusts a pad on round 1; running again on converged state leaves the tree identical."""
-        from rebrew import data_layout as dl
+        from rebrew.data import layout as dl
 
         src = tmp_path / "src"
         src.mkdir()

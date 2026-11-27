@@ -51,9 +51,9 @@ def _ann(va: int) -> object:
 
 
 def _patch_flow(monkeypatch: pytest.MonkeyPatch, cfg: SimpleNamespace) -> None:
-    monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+    monkeypatch.setattr("rebrew.verify.cli.require_config", lambda **kw: cfg)
     monkeypatch.setattr(
-        "rebrew.verify.prepare_entries",
+        "rebrew.verify.cli.prepare_entries",
         lambda cfg, full, json_output, context=None: (
             [_ann(0x1000)],
             1,
@@ -68,10 +68,10 @@ def _patch_flow(monkeypatch: pytest.MonkeyPatch, cfg: SimpleNamespace) -> None:
             {},
         ),
     )
-    monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
-    monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda cfg: (None, None))
-    monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
-    monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+    monkeypatch.setattr("rebrew.verify.cli.run_verification", lambda *a, **k: (0, 0, [], [], []))
+    monkeypatch.setattr("rebrew.verify.cache.load_baseline", lambda cfg: (None, None))
+    monkeypatch.setattr("rebrew.verify.cli.save_verify_cache", lambda *a, **k: None)
+    monkeypatch.setattr("rebrew.verify.cli._apply_or_preview_status", lambda *a, **k: None)
 
 
 def _patch_text(
@@ -81,7 +81,7 @@ def _patch_text(
     actual: dict[str, int] | None = None,
 ) -> None:
     monkeypatch.setattr(
-        "rebrew.verify.expected_text_functions",
+        "rebrew.verify.cli.expected_text_functions",
         lambda cfg: dict(expected if expected is not None else {"f": 0x1000}),
     )
     monkeypatch.setattr(
@@ -103,7 +103,7 @@ def test_verify_whole_binary_refuses_a_bad_layout_fingerprint(
 ) -> None:
     from bin_util import make_pe
 
-    from rebrew.verify import app
+    from rebrew.verify.cli import app
 
     cfg = _cfg(tmp_path)
     _patch_flow(monkeypatch, cfg)
@@ -128,7 +128,7 @@ class TestVerifyText:
     def test_link_map_precedes_object_walk(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit: bool
     ) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)
@@ -157,7 +157,7 @@ class TestVerifyText:
     def test_link_map_drift_is_not_hidden_by_matching_objects(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)
@@ -176,7 +176,7 @@ class TestVerifyText:
 
     def test_flag_off_by_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Without --text no placement check runs and the report carries null."""
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)
@@ -185,7 +185,7 @@ class TestVerifyText:
         assert cli_payload(result)["text"] is None
 
     def test_aligned_build_passes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)
@@ -200,7 +200,7 @@ class TestVerifyText:
         assert text["misplaced_list"] == []
 
     def test_misplaced_fails_gate(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)
@@ -224,7 +224,7 @@ class TestVerifyText:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The payload shape mirrors text-audit: counts plus the bad-row list."""
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)
@@ -258,7 +258,7 @@ class TestVerifyText:
         }
 
     def test_all_missing_fails_gate(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)
@@ -272,7 +272,7 @@ class TestVerifyText:
     def test_human_output_lists_misplaced(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)
@@ -284,7 +284,7 @@ class TestVerifyText:
         assert "MISPLACED" in result.output
 
     def test_missing_built_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.verify import app
+        from rebrew.verify.cli import app
 
         cfg = _cfg(tmp_path)
         _patch_flow(monkeypatch, cfg)

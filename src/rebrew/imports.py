@@ -27,7 +27,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.config import target_module
 lazy from rebrew.formats.import_table import find_import_stubs, parse_imports
-lazy from rebrew.rename_ops import c_name_from_symbol
+lazy from rebrew.source.rename_ops import c_name_from_symbol
 lazy from rebrew.utils import pe_name_token, read_source_text, untrusted_text
 
 

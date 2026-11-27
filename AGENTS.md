@@ -96,9 +96,15 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 ├── formats/         # executable, object and archive parsers: src/rebrew/formats/AGENTS.md
 ├── metadata/        # source annotations + locked function/data metadata stores: src/rebrew/metadata/AGENTS.md
 ├── app/             # umbrella CLI composition (main, builtins, plugin): src/rebrew/app/AGENTS.md
+├── buildsys/        # CMake, objdiff, link order, stub/layout generation, splat: src/rebrew/buildsys/AGENTS.md
 ├── catalog/         # function registry + coverage grid: src/rebrew/catalog/AGENTS.md
+├── coverage/        # coverage DB/TOML, history, project views, report, dashboard: src/rebrew/coverage/AGENTS.md
+├── data/            # global/data scanning, layout, ownership, pairing, verification: src/rebrew/data/AGENTS.md
 ├── ghidra/          # sync CLI and Ghidra structural operations: src/rebrew/ghidra/AGENTS.md
 ├── binsync/         # declib BinSync state I/O: src/rebrew/binsync/AGENTS.md
+├── ops/             # backend op worker, wire requests/replies, snapshot mutations: src/rebrew/ops/AGENTS.md
+├── source/          # source discovery, anchors, selection, contracts, merge/split/rename: src/rebrew/source/AGENTS.md
+├── verify/          # batch verification, test runner, export/placement/hash checks: src/rebrew/verify/AGENTS.md
 ├── workspace/       # project root / target resolution + shared STATUS & VA vocabulary: src/rebrew/workspace/AGENTS.md
 └── agent-skills/    # packaged skill source of truth (rebrew skills list/show)
 tests/               # pytest; typically test_<module>.py
@@ -138,11 +144,11 @@ No `conftest.py` (the `pytest_ansi_env` / `source_util` pytest plugins load via 
 - **Config-driven**: read `rebrew-project.toml`; never hardcode paths
 - **ADRs**: settled decisions in `docs/adr/NNN-short-title.md` (Nygard; listed in `docs/adr/README.md`). Statuses: `Accepted` / `Amended by NNN` / `Superseded by NNN`. An unmade decision is an **RFC**, not a “proposed ADR”. Small fixes → `CHANGELOG.md`
 - **Idempotent**: every tool safe to re-run
-- **Source discovery**: `iter_sources` / `iter_library_headers` / `source_glob` from `sources.py`; batch annotations via `iter_source_bindings` in `metadata/bindings.py`. A command reusing one tree (`status`/`todo`) calls `scan_files` once and passes `scanned=` / `tree=` through rather than re-walking per view; `catalog` walks separately per invocation
+- **Source discovery**: `iter_sources` / `iter_library_headers` / `source_glob` from `source/discovery.py`; batch annotations via `iter_source_bindings` in `metadata/bindings.py`. A command reusing one tree (`status`/`todo`) calls `scan_files` once and passes `scanned=` / `tree=` through rather than re-walking per view; `catalog` walks separately per invocation
 - **Declarative registration**: toolchains, decompiler backends, CLI commands, mutations, flag sets, library presets, metadata backends, detectors, loaders, MSVC version tables, cache backends, discoverers via `rebrew.registry` entry-point groups (+ `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR`). Conflict policy: toolchains → `RegistryError` on duplicate; CLI plugin name clashes → warn+skip; tuning groups (`flag_sets`, `library_presets`, `msvc_versions`) extend/override; other optional groups skip broken/duplicate with a warning. `refresh_all()` for long-lived processes (CLI command groups are mounted once and not refreshed); snapshot and publish rules: [Registry snapshots](docs/DEVELOPMENT.md#registry-snapshots). Adding a component must not require editing host source
 - **CLI composition**: umbrella app is a component graph (`rebrew.app.plugin` + `rebrew.app.builtins` + `rebrew.app.main`); see ADR 014 (written before the move into `app/`; the names are unchanged)
 - **No backward compat**: one name per function, no aliases/shims/wrappers
-- **Import direction**: `utils.py` is the leaf: it imports no rebrew module except `rebrew.errors` (`LEAF_ALLOWED_IMPORTS` in `tools/check_layering.py`); the Typer composition layer (`rebrew.app.plugin`, `rebrew.app.builtins`, `rebrew.app.main`, `rebrew.dashboard`; `COMPOSITION_LAYER` in `tools/check_layering.py`) is a sink, imported at module scope only by itself (a command attaches itself to the umbrella inside its `register()`). `make cycles-check` gates cycles, `make layering-check` gates direction (a subpackage leaves itself only through the externals its own `AGENTS.md` lists)
+- **Import direction**: `utils.py` is the leaf: it imports no rebrew module except `rebrew.errors` (`LEAF_ALLOWED_IMPORTS` in `tools/check_layering.py`); the Typer composition layer (`rebrew.app.plugin`, `rebrew.app.builtins`, `rebrew.app.main`, `rebrew.coverage.dashboard`; `COMPOSITION_LAYER` in `tools/check_layering.py`) is a sink, imported at module scope only by itself (a command attaches itself to the umbrella inside its `register()`). `make cycles-check` gates cycles, `make layering-check` gates direction (a subpackage leaves itself only through the externals its own `AGENTS.md` lists)
 - **Underscore means module-private**: another module importing a `_name` is a boundary violation. Promote it to a public name, and list it in the owning module's `__all__` when that module has one.
 - **Dedicated metadata**: All identity and state live in format-3 `rebrew-functions.toml` (including addressless evidence/purposes under `[source]`) and format-2 `rebrew-data.toml`. Target namespaces use `[targets.<name>].module`.
 - **Source anchors**: Optional `ADDRESS: MODULE 0xVA` comments bind exactly the next C definition or variable declaration; stack one per target. New source generators include anchors.
@@ -150,7 +156,7 @@ No `conftest.py` (the `pytest_ansi_env` / `source_util` pytest plugins load via 
 - **Metadata writers**: Identity uses `file`, `symbol`, `name`, `kind`; reconstruction source, STRUCT/CALLERS and support purposes are metadata-only. `rebrew source register` validates current addresses and preserves stored fields. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field`. Writers lock through storage. TOML files and SQLite databases use **mode 0444** at rest; PostgreSQL uses database permissions. BinSync files remain 0644 because its client rewrites them.
 - **STATUS is earned**: byte comparisons establish byte-match verdicts. `rebrew prove` records semantic equivalence as `PROVEN`, which the next byte verdict replaces. `intake` and `source document-unmatched` can seed `STUB`. Normal writes preserve earned `EXACT`, `RELOC`, and `PROVEN` against tooling failures, keep `SKIP` parked, and keep a `STUB` against `SIZE_MISMATCH` or `MISSING_SIZE`. `force=True` bypasses these guards.
 - **Evidence and integrations**: `METADATA_FIELD_TYPES` owns function field shapes; data validation derives its shared shapes. `origins` records accepted external fields, `verification` records comparison inputs/time, and `updated_by` / `updated_at` describe ordinary edits. Keep those independent. BinSync push/pull/diff share `SYNC_FIELD_RULES` and a binary-scoped baseline; previews/failures never advance it. See [metadata ownership](docs/METADATA.md) and [BinSync reconciliation](docs/BINSYNC_INTEGRATION.md).
-- **Live coverage**: dashboards use `coverage_project.load_project_coverage`; no
+- **Live coverage**: dashboards use `coverage.project.load_project_coverage`; no
   generated snapshot is required. `coverage export --output`
   creates optional portable documents. Comparison writers own `status_history`;
   preserve older exports with `coverage import-history` before retiring them.
@@ -158,7 +164,7 @@ No `conftest.py` (the `pytest_ansi_env` / `source_util` pytest plugins load via 
 - **Compile result**: `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
 - **Compile backends**: packaged profiles use local Docker by default. `[compiler] recompile_url` or `REBREW_RECOMPILE_URL` selects the remote client. Cache identity pins the execution backend. Image-less plugins and overlays can use bundled host binaries. See [compile backends](docs/TOOLCHAIN.md#compile-backends).
 
-- **Source contract audits** reuse `source_selection.collect_target_sources`
+- **Source contract audits** reuse `source.selection.collect_target_sources`
   and public `compiler.cache.scan_include_closure`. Keep per-TU typedef meanings,
   static scope, ABI/value contradictions, and uncertain evidence distinct.
   Use exact snapshotted bytes and the source/provenance rollback writer for

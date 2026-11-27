@@ -1,4 +1,4 @@
-"""Tests for rebrew.calibrate_bss pure helpers (no docker).
+"""Tests for rebrew.data.calibrate_bss pure helpers (no docker).
 
 The calibrate loop itself relinks through the toolchain image, so only the
 layout-metadata lookup and the PE section reader are pinned here.
@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.calibrate_bss import _layout_data_vs, read_data_vs
+from rebrew.data.calibrate_bss import _layout_data_vs, read_data_vs
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "mini_pe.exe"
 
@@ -87,7 +87,7 @@ class TestCalibrateLoop:
     ) -> None:
         import subprocess
 
-        from rebrew import calibrate_bss as cb
+        from rebrew.data import calibrate_bss as cb
 
         stub = self._project(tmp_path)
         original = stub.read_text(encoding="utf-8")
@@ -124,7 +124,7 @@ class TestCalibrateLoop:
         """
         import subprocess
 
-        from rebrew import calibrate_bss as cb
+        from rebrew.data import calibrate_bss as cb
 
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "A"\n[targets.A]\n', encoding="utf-8"
@@ -163,7 +163,7 @@ class TestCalibrateLoop:
         """
         import subprocess
 
-        from rebrew import calibrate_bss as cb
+        from rebrew.data import calibrate_bss as cb
         from rebrew.utils import atomic_write_text as real_write
 
         stub = self._project(tmp_path)

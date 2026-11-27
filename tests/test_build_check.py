@@ -16,8 +16,8 @@ lazy from pathlib import Path
 import pytest
 from cli_json import cli_payload
 
-from rebrew import build_check
-from rebrew.build_check import check, parse_compile_lines, parse_recorded
+from rebrew.buildsys import check as build_check
+from rebrew.buildsys.check import check, parse_compile_lines, parse_recorded
 
 
 def test_objects_detect_header_changes_without_building(tmp_path):
@@ -225,7 +225,7 @@ def test_cli_exits_nonzero_when_not_configured(tmp_path, monkeypatch):
     """The CLI must fail when there is nothing to check, not report success."""
     from typer.testing import CliRunner
 
-    from rebrew.build_check import app
+    from rebrew.buildsys.check import app
     from rebrew.cli import EXIT_ERROR
 
     runner = CliRunner()
@@ -236,7 +236,7 @@ def test_cli_exits_nonzero_when_not_configured(tmp_path, monkeypatch):
 def test_cli_exits_zero_on_a_clean_tree(tmp_path):
     from typer.testing import CliRunner
 
-    from rebrew.build_check import app
+    from rebrew.buildsys.check import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["--build-dir", str(_tree(tmp_path, BUILD_MAKE))])
@@ -246,7 +246,7 @@ def test_cli_exits_zero_on_a_clean_tree(tmp_path):
 def test_cli_exits_nonzero_on_drift(tmp_path):
     from typer.testing import CliRunner
 
-    from rebrew.build_check import app
+    from rebrew.buildsys.check import app
     from rebrew.cli import EXIT_MISMATCH
 
     edited = BUILD_MAKE.replace("/Ox /Gd", "/Ox /Gd /Ob1")
@@ -305,7 +305,7 @@ def test_stale_source_reported_before_flags(tmp_path):
 def test_cli_exits_nonzero_on_missing_source(tmp_path):
     from typer.testing import CliRunner
 
-    from rebrew.build_check import app
+    from rebrew.buildsys.check import app
     from rebrew.cli import EXIT_MISMATCH
 
     runner = CliRunner()
@@ -318,7 +318,7 @@ def test_cli_json_goes_to_stdout_status_to_stderr(tmp_path) -> None:
 
     from typer.testing import CliRunner
 
-    from rebrew.build_check import app
+    from rebrew.buildsys.check import app
 
     runner = CliRunner()
     build = _tree(tmp_path, BUILD_MAKE)
@@ -337,7 +337,7 @@ def test_cli_json_goes_to_stdout_status_to_stderr(tmp_path) -> None:
 def test_per_file_pin_reads_toolchain_and_flags(tmp_path: Path) -> None:
     """A CMake-pinned file exposes its /REBREW_TOOLCHAIN + COMPILE_FLAGS so
     test/verify can match the linked compile."""
-    from rebrew.build_check import per_file_pin
+    from rebrew.buildsys.check import per_file_pin
 
     build = _tree(tmp_path, BUILD_MAKE)
     tc, flags = per_file_pin(tmp_path / "src/a/one.c", build)
@@ -352,7 +352,7 @@ def test_per_file_pin_reads_toolchain_and_flags(tmp_path: Path) -> None:
 
 def test_per_file_pin_unpinned_file_returns_empty(tmp_path: Path) -> None:
     """A source with no Custom comment is not pinned -- caller keeps defaults."""
-    from rebrew.build_check import per_file_pin
+    from rebrew.buildsys.check import per_file_pin
 
     build = _tree(tmp_path, BUILD_MAKE)
     tc, flags = per_file_pin(tmp_path / "src/c/three.c", build)
@@ -360,7 +360,7 @@ def test_per_file_pin_unpinned_file_returns_empty(tmp_path: Path) -> None:
 
 
 def test_per_file_pin_absent_build_returns_empty(tmp_path: Path) -> None:
-    from rebrew.build_check import per_file_pin
+    from rebrew.buildsys.check import per_file_pin
 
     assert per_file_pin(tmp_path / "f.c", tmp_path / "no-build") == (None, "")
 
@@ -369,7 +369,7 @@ def test_cmake_pin_for_honours_cfg_build_dir(tmp_path: Path) -> None:
     """test._cmake_pin_for reads the configured build tree for one source."""
     from types import SimpleNamespace
 
-    from rebrew.test import _cmake_pin_for
+    from rebrew.verify.test import _cmake_pin_for
 
     build = _tree(tmp_path, BUILD_MAKE)
     cfg = SimpleNamespace(build_dir=str(build))
@@ -387,7 +387,7 @@ def test_pin_generated_from_metadata_does_not_block_a_cflags_write() -> None:
     Regression: every function with a metadata cflags entry read as
     CMake-pinned, so its flags could never be changed through `rebrew test`.
     """
-    from rebrew.test import _pin_overrides_metadata
+    from rebrew.verify.test import _pin_overrides_metadata
 
     assert not _pin_overrides_metadata("/O2 /Gd /Ow", "/Ow /O2 /Gd")
     assert not _pin_overrides_metadata("", "/O2 /Gd")
@@ -682,7 +682,7 @@ class TestCMakeFileApiAndCompileCommands:
         assert [d["flag"] for d in res["drift"]] == ["/Oa"]
 
     def test_per_file_pin_reads_file_api_and_compile_commands(self, tmp_path: Path) -> None:
-        from rebrew.build_check import per_file_pin
+        from rebrew.buildsys.check import per_file_pin
 
         build = _file_api_tree(tmp_path)
         tc, flags = per_file_pin(tmp_path / "src/a/one.c", build)

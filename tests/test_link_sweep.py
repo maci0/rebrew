@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 def test_all_failed_links_exit_two_after_reporting(
     tmp_path, monkeypatch: pytest.MonkeyPatch, json_output: bool
 ) -> None:
-    from rebrew import link_sweep
+    from rebrew.buildsys import link_sweep
 
     binary = tmp_path / "reference.exe"
     binary.write_bytes(b"reference")

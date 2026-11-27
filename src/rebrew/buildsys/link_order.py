@@ -1,0 +1,508 @@
+"""link-order — enforce VA-ordered sources into CMakeLists.txt SOURCES.
+
+``rebrew build order-sources`` prints the VA link order; this command writes that
+order into the project's ``CMakeLists.txt`` so the link actually builds TUs
+in position-aligned order, and ``--check`` gates drift in CI.
+
+The ``set(SOURCES ...)`` block wins when present, else the first
+``add_library``/``add_executable`` file list with source entries.  Only the
+source entries inside the block are replaced in place — the target name,
+keywords (``STATIC``, ``WIN32``, ...), generator expressions, quoting, and
+every line outside the entries are preserved verbatim.
+
+Usage:
+    rebrew build link-order [--apply] [--dry-run] [--check] [--json]
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+lazy import difflib
+lazy from pathlib import Path
+lazy from typing import Any
+
+import typer
+
+from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
+lazy from rebrew.config import target_module
+lazy from rebrew.metadata.bindings import FUNCTION_KINDS, read_source_bindings
+lazy from rebrew.source.discovery import iter_sources, source_exts
+lazy from rebrew.utils import atomic_write_text, preset_module_key, read_source_text
+
+_EPILOG = (
+    "[bold]Examples:[/bold]\n\n"
+    "  rebrew build link-order --check  # Fail if CMakeLists.txt drifts (CI gate)\n\n"
+    "  rebrew build link-order --dry-run  # Show the reordering, write nothing\n\n"
+    "  rebrew build link-order --apply  # Rewrite CMakeLists.txt in VA order\n"
+)
+
+
+app = typer.Typer(
+    help="Enforce VA-ordered sources into CMakeLists.txt SOURCES (drift gate).",
+    rich_markup_mode="rich",
+    epilog=_EPILOG,
+)
+
+_CMAKE_LISTS = "CMakeLists.txt"
+
+
+def file_va(
+    path: Path,
+    target_module_name: str | None = None,
+    *,
+    metadata_dir: Path | None = None,
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
+) -> int | None:
+    """Lowest FUNCTION/LIBRARY/STUB VA in *path* (None when none).
+
+    Read dedicated metadata bindings. *target_module_name* scopes shared files
+    to one target's address space; another target cannot supply the order.
+    *function_entries* is a preloaded store for callers that walk many files.
+    """
+    if not path.is_file():
+        return None
+    matches = [
+        (ann.module, ann.va)
+        for ann in read_source_bindings(
+            path, metadata_dir=metadata_dir, function_entries=function_entries
+        )
+        if ann.kind in FUNCTION_KINDS
+    ]
+    if target_module_name is None:
+        vas = [va for _, va in matches]
+    else:
+        vas = [
+            va
+            for mod, va in matches
+            if preset_module_key(mod) == preset_module_key(target_module_name)
+        ]
+    return min(vas) if vas else None
+
+
+def _base_key(name: str) -> str:
+    """Basename key for ``--first-va``/``--exclude`` matching.
+
+    Users pass paths like ``zlib/adler32.c`` while *files* are ``Path``
+    objects, so both sides normalize to the basename before comparison.
+    """
+    return name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+
+
+def order_sources(
+    files: list[Path],
+    first_va: dict[str, int] | None = None,
+    exclude: set[str] | None = None,
+    target_module_name: str | None = None,
+    *,
+    metadata_dir: Path | None = None,
+) -> tuple[list[Path], list[str]]:
+    """Order *files* by first-function VA.
+
+    Returns ``(ordered, excluded_names)``: known-VA files sorted by VA, then
+    unknown-VA files in path order; *excluded* files (absent from the
+    original) are dropped.  ``first_va`` and ``exclude`` match on basenames,
+    so ``zlib/adler32.c=0x10001000`` matches ``src/zlib/adler32.c``.
+    *target_module_name* scopes stacked shared files to one target's VA.
+    *metadata_dir* supplies function identities for migrated sources.
+    """
+    first_by_base = {_base_key(k): v for k, v in (first_va or {}).items()}
+    exclude_bases = {_base_key(e) for e in (exclude or set())}
+    function_entries: dict[tuple[str, int], dict[str, Any]] | None = None
+    if metadata_dir is not None:
+        from rebrew.metadata.functions import load_metadata
+
+        function_entries = load_metadata(metadata_dir, deepcopy=False)
+    known: list[tuple[int, Path]] = []
+    unknown: list[Path] = []
+    excluded: list[str] = []
+    for f in files:
+        base = _base_key(f.name)
+        if base in exclude_bases:
+            excluded.append(f.name)
+            continue
+        # Presence check, not truthiness: an explicit --first-va of 0x0 is a
+        # real override and must not fall through to the binding.
+        va = (
+            first_by_base[base]
+            if base in first_by_base
+            else file_va(
+                f,
+                target_module_name,
+                metadata_dir=metadata_dir,
+                function_entries=function_entries,
+            )
+        )
+        if va is None:
+            unknown.append(f)
+        else:
+            known.append((va, f))
+    known.sort(key=lambda t: t[0])
+    unknown.sort(key=lambda p: str(p))
+    return [f for _, f in known] + unknown, excluded
+
+
+_BLOCK_RE = re.compile(r"(?i)(?P<cmd>set|add_library|add_executable)[ \t]*\(")
+_COMMENT_RE = re.compile(r"#[^\n]*")
+
+
+@dataclass
+class _Block:
+    """One CMake source list: spans of its managed source tokens."""
+
+    label: str
+    close_idx: int
+    managed: list[str]
+    spans: list[tuple[int, int, str]]
+    open_indent: str
+
+
+def _matching_paren(text: str, open_idx: int) -> int | None:
+    """Index of the ``)`` closing the paren at *open_idx* (None if unbalanced)."""
+    depth = 0
+    i = open_idx
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == "#":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if c == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                if text[i] == "\\":
+                    i += 1
+                i += 1
+            i += 1
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def _token_spans(text: str, start: int, end: int) -> list[tuple[int, int, str]]:
+    """Split ``text[start:end]`` into ``(start, end, raw)`` tokens.
+
+    Skips whitespace and ``#`` comments; quoted strings stay one token.
+    """
+    spans: list[tuple[int, int, str]] = []
+    i = start
+    while i < end:
+        c = text[i]
+        if c in " \t\r\n":
+            i += 1
+        elif c == "#":
+            while i < end and text[i] != "\n":
+                i += 1
+        elif c == '"':
+            j = i + 1
+            while j < end and text[j] != '"':
+                if text[j] == "\\":
+                    j += 1
+                j += 1
+            j = min(j + 1, end)
+            spans.append((i, j, text[i:j]))
+            i = j
+        elif c in "()":
+            spans.append((i, i + 1, c))
+            i += 1
+        else:
+            j = i
+            while j < end and text[j] not in ' \t\r\n#"()':
+                j += 1
+            spans.append((i, j, text[i:j]))
+            i = j
+    return spans
+
+
+def _line_indent(text: str, pos: int) -> str:
+    """Leading whitespace of the line containing *pos*."""
+    line_start = text.rfind("\n", 0, pos) + 1
+    m = re.match(r"[ \t]*", text[line_start:])
+    return m.group(0) if m else ""
+
+
+def _parse_block(
+    text: str, cmd: str, open_idx: int, close_idx: int, *, wanted: set[str]
+) -> _Block | None:
+    """Parse the paren body into managed source spans (None when not a source list)."""
+    spans = [s for s in _token_spans(text, open_idx + 1, close_idx) if s[2] not in ("(", ")")]
+    if cmd.lower() == "set":
+        if not spans or spans[0][2] != "SOURCES":
+            return None
+        spans = spans[1:]
+        label = "set(SOURCES ...)"
+    else:
+        label = f"{cmd}(...)"
+
+    def _is_source(raw: str) -> bool:
+        return bool(raw.strip('"')) and Path(raw.strip('"')).suffix.lower() in wanted
+
+    managed_spans = [s for s in spans if _is_source(s[2])]
+    if cmd.lower() != "set" and not managed_spans:
+        return None
+    managed = [raw.strip('"').replace("\\", "/") for _, _, raw in managed_spans]
+    open_indent = _line_indent(text, open_idx)
+    return _Block(label, close_idx, managed, managed_spans, open_indent)
+
+
+def find_sources_block(text: str, wanted: set[str]) -> _Block | None:
+    """Locate the managed SOURCES list in CMake *text*.
+
+    ``set(SOURCES ...)`` wins when present, else the first
+    ``add_library``/``add_executable`` list with source entries.  Returns
+    None when neither exists.
+    """
+    fallback: _Block | None = None
+    for m in _BLOCK_RE.finditer(text):
+        open_idx = m.end() - 1
+        close_idx = _matching_paren(text, open_idx)
+        if close_idx is None:
+            continue
+        block = _parse_block(text, m.group("cmd"), open_idx, close_idx, wanted=wanted)
+        if block is None:
+            continue
+        if block.label.startswith("set("):
+            return block
+        if fallback is None:
+            fallback = block
+    return fallback
+
+
+def _abs_key(root: Path, token: str) -> str:
+    cleaned = token.strip('"')
+    # A drive or UNC path is absolute and its backslashes are the path, not
+    # a separator to flatten; flattening first turned ``D:\a.c`` into
+    # ``/a.c`` and the join then buried it under the project root.
+    if not (len(cleaned) >= 2 and cleaned[1] == ":") and not cleaned.startswith("\\\\"):
+        cleaned = cleaned.replace("\\", "/")
+    while cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    # normpath is load-bearing: it collapses `..` and `.` out of the key, which
+    # the Path operator keeps, so the two sort orders would not agree.
+    # os.path.join drops the root when its next part starts with a bare
+    # separator.  join_under keeps the root for that spelling.
+    from rebrew.utils import join_under
+
+    return join_under(str(root), cleaned)
+
+
+def _rel(root: Path, path: Path) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def normalize_listed(root: Path, listed: list[str], by_key: dict[str, str]) -> list[str]:
+    """Map listed tokens onto computed rel paths where they resolve to a source."""
+    return [by_key.get(_abs_key(root, tok), tok) for tok in listed]
+
+
+def _entry_sep(text: str, block: _Block) -> str:
+    """Separator to join list entries: newline+indent in block style, space inline."""
+    if len(block.spans) >= 2:
+        gap = text[block.spans[-2][1] : block.spans[-1][0]]
+        if "\n" in gap:
+            return "\n" + _line_indent(text, block.spans[-1][0])
+        return " "
+    if block.spans:
+        (start, end, _) = block.spans[0]
+        head = text.rfind("\n", 0, start)
+        tail = text.find("\n", end, block.close_idx)
+        if head != -1 or tail != -1:
+            return "\n" + _line_indent(text, start)
+        return " "
+    return "\n" + block.open_indent + "  "
+
+
+def _quote(raw: str, entry: str) -> str:
+    return f'"{entry}"' if raw.startswith('"') else entry
+
+
+def render_block(text: str, block: _Block, ordered: list[str]) -> str:
+    """Splice *ordered* entries over the block's managed spans, in place.
+
+    Surplus listed entries are deleted with their preceding separator; new
+    entries are appended after the last span.  Fixed tokens, quoting style
+    (per position), comments, and surrounding text are untouched.
+    """
+    spans = block.spans
+    if not spans:
+        sep = _entry_sep(text, block)
+        if sep == " ":
+            return text[: block.close_idx] + " ".join(ordered) + " " + text[block.close_idx :]
+        inner = sep.join(["", *ordered]) + "\n" + block.open_indent
+        return text[: block.close_idx] + inner + text[block.close_idx :]
+    sep = _entry_sep(text, block)
+    out = text
+    for j in range(len(spans) - 1, len(ordered) - 1, -1):
+        start, end, _ = spans[j]
+        gap = out[spans[j - 1][1] : start] if j > 0 else ""
+        if j > 0 and _COMMENT_RE.sub("", gap).strip():
+            out = out[:start] + out[end:]
+        else:
+            anchor = spans[j - 1][1] if j > 0 else start
+            out = out[:anchor] + out[end:]
+    for i in range(min(len(spans), len(ordered)) - 1, -1, -1):
+        start, end, raw = spans[i]
+        out = out[:start] + _quote(raw, ordered[i]) + out[end:]
+    if len(ordered) > len(spans):
+        anchor = spans[-1][1] + sum(
+            len(_quote(spans[i][2], ordered[i])) - (spans[i][1] - spans[i][0])
+            for i in range(len(spans))
+        )
+        extras = []
+        for k in range(len(spans), len(ordered)):
+            extras.append(_quote(spans[-1][2], ordered[k]))
+        out = out[:anchor] + sep.join(["", *extras]) + out[anchor:]
+    return out
+
+
+def _drift_diff(current: list[str], ordered: list[str]) -> str:
+    lines = difflib.unified_diff(
+        current,
+        ordered,
+        fromfile=f"{_CMAKE_LISTS} (current)",
+        tofile=f"{_CMAKE_LISTS} (VA order)",
+        lineterm="",
+    )
+    return "\n".join(lines)
+
+
+def _print_drift(diff: str) -> None:
+    """Write the human drift report to stderr.
+
+    The ordered source list is piped data and stays on stdout, but the diff is
+    the human explanation that sits beside a ``console`` status line, so
+    ``rebrew build link-order --check > out`` captures the same thing on both
+    branches instead of a report on one and a message on the other.
+    """
+    console.print(diff, soft_wrap=True, markup=False, highlight=False)
+
+
+def _payload(
+    cmake: Path,
+    computed: list[str],
+    current: list[str],
+    in_sync: bool,
+    applied: bool,
+    dropped: list[str],
+    diff: str,
+) -> dict[str, object]:
+    return {
+        "cmake_lists": str(cmake),
+        "ordered": computed,
+        "current": current,
+        "in_sync": in_sync,
+        "applied": applied,
+        "dropped": dropped,
+        "diff": diff,
+    }
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    apply: bool = typer.Option(
+        False, "--apply", help="Rewrite the SOURCES block in VA order; excludes --check"
+    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    check: bool = typer.Option(
+        False,
+        "--check",
+        help="Exit 1 if SOURCES drifts from VA order; excludes --apply",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Enforce the VA link order into CMakeLists.txt SOURCES (preview by default)."""
+    if check and apply:
+        error_exit("--check cannot be combined with --apply", json_mode=json_output)
+    cfg = require_config(target=target, json_mode=json_output)
+    files = iter_sources(cfg.reversed_dir, cfg)
+    if not files:
+        error_exit(f"no source files found in {cfg.reversed_dir}", json_mode=json_output)
+    ordered_paths, _excluded = order_sources(
+        files, target_module_name=target_module(cfg) or None, metadata_dir=cfg.metadata_dir
+    )
+    by_key = {_abs_key(cfg.root, str(p)): _rel(cfg.root, p) for p in ordered_paths}
+    computed = [_rel(cfg.root, p) for p in ordered_paths]
+
+    cmake = cfg.root / _CMAKE_LISTS
+    if not cmake.is_file():
+        error_exit(f"{_CMAKE_LISTS} not found: {cmake}", json_mode=json_output)
+    text, cmake_encoding = read_source_text(cmake)
+    block = find_sources_block(text, {ext.lower() for ext in source_exts(cfg)})
+    if block is None:
+        error_exit(
+            f"no set(SOURCES ...) or add_library/add_executable source list in {cmake}",
+            json_mode=json_output,
+        )
+    current = normalize_listed(cfg.root, block.managed, by_key)
+    in_sync = current == computed
+    dropped = [
+        tok for tok, norm in zip(block.managed, current, strict=True) if norm not in computed
+    ]
+    diff = "" if in_sync else _drift_diff(current, computed)
+
+    if check:
+        if json_output:
+            json_print(_payload(cmake, computed, current, in_sync, False, dropped, diff))
+        elif not in_sync:
+            _print_drift(diff)
+        else:
+            console.print(
+                f"[green]{_CMAKE_LISTS} SOURCES match VA order ({len(computed)} files)[/green]"
+            )
+        if not in_sync:
+            raise typer.Exit(code=EXIT_MISMATCH)
+        return
+
+    if apply and not dry_run:
+        if in_sync:
+            console.print(f"[green]{_CMAKE_LISTS} SOURCES already in VA order[/green]")
+        else:
+            atomic_write_text(cmake, render_block(text, block, computed), encoding=cmake_encoding)
+            console.print(
+                f"[green]rewrote {block.label} in {cmake.name}: "
+                f"{len(computed)} sources in VA order[/green]"
+            )
+            if dropped:
+                names = ", ".join(dropped)
+                console.print(
+                    f"[yellow]dropped {len(dropped)} listed file(s) "
+                    f"not in reversed_dir: {names}[/yellow]"
+                )
+        if json_output:
+            json_print(_payload(cmake, computed, current, in_sync, True, dropped, diff))
+        return
+
+    if json_output:
+        json_print(_payload(cmake, computed, current, in_sync, False, dropped, diff))
+        return
+    for entry in computed:
+        print(entry)
+    if dry_run and diff:
+        _print_drift(diff)
+    if not in_sync:
+        console.print(
+            f"[yellow]{_CMAKE_LISTS} SOURCES differ from VA order "
+            "— re-run with --apply to enforce[/yellow]"
+        )
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

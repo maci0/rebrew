@@ -28,7 +28,8 @@ def _script_available() -> bool:
 @pytest.mark.skipif(not _script_available(), reason="validate_skill_commands.py not found")
 class TestValidateSkillCommands:
     @pytest.fixture(scope="session")
-    def _validate_once(self, tmp_path_factory: pytest.TempPathFactory) -> bool:
+    @staticmethod
+    def _validate_once(tmp_path_factory: pytest.TempPathFactory) -> bool:
         """Run the full validation ONCE per session and cache the boolean.
 
         Help is rendered on the composed command tree. Sharing that result

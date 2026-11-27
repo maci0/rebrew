@@ -8,7 +8,7 @@ import pytest
 from source_util import SourceFixture, write_source
 from typer.testing import CliRunner
 
-from rebrew.merge import app
+from rebrew.source.merge import app
 
 runner = CliRunner()
 
@@ -59,7 +59,8 @@ def _invoke(tmp_path: Path, monkeypatch: Any, *args: str) -> tuple[Any, Path]:
     """Run the merge CLI, returning (result, output path)."""
     out = tmp_path / "merged.c"
     monkeypatch.setattr(
-        "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        "rebrew.source.merge.require_config",
+        lambda target=None, json_mode=False: _make_cfg(tmp_path),
     )
     result = runner.invoke(app, ["--output", str(out), *args])
     return result, out
@@ -255,7 +256,7 @@ class TestMergeBasic:
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
         """Conflicting/dropped externs surface in the --json payload."""
-        from rebrew.merge import ExternReport, consolidate_declarations
+        from rebrew.source.merge import ExternReport, consolidate_declarations
 
         merged, report = consolidate_declarations(
             "extern int helper(void);\nextern int helper(char*);\nint f(void) { return 0; }\n"
@@ -275,7 +276,7 @@ class TestMergeBasic:
             _single(0x10002000, "_b", extra="extern int helper(char*);\n"),
         )
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
+        monkeypatch.setattr("rebrew.source.merge.json_print", lambda data: payloads.append(data))
         result, _out = _invoke(
             tmp_path, monkeypatch, "--force", "--consolidate", "--json", str(a), str(b)
         )
@@ -294,7 +295,7 @@ class TestMergeBasic:
             _single(0x10002000, "_b", preamble="void fcn_005356e0(void);\n"),
         )
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
+        monkeypatch.setattr("rebrew.source.merge.json_print", lambda data: payloads.append(data))
         dry, out = _invoke(tmp_path, monkeypatch, "--dry-run", "--json", str(a), str(b))
         assert dry.exit_code == 0, dry.output
         assert len(payloads) == 1
@@ -315,7 +316,7 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a", preamble=decl))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b", preamble=decl))
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
+        monkeypatch.setattr("rebrew.source.merge.json_print", lambda data: payloads.append(data))
         result, out = _invoke(tmp_path, monkeypatch, "--force", "--json", str(a), str(b))
         assert result.exit_code == 0, result.output
         assert payloads[0]["extern_conflicts"] == {}
@@ -323,7 +324,7 @@ class TestMergeBasic:
 
     def test_consolidate_keeps_a_multiline_extern_whole(self) -> None:
         """A parameter list split across lines must not glue onto the next extern."""
-        from rebrew.merge import consolidate_declarations
+        from rebrew.source.merge import consolidate_declarations
 
         merged, report = consolidate_declarations(
             "extern int read(void* out, int size,\n"
@@ -352,7 +353,7 @@ class TestMergeBasic:
 
     def test_consolidate_names_cdecl_and_const_pointer_externs(self) -> None:
         """A qualifier or calling convention is not the symbol name."""
-        from rebrew.merge import consolidate_declarations
+        from rebrew.source.merge import consolidate_declarations
 
         merged, report = consolidate_declarations(
             "extern int (* const rows[2])[4];\n"
@@ -420,7 +421,7 @@ class TestMergeBasic:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
         payloads: list[dict[str, Any]] = []
-        monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
+        monkeypatch.setattr("rebrew.source.merge.json_print", lambda data: payloads.append(data))
 
         result, out = _invoke(tmp_path, monkeypatch, "--force", "--json", str(a), str(b))
         assert result.exit_code == 0
@@ -467,7 +468,7 @@ class TestMergeBasic:
         assert "STATUS:" not in out.read_text()
 
     def test_block_metadata_extracts_marker(self) -> None:
-        from rebrew.merge import block_metadata
+        from rebrew.source.merge import block_metadata
 
         meta = block_metadata(
             SourceFixture(
@@ -478,12 +479,12 @@ class TestMergeBasic:
         assert meta == {"module": "SERVER", "va": 0x10001000}
 
     def test_block_metadata_no_marker_returns_none(self) -> None:
-        from rebrew.merge import block_metadata
+        from rebrew.source.merge import block_metadata
 
         assert block_metadata("int f(void) {}\n") is None
 
     def test_merge_preambles_dedups_and_collapses_blanks(self) -> None:
-        from rebrew.merge import merge_preambles
+        from rebrew.source.merge import merge_preambles
 
         out = merge_preambles(
             ["#include <a.h>\n\n#include <a.h>\n\nint x;\n", "#include <b.h>\n\n\n"]
@@ -495,12 +496,12 @@ class TestMergeBasic:
         assert not out.endswith("\n\n\n")
 
     def test_merge_preambles_empty(self) -> None:
-        from rebrew.merge import merge_preambles
+        from rebrew.source.merge import merge_preambles
 
         assert merge_preambles(["", ""]) == ""
 
     def test_merge_preambles_keeps_distinct_multiline_typedefs(self) -> None:
-        from rebrew.merge import merge_preambles
+        from rebrew.source.merge import merge_preambles
 
         first = "typedef struct {\n    int x;\n} First;\n"
         second = "typedef struct {\n    int y;\n} Second;\n"
@@ -514,7 +515,7 @@ class TestMergeBasic:
         assert out.count("typedef struct { int x;") == 2
 
     def test_collect_input_files_filters_extension(self, tmp_path: Path) -> None:
-        from rebrew.merge import _collect_input_files
+        from rebrew.source.merge import _collect_input_files
 
         a = _write(tmp_path / "a.c", "")
         _write(tmp_path / "b.h", "")
@@ -523,7 +524,7 @@ class TestMergeBasic:
 
     def test_collect_input_files_keeps_an_explicit_output(self, tmp_path: Path) -> None:
         """Merging fragments into an existing file names that file as input and output."""
-        from rebrew.merge import _collect_input_files
+        from rebrew.source.merge import _collect_input_files
 
         a = _write(tmp_path / "a.c", "")
         b = _write(tmp_path / "b.c", "")
@@ -533,7 +534,7 @@ class TestMergeBasic:
     def test_collect_input_files_skips_the_output_found_in_a_directory(
         self, tmp_path: Path
     ) -> None:
-        from rebrew.merge import _collect_input_files
+        from rebrew.source.merge import _collect_input_files
 
         a = _write(tmp_path / "a.c", "")
         b = _write(tmp_path / "b.c", "")
@@ -541,7 +542,7 @@ class TestMergeBasic:
         assert files == [b]
 
     def test_resolve_externs_reports_dropped_and_conflicts(self) -> None:
-        from rebrew.merge import _resolve_externs
+        from rebrew.source.merge import _resolve_externs
 
         report = _resolve_externs(
             ["", "extern int x;", "extern int y(void);", "extern int y(char*);"]
@@ -556,10 +557,10 @@ class TestMergeErrors:
     def test_no_sources_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import typer
 
-        from rebrew.merge import main
+        from rebrew.source.merge import main
 
         monkeypatch.setattr(
-            "rebrew.merge.require_config",
+            "rebrew.source.merge.require_config",
             lambda target=None, json_mode=False: _make_cfg(Path("/tmp")),
         )
         with pytest.raises(typer.Exit):
@@ -570,11 +571,12 @@ class TestMergeErrors:
     ) -> None:
         import typer
 
-        from rebrew.merge import main
+        from rebrew.source.merge import main
 
         a = _write(tmp_path / "a.c", _single(0x1000, "_a"))
         monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.source.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         with pytest.raises(typer.Exit):
             main(sources=[str(a)], output=str(tmp_path / "out.c"))
@@ -584,13 +586,14 @@ class TestMergeErrors:
     ) -> None:
         import typer
 
-        from rebrew.merge import main
+        from rebrew.source.merge import main
 
         # Both files use module GAME but cfg.module is SERVER → no matching blocks.
         a = _write(tmp_path / "a.c", _single(0x1000, "_a", module="GAME"))
         b = _write(tmp_path / "b.c", _single(0x2000, "_b", module="GAME"))
         monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.source.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         with pytest.raises(typer.Exit):
             main(sources=[str(a), str(b)], output=str(tmp_path / "out.c"))
@@ -666,7 +669,8 @@ class TestMergeInputScanning:
         _write(tmp_path / "b.c", _single(0x2000, "_fn_b"))
         out = tmp_path / "merged.c"
         monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.source.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(
             app,
@@ -695,7 +699,8 @@ class TestMergeInputScanning:
         _write(sub / "b.c", _single(0x2000, "_fn_b"))
         out = sub / "all.c"
         monkeypatch.setattr(
-            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+            "rebrew.source.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         first = runner.invoke(app, ["--output", str(out), "--force", str(sub)])
         assert first.exit_code == 0, first.output
@@ -797,7 +802,7 @@ class TestMergeShared:
         _write(tmp_path / "b.c", self._twin("GOLDTL", 0x4C75E0, body, "size"))
         out = tmp_path / "shared.c"
         monkeypatch.setattr(
-            "rebrew.merge.require_config",
+            "rebrew.source.merge.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(
@@ -840,7 +845,7 @@ class TestMergeShared:
         )
         out = tmp_path / "out.c"
         monkeypatch.setattr(
-            "rebrew.merge.require_config",
+            "rebrew.source.merge.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(
@@ -859,7 +864,7 @@ class TestMergeShared:
         assert not out.exists()
 
     def test_normalize_body_ignores_markers_and_size(self) -> None:
-        from rebrew.merge import normalize_body
+        from rebrew.source.merge import normalize_body
 
         a = SourceFixture(
             "/* ADDRESS: SERVER 0x1000 */\n\nint f(void){return 1;}\n",
@@ -894,7 +899,7 @@ class TestMergeSameVaAcrossModules:
         )
         out = tmp_path / "shared.c"
         monkeypatch.setattr(
-            "rebrew.merge.require_config",
+            "rebrew.source.merge.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = runner.invoke(
@@ -927,7 +932,7 @@ class TestMergeDataFirst:
     def test_data_blocks_lead(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.merge import app
+        from rebrew.source.merge import app
 
         write_source(
             tmp_path / "a.c",
@@ -943,7 +948,7 @@ class TestMergeDataFirst:
         )
         out = tmp_path / "m.c"
         monkeypatch.setattr(
-            "rebrew.merge.require_config",
+            "rebrew.source.merge.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         # Flags precede positionals: trailing options after the variadic
@@ -967,7 +972,7 @@ class TestMergeDataFirst:
         """Every data marker sorts ahead of code, not just DATA/GLOBAL."""
         from typer.testing import CliRunner
 
-        from rebrew.merge import app
+        from rebrew.source.merge import app
 
         write_source(
             tmp_path / "a.c",
@@ -989,7 +994,7 @@ class TestMergeDataFirst:
         )
         out = tmp_path / "m.c"
         monkeypatch.setattr(
-            "rebrew.merge.require_config",
+            "rebrew.source.merge.require_config",
             lambda target=None, json_mode=False: _make_cfg(tmp_path),
         )
         result = CliRunner().invoke(
@@ -1064,7 +1069,7 @@ def _seed(tmp_path: Path, rows: list[tuple[str, int, str]], *, file: str) -> Non
 def _invoke_meta(tmp_path: Path, monkeypatch: Any, *args: str) -> tuple[Any, Path]:
     out = tmp_path / "merged.c"
     monkeypatch.setattr(
-        "rebrew.merge.require_config",
+        "rebrew.source.merge.require_config",
         lambda target=None, json_mode=False: _meta_cfg(tmp_path),
     )
     return runner.invoke(app, ["--output", str(out), *args]), out
@@ -1072,7 +1077,7 @@ def _invoke_meta(tmp_path: Path, monkeypatch: Any, *args: str) -> tuple[Any, Pat
 
 class TestRebaseIncludes:
     def test_respells_relative_include_for_a_new_directory(self, tmp_path: Path) -> None:
-        from rebrew.source_paths import rebase_includes
+        from rebrew.source.paths import rebase_includes
 
         (tmp_path / "cmd").mkdir()
         (tmp_path / "cmd" / "sub").mkdir()
@@ -1094,7 +1099,7 @@ class TestRebaseIncludes:
         _seed(tmp_path, [("SERVER", 0x10001000, "_func_a")], file="cmd/sub/a.c")
         _seed(tmp_path, [("SERVER", 0x10002000, "_func_b")], file="cmd/sub/b.c")
         monkeypatch.setattr(
-            "rebrew.merge.require_config",
+            "rebrew.source.merge.require_config",
             lambda target=None, json_mode=False: _meta_cfg(tmp_path),
         )
         out = tmp_path / "cmd" / "merged.c"
@@ -1205,7 +1210,7 @@ class TestMarkerlessMerge:
         def fail(*args: Any, **kwargs: Any) -> None:
             raise OSError("data writer unavailable")
 
-        monkeypatch.setattr("rebrew.merge.record_data_rows", fail)
+        monkeypatch.setattr("rebrew.source.merge.record_data_rows", fail)
         result, out = _invoke_meta(
             tmp_path, monkeypatch, "--force", "--shared", "--delete", str(a), str(b)
         )
@@ -1450,7 +1455,7 @@ class TestMarkerlessMerge:
         def _boom(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("disk full")
 
-        monkeypatch.setattr("rebrew.merge.record_data_rows", _boom)
+        monkeypatch.setattr("rebrew.source.merge.record_data_rows", _boom)
         result, out = _invoke_meta(
             tmp_path, monkeypatch, "--force", str(tmp_path / "a.c"), str(tmp_path / "b.c")
         )
@@ -1697,7 +1702,7 @@ class TestMergeTargetParticipation:
         cfg = ProjectConfig(
             root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="server"
         )
-        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
         output = tmp_path / "merged.c"
         output.write_text("/* retain existing output */\n")
         before = snapshot_with_stat(tmp_path)
@@ -1729,8 +1734,8 @@ class TestMergeTargetParticipation:
             ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module=m, target_name=m)
             for m in ("SERVER", "CLIENT")
         ]
-        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfgs[0])
-        monkeypatch.setattr("rebrew.source_organization.organization_configs", lambda cfg: cfgs)
+        monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfgs[0])
+        monkeypatch.setattr("rebrew.source.organization.organization_configs", lambda cfg: cfgs)
         result = runner.invoke(
             app, ["--output", str(tmp_path / "shared.c"), "--force", "--shared", str(a), str(b)]
         )
@@ -1746,7 +1751,7 @@ class TestMergeTargetParticipation:
 
         from rebrew.config import ProjectConfig
         from rebrew.metadata.source_provenance import set_source_file
-        from rebrew.source_selection import collect_target_sources
+        from rebrew.source.selection import collect_target_sources
 
         storage = _write(tmp_path / "storage.c", "int object;\n")
         for module in ("SERVER", "CLIENT"):
@@ -1761,8 +1766,8 @@ class TestMergeTargetParticipation:
         assert storage in collect_target_sources(cfgs[0], "SERVER")[0]
         assert functions not in collect_target_sources(cfgs[0], "SERVER")[0]
         assert {storage, functions} <= set(collect_target_sources(cfgs[1], "CLIENT")[0])
-        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfgs[1])
-        monkeypatch.setattr("rebrew.source_organization.organization_configs", lambda cfg: cfgs)
+        monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfgs[1])
+        monkeypatch.setattr("rebrew.source.organization.organization_configs", lambda cfg: cfgs)
         before = snapshot_with_stat(tmp_path)
         result = runner.invoke(
             app,
@@ -1803,7 +1808,7 @@ class TestTransactionalMerge:
         cfg = ProjectConfig(
             root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER"
         )
-        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
         base = ["--output", str(out), "--force", "--delete", "--json"]
         preview = runner.invoke(app, [*base, "--dry-run", str(a), str(b)])
         assert preview.exit_code == 0, preview.output
@@ -1829,7 +1834,7 @@ class TestTransactionalMerge:
         cfg = ProjectConfig(
             root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER"
         )
-        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
         stores = [
             metadata_store(tmp_path / n) for n in ("rebrew-data.toml", "rebrew-functions.toml")
         ]
@@ -1860,7 +1865,7 @@ class TestTransactionalMerge:
         cfg = ProjectConfig(
             root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER"
         )
-        monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+        monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
         base = ["--output", str(out), "--force", "--delete", "--json"]
         preview = runner.invoke(app, [*base, "--dry-run", str(a), str(b)])
         assert preview.exit_code == 0, preview.output
@@ -1898,7 +1903,7 @@ def test_transactional_merge_rejects_stale_transitive_header(
     nested.write_text("#define VALUE 1\n")
     out = tmp_path / "merged.c"
     cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
-    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
     base = ["--output", str(out), "--force", "--delete", "--json"]
     preview = runner.invoke(app, [*base, "--dry-run", str(a), str(b)])
     assert preview.exit_code == 0, preview.output
@@ -1931,7 +1936,7 @@ def test_transactional_merge_rejects_retargeted_header_alias(
     (tmp_path / "alias.h").symlink_to("actual.h")
     out = tmp_path / "merged.c"
     cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
-    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
     args = ["--output", str(out), "--force", "--delete", "--json"]
     preview = runner.invoke(app, [*args, "--dry-run", str(a), str(b)])
     assert preview.exit_code != 0 and "symlinked include search context" in preview.output
@@ -1948,13 +1953,13 @@ def test_transactional_merge_rejects_config_changed_while_loading_targets(
     a = _write(tmp_path / "a.c", _single(0x10001000, "_first"))
     b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
     cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
-    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
 
     def change_config(context: ProjectConfig) -> list[ProjectConfig]:
         config.write_text('[metadata]\nbackend = "toml"\n# changed\n')
         return [context]
 
-    monkeypatch.setattr("rebrew.source_organization.organization_configs", change_config)
+    monkeypatch.setattr("rebrew.source.organization.organization_configs", change_config)
     out = tmp_path / "merged.c"
     result = runner.invoke(app, ["--output", str(out), "--dry-run", "--json", str(a), str(b)])
     assert result.exit_code != 0 and "config changed" in result.output
@@ -1964,7 +1969,7 @@ def test_transactional_merge_rejects_config_changed_while_loading_targets(
 def test_transactional_merge_rejects_alias_change_after_header_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import rebrew.merge as merge
+    import rebrew.source.merge as merge
     from rebrew.config import ProjectConfig
 
     (tmp_path / "rebrew-project.toml").write_text('[metadata]\nbackend = "toml"\n')
@@ -2014,7 +2019,7 @@ def test_transactional_merge_rejects_earlier_include_created_before_lock(
         target_name="SERVER",
         base_cflags=f"/I{early} /I{late}",
     )
-    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
     args = ["--output", str(out), "--force", "--delete", "--json"]
     preview = runner.invoke(app, [*args, "--dry-run", str(a), str(b)])
     assert preview.exit_code == 0, preview.output
@@ -2049,7 +2054,7 @@ def test_transactional_merge_refuses_unresolved_header(
     a = _write(tmp_path / "a.c", _single(0x10001000, "_first", preamble='#include "missing.h"\n'))
     b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
     cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
-    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
     result = runner.invoke(
         app, ["--output", str(tmp_path / "merged.c"), "--force", "--delete", str(a), str(b)]
     )
@@ -2066,7 +2071,7 @@ def _accept_project(
     a = _write(tmp_path / "a.c", _single(0x10001000, "_first", preamble=preamble))
     b = _write(tmp_path / "b.c", _single(0x10002000, "_second"))
     cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path, module="SERVER", target_name="SERVER")
-    monkeypatch.setattr("rebrew.merge.require_config", lambda **kwargs: cfg)
+    monkeypatch.setattr("rebrew.source.merge.require_config", lambda **kwargs: cfg)
     return a, b, tmp_path / "merged.c"
 
 

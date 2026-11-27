@@ -24,7 +24,7 @@ from rebrew.metadata.source_provenance import (
     rename_source_provenance,
     set_source_file,
 )
-from rebrew.source_consolidate import app
+from rebrew.source.consolidate import app
 from rebrew.utils import load_tomllib
 
 
@@ -178,7 +178,7 @@ class TestSourceConsolidate:
         from types import SimpleNamespace
 
         monkeypatch.setattr(
-            "rebrew.source_consolidate.require_config",
+            "rebrew.source.consolidate.require_config",
             lambda **kwargs: SimpleNamespace(metadata_dir=tmp_path),
         )
         runner = CliRunner()

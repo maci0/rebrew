@@ -300,7 +300,7 @@ class TestSerializationRoundTrip:
         ``to_dict`` is documented as JSON-safe and the round trip as lossless,
         so the paths are serialized as their ``str`` and read back as one.
         """
-        from rebrew.rename_ops import RenameError
+        from rebrew.source.rename_ops import RenameError
 
         original = RenameError("call sites left stale", files=[Path("src/a.c"), Path("src/b.c")])
         payload = original.to_dict()
