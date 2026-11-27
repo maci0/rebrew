@@ -117,6 +117,8 @@ def _parse_command(line: str) -> tuple[str, list[str]] | None:
     inspecting its flags; group help does not list leaf options.
     """
     line = line.split("#", maxsplit=1)[0].strip()
+    # After a bare `--` come a wrapped command's arguments, not rebrew options.
+    line = line.split(" -- ", maxsplit=1)[0]
     if not line.startswith("rebrew "):
         return None
     tokens = line.split()
