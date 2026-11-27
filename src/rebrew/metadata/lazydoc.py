@@ -144,11 +144,23 @@ class LazyDocument(MutableMapping[str, Any]):
         }
 
     def render(self) -> str:
-        """The document text: untouched records verbatim, touched records re-dumped."""
-        parts = [tomlkit.dumps(self._preamble)]
-        for chunk in self._chunks:
-            parts.append(chunk.raw if chunk.doc is None else tomlkit.dumps(chunk.doc))
-        return "".join(parts)
+        """The document text: untouched records verbatim, touched records re-dumped.
+
+        Also remembers the text's :func:`split_records` result when it follows
+        from the pieces, so the replication digest of a write does not segment
+        the whole document again.
+        """
+        preamble = tomlkit.dumps(self._preamble)
+        pieces = [
+            chunk.raw if chunk.doc is None else tomlkit.dumps(chunk.doc) for chunk in self._chunks
+        ]
+        text = preamble + "".join(pieces)
+        chunks = _rendered_chunks(preamble, self._chunks, pieces)
+        if chunks is not None:
+            split = _records(preamble, chunks)
+            if split is not None:
+                _remember_split(text, split)
+        return text
 
 
 def _first_key(header: str) -> str | None:
@@ -233,21 +245,53 @@ def split_records(text: str) -> Split | None:
         if split is not None:
             _SPLITS.move_to_end(text)
             return split
-    split = _split(text)
+    segmented = _segment(text)
+    split = None if segmented is None else _records(*segmented)
     if split is not None:
-        with _RECORDS_LOCK:
-            _SPLITS[text] = split
-            while len(_SPLITS) > _SPLITS_MAX:
-                _SPLITS.popitem(last=False)
+        _remember_split(text, split)
     return split
 
 
-def _split(text: str) -> Split | None:
-    global _RECORDS_CHARS
-    segmented = _segment(text)
-    if segmented is None:
+def _remember_split(text: str, split: Split) -> None:
+    with _RECORDS_LOCK:
+        _SPLITS[text] = split
+        _SPLITS.move_to_end(text)
+        while len(_SPLITS) > _SPLITS_MAX:
+            _SPLITS.popitem(last=False)
+
+
+def _rendered_chunks(preamble: str, chunks: list[_Chunk], pieces: list[str]) -> list[_Chunk] | None:
+    """What :func:`_segment` makes of ``preamble + "".join(pieces)``, from the pieces alone.
+
+    An untouched chunk is a segment of the text it was split from. A re-dumped
+    piece is segmented on its own. The pieces' segments are the whole text's when
+    the preamble holds no header, each piece but the last ends a line, every
+    chunk starts at a header and no key repeats. None otherwise, or when the
+    text cannot be segmented.
+    """
+    pre = _segment(preamble)
+    if pre is None or pre[1] or (pieces and preamble and not preamble.endswith(("\n", "\r"))):
         return None
-    preamble, chunks = segmented
+    result: list[_Chunk] = []
+    last = len(pieces) - 1
+    for position, (chunk, piece) in enumerate(zip(chunks, pieces, strict=True)):
+        if position < last and not piece.endswith(("\n", "\r")):
+            return None
+        if chunk.doc is None:
+            result.append(chunk)
+            continue
+        segmented = _segment(piece)
+        if segmented is None or segmented[0]:
+            return None
+        result.extend(segmented[1])
+    if not result or len({chunk.keys[0] for chunk in result}) != len(result):
+        return None
+    return result
+
+
+def _records(preamble: str, chunks: list[_Chunk]) -> Split | None:
+    """Parse segmented *chunks* into a :data:`Split`; None when a piece does not parse alone."""
+    global _RECORDS_CHARS
     try:
         head = rendered_toml.loads(preamble)
     except tomllib.TOMLDecodeError:

@@ -343,6 +343,7 @@ class TestReplicationHotPaths:
     """Large stores must not pay tomlkit round-trips on every replicated operation."""
 
     def test_state_render_round_trips_through_the_loader(self, tmp_path: Path) -> None:
+        import rebrew.metadata.replication as replication
         from rebrew.metadata.files import TomlStore
         from rebrew.metadata.replication import _load, _Record, _save
 
@@ -353,10 +354,46 @@ class TestReplicationHotPaths:
         }
         store = TomlStore(tmp_path / "state.toml", tmp_path)
         _save(store, records, 'node "id"')
+        replication._LOADED.clear()
         loaded, node = _load(store)
         assert node == 'node "id"'
         assert loaded == records
         assert loaded["rebrew-functions.toml"].digest == records["rebrew-functions.toml"].digest
+
+    def test_a_saved_state_loads_without_parsing_the_text_it_wrote(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The next commit's load of the journal and TOML state reuses what the save rendered."""
+        import rebrew.metadata.replication as replication
+        from rebrew.metadata.files import TomlStore
+        from rebrew.metadata.replication import _load, _Record, _save
+
+        content = tomlkit.dumps({"a": {"s": _AWKWARD}})
+        records = {
+            "rebrew-functions.toml": _Record({"node:x": 3, 'odd "node"': 1}, 7, content, False),
+            "rebrew-data.toml": _Record({"n": 1}, 9, "", True),
+        }
+        store = TomlStore(tmp_path / "state.toml", tmp_path)
+        _save(store, records, 'node "id"')
+        real = replication._parse_state
+
+        def refuse(*args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("saved state parsed again")
+
+        monkeypatch.setattr(replication, "_parse_state", refuse)
+        primed, node = _load(store)
+        monkeypatch.setattr(replication, "_parse_state", real)
+        replication._LOADED.clear()
+        parsed = _load(store)
+        assert (primed, node) == parsed
+        assert list(primed) == list(parsed[0]) == list(records)
+        assert [r.digest for r in primed.values()] == [r.digest for r in parsed[0].values()]
+        # Another writer's text under the same path is parsed, not taken from the save.
+        store.write_text(
+            replication._render_state({"rebrew-data.toml": records["rebrew-data.toml"]}, ""),
+            "another writer",
+        )
+        assert list(_load(store)[0]) == ["rebrew-data.toml"]
 
     def test_state_load_trusts_the_digest_once_the_content_hash_matches(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
