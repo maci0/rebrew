@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.90.0] - 2026-11-27
+
 ### Changed
 
 - **Breaking:** Reorganized 76 flat root modules under `src/rebrew/` into domain subpackages (updating `app.builtins.BUILTIN_COMPONENTS`, `app.builtins.DOMAIN_COMPONENTS`, `app.main.BUILTIN_COMPONENTS`, and `binding_replacement_plan.ORDINARY_ROLES`):
