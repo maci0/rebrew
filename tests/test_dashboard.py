@@ -2240,7 +2240,9 @@ class TestLiteralSearch:
         monkeypatch.setattr(dash, "_FOLDED_GLOBALS", {})
 
         class Snapshot(SimpleNamespace):
-            pass
+            @property
+            def ordered_globals(self) -> list[SimpleNamespace]:
+                return self.globals  # CoverageSnapshot orders by VA; these stubs are in order
 
         first = Snapshot(code_functions=[SimpleNamespace(name="OLD", symbol="X")], globals=[])
         second = Snapshot(
@@ -2263,7 +2265,9 @@ class TestLiteralSearch:
         import rebrew.coverage.dashboard as dash
 
         class Snapshot(SimpleNamespace):
-            pass
+            @property
+            def ordered_globals(self) -> list[SimpleNamespace]:
+                return self.globals  # CoverageSnapshot orders by VA; these stubs are in order
 
         dash._FOLDED.clear()
         dash._FOLDED_GLOBALS.clear()
@@ -2285,7 +2289,9 @@ class TestLiteralSearch:
         import rebrew.coverage.dashboard as dash
 
         class Snapshot(SimpleNamespace):
-            pass
+            @property
+            def ordered_globals(self) -> list[SimpleNamespace]:
+                return self.globals  # CoverageSnapshot orders by VA; these stubs are in order
 
         dash._FOLDED.clear()
         dash._FOLDED_GLOBALS.clear()
@@ -2726,7 +2732,7 @@ class TestEncodingNegotiation:
 
     @pytest.mark.parametrize(
         ("accept", "expected_body"),
-        [("zstd", 12116), ("gzip", None)],
+        [("zstd", 12157), ("gzip", None)],
     )
     def test_the_documented_entry_flight_matches_the_wire(
         self, accept: str, expected_body: int | None

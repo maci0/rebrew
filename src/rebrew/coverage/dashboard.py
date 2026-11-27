@@ -44,7 +44,7 @@ Successful responses negotiate zstd then gzip with quality weights. ETags key
 on the live input version or portable file state plus the exact route/query;
 health is no-store. Static assets are content-hashed and precompressed. The
 served client drops its full-line comments (they stay in the source). The
-entry checkpoint measured 12116 B zstd / 12737 B gzip against a 13600 B budget;
+entry checkpoint measured 12157 B zstd / 12785 B gzip against a 13600 B budget;
 host zlib versions can change gzip size. Tests enforce the wire budget.
 Reload re-reads the live view; view/target/filter navigation is stored in the
 URL hash. Details, API schema and transfer measurements live in
