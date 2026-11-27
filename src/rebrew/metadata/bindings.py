@@ -86,6 +86,42 @@ def strict_bindings_active() -> bool:
     return _STRICT_BINDINGS.get()
 
 
+@dataclass(frozen=True)
+class _ReusedBindings:
+    """One source's batch-read bindings and every input they were read from."""
+
+    text: str
+    syntax: Any
+    anchors: tuple[Any, ...]
+    inputs: tuple[Any, ...]
+    bindings: tuple[SourceBinding, ...]
+
+
+#: Set by :func:`reuse_source_bindings`: batch-read bindings by source and read options.
+_REUSED_BINDINGS: contextvars.ContextVar[dict[tuple[Any, ...], _ReusedBindings] | None] = (
+    contextvars.ContextVar("rebrew_reused_bindings", default=None)
+)
+
+
+@contextlib.contextmanager
+def reuse_source_bindings() -> Iterator[None]:
+    """Reuse a source's batch-read bindings while every input they were read from is unchanged.
+
+    For one process that rescans a tree between small edits (``rebrew source
+    rename-batch``). Inside :func:`strict_bindings`, a :func:`read_source_bindings`
+    call given all three store snapshots returns copies of its previous result
+    when the source text, its address-comment syntax, the function rows whose
+    ``file`` names it, the rows at its anchors and its data rows all compare
+    equal. A source whose anchors reach a row with binding history is read again
+    every time: that check looks at other sources.
+    """
+    token = _REUSED_BINDINGS.set({})
+    try:
+        yield
+    finally:
+        _REUSED_BINDINGS.reset(token)
+
+
 def recorded_binding_conflicts() -> frozenset[tuple[str, int]]:
     """The records every open :func:`binding_conflicts` collector saw: skipped, or refused
     inside :func:`strict_bindings`."""
@@ -1357,10 +1393,53 @@ def read_source_bindings(
     *with_prototypes* recovers calling conventions from definitions. A caller
     that only needs identity, size, and section leaves it false and skips
     that parse.  *function_entries*, *preloaded_data_rows* and *data_entries*
-    are a batch reader's store snapshot, as for :func:`source_bindings`.
+    are a batch reader's store snapshot, as for :func:`source_bindings`; with
+    all three, :func:`reuse_source_bindings` can answer from an earlier read.
     """
     text, _ = read_source_text(filepath)
-    return source_bindings(
+    reused = _REUSED_BINDINGS.get()
+    if (
+        reused is None
+        or not _STRICT_BINDINGS.get()
+        or metadata_dir is None
+        or function_entries is None
+        or preloaded_data_rows is None
+        or data_entries is None
+    ):
+        return source_bindings(
+            text,
+            filepath,
+            target_name,
+            base_dir,
+            metadata_dir,
+            project_root=project_root,
+            with_prototypes=with_prototypes,
+            function_entries=function_entries,
+            preloaded_data_rows=preloaded_data_rows,
+            data_entries=data_entries,
+        )
+    from rebrew.config import address_comments_for_file
+
+    key = (filepath, target_name, base_dir, metadata_dir, project_root, with_prototypes)
+    syntax = address_comments_for_file(filepath, module=target_name, project_root=project_root)
+    previous = reused.get(key)
+    if (
+        previous is not None
+        and previous.text == text
+        and previous.syntax == syntax
+        and _binding_inputs(
+            filepath,
+            metadata_dir,
+            project_root,
+            previous.anchors,
+            function_entries,
+            preloaded_data_rows,
+            data_entries,
+        )
+        == previous.inputs
+    ):
+        return [copy.copy(binding) for binding in previous.bindings]
+    bindings = source_bindings(
         text,
         filepath,
         target_name,
@@ -1372,6 +1451,64 @@ def read_source_bindings(
         preloaded_data_rows=preloaded_data_rows,
         data_entries=data_entries,
     )
+    # Bindings came back, so the anchors parsed; this is the parse cache's copy.
+    anchors = tuple(parse_address_anchors(text, syntax=syntax))
+    inputs = _binding_inputs(
+        filepath,
+        metadata_dir,
+        project_root,
+        anchors,
+        function_entries,
+        preloaded_data_rows,
+        data_entries,
+    )
+    if inputs is None:
+        reused.pop(key, None)
+    else:
+        reused[key] = _ReusedBindings(
+            text, syntax, anchors, inputs, tuple(copy.copy(binding) for binding in bindings)
+        )
+    return bindings
+
+
+def _binding_inputs(
+    filepath: Path,
+    metadata_dir: Path,
+    project_root: Path | None,
+    anchors: tuple[Any, ...],
+    function_entries: dict[tuple[str, int], dict[str, Any]],
+    preloaded_data_rows: list[tuple[str, int, dict[str, Any]]],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+) -> tuple[Any, ...] | None:
+    """The store rows :func:`source_bindings` reads for one source with these *anchors*.
+
+    A function anchor reads the row at its key, and the rows of its module
+    spelling only when that key holds none. None when an anchor reaches a row
+    with binding history, whose checks depend on where other sources are.
+    """
+    anchored: list[Any] = []
+    for anchor in anchors:
+        if anchor.kind == "DATA":
+            anchored.append(
+                data_entries.get((unicodedata.normalize("NFC", anchor.module), anchor.va))
+            )
+            continue
+        stored = function_entries.get((anchor.module, anchor.va))
+        if stored:
+            if stored.get("binding_history"):
+                return None
+            anchored.append(stored)
+            continue
+        matches = _metadata_module_index(function_entries).get(
+            (preset_module_key(anchor.module), anchor.va), []
+        )
+        if any(row.get("binding_history") for _module, row in matches):
+            return None
+        anchored.append((stored, matches))
+    rows = function_rows_for_file(
+        filepath, metadata_dir, function_entries, project_root=project_root
+    )
+    return rows, preloaded_data_rows, anchored
 
 
 def source_bindings(
@@ -1793,6 +1930,7 @@ __all__ = [
     "remove_binding_field",
     "report_skipped_records",
     "resolve_symbol",
+    "reuse_source_bindings",
     "set_binding_field",
     "set_function_extent",
     "set_function_extents",

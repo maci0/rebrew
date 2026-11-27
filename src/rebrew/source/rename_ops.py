@@ -25,6 +25,8 @@ file compiled into both) refuses the rename before any write.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import logging
 import re
 from dataclasses import dataclass, field
@@ -34,7 +36,7 @@ from typing import Any
 lazy import copy
 lazy import hashlib
 lazy import json
-lazy from collections.abc import Sequence
+lazy from collections.abc import Iterator, Sequence
 
 from rebrew.errors import RebrewError
 lazy from rebrew.config import ProjectConfig
@@ -67,7 +69,7 @@ lazy from rebrew.source.c_rename import (
     rewrite,
 )
 lazy from rebrew.source.discovery import iter_sources_and_headers
-lazy from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
+lazy from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text, resolved_path
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +328,27 @@ class RenamePlan:
 # ---------------------------------------------------------------------------
 
 
+#: Set by :func:`reuse_bound_sources`: bound source paths by project paths, then row file and LIBRARY.
+_REUSED_BOUND: contextvars.ContextVar[
+    dict[tuple[str, str, str], dict[tuple[str, bool], Path | None]] | None
+] = contextvars.ContextVar("rebrew_reused_bound_sources", default=None)
+
+
+@contextlib.contextmanager
+def reuse_bound_sources() -> Iterator[None]:
+    """Keep each row file's bound source path for every rename planned inside.
+
+    The path follows from the row's ``file``, whether it is a LIBRARY row and the
+    project paths, so a batch of renames binds each file once. Assumes no
+    symlink in the tree is re-pointed while it is open.
+    """
+    token = _REUSED_BOUND.set({})
+    try:
+        yield
+    finally:
+        _REUSED_BOUND.reset(token)
+
+
 class _Project:
     """Every source and header of one rename, read and parsed at most once."""
 
@@ -339,7 +362,14 @@ class _Project:
             metadata_dir = self.metadata_dir
             # The bound path depends only on the row's file and whether it is a
             # LIBRARY row; rows share files, so resolve each pair once.
-            bound: dict[tuple[str, bool], Path | None] = {}
+            reused = _REUSED_BOUND.get()
+            bound: dict[tuple[str, bool], Path | None] = (
+                {}
+                if reused is None
+                else reused.setdefault(
+                    (str(cfg.root), str(metadata_dir), str(cfg.reversed_dir)), {}
+                )
+            )
             for (module, va), row in load_metadata(metadata_dir, deepcopy=False).items():
                 if row.get("kind") in {"FUNCTION", "LIBRARY"}:
                     identity = (str(row.get("file", "")), row["kind"] == "LIBRARY")
@@ -361,7 +391,7 @@ class _Project:
         seen: set[Path] = set()
         self.paths: list[Path] = []
         for path in [*first, *iter_sources_and_headers(cfg.reversed_dir, cfg)]:
-            key = path.resolve()
+            key = resolved_path(path)
             if key not in seen:
                 seen.add(key)
                 self.paths.append(path)
