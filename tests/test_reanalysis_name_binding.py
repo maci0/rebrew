@@ -22,7 +22,8 @@ lazy from collections.abc import Iterator
 lazy from pathlib import Path
 
 import pytest
-from test_ops import _analyse_request, _worker_dirs
+from test_ops import _analyse_request, _copy_analysed
+from test_ops import fresh_analysis as fresh_analysis
 
 from rebrew.config import load_config
 from rebrew.metadata.document import load_metadata_for_write
@@ -71,17 +72,18 @@ Template = tuple[Path, Path]
 
 
 @pytest.fixture(scope="module")
-def _analysed(tmp_path_factory: pytest.TempPathFactory) -> Template:
+def _analysed(
+    tmp_path_factory: pytest.TempPathFactory, fresh_analysis: tuple[Path, dict[str, Any]]
+) -> Template:
     """An analysed project moved to SQLite, whose 0x401010 record has comparison history.
 
-    Built once per session for every xdist worker (an ``analyse`` op is a child
-    process of about two seconds); tests work on :func:`_sqlite_project`'s copy.
+    Built once per session from the shared analysis. Tests work on
+    :func:`_sqlite_project`'s copy.
     """
     from session_cache import build_once
 
     def build(root: Path) -> str:
-        filestore, workspace = _worker_dirs(root)
-        project = Path(_analyse(WorkerConfig(filestore.resolve(), workspace.resolve()))["project"])
+        _, project = _copy_analysed(fresh_analysis, root)
         cfg = load_config(project, target="mini")
         migrate_metadata(cfg, "sqlite", expected_digest=migration_input_digest(cfg, "sqlite"))
         cfg = load_config(project, target="mini")
@@ -152,16 +154,20 @@ def _assert_consistent(project: Path) -> dict[str, Any]:
 
 
 def test_a_tests_project_is_a_copy_and_runs_no_op(
-    tmp_path: Path, _analysed: Template, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    _analysed: Template,
+    fresh_analysis: tuple[Path, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Setup work counter: one ``analyse`` child per session, none per test."""
+    """Building private inputs from the shared analysis requires no dispatch."""
 
     def no_op(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError(f"project setup ran an op: {args[1]}")
 
     monkeypatch.setattr(sys.modules[__name__], "dispatch", no_op)
-    _, first = _disagreeing_stub(_analysed, tmp_path / "a")
+    config, first = _disagreeing_stub(_analysed, tmp_path / "a")
     _, second = _unbound_free_text(_analysed, tmp_path / "b")
+    _make_snapshot_fields(config, first, fresh_analysis[1]["analysis_capture"])
     # A write to one copy reaches neither the other nor the template.
     assert (first / "src/mini" / f"{PLACEHOLDER}.c").is_file()
     assert not (second / "src/mini" / f"{PLACEHOLDER}.c").exists()
@@ -497,26 +503,14 @@ def _make_toml_archive(config: WorkerConfig, project: Path) -> tuple[str, str]:
     return _store(config.filestore, buf.getvalue())
 
 
-def _make_snapshot_fields(config: WorkerConfig, project: Path, root: Path) -> dict[str, Any]:
-    """Build verified capture + source manifest fields for snapshot ops."""
-    from test_ops import BINARY, SHA256, _store
+def _make_snapshot_fields(
+    config: WorkerConfig, project: Path, capture: dict[str, Any]
+) -> dict[str, Any]:
+    """Build verified capture and source manifests from the shared fresh analysis."""
     from test_ops import KEY as BINARY_KEY
+    from test_ops import SHA256, _store
 
     assert config.filestore is not None
-    sub = root / "_snap_src"
-    filestore = sub / "files"
-    (filestore / "binaries").mkdir(parents=True)
-    (filestore / BINARY_KEY).write_bytes(BINARY.read_bytes())
-    workspace = sub / "workspace"
-    workspace.mkdir()
-    status, raw = dispatch(
-        WorkerConfig(filestore.resolve(), workspace.resolve()),
-        "rebrew.analyse",
-        json.dumps(_analyse_request()).encode(),
-    )
-    assert status == 200, raw
-    result = json.loads(raw)
-    capture = result["analysis_capture"]
     analysis_entries = []
     analysis_files = []
     source_files = []
@@ -570,7 +564,7 @@ def _make_snapshot_fields(config: WorkerConfig, project: Path, root: Path) -> di
     }
 
 
-def _walk_requests(config: WorkerConfig, project: Path, root: Path) -> dict[str, Any]:
+def _walk_requests(config: WorkerConfig, project: Path, capture: dict[str, Any]) -> dict[str, Any]:
     """Smallest request builder per op in ``OPS`` that reaches its project/input read."""
     from test_ops import KEY as BINARY_KEY
     from test_ops import SHA256, SPLAT_YAML, _binary_file, _store
@@ -634,7 +628,7 @@ def _walk_requests(config: WorkerConfig, project: Path, root: Path) -> dict[str,
             "named": True,
         },
         "rebrew.decompile_snapshot": lambda: {
-            **_make_snapshot_fields(config, project, root),
+            **_make_snapshot_fields(config, project, capture),
             "va": 0x401000,
             "backend": "kuna",
         },
@@ -675,7 +669,7 @@ def _walk_requests(config: WorkerConfig, project: Path, root: Path) -> dict[str,
             "min_severity": "low",
         },
         "rebrew.security_scan_snapshot": lambda: {
-            **_make_snapshot_fields(config, project, root),
+            **_make_snapshot_fields(config, project, capture),
             "min_severity": "low",
         },
         "rebrew.analyse": _analyse_request,
@@ -756,6 +750,7 @@ def test_every_ops_read_of_a_contradicted_project_names_what_it_skipped(
     monkeypatch: pytest.MonkeyPatch,
     _contradicted_template: tuple[Path, Path],
     _exact_recompile_url: str,
+    fresh_analysis: tuple[Path, dict[str, Any]],
     op: str,
 ) -> None:
     """Every op in ``OPS`` either names the skipped record in ``skipped_records`` or skips nothing."""
@@ -778,7 +773,7 @@ def test_every_ops_read_of_a_contradicted_project_names_what_it_skipped(
         lambda *_a, **_k: ("void fcn_00401010(void) {}\n", "kuna"),
     )
 
-    requests = _walk_requests(config, project, tmp_path)
+    requests = _walk_requests(config, project, fresh_analysis[1]["analysis_capture"])
     assert set(requests) == set(OPS)
 
     with binding_conflicts() as skipped:

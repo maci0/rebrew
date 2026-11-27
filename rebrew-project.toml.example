@@ -7,19 +7,19 @@
 # Managed metadata storage (project configuration itself always stays TOML).
 # Use `rebrew metadata migrate sqlite --dry-run` before switching existing data.
 # [metadata]
-# backend = "toml" # default; "sqlite" is experimental
+# backend = "toml" # default; alternatives: "sqlite", "pgsql"
+# To replicate, use read_backends in place of backend:
+# read_backends = ["toml", "pgsql"]
+# write_backends = ["toml", "pgsql"]
+# [metadata.pgsql]
+# dsn = "service=rebrew" # configure credentials outside the project with libpq
+# project = "example-project"
 
 # -----------------------------------------------------------------------------
 # Project-level Settings
 # -----------------------------------------------------------------------------
 
 [project]
-# Optional address_comments table, shared by readers and source generators:
-# [project.address_comments]
-# style = "c89"                       # c89, cpp, delphi
-# regex = 'ADDRESS:\s+(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*'
-# template = "/* ADDRESS: $module $va */" # Delphi default: { ADDRESS: $module $va }
-# Override individual fields under [targets.<name>.address_comments].
 # Informational project name.
 name = "example-project"
 
@@ -39,6 +39,13 @@ output_dir = "output"
 # An empty string disables shared sources.
 # Default: "src/shared"
 shared_dir = "src/shared"
+
+# Optional address_comments table, shared by readers and source generators:
+# [project.address_comments]
+# style = "c89"                       # c89, cpp, delphi
+# regex = 'ADDRESS:\s+(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)\s*'
+# template = "/* ADDRESS: $module $va */" # Delphi default: { ADDRESS: $module $va }
+# Override individual fields under [targets.<name>.address_comments].
 
 # -----------------------------------------------------------------------------
 # Code Style and Linting Rules
@@ -94,9 +101,9 @@ bin_dir = "bin/game"
 
 # Pre-postlink image the linker wrote, read by `rebrew status` for the
 # whole-file score and by `rebrew todo` to tell a postlink-rewritten span from
-# toolchain output.  Point it at the raw link; a missing file is not replaced
-# by the postlinked build/<target>.  Default: build/<target>, else the sole
-# image in build/.
+# toolchain output. Point it at the raw link. When this field is absent,
+# status scores build/<target> if that file exists. A configured but missing
+# raw link suppresses the score and produces a warning.
 raw_link = "build/raw/game.exe"
 
 # Source file extension(s): ".c", ".cpp", or comma-separated list like ".c,.cpp".
@@ -113,17 +120,8 @@ source_ext = ".c"
 # Module names with LIBRARY metadata bindings (e.g. standard library or vendor SDKs).
 # library_modules = ["MSVCRT", "ZLIB"]
 
-# External archives (.lib) attributed as external code (not reversed in-tree).
-# [targets.game.external_libs]
-# LIBCMT = "LIBCMT.lib"
-# D3DX8 = "references/dxsdk8/lib/d3dx8.lib"
-
 # Inclusive address bands filled by statically linked libraries.
 # external_ranges = ["0x005e0000-0x0064ffff"]
-
-# Reference directories for CRT source matching.
-# [targets.game.crt_sources]
-# MSVCRT = "references/vc98/crt/src"
 
 # Ghidra integration settings
 # ghidra_program_path = "/Game/game.exe"
@@ -141,11 +139,17 @@ source_ext = ".c"
 # Informational for editors and the UI; it does not filter annotations.
 # origins = ["GAME", "ZLIB"]
 
-# Position-alignment package (image base, section geometry, exports, imports)
-# written by `rebrew build layout --layout-config`. The layout tooling reads it
-# directly; do not hand-edit.
-# [targets.game.layout]
-# image_base = 0x00400000
+# External archives (.lib) attributed as external code.
+# [targets.game.external_libs]
+# LIBCMT = "LIBCMT.lib"
+# D3DX8 = "references/dxsdk8/lib/d3dx8.lib"
+
+# Reference directories for CRT source matching.
+# [targets.game.crt_sources]
+# MSVCRT = "references/vc98/crt/src"
+
+# `rebrew build layout --layout-config` prints the standalone layout document
+# for layout/game/rebrew-layout.toml.
 
 # Optional per-target compiler override (falls back to global [compiler]).
 # [targets.game.compiler]

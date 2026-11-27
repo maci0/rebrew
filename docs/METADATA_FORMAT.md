@@ -96,7 +96,7 @@ The data store uses the same qualified key algebra. It owns `file`, `kind`,
 `name`, `type`, `size`, `section`, `note`, `status`, `storage_kind`, `backing`,
 `link_symbol`, and the evidence/stamp tables below. Classifications are DATA,
 GLOBAL, STRING and VTABLE; an unspecified kind is an ordinary DATA row.
-`storage_kind` distinguishes objects, views, literals, layout spans and imports.
+`storage_kind` is `object`, `alias`, `literal`, `span`, or `import`.
 An interior address names a view into its backing object; it is not another
 allocation. Extern declarations are declarations or users, not storage owners.
 
@@ -139,7 +139,8 @@ a non-empty target-scoped purpose for support code without a native VA. Use
 
 Assembly records live under `source.definitions.<file>.<symbol>.<module>`, with exactly
 `source_hash` and `evidence`. They identify reviewed original assembly by file,
-C definition, target and current body digest; they do not earn STATUS. Use
+C definition, target, and SHA-256 of the full definition including its
+signature. They carry no comparison verdict. Use
 `rebrew source document-assembly` or the provenance owner API. Rename/move writers
 retarget both kinds of source records.
 

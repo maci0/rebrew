@@ -61,11 +61,11 @@ recompile-toolchains checkout.
 
 ## Scaffold drift check
 
-`rebrew init` renders AGENTS.md, PRINCIPLES.md, and the packaged skills (plus
-any `REBREW_SKILLS_DIR` overlay) into `.agents/skills/`, substituting the
-target name. Run `rebrew init --check` to report drift in any of them; it exits
-1 when a rendered file differs from the packaged source, so it is the check to
-run rather than comparing the tree by hand.
+`rebrew init` renders AGENTS.md, PRINCIPLES.md, and `.agents/skills/` with any
+`REBREW_SKILLS_DIR` overlay. `rebrew init --check` reports scaffold drift and
+exits 1 when it finds differences. `rebrew init --refresh-agents` renders for
+the configured default target and its compiler override. Keep local rules
+below the project-rules marker in AGENTS.md.
 
 ## Global organization
 
@@ -80,14 +80,5 @@ or generating headers; use `rebrew-data-analysis` for consolidation.
 Report the target name and profile. For discovery and initial triage, use
 `rebrew-intake`.
 
-## Refresh after consolidation
-
-Before refresh, retain local rules below the project-rules marker documented in
-AGENTS.md. `--refresh-agents` uses the configured default target and its compiler
-override. Check editable dependency origins and canonical Rebrew/Recoverage
-checkout paths, then run `rebrew init --check`. Delphi scaffolds use whole-program
-Docker build, NE comparison and form inspection instead of the C function loop.
-
-Target namespaces use `[targets.<name>].module` and `rebrew cfg set module NAME`.
-Retain existing values when renaming the removed `marker` key. Source comments
-are optional `ADDRESS` anchors; function/data kinds and state belong in metadata.
+Target namespaces use `[targets.<name>].module`. Source comments can anchor
+addresses. Function and data kinds and state belong in metadata.

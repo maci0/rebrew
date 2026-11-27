@@ -3,7 +3,7 @@
 The sdist is what ``pip install rebrew==X`` compiles when no wheel matches, and
 its file list comes from ``MANIFEST.in`` plus setuptools' prune/exclude rules —
 a different source of truth from the wheel's package-data list.  A prune rule
-that removes a runtime file (``src/rebrew/AGENTS.md`` is already
+that removes a runtime file (subpackage ``src/rebrew/*/AGENTS.md`` is already
 ``recursive-exclude``d, and ``PRINCIPLES.md`` / ``AGENTS.md.template`` /
 ``agent-skills/`` are what the package job asserts in the installed wheel) ships
 a wheel that works and an sdist that installs broken.

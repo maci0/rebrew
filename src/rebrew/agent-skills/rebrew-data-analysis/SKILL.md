@@ -100,15 +100,15 @@ rebrew data fix-bss --dry-run # preview bss_padding.c + metadata changes, write 
 rebrew data fix-bss # generate bss_padding.c and record each new gap's size/section/note through the locked writers (run --dry-run first)
 rebrew data mark-literals --dry-run --json # rows at ??_C@/__real@ map VAs -> storage_kind=literal + link_symbol
 rebrew build check-tu-data --json # per-object [data][literals] order: TU boundaries, s_* literal pools
-rebrew data header --dry-run # preview rebrew_globals.h contents
+rebrew data header --dry-run # report the planned output path and declaration counts
 rebrew data header # write rebrew_globals.h from scanned globals (address bindings and rebrew-data.toml rows)
-rebrew data header --output my_globals.h # override output path
+rebrew data header --output preview_globals.h # generate declarations at a new path for inspection
 rebrew data header --force # overwrite existing file without prompting
 rebrew data layout audit --section .rdata # per-TU span/order audit for .rdata (default .data)
-rebrew data set --type 0x10025000=unsigned_char_p --dry-run --json # preview: write type into rebrew-data.toml (repeatable)
-rebrew data set --type 0x10025000=unsigned_char_p --expected-digest <digest from preview> # apply the previewed type write
+rebrew data set --type '0x10025000=unsigned char *' --dry-run --json # preview the type update
+rebrew data set --type '0x10025000=unsigned char *' --expected-digest DIGEST # use the digest from the preview
 rebrew data set --section 0x10025000=.rdata --dry-run --json # preview: write section (.data / .rdata / .bss); this fixes W016
-rebrew data set --section 0x10025000=.rdata --expected-digest <digest from preview> # apply the previewed section write
+rebrew data set --section 0x10025000=.rdata --expected-digest DIGEST # apply the previewed section write
 rebrew data layout fix-ownership --dry-run # re-partition defs; fixes layout-audit SPAN/ORDER
 rebrew data layout fill # emit _dpad_<addr>[N] for uncovered .data runs (preview with --dry-run first)
 rebrew data layout own --dry-run # materialize link_stubs.c globals into owner TUs
@@ -123,8 +123,8 @@ existing metadata stays unchanged. Compare a raw link: postlink-copied data
 can match without demonstrating that the source reproduces it.
 
 `data header` emits externs grouped by physical section, not game/CRT ownership.
-Use `--dry-run` or `--output` to review output before merging into canonical
-subsystem headers. `--force` replaces an existing header. `rebrew sync pull-data`
+Use `--dry-run` for counts or `--output` to inspect declarations before merging
+them into canonical subsystem headers. `--force` replaces an existing header. `rebrew sync pull-data`
 also replaces the default header without prompting: preserve and reconcile any
 existing split first.
 
@@ -219,9 +219,9 @@ reconstructing the discarded functions instead of inventing stand-ins.
 function pointers. Tables are not labelled vtable vs dispatch table; decide from
 the callers. Table fields are in `references/json-and-failures.md`.
 
-Names come from source bindings and dedicated metadata first, then the function list / Ghidra structure
-registry, so a low-coverage table usually means its targets lack reversed sources
-(pick them up in `rebrew-workflow`), not that the detection failed. Tune detection
+Names come from source bindings and metadata, then from the function inventory
+or Ghidra. Dispatch coverage is the share of named entries. Check source
+bindings or `rebrew status` for reversing progress. Tune detection
 with `--min-table-len` (default 3) and `--max-pointer-stride` (default 4; raise it
 for sparse tables with mixed payload entries). Use this to identify virtual method
 tables that need reverse engineering.

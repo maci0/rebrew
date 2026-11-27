@@ -2060,7 +2060,7 @@ def check_env_jobs_addr(raw: str) -> None:
     The Go owner (``services/jobs/cmd/rebrew-jobs/main.go``
     ``isLoopbackAddr``) refuses any non-loopback bind with a fatal log;
     without this check a typo such as ``0.0.0.0:8089`` or ``bad-addr``
-    is invisible to ``rebrew config effective`` until the owner dies.
+    is invisible to ``rebrew cfg effective`` until the owner dies.
     Unset stays valid: the owner then binds ``127.0.0.1:8089``.
     """
     value = raw.strip()

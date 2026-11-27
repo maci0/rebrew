@@ -40,44 +40,29 @@ old store as `.before-restore`. The recovery guide lists which files the bundle
 covers and what to back up separately. For PostgreSQL, use the database's
 backup tools. See [backup and restore](docs/METADATA.md#backup-and-restore).
 
-Operators should treat project source, configured HTTP endpoints
-(recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
-downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
-cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
-`REBREW_SKILLS_DIR` overlays, BinSync state-repo git remotes (`rebrew binsync pull` fast-forwards and imports by default; remote validated by `validate_remote()` in `binsync/git.py`: spaces/control chars, `..`, leading `-`/`+`, any `<transport>::` command transport such as `ext::`/`fd::` refused, blocking git option injection and command-transport execution), a foreign splat project handed to
-`rebrew source import-splat` (its `splat.yaml` and `symbol_addrs` files are written into
-the local project as metadata, source markers, and `library_<module>.h` names;
-the command is a dry run unless `--apply` is passed), and installed Python
-entry-point plugins
-(including `rebrew.cache_backends`) as part of the trust boundary. So are the
-host-tool knobs outside the `REBREW_` namespace: `KUNA_SPECS` names the
-SLEIGH language definitions the native `kuna` binary parses in place of its
-own, `XDG_CACHE_HOME` is
-the sandbox base whose `rebrew`-prefixed directories older than a day are
-deleted by `sweep_stale_temp_dirs` on the next compile
-(`src/rebrew/compiler/temp_dirs.py`). That sweep is not confined to the cache base: it
-also deletes, by the same age rule, directories under the project at
-`.rebrew/climb` and `.rebrew/qualsweep`, where the prefix it matches is
-declared by the caller and derived from the function's symbol name
-(the `sweep_stale_temp_dirs` calls in `src/rebrew/climb.py` and
-`src/rebrew/qual_sweep.py`), so a
-symbol name in shipped metadata decides what a later run may remove from
-those two rebrew-owned scratch directories, and nothing else. And
-`XAUTHORITY` names the X cookie file rebrew
-adopts for host-wine helpers and re-exports to wine children, accepted as any
-file the analyst can read (`_local_cookie` in `src/rebrew/compiler/headless.py`), so the
-headless-display access decision for adopted servers is taken from the process environment. On a multi-user host the headless X display is a boundary, and on **both**
-of its paths the access control holds only for a server rebrew starts. The `Xvfb` rebrew starts is
-handed an `-auth` file holding a real MIT-MAGIC-COOKIE-1 xauth record
-(`_xauth_record` via `_new_cookie` in `src/rebrew/compiler/headless.py`), so the started
-display refuses clients without the cookie; adopting an Xvfb already on the box is
-still unauthenticated, because `_adopt` falls back to the operator's
-`XAUTHORITY` when the candidate server advertises no `-auth`
-cookie of its own. Nothing in the module opens an X connection to verify.
-Treat an adopted display as unauthenticated, and note that
-`XAUTHORITY` is written into `os.environ`, so every later child process
-inherits it. The display's pid is resolved through `/proc/*/cmdline` on
-the process name `Xvfb`, which is world-readable.
+Operators control these trust boundaries.
+
+- **Inputs and tools.** Rebrew trusts project source, configured HTTP services, release
+  and toolchain-media downloads, container images, Wine prefix and compiler
+  profile settings, skill overlays, and installed Python entry-point plugins.
+  `KUNA_SPECS` selects the language definitions parsed by native `kuna`.
+- **Imports.** `rebrew binsync pull` may fetch and import state. `validate_remote`
+  in `binsync/git.py` rejects spaces, control characters, `..`, a leading `-` or
+  `+`, and command transports such as `ext::` and `fd::`.
+  `rebrew source import-splat` previews the foreign config and symbols by default.
+  `--apply` writes metadata, source markers, and library headers.
+- **Scratch directories.** `sweep_stale_temp_dirs` removes directories whose
+  names match registered scratch prefixes under the cache base selected by
+  `XDG_CACHE_HOME`. Project sweeps in `.rebrew/climb` and `.rebrew/qualsweep`
+  derive a confined prefix from the function's symbol. Eligibility uses
+  the newest subtree mtime, a 24-hour age threshold, and a one-hour
+  clock-step allowance.
+- **Headless X displays.** Rebrew starts Xvfb with a private
+  MIT-MAGIC-COOKIE-1 file. It discovers candidate servers through
+  `/proc/*/cmdline`. For an existing server without `-auth`, it may adopt a
+  readable `XAUTHORITY` from the environment and pass it to later child
+  processes. It does not verify access by opening an X connection, so treat
+  an adopted display as unauthenticated on a multi-user host.
 
 CI is a boundary of its own: `pull_request` (never `pull_request_target`),
 workflow `permissions: contents: read`, `persist-credentials: false`,
@@ -171,9 +156,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   same image-less path (`check_compiler`); a docker-backed profile returns
   before the smoke. Treat a project tree from an untrusted source as able
   to run code on the host through the paths that do execute.
-  `make -q` suppresses makefile recipes, not `$(shell …)` / `$(info …)`
-  expansion while the file is read, so the `build.make` CMake generates for a
-  cloned project is host-executable too.
+  Query mode still evaluates makefiles. The preflight rejects recognized
+  executing forms and computed include names. Use `--objects` only with trusted
+  build files. See the [host build boundary](docs/THREAT_MODEL.md#project-tree--host-process).
 - No claim that reading a project's build files stays inside the project
   directory, except the cmake bridge's `@rsp` rewrite. That rewrite reads
   response files on the host and stages the copy in a temporary directory
@@ -254,20 +239,19 @@ plugin cache backends or remove the open upstream diskcache advisory.
   (`_project_endpoint_allowed` in `src/rebrew/llm_seed.py`). That gate reads
   the key's provenance, so a key committed in the project TOML still travels
   to that project's own endpoint, and `[compiler] recompile_url` is not gated
-  at all. The recompile bearer key, when set, is the one exception on that
-  path: `REBREW_RECOMPILE_API_KEY` is read from the environment only (never
-  from the project tree), `compile_source` in
-  `src/rebrew/compiler/recompile_client.py` refuses it unless the service
-  URL is `https` with no credentials/query/fragment, sends it only to the
-  configured service and its same-origin artifact endpoint, and every
-  compile POST carries a deterministic `Idempotency-Key` so retries and
-  restarts dedup server-side instead of re-billing.
+  at all. `REBREW_RECOMPILE_API_KEY` comes from the environment and goes to
+  the configured service and its same-origin artifact endpoint. It requires
+  HTTPS or the explicitly configured in-cluster HTTP host. Direct compile
+  calls generate a fresh idempotency key. Eligible retries within the call
+  reuse it after an ambiguous outcome. Managed jobs persist their own
+  attempt keys for recovery. See [remote compile](docs/TOOLCHAIN.md#compile-backends)
+  and the [jobs service](services/jobs/README.md).
 - No claim that a recompile endpoint only receives the source. The object it
   returns is written to the compile workdir and parsed for that run (LIEF's
   COFF parser, or host `objconv` on an OMF profile). It is not published into
   the compile cache: the service response has no image id, so a later run
   compiles again instead of replaying those bytes (`_cache_key_for` in
-  `src/rebrew/compiler/compile.py`). The artifact body is capped at 30 MiB
+  `src/rebrew/compiler/compile.py`). The artifact body is capped at 32 MiB
   (`_MAX_ARTIFACT_BYTES` in `src/rebrew/compiler/recompile_client.py`,
   declared-length and buffered-length checked before the object is written to
   disk and parsed, after the GET has buffered the body, so memory is not
@@ -296,12 +280,10 @@ plugin cache backends or remove the open upstream diskcache advisory.
   httpx calls ignore `HTTPS_PROXY`, `SSL_CERT_FILE`, and
   `REQUESTS_CA_BUNDLE`. The recompile, decomp.me, MCP and LLM clients also pass
   `trust_env=False` on their own clients (`compiler/compile.py`
-  `_shared_recompile_client`/`_job_recompile_client`,
+  `_shared_recompile_client`,
   `compiler/recompile_client.py`, `decompiler.py`, `skeleton.py`,
   `ghidra/client.py`, `ghidra/cli.py`, `ghidra/commands.py`), so ambient `*_proxy` is ignored there too; ops
-  `_download` also passes `trust_env=False` (proxy env ignored) with
-  `SSL_CERT_FILE`/`SSL_CERT_DIR` re-applied explicitly, so an
-  operator-pinned CA bundle is not silently dropped. The OTLP span exporter
+  `_download` follows the worker's IP-pinning policy below. The OTLP span exporter
   (`src/rebrew/telemetry.py`) is not an httpx client: its `urllib.request`
   POST goes through an opener built with `ProxyHandler({})`, so ambient
   `*_proxy` variables cannot reroute it either; `REBREW_OTLP_ENDPOINT`
@@ -310,8 +292,8 @@ plugin cache backends or remove the open upstream diskcache advisory.
   cleartext, and the endpoint is operator env, not project configuration.
   The wibo asset is capped at
   64 MiB (`_MAX_WIBO_DOWNLOAD_BYTES` in `src/rebrew/wibo.py`), its release
-digest is shape-validated before the GET (exactly 64 hex, lowercased,
-else refused, `src/rebrew/wibo.py`), the
+  digest is shape-validated before the GET (exactly 64 hex, lowercased,
+  else refused, `src/rebrew/wibo.py`), the
   release-metadata JSON at 1 MiB (`_MAX_WIBO_METADATA_BYTES` in
   `src/rebrew/wibo.py`, declared length checked, then a running cap while
   the body streams in, before `json` parsing), and the toolchain media at 2 GiB
@@ -321,10 +303,7 @@ else refused, `src/rebrew/wibo.py`), the
   `src/rebrew/toolchain_cli.py`, declared length checked, then a running
   cap while the body streams in; anything but 40 lowercase hex is refused). These caps
   apply while the body streams in (`read_capped_body` in
-  `src/rebrew/utils.py`), so they bound memory too. The 30 MiB recompile
-  artifact cap is checked after a buffered GET has received the whole body,
-  so it refuses an oversized artifact but does not bound the memory spent
-  receiving it.
+  `src/rebrew/utils.py`), so they bound memory during the download.
 - No claim that the ops worker's presigned-URL download is SSRF-proof.
   `_download` in `src/rebrew/ops.py` refuses a `url` that is not https, a
   hostless URL, or a URL carrying userinfo (`parts.username or
@@ -348,19 +327,16 @@ else refused, `src/rebrew/wibo.py`), the
   `_download` passes `trust_env=False` (ambient `*_proxy` ignored) while
   re-applying an operator-pinned `SSL_CERT_FILE`/`SSL_CERT_DIR`
   explicitly via `verify=`.
-- No claim that PostgreSQL schema-shape validation is re-run on every store
-  operation. `PgsqlStore._present` (`src/rebrew/metadata/pgsql.py`) caches the
-  four-catalog-query verdict per connection id, and first-use DDL
-  (`pg_advisory_xact_lock` + `_DDL`, then dropping the cached `False` verdict)
-  makes the transaction that creates the table see it; the advisory lock
-  serializes DDL so the verdict cannot go stale mid-transaction, and a fresh
-  connection re-validates. The cache does not change the schema pin itself
-  (exact column list + PK/CHECK, `statement_timeout 30s`, redacted diagnostics).
 
 ## Hardened behavior
 
 These are checked behaviors, not guarantees beyond their stated scope.
 
+- **PostgreSQL schema validation.** `PgsqlStore._present` checks the exact
+  columns, primary key, and both CHECK constraints. It caches successful
+  checks per connection and revalidates on a fresh connection. An advisory
+  lock serializes first-use DDL. Queries have a 30-second statement timeout
+  and diagnostics are redacted.
 - **Host header folding.** Both sides of the Host allow-list comparison are
   folded through `fold_host` (`src/rebrew/utils.py`), which runs
   `strip_bidi_format` after NFC normalization and before casefold/IDNA, so a
@@ -372,11 +348,9 @@ These are checked behaviors, not guarantees beyond their stated scope.
   `_env_knob_parsers` / `env_knob_errors` (reported by `rebrew cfg
   effective`), and `src/rebrew/telemetry.py` `ENDPOINT_ENV` aliases that
   single source. The endpoint still admits plain `http` (above).
-- **Splat path containment.** `splat_config._rel` (`splat_config.py:517-531`)
-  resolves every `splat.yaml` path against the operator's base and raises
-  `ValueError` on any that escape it (`is_relative_to`), so an absolute,
-  `../..`, or backslash-separated entry is refused before any read or
-  `shutil.copy2` into the project; `--apply` remains the only write opt-in.
+- **Splat path containment.** `splat_config._rel` resolves paths against the
+  operator's base and refuses input paths outside it, including paths
+  that escape through a symlink. `--apply` enables writes to the project.
 - **`rebrew build check --objects` include probe.** The probe refuses when
   `build.make` or any file it includes carries make function expansion:
   `_MAKE_INCLUDE_RE` in `src/rebrew/build_check.py` matches `-s?include`
@@ -391,11 +365,8 @@ These are checked behaviors, not guarantees beyond their stated scope.
   plant `cl` on `PATH` to hijack the lookup.
 - **Strict JSON and integer parsing.** `json_print` (`src/rebrew/cli.py`)
   passes `allow_nan=False` on both tty and pipe paths, so `NaN`/`Infinity`
-  cannot emit non-strict JSON. Integer parsing goes through
-  `utils.parse_int_literal` / `parse_c_integer_literal` (`src/rebrew/utils.py`):
-  a `0x` prefix selects base 16, otherwise decimal (`010` is ten), ASCII digits
-  only, across the binsync/catalog/prove/report/residue/switch call sites.
-- **Ops download client lifetime.** `_download` (`src/rebrew/ops.py`) closes
-  its `httpx.Client` through a context manager
-  (`with httpx.Client(...) as _http: _http.stream(...)`); the SSRF pinning,
-  `trust_env=False`, and `verify=` behavior above are unchanged.
+  cannot emit non-strict JSON. `utils.parse_int_literal` treats `010` as
+  decimal ten by default.
+  `utils.parse_c_integer_literal` follows C syntax and reads it as octal eight.
+- **Ops download client lifetime.** `_download` closes its `httpx.Client`
+  through a context manager.

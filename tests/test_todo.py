@@ -6,7 +6,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, override
 
 import pytest
 from cache_util import cache_text
@@ -847,6 +847,25 @@ class TestCollectors:
         # work left to reach an identical build.
         assert [i.category for i in items] == [CAT_EXACT_ONLY]
         assert items[0].command == "rebrew test 0x00002000 --linked"
+
+    def test_rank_reads_details_only_for_listed_functions(self) -> None:
+        detail_reads = 0
+
+        class CountedRow(dict[str, str]):
+            @override
+            def get(self, key: str, default: Any = None, /) -> Any:
+                nonlocal detail_reads
+                if key in ("size", "symbol", "filename"):
+                    detail_reads += 1
+                return super().get(key, default)
+
+        existing: dict[int, dict[str, str]] = {
+            va: CountedRow(status=status, size="16", symbol=f"f_{va:x}")
+            for va, status in enumerate(("SKIP", "EXACT") * 100 + ("RELOC",), 0x1000)
+        }
+        items = _collect_active_functions(existing, {}, {}, {})
+        assert [item.category for item in items] == [CAT_EXACT_ONLY]
+        assert detail_reads <= 3
 
     @pytest.mark.parametrize("has_angr", [True, False])
     def test_proven_is_improve_match_work(

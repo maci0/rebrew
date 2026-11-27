@@ -743,7 +743,7 @@ _ALREADY_EXISTS_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 #: Ops whose re-application is idempotent (the CLI backend counts their
 #: "already exists" failures as success, same as the MCP path).  Includes
-#: the structural push/retry set: a second ``rebrew sync push`` (or a
+#: structural retries: a repeated function creation (or a
 #: ``parse-c-structure`` dependency retry after the type already landed)
 #: must not treat Ghidra's duplicate-name reply as a hard failure.
 _IDEMPOTENT_OPS = frozenset(

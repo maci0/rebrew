@@ -17,7 +17,7 @@ ground-truth catalog the user:
 - Cannot tell what's done, in-progress, or untouched.
 - Cannot tell which functions are first-party game code vs. third-party
   library code (CRT, zlib, DirectX) that can be matched from upstream sources.
-- Has no machine-readable coverage data to feed dashboards (recovery) or
+- Has no machine-readable coverage data to feed dashboards (recoverage) or
   CI gates.
 - Re-disassembles the same VA multiple times instead of extracting `.bin`
   files once.
@@ -159,8 +159,9 @@ Output `.bin` files land in the configured `bin_dir`.
 - With no `--lib` or `--stock-lib`, ingests `targets.<name>.external_libs`
   (path specs as libraries, bare names as stock archives). Errors when the
   resulting archive and object set is empty (ADR-013).
-- `--va VA` tests a single hex VA instead of every reversed function. With
-  no recorded SIZE, a library body that starts the read window still matches.
+- `--va VA` tests one function. It requires an extent from inventory or
+  metadata.
+- Since 6.10.0, a batch match requires the full native inventory extent.
 - `--allow PATH` ignores known library VAs from a file.
 - `--json` emits structured matches.
 
@@ -172,10 +173,9 @@ Output `.bin` files land in the configured `bin_dir`.
   history.  Every aggregate (per-section buckets, byte coverage,
   `function_stats`) is derived by the reader, so nothing can disagree with the
   rows it was computed from.
-- Each document is replaced whole, preserving status history. The catalog
-  analysis always runs in-process against the current project tree.
-- The document carries its own `version`; a file from another version is not
-  migrated, and a rebuild replaces it.
+- Export replaces supported snapshots as whole files. It refuses an unsupported
+  version or unimported history. See [importing history](../COVERAGE_DOCUMENT.md)
+  before retiring a snapshot.
 
 ## User Stories / Workflows
 
@@ -188,7 +188,7 @@ Output `.bin` files land in the configured `bin_dir`.
 3. `rebrew binary extract batch 20` produces 20 `.bin` files ready for the
    reversing loop.
 4. `rebrew coverage export --output snapshots/` produces `snapshots/coverage-<target>.toml`, consumed by the
-   recovery dashboard.
+   recoverage dashboard.
 
 ### Story 2: Mapping library functions to upstream source
 
@@ -214,7 +214,7 @@ Output `.bin` files land in the configured `bin_dir`.
 ### Story 4: Dashboard refresh
 
 1. CI runs `rebrew coverage export --output snapshots/ --json` on every push to main.
-2. `snapshots/coverage-<target>.toml` is uploaded as an artifact and consumed by recovery.
+2. `snapshots/coverage-<target>.toml` is uploaded as an artifact and consumed by recoverage.
 
 ## CLI Surface
 
@@ -296,9 +296,5 @@ rebrew coverage export --output snapshots/
   writes coverage documents. Discovery/intake supplies `function_structure.json`;
   its `_generated_by` filter excludes externally stamped rebrew inventories.
   `rebrew sync pull-data` fetches live Ghidra labels; `sync push` exports local fields.
-- `coverage export` writes each `coverage-<target>.toml` deterministically.  It never
-  migrates an older format: a document from another `version` contributes no
-  history and is replaced whole on the next run, so an upgrade costs a rebuild
-  and loses nothing the catalog can regenerate.
-- `rebrew binary extract show` uses capstone for x86; non-x86 targets are out of
-  scope until matching adds support.
+- `rebrew binary extract show` disassembles bytes for the configured target
+  architecture.

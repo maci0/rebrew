@@ -1,7 +1,7 @@
 # Post-Link Layout Normalization (`rebrew build postlink`)
 
-`rebrew build postlink` converges a *built* binary's layout onto a *reference*
-binary, byte-for-byte, after linking.  It exists because linkers (MSVC6's
+`rebrew build postlink` normalizes selected PE regions against a reference
+after linking. Whole-file differences can remain. Linkers (MSVC6's
 `LINK.EXE` in particular) are **not source-order-preserving assemblers for
 every section**: several parts of the output layout are determined by the
 linker's internal hash-driven processing, so a recompilation whose *content*
@@ -10,7 +10,7 @@ normalize placement and copy reference data/header regions as described
 below; resulting byte equality alone does not prove source recovery.
 
 ```
-rebrew build postlink <built.dll> <reference.dll> [--fix imports|data|pe-metadata|all] [--output out.dll]
+rebrew build postlink <built.dll> <reference.dll> [--fix imports,data] [--output out.dll]
 rebrew build postlink <built.dll> --layout layout/<target> [--fix ...]
 ```
 
@@ -57,10 +57,9 @@ reconstruct the reference from a **text-only layout package** written by
   is `0xe8` (call) or `0xe9` (jump) and must match before the site validates or
   its target is rewritten.
 
-Everything is plain text (zero binary bytes at rest) so a public checkout
-reproduces the byte-identical DLL without the original binary.  A reference
-DLL may still be passed directly; it is reduced to the same metadata in
-memory.  Regenerate the package whenever the original changes
+The text package supplies the reference regions needed for normalization.
+Passing the reference DLL directly derives the same metadata in memory.
+Regenerate the package whenever the original changes
 (`rebrew build layout --target <t>`).
 
 Older four-column `calls.txt` rows remain readable, but their unknown opcodes
@@ -182,7 +181,7 @@ idempotent and cheap, so running it on every link is fine.
 
 Postlink fixes placement the linker stamps, but the link itself must already
 be close: objects in original order, functions at their reference VAs, TU
-splits matching the original build. Five commands close that loop:
+splits matching the original build. Use the following checks and search:
 
 1. `rebrew build layout-map`: measures the reference (section geometry, .text
    gap/alignment histograms, .reloc density, IAT slot order, exports,
@@ -192,16 +191,15 @@ splits matching the original build. Five commands close that loop:
    LINK emits objects in command-line order, so this fixes function order
    for non-`/Gy` links.
 3. `rebrew build check-text-placement`: verify built .text function VAs against the
-   markers. This is the position-alignment gate postlink assumes; run it
-   before postlink, or use `rebrew verify --text` to fold it into verify.
+   markers before postlink. You can also use `rebrew verify --text`, which
+   exits 1 for missing or misplaced functions and includes their count in
+   the JSON report's `text` block.
 4. `rebrew match partitions`: deterministic TU-partition search over
    `cu-map` clusters (merge adjacent clusters sharing call/string
    evidence, split at large non-padding gaps; accept on matched bytes).
    The move when per-file flags cannot close a gap because the original
    was an amalgamated TU (MSVC6 has no `/GL`, so cross-TU inlining in the
    original means merged source).
-5. `rebrew verify --text`: the gate form of (3): exit 1 on any misplaced
-   function, with a `text` block in the `--json` report.
 
 Pipeline order: `build layout-map` (measure) → `build link-order` (order) →
 `build check-text-placement` (check) → `match partitions` (search TU splits) →

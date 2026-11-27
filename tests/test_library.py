@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+lazy from typing import IO
 
 import pytest
 from cli_json import cli_payload
@@ -334,8 +335,11 @@ class TestLibraryCli:
         assert res.exit_code != 0
         assert meta.read_text(encoding="utf-8") == bad
 
-    def test_set_writes_under_the_metadata_write_lock(self, tmp_path: Path) -> None:
+    def test_set_writes_under_the_metadata_write_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """The read-modify-write is serialized against a competing writer."""
+        import fcntl
         import threading
 
         from rebrew.utils import file_lock
@@ -343,37 +347,37 @@ class TestLibraryCli:
         lib = tmp_path / "lib"
         lib.mkdir()
         meta = lib / LIBRARY_METADATA_FILE
+        lockfile = meta.with_suffix(meta.suffix + ".lock").resolve()
         meta.write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
+        blocked = threading.Event()
+        real_flock = fcntl.flock
+        results = []
 
-        held = threading.Event()
-        release = threading.Event()
-        errors: list[BaseException] = []
+        def observe_contention(handle: IO[str], operation: int) -> None:
+            if operation == fcntl.LOCK_EX and Path(handle.name) == lockfile:
+                with pytest.raises(BlockingIOError):
+                    real_flock(handle, operation | fcntl.LOCK_NB)
+                blocked.set()
+            real_flock(handle, operation)
 
-        def _hold() -> None:
-            try:
-                with file_lock(meta.with_suffix(meta.suffix + ".lock")):
-                    held.set()
-                    release.wait(10)
-            except BaseException as exc:  # pragma: no cover - reported below
-                errors.append(exc)
-
-        holder = threading.Thread(target=_hold, daemon=True)
-        holder.start()
-        assert held.wait(10)
         writer = threading.Thread(
-            target=lambda: self._invoke("set", str(lib), "--cflags", "/O1"), daemon=True
+            target=lambda: results.append(self._invoke("set", str(lib), "--cflags", "/O1")),
+            daemon=True,
         )
-        writer.start()
         try:
-            writer.join(2)
-            assert writer.is_alive(), "set completed while another writer held the lock"
-            assert 'cflags = "/O1"' not in meta.read_text(encoding="utf-8")
+            with file_lock(lockfile):
+                monkeypatch.setattr(fcntl, "flock", observe_contention)
+                writer.start()
+                assert blocked.wait(10), "set did not contend for the library lock"
+                assert meta.read_text(encoding="utf-8") == 'toolchain = "msvc-6.0"\n'
+                meta.write_text('toolchain = "msvc-6.0-sp6"\n', encoding="utf-8")
         finally:
-            release.set()
-            holder.join(10)
-            writer.join(10)
-        assert errors == []
-        assert 'cflags = "/O1"' in meta.read_text(encoding="utf-8")
+            if writer.ident is not None:
+                writer.join(10)
+        assert not writer.is_alive()
+        (result,) = results
+        assert result.exit_code == 0, result.output
+        assert parse_library_metadata(meta) == {"toolchain": "msvc-6.0-sp6", "cflags": "/O1"}
 
 
 class TestLibraryCacheConcurrency:

@@ -519,9 +519,8 @@ def segment_mixes_kinds(segment: Segment) -> bool:
 def _rel(base: Path, raw: Any) -> Path | None:
     """Resolve a YAML path value against *base* (splat's ``base_path``).
 
-    Paths must stay inside *base*: absolute paths and ``..`` escapes are
-    refused so a hostile splat config cannot make the importer read or copy
-    arbitrary files outside the directory it was invoked from.
+    An absolute or relative path must resolve inside *base*. A path that
+    escapes through a parent segment or symlink raises ``ValueError``.
     """
     if not isinstance(raw, str) or not raw.strip():
         return None

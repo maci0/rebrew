@@ -52,7 +52,9 @@ class _Collector:
 
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_port}"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+        ).start()
 
     def named(self, name: str) -> dict[str, Any]:
         deadline = time.monotonic() + WAIT_SECONDS
@@ -69,6 +71,7 @@ def collector() -> Iterator[_Collector]:
     sink = _Collector()
     yield sink
     sink.server.shutdown()
+    sink.server.server_close()
 
 
 def _attributes(wire: dict[str, Any]) -> dict[str, Any]:

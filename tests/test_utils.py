@@ -1864,6 +1864,18 @@ class TestTruncateText:
 class TestStripBidiFormat:
     """Invisible reordering characters must not reach a status column or DOM."""
 
+    def test_ascii_text_needs_no_regex_scan(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.utils
+
+        class NoScan:
+            def search(self, value: str) -> None:
+                pytest.fail(f"scanned ASCII text: {value!r}")
+
+        assert all(not char.isascii() for char in rebrew.utils._BIDI_FORMAT_CHARS)
+        monkeypatch.setattr(rebrew.utils, "_BIDI_FORMAT_SEARCH", NoScan())
+        for value in ("", "function_name", "".join(map(chr, range(128)))):
+            assert strip_bidi_format(value) == value
+
     def test_removes_reordering_characters(self) -> None:
         assert strip_bidi_format("sub_A\u202etxt\u202c") == "sub_Atxt"
 

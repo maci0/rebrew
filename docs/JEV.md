@@ -181,7 +181,7 @@ from unstructured evidence. Do not replace `calculate_roi`.
 Same primitive as next-tool. Closed set in, one option out. Jev still
 does not write C: it names **which documented rewrite** to try.
 
-[`near_diag.py`](../src/rebrew/near_diag.py) already does the first cut
+[`near_analysis.py`](../src/rebrew/near_analysis.py) already does the first cut
 (`register` / `encoding` / `equivalent` / `structural` / `reloc`) and
 maps it to `MUTATION_SUGGESTIONS`. Jev sits one layer up: "this delta
 is *that* MSVC6 shape."
@@ -932,7 +932,7 @@ bytes.
 - A whole-binary (or whole-function) disassembly dump as Jev
   state: [§5.14](#514-disassembly-as-state).
 
-#### 5.14 Disassembly as state
+### 5.14 Disassembly as state
 
 The API will accept it. `state` is a string, JSON object, or array
 of text. A Capstone/`objdump` listing is text. That is not the
@@ -981,7 +981,7 @@ the listing path.
 Default: `rebrew toolchain detect --json` is the compiler ID.
 Jev only when that JSON already disagrees with itself.
 
-#### 5.15 jevopt and the reverse (Jev as compiler advisor, rebrew as Jev oracle)
+### 5.15 jevopt and the reverse (Jev as compiler advisor, rebrew as Jev oracle)
 
 [jevopt](https://github.com/Ramneet-Singh/jevopt) (reviewed 2026-09-21)
 is the forward direction this note deliberately avoids: a C/C++ compiler

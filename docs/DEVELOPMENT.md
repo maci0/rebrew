@@ -20,29 +20,23 @@ must never replace the Git dependency.
 
 ## Test conventions
 
-- No `conftest.py`: every test file is self-contained (inline helpers, `tmp_path`).
-- Class-based grouping (`class TestFeature:`), helpers prefixed `_`, tests
-  annotated `-> None`.
+- Follow the [test patterns](../AGENTS.md#test-patterns) for fixtures, shared
+  helpers, and naming.
 - `tests/bin_util.py` provides hand-rolled COFF/PE builders (`make_coff_obj`,
   `make_lib_archive`, `make_pe`) for tests that need controlled binary
   fixtures. Import it as `from bin_util import ...` (pytest puts the test
   directory on `sys.path`).
 
-## Typer quirks (learned the hard way)
+## Typer behavior in tests
 
 1. **Options after positionals are fine.**  Interspersed args parse normally
-   in the `@app.callback(invoke_without_command=True)` commands: both
-   `runner.invoke(app, ["0x1000", "--json"])` (`tests/test_asm_extended.py`) and
-   `["show", "0x1000", "--json"]` (`tests/test_extract_cli.py`) exit 0.  Do not
-   contort an argv list to hoist options ahead of positionals.
-2. **`main()` direct calls misbind partial kwargs.**  Prefer
-   `CliRunner().invoke(app, [...])` over calling `main(...)` directly.  Worse,
-   typer's wrapper **leaks `typer.models.OptionInfo` as the value of omitted
-   params** on direct Python calls: an `OptionInfo` is truthy and not a
-   `Path`, so `if x is not None:` and `Path(x)` misbehave.  This caused two
-   real bugs (a truthy profile-sweep option leaking into `match`'s watch
-   re-test; `rebrew init` crashing on a leaked `--link-tools-from`).
-   **Convention:**
+   in the CLI. For example, the composed app accepts
+   `["binary", "asm", "show", "0x401000", "--json"]`
+   (`tests/test_asm_extended.py`).
+2. **Use `CliRunner().invoke(app, [...])` to test CLI parsing.** A direct
+   Python call uses the function defaults verbatim. An omitted parameter
+   declared with `typer.Option(...)` receives a truthy `OptionInfo`, which
+   can break presence checks and path conversion.
    - Callbacks that unit tests invoke directly must guard every new option
      with `option_default(x, None)` from `rebrew.cli` (see `init.py`).
    - Closures that re-enter a callback (e.g. `match._retest` in watch mode)
@@ -53,9 +47,8 @@ must never replace the Git dependency.
    `CliRunner` can capture it. An explicitly supplied `file=` fixes a different
    destination. Inspect `result.stdout` for normal JSON results and
    `result.stderr` for structured errors; `result.output` combines streams.
-4. **`typer.Exit` carries no message**: `error_exit` prints it, so
-   `pytest.raises(match=...)` cannot match it.  Assert on `result.output`
-   instead.
+4. **`typer.Exit` carries no message.** Assert on the emitted diagnostic in
+   `result.stderr` or `result.output` when testing `error_exit`.
 
 ## Metadata / tomlkit gotchas
 
@@ -84,11 +77,9 @@ must never replace the Git dependency.
 
 ## Import patterns
 
-- Module-scope imports are **`lazy`** (PEP 810) unless the module reads the
-  name while loading (a decorator, base class, default value, class body, or
-  module statement) or imports only for side effects. Tests import eagerly
-  except annotation-only stdlib imports, which ruff TC rules defer with `lazy`.
-  Keep a dependency out of the static module graph with a function-local
+Follow the lazy-import and layering rules in [AGENTS.md](../AGENTS.md).
+
+- Keep a dependency out of the static module graph with a function-local
   import (`from rebrew.compiler.compile import compile_and_compare` inside
   `verify_entry`); the cycle detector reads module-scope imports, so it cannot
   see a local one.
@@ -98,16 +89,11 @@ must never replace the Git dependency.
 - `tools/detect_cycles.py` enforces no module-scope import cycles (pre-commit
   hook); a PEP 810 `lazy import` still counts.  Function bodies and
   `if TYPE_CHECKING:` guards are skipped by the detector.
-- `tools/check_layering.py` enforces import *direction*, which the cycle
-  detector cannot see: `rebrew.utils` imports no rebrew module except `rebrew.errors`
-  (`LEAF_ALLOWED_IMPORTS`; it is the leaf every module may reach for), and only the composition layer (`plugin`,
-  `builtins`, `main`, `dashboard`) may import the composition layer at module
-  scope.  A command registers itself with the umbrella inside its own
-  `register()`, and `errors` re-exports `ComponentError` under
-  `TYPE_CHECKING`, so both stay legal (pre-commit hook).
+- `tools/check_layering.py` enforces import direction. For example, `errors`
+  re-exports `ComponentError` under `TYPE_CHECKING` to avoid a runtime dependency.
 - `tools/public_surface.py` reads the public import surface out of the AST
   (no import of the package, so no optional extra is needed) and diffs it
-  against a ref: `uv run --frozen python tools/public_surface.py --diff v2.14.0` prints
+  against a ref: `uv run --frozen python tools/public_surface.py --diff <last-release-tag>` prints
   what a consumer's `from rebrew.x import y` loses.  A removed or reshaped name
   there needs a `**Breaking:**` entry naming it; see "Versioning and releases"
   in [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
@@ -160,8 +146,9 @@ published globals around every test in that module.
 
 ## Toolchain-dependent tests
 
-- `match.py`/`test.py`/`matcher/compiler.py` need the MSVC toolchain docker
-  image: covered with stubs at the pure-helper level only.
+- Matching helper and CLI tests can stub compile dependencies. Toolchain
+  round-trip tests exercise the real compile and comparison when the required
+  image is available and skip otherwise.
 - `prove.py` needs `angr` (the `prove` extra).  `make setup` (the documented
   dev install: `uv sync --locked --all-extras --group similarity`) enables the
   full prove test classes for real (the angr-gated tests in
@@ -183,21 +170,9 @@ reports them, and `make help` lists the contributor targets. Notes that live
 only here:
 
 ```bash
-make setup                              # also installs a pre-push hook that runs make test
-                                        # (needs nasm; SKIP=pytest git push to skip)
-make mypy                               # strict; 0 issues expected. Covers src/rebrew, tools and every
-                                        # tests/ module that has come clean; the rest is not yet clean
-make check                              # pre-commit hooks; pytest runs only at the pre-push stage.
-                                        # Exports NO_COLOR / TERM=dumb /
-                                        # _TYPER_FORCE_DISABLE_TERMINAL first, so a
-                                        # FORCE_COLOR or GITHUB_ACTIONS export in the
-                                        # shell cannot split the option names the
-                                        # skills and help-text hooks assert on. The
-                                        # raw pre-commit call below does not, which is
-                                        # why the make target is the documented one.
-NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-  uv run --frozen pre-commit run --all-files   # same pre-commit hooks, ANSI-safe by hand
-# Bare pytest is also ANSI-safe (pytest_ansi_env plugin); prefer make test-one.
+make setup  # installs pre-push hooks for make test and make idempotency-check
+make mypy   # checks the modules listed in pyproject.toml
+make check  # pre-commit hooks with consistent terminal settings
 ```
 
 ## Performance notes (GA scoring hot loop)

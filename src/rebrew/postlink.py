@@ -994,11 +994,12 @@ def main(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Converge the layout of built onto reference (byte-identical).
+    """Normalize the linked PE using a reference layout.
 
-    Run after linking, when the decompiled content is correct but the linker's placement (import records, .data COMDATs, PE stamps) differs from the original build.  See rebrew build postlink --help and docs/POSTLINK.md for what each fixer touches.
+    Run after linking to repair import records, data COMDAT placement, or PE stamps.
+    Remaining differences depend on the input and the fixers selected with --fix.
 
-    The reference comes from --layout (a text-only layout package, no original binary or binary blobs needed) or a reference DLL directly.
+    Pass a text-only --layout package or the reference DLL.
     """
     if not built.exists():
         error_exit(f"built binary not found: {built}", json_mode=json_output, code=EXIT_ERROR)

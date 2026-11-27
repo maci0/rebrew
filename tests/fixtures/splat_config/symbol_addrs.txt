@@ -1,5 +1,5 @@
 // Hand-written splat symbol table for tests/fixtures/splat_config/win32_app.yaml.
-// Same rich form `rebrew symbol-addrs` writes: name = 0xVA; // type:... size:...
+// Same rich form `rebrew export symbols` writes: name = 0xVA; // type:... size:...
 entrypoint = 0x00401000; // type:func size:0x13
 imp_OTHER_dll_FarProc = 0x00401020; // type:func -- import from OTHER.dll
 g_table = 0x00402000; // type:u32 size:0x10

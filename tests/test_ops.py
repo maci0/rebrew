@@ -31,7 +31,9 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, override
+lazy from collections.abc import Callable
 
 import pytest
 from bin_util import append_pe_section, le32, make_import_call_pe
@@ -3809,6 +3811,18 @@ class TestOpDeadlines:
     work not at all, so neither side knew how long an op may run.
     """
 
+    @pytest.fixture
+    def advance_op_clock(self, monkeypatch: pytest.MonkeyPatch) -> Callable[[float], None]:
+        """Advance only the in-process dispatcher clock."""
+        now = 0.0
+        monkeypatch.setattr("rebrew.ops.time", SimpleNamespace(monotonic=lambda: now))
+
+        def advance(seconds: float) -> None:
+            nonlocal now
+            now += seconds
+
+        return advance
+
     def test_a_timed_out_child_stops_a_grandchild_that_left_its_group(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -3963,7 +3977,10 @@ class TestOpDeadlines:
             call.join(WAIT_SECONDS)
 
     def test_verify_function_without_a_candidate_runs_in_process_past_its_deadline(
-        self, world: tuple[WorkerConfig, Path], monkeypatch: pytest.MonkeyPatch
+        self,
+        world: tuple[WorkerConfig, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        advance_op_clock: Callable[[float], None],
     ) -> None:
         """``rebrew test`` runs in the worker for a project source: nothing stops it at the deadline.
 
@@ -3976,11 +3993,12 @@ class TestOpDeadlines:
         monkeypatch.setitem(
             OPS, "rebrew.verify_function", dataclasses.replace(op, timeout_seconds=1)
         )
-        ran: list[float] = []
+        calls = 0
 
         def outlives_the_deadline(*args: Any, **kwargs: Any) -> dict[str, Any]:
-            time.sleep(1.5)
-            ran.append(time.monotonic())
+            nonlocal calls
+            calls += 1
+            advance_op_clock(2)
             return dict(_EXACT_VERIFY)
 
         monkeypatch.setattr("rebrew.test.run_test", outlives_the_deadline)
@@ -3991,7 +4009,7 @@ class TestOpDeadlines:
             200,
             {**_EXACT_VERIFY, "source": source, "remote_compile": NO_REMOTE_COMPILES},
         )
-        assert len(ran) == 1
+        assert calls == 1
 
     def test_a_child_command_gets_its_deadline_less_the_report_reserve(
         self, world: tuple[WorkerConfig, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4017,7 +4035,10 @@ class TestOpDeadlines:
         assert before + bound - 5 <= deadline <= time.time() + bound
 
     def test_an_import_past_its_deadline_installs_nothing(
-        self, analysed_project: tuple[WorkerConfig, Path, Path], monkeypatch: pytest.MonkeyPatch
+        self,
+        analysed_project: tuple[WorkerConfig, Path, Path],
+        monkeypatch: pytest.MonkeyPatch,
+        advance_op_clock: Callable[[float], None],
     ) -> None:
         """``import_archive`` runs in the worker and checks its deadline between steps."""
         import rebrew.metadata_transfer
@@ -4030,7 +4051,7 @@ class TestOpDeadlines:
         scope = rebrew.metadata_transfer.scope_metadata_to_module
 
         def outlives_the_deadline(*args: Any, **kwargs: Any) -> Any:
-            time.sleep(1.5)
+            advance_op_clock(2)
             return scope(*args, **kwargs)
 
         monkeypatch.setattr(

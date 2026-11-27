@@ -176,7 +176,9 @@ def test_a_retained_toolchain_rejection_is_a_verdictless_422(
 ) -> None:
     """The retained comparison runs ``rebrew test`` as a child; its rejection keeps its kind."""
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _RejectingRecompile)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     try:
         monkeypatch.setenv("REBREW_RECOMPILE_URL", f"http://127.0.0.1:{server.server_port}")

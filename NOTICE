@@ -96,9 +96,8 @@ package's files nor any modification of them; both are installed unmodified
 from their own wheels, which already carry the licence text, so the grant
 Rebrew redistributes here is the original MPL-2.0 one. The two entries are
 listed so a consumer reading ``dist/rebrew.cdx.json`` can trace that grant
-back to its origin. ``tests/test_packaging.py`` fails when the resolved
-environment holds a copyleft package missing from
-``tools/generate_sbom._COPYLEFT_EXPRESSIONS``.
+back to its origin. The packaging test checks that dependencies with grants
+requiring a notice are registered in ``tools/generate_sbom._NOTICE_EXPRESSIONS``.
 
 tzdata 2026.6
 -------------
@@ -147,7 +146,7 @@ Vendored data — recompile-toolchains toolchains.json
 ----------------------------------------------------
 
 ``src/rebrew/compiler/toolchains.json`` is the unmodified ``toolchains.json``
-of recompile-toolchains release 1.15.0 (https://github.com/maci0/recompile-toolchains,
-tag v1.15.0), the manifest the toolchain source pins come from. It is under the
+of recompile-toolchains release 1.19.1 (https://github.com/maci0/recompile-toolchains,
+tag v1.19.1), the manifest the toolchain source pins come from. It is under the
 MIT License, Copyright (c) 2026 rebrew-toolchains contributors; the license
 text is the repository's LICENSE.

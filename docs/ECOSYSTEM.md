@@ -78,9 +78,9 @@ reccmp marker blocks; a reccmp checkout needs its own compatible identities.
 
 | Boundary | How rebrew interoperates |
 |---|---|
-| Source identities | Rebrew stores qualified `MODULE.0xVA` rows in managed metadata. Optional ADDRESS comments bind C declarations; inline state and older block formats are rejected. No compatibility parser or migration command is shipped |
+| Source identities | Rebrew stores qualified `MODULE.0xVA` rows in managed metadata. Optional ADDRESS comments bind C declarations. Normal reads reject legacy marker blocks. `rebrew source consolidate` migrates reviewed format-2 Rebrew metadata. |
 | Tool equivalents | rebrew reimplements reccmp's toolset natively: `rebrew build check-exports` = `verexp`, `rebrew diagnose stack` = `stackcmp` (adapted; frames derived from disassembly on both sides instead of a recomp PDB, so it works for MSVC 6.0 whose PDBs `llvm-pdbutil` cannot read), `rebrew lint` = `decomplint`-inspired, `rebrew verify --skip-libraries` = reccmp `--nolib` |
-| Match semantics | Verify's *effective match* parity: a delta that is pure register allocation counts as 100%, matching reccmp's effective-match rule (`rebrew diagnose near` reports it as `EFFECTIVE`) |
+| Match semantics | Verify reports `effective_match` for eligible register-only differences and preserves the byte verdict and percentage. `rebrew diagnose near` reports this shape as `EFFECTIVE`. |
 | Adapted modules | Beyond the tool equivalents, four adaptations from reccmp's source (MIT) remain: pinned-sequence diffing, the jump-swap instruction-equivalence check (in `near_analysis`), and vtordisp/float-const detection; see [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) |
 | Recomp build | rebrew sources build into a reccmp-style recomp binary: `rebrew build round-trip` splices matched functions back into the PE. With `--allow-naked`, its `fenced_naked` report lists the sources the reccmp build must compile with `-DREBREW_ALLOW_NAKED=1` |
 

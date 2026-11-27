@@ -1,9 +1,11 @@
 # Rebrew Python API
 
 Install as a dependency (`uv add git+https://github.com/maci0/rebrew.git` or
-`pip install` from the same URL). Import submodules directly. The same entry
-points are also attributes of the package (`from rebrew import load_config`),
-loaded on first use, and a star-import binds them along with `__version__`:
+`pip install` from the same URL). Import from the owning submodule.
+Selected entry points, such as `load_config`, are also available from
+`rebrew` and load on first use.
+
+## Configuration, toolchains, and byte comparison
 
 ```python
 from rebrew.config import load_config
@@ -23,31 +25,22 @@ except ToolchainError as exc:
     # Branch on exc.kind / exc.name / exc.retryable, not message substrings.
     raise
 
-# The legal profile names are the registry, not a hardcoded list. TOOLCHAINS
-# maps name -> ToolchainSpec, so a consumer can enumerate and inspect them
-# with attributes rather than parsing `rebrew toolchain list` output:
 for name, spec in sorted(TOOLCHAINS.items()):
     print(name, spec.family, spec.bits, spec.obj_ext, spec.image)
-
-# `spec.withdrawn` is why a profile is not offered ("" when it is): a consumer
-# listing the registry shows it as not offered and never runs it.  rebrew
-# refuses a compile of one with `rebrew.compiler.toolchain.CompilerNotOffered`
-# (`error_code` "compiler_withdrawn"; `rebrew.errors` exports the class).
-
-# `list_toolchains()` is the other view of the same registry snapshot, one
-# dict per profile, with `origin` (packaged vs plugin) and the docker-present
-# flag on each row. Reach for it when you want those alongside the spec.
-# `rebrew toolchain list --json` prints `{"toolchains": list_toolchains(), "docker_available": <bool>}`:
-# the rows verbatim, wrapped in the envelope, so a consumer reads
-# `payload["toolchains"]` rather than parsing the table out of a list.
-
-# Byte-level matching uses the same entry as the CLI:
-#   from rebrew.compiler.compile import CompareResult, CompareStatus, compile_and_compare
-#   result = compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)
-#   result.matched / result.status / result.match_percent / result.message
-#   `status` is a `CompareStatus` ("EXACT" / "RELOC" / "NEAR_MATCHING" /
-#   "COMPILE_ERROR" / ...), so an annotation on it type-checks.
 ```
+
+`TOOLCHAINS` maps profile names to `ToolchainSpec` objects. A nonempty
+`spec.withdrawn` explains why compiling with that profile raises
+`CompilerNotOffered` with `error_code="compiler_withdrawn"`.
+
+`list_toolchains()` returns one dictionary per profile, including `origin`.
+Each row repeats the same Docker availability flag under `docker`.
+`rebrew toolchain list --json` returns this shape:
+`{"toolchains": list_toolchains(), "docker_available": <bool>}`.
+
+`compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)` returns
+a `CompareResult` with `matched`, `status` (`CompareStatus`), `match_percent`,
+and `message`.
 
 Remote compile transport, registry plugins, workspace helpers, and the GA
 matcher follow the same pattern (`rebrew.compiler.recompile_client`, `rebrew.registry`,
@@ -55,9 +48,10 @@ matcher follow the same pattern (`rebrew.compiler.recompile_client`, `rebrew.reg
 scoped contexts, and teardown are documented in the [Cordis guide](CORDIS.md);
 the [tutorial](CORDIS_TUTORIAL.md) exercises provider replacement with the public API.
 
-Every error class is importable from `rebrew.errors`, whichever submodule
-defines it. Catch the
-specific type (`ConfigError`, `RecompileError`, `McpError`, `ToolchainError`,
+## Errors and retry decisions
+
+Every error class is importable from `rebrew.errors`. Catch the specific
+type (`ConfigError`, `RecompileError`, `McpError`, `ToolchainError`,
 `RegistryError`, ...) when the recovery differs per failure, and `RebrewError`
 when it does not:
 
@@ -75,7 +69,7 @@ if result.status == "NOT_RUN" and result.error is not None:
         ...  # retry according to the caller's schedule
     else:
         ...  # report result.error.kind or ask for another profile
-# COMPILE_ERROR without a structured error means the compiler rejected the source.
+# For COMPILE_ERROR without a structured error, read result.message.
 ```
 
 Persisting that result keeps the decision: `CompareResult.to_dict()` writes
@@ -91,6 +85,8 @@ only `RebrewError`. The structured fields `kind`, `name`, `status_code` and
 `group` are declared on that base too, so one `except RebrewError` can read
 them without `getattr`; a field the arriving error does not fill is `None`,
 and a serialized error leaves it out.
+
+## HTTP clients and test doubles
 
 The clients that talk to a service take the HTTP client as an argument, so
 your tests never need a live one. `HttpClient` (from `rebrew.compiler.recompile_client`
@@ -137,64 +133,41 @@ class FakeService:
 
 
 result = compile_source(
-    "http://localhost:8080",  # base URL
+    "https://recompile.example.invalid",  # base URL
     "msvc-6.0",  # compiler
     "int f(void) { return 0; }",  # source
     ["/O2"],  # flags: a str is split on whitespace
     client=FakeService(),
 )
 print(result.ok, result.obj_bytes, result.log, result.compiler_version)
-
-# No client means rebrew creates and closes one httpx.Client per attempt.
-# `retries=N` re-attempts failures the answer table marks retryable, with
-# exponential backoff and at least a reply's `Retry-After`; `retries=0` still
-# allows capacity/throttle waits until `deadline=`, or 300 seconds without one.
-# `RecompileError.kind` is "network" / "http" / "validation" / "protocol" /
-# "service" / "deadline" (not sent: no time before the deadline), and
-# `status_code` is set for the "http" ones. `gate=ServiceGate(n)` bounds
-# concurrent attempts and applies a shared `Retry-After` hold-off.
-# A failed compile reply is read by its `error_code`:
-# "toolchain_failure" is `result.ok == False` with the compiler log; the
-# service's own failures raise kind "service" carrying that `error_code`
-# (retryable for capacity, runner_unavailable and publish_failed; timeout and
-# provenance_unavailable are final). A reply without a known `error_code` is
-# "protocol", resent under the same key like a lost reply.
-# An HTTP refusal carries the body's `code` in `error_code` (recompile 11
-# answers `{"detail", "code"}`); a code saying the key can never yield a result
-# and billed nothing in every recompile release (`admission_abandoned`,
-# `admission_expired`) is retried
-# under a new key. `RecompileError.cost` is what the call's last key cost:
-# "billed" (billed and no verdict reached the call: the download failed after
-# ok, or billed_not_delivered, retained_output_unavailable, artifact_expired),
-# "unknown" (it may have been billed and no answer said), or "free".
-# Every `RecompileError` is no verdict on the source (`compile_and_compare`
-# reads it as NOT_RUN); the toolchain's verdict is `result.ok == False`.
-# `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not
-# the object bytes) the way `CompareResult` does.
-#
-# `includes={"inc/a.h": text, ...}` and `source_dir="src"` send an include
-# bundle: the service writes the headers at those paths and compiles the
-# source in `source_dir`. Before the first POST the client reads the
-# service's `GET /api/v1/features` (a stand-in answers it on `.get` too) and
-# raises kind "validation" unless it lists "include-bundles";
-# `accepts_include_bundles(base_url, client=...)` asks the same question.
-#
-# `installed_compilers(base_url, client=...)` reads `GET /api/v1/compilers`:
-# the ids whose `execution_status` is "admitted", or None when no row is
-# (recompile before 13) or the route answers 404. `compile_source` does not
-# read it; a compiler the deployment has not installed is refused by the
-# service, HTTP 400 with `error_code` "compiler_not_installed", unbilled.
-#
-# `rebrew.decompme`'s `upload_scratch` also accepts `client=` and `retries=N`,
-# with the same backoff helper (`retry_backoff_delay` in `rebrew.utils`).
-# Its retry policy is narrower: connect-stage failures and HTTP
-# 408/425/429/503 can retry; read timeouts and HTTP 500/502/504 do not,
-# because a public scratch may already have been created.
-# Its `payload` is what `build_scratch_payload` returns (a `data` form mapping
-# and a `files` multipart mapping); both keys are checked before
-# the request is built, so a payload you assembled wrongly arrives as
-# `kind="validation"`, not as a network failure a retry could chase.
 ```
+
+`compile_source` creates and closes a client per attempt when no client is
+supplied. A shared `ServiceGate(n)` bounds concurrency and applies the
+service's `Retry-After` hold-off. Capacity, runner-unavailable, and throttle waits are bounded
+by `deadline`, or 300 seconds without one. The `retries` count applies to
+other retryable failures. See [remote compile behavior](TOOLCHAIN.md#compile-backends).
+
+A toolchain failure returns `result.ok == False` with the compiler log.
+A service or transport failure raises `RecompileError` without a byte
+verdict. `compile_and_compare` maps that outcome to `NOT_RUN`. Read
+`kind`, `status_code` (HTTP errors), `error_code`, `retry_after`, and
+`cost` (`free`, `billed`, or `unknown`) for retry and billing decisions.
+`result.to_dict()` and `RecompileResult.from_dict()` preserve the verdict
+without the object bytes.
+
+Passing `includes` or `source_dir` requires the service to advertise
+`include-bundles` at `GET /api/v1/features`. A test client must provide
+that response too. `accepts_include_bundles()` checks the same capability.
+`installed_compilers()` reads the admitted compiler IDs from
+`GET /api/v1/compilers` and returns `None` for an unsupported listing.
+The compiler itself can still be refused with `compiler_not_installed`.
+
+`rebrew.decompme.upload_scratch` accepts a test client and a retry count.
+Build its `data` and `files` mappings with `build_scratch_payload`.
+Invalid mappings fail validation before a request. Connect-stage errors
+and HTTP 408, 425, 429, or 503 may retry. Read timeouts and HTTP 500,
+502, or 504 are final because the first request may have created a scratch.
 
 The ReVa MCP client (`rebrew.ghidra`, the transport for
 `rebrew sync create-functions`, `bookmarks`, and `pull-data`) injects
@@ -209,10 +182,12 @@ added, over a `_Reply` that also carries `headers` and `raise_for_status()`.
 (probed via `close_response`), so a stand-in holding no connection to release
 is still a valid answer; only the `decompme` protocol requires `close()`.
 
+## Retained snapshots and worker servers
+
 An engine that serves retained requests beside rebrew (recoverage's coverage
 ops) stages each request's snapshot as rebrew's own retained ops do, with these
-three names from the op worker `rebrew.ops`, and serves its ops over HTTP with a
-fourth, `OpsServer`; the rest of that module is the worker's own:
+helpers from `rebrew.ops`. This fragment takes the filestore, workspace, and
+manifest from the caller.
 
 ```python
 from rebrew.config import load_config
@@ -238,26 +213,26 @@ not one local backend, and a snapshot without its inventory and function
 metadata; a block that ends without an exception is refused when it changed
 the binary or a staged file.
 
-`OpsServer(address, config, token, concurrency, allowed_hosts, *, ops=..., answer=...)`
+`OpsServer(address, config, token, concurrency, allowed_hosts=frozenset(), *, ops=..., answer=...)`
 is rebrew's op server (a `ThreadingHTTPServer`: bearer *token*, Host allow-list,
 *concurrency* slots, `/health` and `/metrics`, progress streams, cancellation when
 the caller leaves). *answer* answers every `POST /<name>`: called with *config*,
 the name and the body, it returns `(status, reply bytes)`. *ops* is the names it
 serves: they bound the per-op metrics (`op="/<name>"`, any other name
-`/unknown`) and the server span names. An authenticated `GET` or `HEAD` on
+`/unknown`) and the server span names. `ops` and `answer` default to Rebrew's
+op table and dispatcher. An authenticated `GET` or `HEAD` on
 `/health` and `/metrics` returns 200; other methods on those paths return 405.
 A non-POST request to a served op returns 405 `Allow: POST`; any other path
-returns 404 `unknown-op`. Both default to
-rebrew's own op table and dispatcher:
+returns 404 `unknown-op`. This fragment uses the caller's token,
+workspace, filestore, operation table, and dispatcher.
 
 ```python
+import signal
+
 from rebrew.ops import OpsServer, WorkerConfig
 
-def answer(config: WorkerConfig, name: str, body: bytes) -> tuple[int, bytes]:
-    ...  # the engine's dispatcher: 404 for a name it does not serve
-
-server = OpsServer(("127.0.0.1", 0), WorkerConfig(filestore, workspace), token, 4,
-                   ops=ENGINE_OPS, answer=answer)
+config = WorkerConfig(filestore=filestore, workspace=workspace)
+server = OpsServer(("127.0.0.1", 0), config, token, 4, ops=ENGINE_OPS, answer=engine_dispatcher)
 signal.signal(signal.SIGTERM, lambda _signum, _frame: server.request_stop())
 try:
     server.serve_forever()
@@ -266,8 +241,8 @@ finally:
     left = server.drain(30)  # the calls still in flight after 30 s; 0 once all answered
 ```
 
-The graceful stop is these two calls and nothing else of the server's state.
-`request_stop()` refuses every new call 503 `worker-busy` and ends
+Use `request_stop()` and `drain()` for graceful shutdown.
+`request_stop()` refuses new operation admissions with 503 `worker-busy` and ends
 `serve_forever()` from its own thread, so it is safe in a signal handler; a second
 call changes nothing. `drain(timeout)` refuses new calls the same way, waits up to
 *timeout* seconds for the calls in flight to answer, and returns how many are

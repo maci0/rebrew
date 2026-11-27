@@ -294,14 +294,15 @@ workflows, and limitations.
 
 - **Gap:** Status reports STATUS from `rebrew-functions.toml`, but if a user has
   inline STATUS markers (legacy), they will not match the displayed value.
-- **Evidence:** `src/rebrew/status.py` and `src/rebrew/lint.py` W019 warning for
+- **Evidence in original audit:** `src/rebrew/status.py` and `src/rebrew/lint.py` W019 warning for
   inline metadata.
-- **Severity:** enhancement (fixed)
-- **Fixed:** the behavior named here is not in the tree. `src/rebrew/status.py`
+- **Disposition:** superseded by ADR-030.
+- **Interim finding (August 2026):** `src/rebrew/status.py`
   does not scan for inline STATUS comments, and `src/rebrew/lint.py` has no
   W019 finding. The gap (a status run that warns about leftover inline
-  markers) is open again.
-- **Suggested fix:** When `rebrew status` is invoked, run a quick lint
+  markers) was reopened at that point.
+  Current lint reports inline state as E024.
+- **Original proposal:** When `rebrew status` is invoked, run a quick lint
   (W019) and print a hint if inline metadata is present anywhere in the project.
 
 ### Gap: `rebrew source graph` does not surface function-pointer call edges
@@ -414,7 +415,7 @@ workflows, and limitations.
   `sync` epilog now states the split plainly: field sync (names, comments,
   prototypes, structs, globals) is BinSync-primary and travels through the
   state dir; MCP is for the structural ops. There is no offline mode to
-> document.
+  document.
 
 ### Gap: `rebrew binsync export` is one-way _(fixed)_
 
@@ -523,7 +524,7 @@ workflows, and limitations.
 - **Gap:** `docs/CONFIG.md:286` lists `compiler_command` in the "what each tool
   reads" matrix. The actual TOML key is `compiler.command` (dotted) and the
   ProjectConfig attribute is `compiler_command`. Newcomers reading CONFIG.md may
-  try `rebrew cfg set compiler_command"wine CL.EXE"` and fail.
+  try `rebrew cfg set compiler_command "wine CL.EXE"` and fail.
 - **Evidence:** `docs/CONFIG.md:286`, `src/rebrew/config.py:134`,
   `src/rebrew/cfg.py:192` (uses dotted form in example).
 - **Severity:** nit (fixed)
@@ -550,8 +551,8 @@ workflows, and limitations.
 Distinct gaps (deduplicated across PRDs), as of the 2026-08 refresh:
 
 - blockers: 3; all FIXED (0 open)
-- enhancements: 16; 12 still match the code, 1 reopened (status no longer
-  warns about inline markers), 3 resolved by redesign
+- enhancements: 16; 12 matched the code, 1 reopened at that review and was
+  later superseded by ADR-030, and 3 were resolved by redesign
 - nits: 14; the behaviors still match, several quoted help strings do not
 
 (The "MCP endpoint disagreement" gap is cited in PRDs 03, 07, and 08 but is

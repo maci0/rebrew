@@ -63,7 +63,7 @@ GO_VERSION ?= 1.27.3
 # Match the CI bun pin (.github/workflows/ci.yml bun-version). Presence is
 # hard for `make test`, version drift only warns, like uv above.
 BUN_VERSION ?= 1.4.4
-# Rust toolchain pin for the python-flirt sdist build (README Development).
+# Rust toolchain pin for the python-flirt sdist build (see CONTRIBUTING.md).
 # Keep in step with rust-toolchain.toml at the repo root; `ensure-rust`
 # warns (never hard-fails) on drift, like the uv/bun checks, so a newer
 # toolchain that still builds the sdist does not block `make setup`.
@@ -353,7 +353,7 @@ ensure-jpype-build:
 	  echo "The binsync extra (declib -> pyghidra -> jpype1, sdist-only in uv.lock) is in --all-extras,"; \
 	  echo "so 'make setup' needs a JDK and Apache Ant before uv sync can build it."; \
 	  echo "Install them, then re-run: e.g. apt install default-jdk ant build-essential / pacman -S jdk-openjdk ant make / dnf install java-21-openjdk-devel ant make"; \
-	  echo "Or sync without the binsync extra: make setup UV_SYNC_FLAGS='--locked --group similarity'"; \
+	  echo "Or sync without the binsync extra: uv sync --locked --group similarity"; \
 	  exit 1; \
 	fi; \
 	jdk_ver=$$(javac -version 2>&1 | sed 's/^javac //;s/\..*//'); \
@@ -391,21 +391,21 @@ ensure-go:
 	  echo "WARNING: services/jobs/go.mod declares go $$mod_go but Makefile GO_VERSION=$(GO_VERSION); one of them drifted."; \
 	fi
 
-# `rebrew vendor` / `rebrew library vendor` shells out to GNU patch to apply
+# `rebrew library vendor` shells out to GNU patch to apply
 # pinned patches, and tests/test_vendor.py exercises the real binary.  CI
 # installs patch in the test job; without it the suite fails inside the
 # vendor tests.  Hard gate for `make test` / `make coverage`, doctor entry.
 warn-patch:
 	@set -eu; \
 	if ! command -v patch >/dev/null 2>&1; then \
-	  echo "WARNING: GNU patch not on PATH (required for the vendor tests and 'rebrew library vendor', same as CI; the vendor tests fail without it)."; \
+	  echo "WARNING: GNU patch not on PATH. The vendor tests and 'rebrew library vendor' require it."; \
 	  echo "Install it before running the full suite: e.g. apt install patch / pacman -S patch / dnf install patch"; \
 	fi
 
 ensure-patch:
 	@set -eu; \
 	if ! command -v patch >/dev/null 2>&1; then \
-	  echo "ERROR: GNU patch not on PATH (required for the vendor tests and 'rebrew library vendor', same as CI)."; \
+	  echo "ERROR: GNU patch not on PATH. The vendor tests and 'rebrew library vendor' require it."; \
 	  echo "Install it, then re-run: e.g. apt install patch / pacman -S patch / dnf install patch"; \
 	  exit 1; \
 	fi
@@ -413,14 +413,14 @@ ensure-patch:
 # python-flirt ships sdist-only in uv.lock (a direct URL tarball with no
 # wheels), so `make setup` builds it from source and needs a Rust toolchain
 # (qualified with Rust $(RUST_VERSION) and maturin $(MATURIN_VERSION) —
-# README Development).  Without cargo the build fails inside the maturin
+# CONTRIBUTING.md). Without cargo the build fails inside the maturin
 # invoke with an unactionable error, so gate it here like the JPype build
 # above.  Presence is hard; version drift only warns (like uv/bun), so a
 # newer toolchain that still builds the sdist does not block `make setup`.
 ensure-rust:
 	@set -eu; \
 	if ! command -v cargo >/dev/null 2>&1 || ! command -v rustc >/dev/null 2>&1; then \
-	  echo "ERROR: Rust toolchain (cargo + rustc) not on PATH (required to build python-flirt from sdist on 'make setup', same as README Development)."; \
+	  echo "ERROR: Rust toolchain (cargo + rustc) not on PATH. 'make setup' needs it to build python-flirt from source."; \
 	  echo "python-flirt ships sdist-only in uv.lock, so uv sync compiles it with maturin and needs cargo."; \
 	  echo "Install Rust $(RUST_VERSION) + maturin $(MATURIN_VERSION), then re-run: e.g. rustup toolchain install $(RUST_VERSION) / pacman -S rust"; \
 	  exit 1; \
@@ -572,7 +572,7 @@ add-dep: warn-uv-version
 	if [ -z "$(ADD_DEP_SPEC)" ]; then \
 	  echo "usage: make add-dep ADD_DEP_SPEC='<package-spec>'"; \
 	  echo "  e.g. make add-dep ADD_DEP_SPEC='rapidfuzz'"; \
-	  echo "       make add-dep ADD_DEP_SPEC='--optional dev pytest-timeout'"; \
+	  echo "       make add-dep ADD_DEP_SPEC='--dev pytest-timeout'"; \
 	  echo "Wraps 'uv add', which writes pyproject.toml and uv.lock together."; \
 	  exit 2; \
 	fi
@@ -1306,8 +1306,8 @@ gen-skills-check: ensure-uv
 # this one reads a remote repository, so it is a maintainer target: it needs
 # network, and it is deliberately not in `make all` or any CI job.  Upstream is
 # a branch, so a bare run follows whatever decomp.me pushed last; FLAGS_REF
-# pins the ref to sync from, and SOURCE_DATE_EPOCH pins the generated header's
-# `Synced:` date so a re-sync of one commit is byte-identical.
+# pins the upstream ref. Export SOURCE_DATE_EPOCH to set the generated
+# `Synced:` date reproducibly.
 FLAGS_REF ?=
 gen-flags: ensure-uv
 	uv run --frozen python tools/sync_decomp_flags.py $(if $(FLAGS_REF),--ref $(FLAGS_REF),)
@@ -1363,6 +1363,6 @@ audit: ensure-resembl ensure-uv
 # The checks live in tools/release_check.py: the version comes out of the
 # package and the changelog sections are parsed, which a POSIX-sh recipe could
 # only reach with an inline interpreter call and a chain of awk/grep.  One
-# language per command, and a failure names a file and a line.
+# language per command. The checker reports the reason for each failure.
 release-check: ensure-uv
 	uv run --frozen python tools/release_check.py

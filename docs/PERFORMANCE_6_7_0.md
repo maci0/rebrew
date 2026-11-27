@@ -4,7 +4,7 @@ Fifty further independent hot-path reviews (051–100) covered 187 synthetic
 load/cache/shape cases against v6.6.0 (`6b78453d`). Each review includes a
 runnable benchmark, raw CPU/wall samples, output checks and a separate profile.
 The supplemental experiment archive preserves that baseline evidence. This
-release fixes all three reported correctness findings and implements the five
+release fixes both reported correctness findings and implements the five
 profiled performance follow-ups. A profile alone was not treated as a speedup.
 
 ## Correctness

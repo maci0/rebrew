@@ -11,6 +11,17 @@
 - `rebrew build warm-sessions -- COMMAND` runs a build command so that its `rebrew build driver cl|link|lib` runs on the `unshare` backend reuse long-lived sandboxes. Each sandbox starts a persistent wineserver and boots its Wine session once, instead of every run booting wineserver, `wineboot --init`, services, explorer, plugplay and device hosts in a fresh sandbox. Runs share a sandbox only when image, project root, mounts and environment are equal; each sandbox runs one tool at a time with its own Wine prefix overlay, at most `--workers` at once. A run past its timeout kills its sandbox, and every sandbox ends with the command or with the wrapper's process. Objects are byte-identical to fresh-sandbox output. On 50 sources of a VC6 game (medians of 5 interleaved runs on a loaded 32-core host), a compile took 0.26 s instead of 0.48 s serially and 0.30 s instead of 0.58 s with 8 jobs, and the 8-job run took 2.2 s instead of 3.9 s. Most of the rest is the driver's Python start-up.
 - `rebrew.catalog.scan_reversed_dir(..., similarity=False)` skips checking each stored comparison score against its compile inputs; the bindings carry no `similarity`.
 
+## [6.86.0] - 2026-11-27
+
+### Changed
+
+- Reuse coverage row ordering across dashboard requests and reduce per-row search work.
+- Skip detail reads for completed and parked functions during todo ranking.
+- Reuse one copy buffer when hashing or snapshotting a jobs workspace.
+- Skip Unicode formatting scans for ASCII dashboard text.
+- Share binary analysis fixtures and replace fixed waits in deadline and lock tests.
+- Refresh contributor documentation and command references.
+
 ## [6.85.0] - 2026-11-27
 
 ### Added

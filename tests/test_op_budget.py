@@ -22,29 +22,22 @@ import hashlib
 import io
 import json
 import os
-import shutil
 import sqlite3
 import subprocess
 from collections import Counter
-from pathlib import Path
 from typing import Any
 lazy from collections.abc import Callable
+lazy from pathlib import Path
 
 import pytest
-from session_cache import build_once
+from test_ops import ENTRY_SIZE, ENTRY_VA, KEY, SHA256, _copy_analysed
+from test_ops import fresh_analysis as fresh_analysis
 
 import rebrew.catalog.loaders
 import rebrew.formats.binary_loader
 import rebrew.metadata.bindings
 import rebrew.ops
 from rebrew.ops import WorkerConfig, dispatch
-
-FIXTURES = Path(__file__).parent / "fixtures"
-BINARY = FIXTURES / "mini_pe.exe"
-SHA256 = hashlib.sha256(BINARY.read_bytes()).hexdigest()
-KEY = f"binaries/{SHA256}"
-ENTRY_VA = 0x401000
-ENTRY_SIZE = 11
 
 #: The least one call can do of each counted kind.
 FLOOR = {
@@ -95,34 +88,17 @@ OPENS = {
 }
 
 
-def _analysed(root: Path) -> dict[str, Any]:
-    root = root.resolve()
-    filestore, workspace = root / "files", root / "workspace"
-    (filestore / "binaries").mkdir(parents=True)
-    shutil.copyfile(BINARY, filestore / KEY)
-    workspace.mkdir()
-    request = {"binary_id": 1, "sha256": SHA256, "name": "mini.exe", "file_key": KEY}
-    status, body = dispatch(
-        WorkerConfig(filestore, workspace), "rebrew.analyse", json.dumps(request).encode()
-    )
-    assert status == 200, body
-    reply: dict[str, Any] = json.loads(body)
-    return reply
-
-
 @pytest.fixture(scope="module")
-def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, dict[str, Any]]:
+def world(
+    tmp_path_factory: pytest.TempPathFactory, fresh_analysis: tuple[Path, dict[str, Any]]
+) -> tuple[WorkerConfig, dict[str, Any]]:
     """A worker over a copy of one analysis, and the cases' requests."""
     from rebrew.coverage_input_contract import coverage_input_digest, plan_coverage_readset
     from rebrew.ops import RetainedFile, retained_target_snapshot
 
-    built, reply = build_once(tmp_path_factory, "op-budget-analysis", _analysed)
-    root = tmp_path_factory.mktemp("op-budget")
-    shutil.copytree(built, root, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".rebrew"))
-    root = root.resolve()
-    config = WorkerConfig(root / "files", root / "workspace")
-    project = root / Path(reply["project"]).relative_to(built.resolve())
-    capture = reply["analysis_capture"]
+    config, project = _copy_analysed(fresh_analysis, tmp_path_factory.mktemp("op-budget"))
+    assert config.filestore is not None
+    capture = fresh_analysis[1]["analysis_capture"]
     sources = {e["path"] for e in capture["entries"] if e.get("role") == "source"}
     files = []
     for entry in capture["entries"]:
@@ -130,7 +106,7 @@ def world(tmp_path_factory: pytest.TempPathFactory) -> tuple[WorkerConfig, dict[
             continue
         data = base64.b64decode(entry["data"])
         digest = hashlib.sha256(data).hexdigest()
-        (root / "files" / "binaries" / digest).write_bytes(data)
+        (config.filestore / "binaries" / digest).write_bytes(data)
         files.append(
             {
                 "path": entry["path"],

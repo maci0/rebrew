@@ -193,7 +193,7 @@ covers lifecycle, committed views, confinement, and failure behavior.
 | `CoeffectScope(ctx)` | Attach a reactive scope and track its close on `ctx`. A disposed or unloading context rejects attachment. |
 | `scope.add(component) -> None` | Reserve declared provisions and register the component; activate when satisfied. `component.apply` must be synchronous; async callables or awaitable returns raise `ComponentError`. Adding to a closed scope has no effect. |
 | `scope.remove(component) -> None` | Retire the first registration with that exact component object. An absent registration has no effect. |
-| `scope.unresolved() -> list[Component]` | Return registered components without active effects. Failed and retired registrations are absent. |
+| `scope.unresolved() -> list[Component]` | Return registered components without active effects. A cleanup failure may leave an entry for diagnosis. |
 | `scope.close() -> None` | Retire registrations and drain cleanup. Success is idempotent; cleanup failure fences the scope and repeated close reports `ComponentError` without retrying inverses. |
 | `activate(components, ctx) -> CoeffectScope` | Register a startup group, settling dependencies after registration. Failure closes this new scope. |
 

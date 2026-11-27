@@ -25,15 +25,12 @@ failure does not enable a raw-byte scan. Absolute `disp16` and far `ptr16:16`
 operands also use decoded instruction positions.
 `rebrew.formats.omf16.code_relocs(code, start, end)` returns these slots for
 `code[start:end]` as offsets relative to `start`, each mapped to `"rel16"`,
-`"disp16"` or `"far16"`. The dated updates below retain
-historical observations and labels; their raw `e8`/`e9` scan descriptions are
-superseded by this contract.
+`"disp16"` or `"far16"`.
 
 Record = `[type:1][length:2 LE][data]`. Advance = `3 + length`.
 
-The length includes the checksum byte and uses all 16 bits.
 `omf16._record_len` requires the declared body to fit. A zero checksum byte
-can mean the checksum is unused; bit 15 is not a checksum flag.
+can mean the checksum is unused.
 
 Record names below come from the vendored objconv dump (`-dfhsrn`).
 The minimal parser uses selected byte layouts and heuristics rather than

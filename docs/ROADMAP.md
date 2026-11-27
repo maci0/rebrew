@@ -52,15 +52,14 @@ first-class proof target, with PPC/ARM as the follow-on set.
 | Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `formats/pe_headers.py` | PE-specific: N/A for ELF targets (gate or ELF equivalents later) |
 | Known arches | `doctor.py::_KNOWN_ARCHES` | done: all ten presets |
 
-## Phase 0: Arch plumbing foundation: DONE
+## Phase 0: Core architecture milestone shipped
 
 Small, behavior-neutral; unblocks every later phase. Exit was met: full suite
 green, **zero change to x86 behavior**.
 
 > The tracked checklist for this phase is §6, "Phase 0: Foundation: decouple
-> the x86 assumption" (all items checked); the list below is the design
-> rationale behind it, kept because it names the per-arch tables each item
-> had to produce.
+> the x86 assumption". It records the broader proposal and remaining work.
+> The list below gives the design rationale and the affected per-arch tables.
 
 1. `config.py`: add `mips32` (CS_ARCH_MIPS + CS_MODE_MIPS32, ptr 4, padding
    `[0x00]`), `mips64`, `ppc32` (CS_ARCH_PPC + CS_MODE_32), `ppc64`, `sh2`
@@ -344,9 +343,8 @@ This is why console matching communities ended up recreating Rebrew's loop with 
 
 Grouped by the four seams that need work.  Ordered by dependency (1 → 4).
 
-> Pre-work inventory.  For what has since landed, read the "Arch-specific
-> surfaces" table under "Current state (grounded audit)" and the §6 Phase 0
-> checklist; those carry the current state, this section carries the detail.
+> The inventory and the "State at the original audit" table record the starting
+> point. See the §6 Phase 0 checklist for shipped work.
 
 ### 5.1 Architecture Presets & Disassembly (`config.py`, `scoring.py`, `asm.py`)
 
@@ -372,7 +370,7 @@ Grouped by the four seams that need work.  Ordered by dependency (1 → 4).
 | Gap | Current | Needed |
 |-----|---------|--------|
 | **Heuristics are PE/MZ-only** | `detect_toolchain` looks for `.buildid`, `msvcrt.dll`, Borland sections, MSVC nops, GNU ld signals. | Add console heuristics: PS-EXE magic / `Sony Computer Entertainment` strings / `libgte` markers; N64 `81000000` IPL3 + `libultra` symbols; DOL `00 00 00` entry-at-0 + `Metrowerks` string; SH `SH2`/`SH4` machine type in ELF `e_machine` (`0x2A`/`0x2C`) + `Hitachi`/`Renesas` strings. |
-| **PC profile zoo is complete for its era** | 335 profiles (`rebrew toolchain list`): the PC-era lines `msvc-1.0` through `msvc-11.0` with SP variants (37 `msvc-*` entries, counting `msvc-12.0-u4` and two `msvc-ppc-*`), `borland-2.0`/`3.1`/`5.5`/`5.6`, `watcom-2.0-win32`/`-win16`, `delphi-1.0`, `gcc-12.3.0`/`14.2.0`/`16.2.0`, `clang-16.0.4`/`18.1.8`/`23.1.4`, `mingw-14.2.0`/`16.2.0`, `ido-5.3`/`7.1`; console lines `gcc-*-mipsel`/`-psx` (with `-maspsx` variants), `ee-gcc-2.9`/`2.95`/`3.2`, `mwcc-2.3.3`/`2.4.2`/`4.1`, `psyq-*`, `devkit*` and more (152 console-family entries by the same grep: `mwcc|ee-gcc|psyq|gcc-2|gcc-.*mipsel`); each with a docker image + smoke gate (`borland-2.0` is the one known golden mismatch; see `docs/TOOLCHAIN.md`); `rebrew match flags` needs a registered flag set, which most console profiles lack. | Add console profiles not yet shipped: `cw_gc` (CodeWarrior GC 1.0–2.7 aliases; `mwcc-*` ships instead), `sh-elf-gcc` (`sh2`/`sh4` variants), `shc` (Hitachi), `xbe` (msvc-6.0 alias), `psp-gcc`. Each maps to a `FlagSet`/`Checkbox` list in `flag_data.py` (sync from `decompme/compilers` repo + community flag docs). |
+| **PC profile zoo is complete for its era** | 335 profiles (`rebrew toolchain list`): the PC-era lines `msvc-1.0` through `msvc-11.0` with SP variants (37 `msvc-*` entries, counting `msvc-12.0-u4` and two `msvc-ppc-*`), `borland-2.0`/`3.1`/`5.5`/`5.6`, `watcom-2.0-win32`/`-win16`, `delphi-1.0`, `gcc-12.3.0`/`14.2.0`/`16.2.0`, `clang-16.0.4`/`18.1.8`/`23.1.4`, `mingw-14.2.0`/`16.2.0`, `ido-5.3`/`7.1`; console lines `gcc-*-mipsel`/`-psx` (with `-maspsx` variants), `ee-gcc-2.9`/`2.95`/`3.2`, `mwcc-2.3.3`/`2.4.2`/`4.1`, `psyq-*`, `devkit*` and more (152 console-family entries by the same grep: `mwcc\|ee-gcc\|psyq\|gcc-2\|gcc-.*mipsel`); each with a docker image + smoke gate (`borland-2.0` is the one known golden mismatch; see `docs/TOOLCHAIN.md`); `rebrew match flags` needs a registered flag set, which most console profiles lack. | Add console profiles not yet shipped: `cw_gc` (CodeWarrior GC 1.0–2.7 aliases; `mwcc-*` ships instead), `sh-elf-gcc` (`sh2`/`sh4` variants), `shc` (Hitachi), `xbe` (msvc-6.0 alias), `psp-gcc`. Each maps to a `FlagSet`/`Checkbox` list in `flag_data.py` (sync from `decompme/compilers` repo + community flag docs). |
 | **Flag sync is decomp.me-only** | `tools/sync_decomp_flags.py` pulls from `messi/decomp.me`. | Console flag sets already live in `decomp.me` (`platforms/mwcc`, `platforms/ido`, `platforms/ps1`). Extend sync to pull `mwcc`/`ido` axes. Watcom `wcc386` already under research (`docs/OMF_NOTES.md`). |
 | **No overlay linker scripts** | Round-trip assumes PE header patching. | Console round-trip is `ld -T script.ld` with overlay ldscripts (N64) / DOL params / scramble step. `round_trip.py` needs a linker-script mode (emit `*.ld`, invoke `ld.lld`/`sh-elf-ld`, then ROM/DOL builder). |
 | **Wine runner pattern is Windows-only** | MSVC6 runs as `wine CL.EXE`; `wcc386` same. | Console toolchains are *also* Windows IRIX-hosted cross compilers (`mwcceppc.exe`, `ccpsx.exe`, `shc.exe`, IDO `cc` on IRIX). Same Wine/wibo pattern works for CodeWarrior + PsyQ + SHC. IDO needs IRIX emulation (or Docker `ido-static-recomp` which ships Linux-native recompiled IDO binaries; preferred). |
@@ -441,7 +439,7 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 - [ ] **0.2 ISA-dispatched reloc heuristics** (`matcher/scoring.py`, ADR-005 analogue): turn the x86-32 `_zero_reloc_fields` into a per-ISA dispatch; add MIPS/PPC/SH stubs that at minimum zero `jal`/`bl`/`bsr` targets (prove with tiny obj fixtures). Improve over time: typed relocs already bypass this, so scope is "fallback only". *Still open: `_zero_reloc_fields` in `scoring.py` reads x86 opcodes and `X86_OP_MEM` directly.*
 - [ ] **0.3 Mutator tagging**: add `arch` tag, mark x86-only mutations, filter in GA when `cfg.arch` != x86.
 - [ ] **0.4 `format` registry + `supported_formats`** (`config.py` `KNOWN_FORMATS`, `formats/binary_loader.py`, ADR-001 `is_ne` pattern): expand `KNOWN_FORMATS` and `load_binary`'s `fmt` param to include `psexe/n64rom/dol/rel/xbe/prx/saturnbin`; add string `is_*` helpers alongside `is_ne`. **Do not** inline container parsers: each format gets a native loader module (`rebrew/psexe_loader.py`, `n64rom_loader.py`, `dol_loader.py`, `gdrom_loader.py`) that synthesizes `BinaryInfo`/`SectionInfo` with stable synthetic VAs (ADR-001), imported by `formats/binary_loader.py` like `ne_loader` (ARCHITECTURE.md seam).
-- [ ] **0.5 Toolchain spec stubs** (`rebrew/compiler/toolchain.py`, ADR-006): reserve `ToolchainSpec` entries + `<family>/<version>-<arch>/Dockerfile` placeholders in the recompile-toolchains checkout for `ido53/71`, `cw_gc`, `sh-elf-gcc`, `psyq` (proxy), `ee-gcc` so every later phase is "fill the Dockerfile + flag axes" rather than new runner glue. *Partly landed: `ido-5.3` and `ido-7.1` ship (ADR-017 names); `cw_gc`, `sh-elf-gcc`, `psyq`, `ee-gcc` do not exist yet.* The host-fallback clause this item assumed is **withdrawn**; [ADR-008](adr/008-docker-only-execution.md) makes execution docker-only, so a cross toolchain needs an image, not a PATH binary.
+- [ ] **0.5 Toolchain spec stubs** (`rebrew/compiler/toolchain.py`, ADR-006): reserve `ToolchainSpec` entries + `<family>/<version>-<arch>/Dockerfile` placeholders in the recompile-toolchains checkout for `ido53/71`, `cw_gc`, `sh-elf-gcc`, `psyq` (proxy), `ee-gcc` so every later phase is "fill the Dockerfile + flag axes" rather than new runner glue. *Partly landed: `ido-5.3` and `ido-7.1` ship (ADR-017 names); Psy-Q, EE-GCC, and MWCC profiles are now in the registry. Loader and end-to-end fixture work is tracked below.* The host-fallback clause this item assumed is **withdrawn**; [ADR-008](adr/008-docker-only-execution.md) makes execution docker-only, so a cross toolchain needs an image, not a PATH binary.
 - [ ] **0.6 Documentation + fixtures-per-format policy** (`docs/CONFIG.md`, `docs/TOOLCHAIN.md`, `AGENTS.md`, `docs/OMF_NOTES.md` template): update arch/profile tables; record the "one tiny hex fixture + one NOTES.md per container" rule (OMF_NOTES.md pattern, see §5.5.2) so reviewers expect `docs/{PSEXE,N64ROM,DOL,REL,GDROM}_NOTES.md` on promotion. Unit-test the registry + capstone mode construction (no binary fixture needed yet).
 
 **Deliverable:** `rebrew cfg target add` + `rebrew binary asm show --target` work for console arches; disassembly is correct, comparison falls back to explicit relocs; every later container/toolchain has a home per ADR-001/006.
@@ -630,10 +628,10 @@ rebrew library identify --all --fix-source   # merges FLIRT + imports + toolchai
 ### 7.4 The CI/verify bot
 
 ```bash
-rebrew verify --json --all > verify.json
+rebrew verify --json --all-targets > verify.json
 rebrew verify --compare                       # regression check
 rebrew coverage export --output snapshots/                               # rewrite coverage-<target>.toml (now overlay-aware)
-rebrew coverage report --serve                         # PR artifact
+rebrew coverage report                       # static HTML for the PR artifact
 ```
 
 ---
@@ -877,7 +875,7 @@ GB-specific encodings (`LDH`, `STOP`) need a post-pass or RGBDS's own disasm.
 | **A7** | **Library / mapper / sound-driver FLIRT**: FLIRT for common ASM libraries (Nintendo's `apu`, `ppu` init, Konami mapper, Capcom sound drivers, GB `gbdk` stubs). Same `rebrew library scan-signatures` as §5, just different `.pat` packs: `flirt --pack nes-mappers / gbsound / snes-spc700`. | `flirt.py` + `python-flirt` (already) | ★★: filters the 20% of ROM that is stock SDK/mapper boilerplate. | S (per pack) |
 | **A8** | **ToolchainSpec for assemblers** (ADR-006 reuse): `ca65`, `rgbds` (`rgbasm+rgblink+rgbfix`), `wla-*`, `bass`, `asar` as `ToolchainSpec` entries (`docker-first → vendored → PATH`); `rebrew toolchain list` shows them. No Wine (all native). `flag_data.py` not needed: assemblers have ~2 flags (`--cpu`, `-o`). | `compiler/toolchain.py` (already) | ★: uniformity; today's ASM toolchains are even more fragmented than C. | S |
 | **A9** | **Splat/bass/GB disassembly import**: `rebrew intake --splat splat.yaml` already in §1A; add `rebrew intake --rgbds symfile.sym` / `--ca65 labels.txt` / `--bass bankmap.asm` to import an *in-progress* community disassembly. Reuse decomp.me import idea (§8.7) for ASM. | `intake.py` importers | ★★: porting `pret/pokeemerald` or `smbdisasm` into Rebrew in minutes. | M |
-| **A10** | **Asset diff + graphics preview**: extend `rebrew binary resource --diff-iso` (§8.5) to CHR diff: extract nametables/sprites after rebuild and `diff` as images (via `matplotlib`, already an available dep). `rebrew coverage report` embeds CHR preview. | `resource.py` + `report.py` | ★: visible payoff; a byte diff on CHR is unreadable, an image diff is instant. | M |
+| **A10** | **Asset diff + graphics preview**: extend `rebrew binary resource --diff-iso` (§8.5) to CHR diff: extract nametables/sprites after rebuild and `diff` as images (via a proposed `matplotlib` dependency). `rebrew coverage report` embeds CHR preview. | `resource.py` + `report.py` | ★: visible payoff; a byte diff on CHR is unreadable, an image diff is instant. | M |
 
 ### A.5 Assembly-specific arch details (what Phase 0 misses)
 
@@ -949,7 +947,7 @@ These are additive: C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. `verif
 | Console | Title (year) | What is C | Toolchain / evidence | Why it matters for Rebrew |
 |---------|--------------|-----------|----------------------|---------------------------|
 | **SNES** | **Doom** (1995, Sculptured / id) | Game logic in C, cross-compiled for the S-WRAM Super FX GSU path; Randy Linden's toolchain used a 65C816 C cross-compiler (WDC `w65c816-cc` / early GCC 65816) for object physics and HUD. Sources leaked `MAKEFILE` references `cc65816` and `INCLUDE` paths for `snes_c_runtime`. | WDC/Pilot 65816 C cross-compiler + Super FX assembler; `S9X` drive shows Doom-SNES PRG banks contain 65816 relocs (not flat ASM). [Super FX](https://en.wikipedia.org/wiki/Super_FX) cartridge: the expensive GSU-2 made C attractive. | A rare SNES title with *compiler* output to match against. With `w65816` + `mos65816` Capstone mode, `rebrew verify` assembler path (`wla-65816`) can be swapped for a true C path. |
-| **SNES** | **Star Fox / Starwing** (1993, Argonaut+Nintendo) | Argonaut's `GSU` toolchain: Super FX RISC routines in C compiled via Argonaut's custom GSU C front-end (`argonaut-cc`), then assembled. | Argonaut GSU-C (Super FX ISA, not 65816), not WDC, but the same "RISC C + GSU assembler" split; co-design docs reference the GSU pipeline. | Proof that C on SNES was an intentional, not accidental, pattern for Super FX titles. Blocked today (GSU ISA not in Capstone) but validates the §A.11 C/ASM split idea. |
+| **SNES** | **Star Fox / Starwing** (1993, Argonaut+Nintendo) | Argonaut's `GSU` toolchain: Super FX RISC routines in C compiled via Argonaut's custom GSU C front-end (`argonaut-cc`), then assembled. | Argonaut GSU-C (Super FX ISA, not 65816), not WDC, but the same "RISC C + GSU assembler" split; co-design docs reference the GSU pipeline. | Proof that C on SNES was an intentional, not accidental, pattern for Super FX titles. Blocked today (GSU ISA not in Capstone) but validates the §A.9 C/ASM split idea. |
 | **SNES** | **Stunt Race FX / Wild Trax** (1994), **Vortex** (1994) | Super FX GSU drivers + 65816 glue in C, same Argonaut pipeline as Star Fox. | Same GSU-C toolchain. | More data points: the entire Super FX sub-library was C-assisted. |
 | **Genesis / MD** | **Virtua Racing (MD)** (1994, SVP) | Only MD title with an **SVP DSP** (Samsung SSP1601, `uPD7725`-like). Development chained a DSP assembler *and* a C front-end for the SVP micro-program; leaked `SVP_DEVKIT` shows `ccsvp` + `svpasm` split. | GCC `m68k` (main 68000) + SVP C+assembler. The MD PRG contains 68K C objects (LIEF-parsable!) and a separate SVP binary blob: natural dual-target `ppc`-style (§6) case. | Validates "C + exotic co-CPU": the MD side is normal Rebrew territory today; the SVP side is deferred like PS2 VU. |
 | **Genesis / MD** | **Ports & late Western titles**: **Out of This World / Another World** (1992, Delphine; MD port), **Flashback** (1992, Delphine; MD), **Pitfall: The Mayan Adventure** (1994, Activision; MD port) | French PC originals in C (Borland C / Watcom on DOS) then *cross-compiled* and hand-patched for 68K; build logs reference `z88dk`-like `c68k`. Later EA/Western sports titles (Madden, NHL) also moved a slice of the 68K game loop to C by 1993–94. | Overlapping toolchains: `c68k` → `wla-68000`/`vasm` fix-up; not pure ASM. Evidence from community disassemblies that label groups match C `switch` fallthrough patterns (compiler fingerprints). | Demonstrates the early end of the transition: even on MD, C was encroaching, and Rebrew's `near_diag` + `similar` would already have found the 68K compiler patterns. |
@@ -967,4 +965,4 @@ These are additive: C-era `EXACT`/`RELOC`/`PROVEN`/`STUB`/`BLOCKER` stay. `verif
 
 *This section intentionally proposes no new deps beyond `capstone` modes already in Phase A0: `cc65`/`sdcc`/`HuC` are PATH-natives (zlib/GBDK, SDCC) like `ca65`/`rgbds`/`wla` per `TOOLCHAIN.md`. Rebrew's `verify` assembler path (A2) is reused; the only add is a `--cc` flag that routes through `cc65 --target nes` / `sdcc -mz80` instead of straight `ca65`/`rgbasm`, mirroring `psyq → mipsel-gcc` in §1B.*
 
-*This addendum is the backlog for idea A2/A3/A6 in `IDEAS-GUILD.md` after Phase 4 ships. It intentionally proposes no new deps beyond `capstone` modes already added in Phase 0: assemblers are PATH natives, FLIRT packs are `.pat` files, and CHR preview reuses `matplotlib` (Available per `TOOLCHAIN.md`).*
+*This addendum is the backlog for idea A2/A3/A6 in `IDEAS-GUILD.md` after Phase 4 ships. Beyond `capstone` modes already added in Phase 0: assemblers are PATH natives, FLIRT packs are `.pat` files, and the proposed CHR preview requires `matplotlib`.*

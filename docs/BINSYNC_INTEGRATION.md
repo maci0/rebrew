@@ -92,10 +92,11 @@ rebrew binsync overlay ./binsync_state       # apply related-target evidence
   Unresolved conflicts exit `1`, like raw import.
 - **`summary`** calls export and import in dry-run mode. Its push side reports
   the artifact totals export would emit (unchanged functions included); its
-  pull side reports what import would apply and the conflicts. Use
-  `binsync diff` for divergence. It writes no state or project file and moves no
-  branch; in a BinSync repo it reads the peers through the same temporary
-  worktrees as `pull`.
+  pull side reports counts of incoming changes and conflicts. Use
+  `binsync diff` for divergence. In a BinSync repo, the preview uses temporary
+  peer worktrees and can initialize missing fields in `.rebrew/sync/` from
+  the local baseline. It leaves the Git refs, state files, and project
+  metadata untouched.
 
 State files stay writable (mode 0644). BinSync's `State.dump` rewrites every
 artifact on the same working tree, so a read-only file fails its commit with
@@ -131,11 +132,11 @@ Push and pull compare each field with the last shared value:
 | Both, different values | Report conflict | Preserve conflict |
 | Remote field/artifact removed | Report deletion requiring resolution | Do not recreate it automatically |
 
-Without a baseline, import keeps the conservative meaningful-name/prototype
-conflict rules. `--accept-binsync` chooses remote conflict values;
-`--accept-local` keeps local values (and retains alternate function names as
-GHIDRA). Generic incoming names never replace meaningful names; a name is
-generic when `rebrew.workspace.names.is_placeholder_name` accepts it.
+Without a baseline, import keeps the conservative meaningful-name and prototype
+conflict rules. On pull or raw import, `--accept-binsync` chooses remote conflict
+values and `--accept-local` keeps local values, recording alternate function
+names as GHIDRA. Meaningful names take precedence over generic incoming names,
+as identified by `rebrew.workspace.names.is_placeholder_name`.
 
 The binary-scoped baseline is a local `.rebrew/sync/<hash>.toml` sidecar keyed
 by resolved state-directory path and module. A peer branch is reconciled
@@ -430,7 +431,7 @@ An address outside a known function range can remain associated through an
 explicit valid `func_addr`; lack of source-line mapping does not create a
 source binding or another storage owner.
 
-Conflict resolution mirrors `rebrew sync push`:
+Conflict resolution mirrors `rebrew sync pull`:
 
 ```
 CONFLICT 0x10001000: local=_OldName vs binsync=_NewName
@@ -560,7 +561,9 @@ and supports the same `--target`/`--module`/`--dry-run`/`--json` flags:
 | `--json` | Machine-readable output |
 | `--git` (export only) | Stage + `git commit` the state directory after writing |
 | `--clean` (export only) | Delete orphan `functions/<hex>.toml` no longer in the catalog/annotations |
+| `--user NAME` (export only) | Set the BinSync state user |
 | `--create-missing` (import only) | Create STUB files for catalog-known BinSync functions with no local annotation |
+| `--accept-binsync`, `--accept-local` (import, overlay) | Resolve field conflicts using BinSync or local values |
 
 ### Export Examples
 

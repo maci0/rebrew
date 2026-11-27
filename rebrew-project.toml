@@ -3,11 +3,9 @@
 # `binary` names a fixture that is not checked in, so every parse degrades to
 # the "target binary not found" warning and no toolchain round trip happens.
 #
-# `reversed_dir` must not be a package directory. A command run from this root
-# that writes source, skeletons or metadata (`document-unmatched`,
-# `skeleton`, `source register`, `catalog`) writes into it, and src/rebrew is
-# the shipped package: those files would be committed and packed into the
-# wheel. A gitignored scratch path keeps a stray write out of the tree.
+# Keep `reversed_dir` in scratch so generated C cannot enter the shipped
+# package. Metadata commands such as `source register` write to the resolved
+# metadata store.
 [project]
 name = "guild-rebrew"
 default_target = "test"

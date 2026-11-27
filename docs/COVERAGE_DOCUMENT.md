@@ -105,10 +105,8 @@ function's `size` / `fileOffset` / `textOffset` / `blockerDelta` / `similarity`,
 and every measurement in a `verify_results` row.  Consumers already treat missing
 and empty alike, and where the difference decides an answer the reader keeps it:
 a section's `va` and `fileOffset` and a function's optional numbers come back as
-`None`, not `0`.  A `.bss` section has no file offset at all, and reading that
-absence back as 0 is what would make `/bytes` serve bytes from the start of the
-file for a section that has none.  A section's own `size` is the exception: it
-reads back as `0`.
+`None`. A `.bss` section has no file offset. A section's `size` defaults to
+`0`.
 
 **A bare key belongs to the table above it.**  `functions`, `globals`,
 `verify_results` and `history` are therefore written BEFORE the first
@@ -465,9 +463,10 @@ human summary, and both are checked against the code by
 | `GET`, `HEAD` | `/api/globals` | `target`, `module`, `q`, `limit`, `offset` | Paged global data rows |
 | `GET`, `HEAD` | `/api/history` | `target`, `limit`, `offset` | Paged status-change history, newest first |
 
-`q` matches name or symbol on functions and name on globals, and also matches
-exactly when it is a hex address of four or more digits (with or without
-`0x`). A present empty `module=` matches a blank module; omitting `module`
+`q` searches function names and symbols or global names. Text is normalized
+to NFC with ASCII case folding. A term of 4–16 hex digits, optionally
+prefixed with `0x`, also matches an exact VA within `VA_MAX`.
+A present empty `module=` matches a blank module. Omitting `module`
 does not filter. `module` is compared in the spelling the rows are stored in
 (NFC, then upper, on both sides), so `?module=server` selects the `SERVER` rows.
 A repeated parameter takes its first value, and an

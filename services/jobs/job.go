@@ -500,13 +500,11 @@ func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, c
 }
 
 // run executes an admitted job once in this process. A crash leaves uncertain custody.
-//
-// runJob is run with the admission request's correlation ids (see
-// admitContext), so started/finished/error lines pivot to the request.
 func (o *Owner) run(r Receipt) error {
 	return o.runJob(context.Background(), r)
 }
 
+// runJob carries the admission request's correlation IDs into job logs.
 func (o *Owner) runJob(ctx context.Context, r Receipt) error {
 	o.mu.Lock()
 	saved, err := o.read(r.ID)

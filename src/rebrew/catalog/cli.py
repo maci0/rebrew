@@ -33,7 +33,7 @@ from rebrew.cli import (
 )
 lazy from rebrew.catalog.grid import covered_bytes
 lazy from rebrew.catalog.pipeline import build_catalog_data
-lazy from rebrew.config import ProjectConfig
+lazy from rebrew.config import ProjectConfig, inventory_path_for
 lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings
 lazy from rebrew.utils import floor_pct, untrusted_ident
 
@@ -331,16 +331,17 @@ def main(
             )
         console.print(
             "To export Ghidra functions, run this in the MCP console:\n"
-            f"  get-functions programPath=/{untrusted_ident(cfg.target_binary.name)} "
+            "  get-functions programPath=<Ghidra program path> "
             "filterDefaultNames=false\n"
-            f"Then save the output as {untrusted_ident(cfg.reversed_dir.name)}"
-            "/function_structure.json with format:\n"
-            '  [{"va": 0x10001000, "size": 302, "tool_name": "FUN_10001000"}, ...]\n'
+            "Use the target's ghidra_program_path if configured.\n"
+            "Page through the results using nextStartIndex as the next startIndex.\n"
+            "Keep only function rows. Map address, sizeInBytes, and name to va, size, and tool_name.\n"
+            f"Save the combined rows to {untrusted_ident(str(inventory_path_for(cfg.reversed_dir, cfg)))}:\n"
+            '  [{"va": "0x10001000", "size": 302, "tool_name": "FUN_10001000"}]\n'
             "\n"
             "To also export data labels (switch tables, etc.), search for non-function\n"
-            f"labels in Ghidra and save as {untrusted_ident(cfg.reversed_dir.name)}"
-            "/ghidra_data_labels.json:\n"
-            '  [{"va": 0x10002E9C, "size": 20, "label": "switchdataD_10002e9c"}, ...]',
+            f"labels in Ghidra and save to {untrusted_ident(str(cfg.reversed_dir / 'ghidra_data_labels.json'))}:\n"
+            '  [{"va": "0x10002E9C", "size": 20, "label": "switchdataD_10002e9c"}]',
         )
         return
 

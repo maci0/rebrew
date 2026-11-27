@@ -72,7 +72,7 @@ rebrew sync push --state-dir D # export metadata fields -> state dir
 rebrew sync summary --state-dir D # preview the push (no writes)
 rebrew sync pull --state-dir D --dry-run # preview the import first
 rebrew sync pull --state-dir D # import state -> renames, C signatures, notes, globals, structs
-rebrew sync pull --state-dir D --create-functions # import, then create the imported VAs in Ghidra (MCP)
+rebrew sync pull --state-dir D --create-functions # import, then create functions through the configured Ghidra backend
 rebrew sync pull --state-dir D --accept-binsync # accept remote values on field conflicts
 rebrew sync pull --state-dir D --accept-local # keep local values on field conflicts
 rebrew sync pull --state-dir D --create-missing # STUB files for catalog functions without local source bindings
@@ -92,9 +92,8 @@ Notes:
   user wants a live loop.
 - State TOMLs stay writable: BinSync's own client commits over them on the
   same tree.
-- **`sync pull --create-functions` is the chain**: functions imported from the
-  state dir are created in Ghidra via MCP, so "add a function to the state →
-  it appears in Ghidra" needs no external plugin.
+- **`sync pull --create-functions`** imports fields and creates functions for
+  the VAs it changed through the configured Ghidra backend.
   `rebrew sync pull --state-dir D --create-functions --json` is one JSON
   document. Apply errors exit 2.
 
@@ -195,10 +194,9 @@ chained after `sync pull`), status bookmarks (`sync bookmarks`), data labels
 
 ```bash
 rebrew doctor                                   # 0. config/backend sanity
-rebrew sync pull --state-dir D --dry-run # 1. preview incoming state changes
-rebrew sync pull --state-dir D --json # 2. apply; inspect updated / conflicts
-rebrew sync pull --state-dir D --create-functions # 3. create new functions in Ghidra
-rebrew sync summary --state-dir D # 4. preview outgoing changes
-rebrew sync push --state-dir D # 5. export metadata fields to the state dir
-# 6. the BinSync Ghidra plugin (or a collaborator) relays the state into Ghidra
+rebrew sync pull --state-dir D --dry-run # 1. preview the import
+rebrew sync pull --state-dir D --create-functions --json # 2. apply and create functions touched by this import
+rebrew sync summary --state-dir D # 3. preview outgoing changes
+rebrew sync push --state-dir D # 4. export metadata fields to the state dir
+# 5. the BinSync Ghidra plugin (or a collaborator) relays the state into Ghidra
 ```

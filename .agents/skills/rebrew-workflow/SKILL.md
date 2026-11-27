@@ -35,7 +35,8 @@ configured target and does not change item selection. It excludes `--target`.
 It excludes `--target` and `--all-targets`. `rebrew verify` covers every
 function in the selected target and reuses cached results. `--no-cache`
 rechecks them without saved verdicts; compiler objects may be cached.
-`rebrew source rename --all-modules` renames module rows. It is not `--all`.
+`rebrew source rename --shared-definition` selects one shared definition.
+`--all-modules` also selects independent definitions with the old name.
 Destructive commands (`rebrew cache clear`, `rebrew cfg target remove`,
 `rebrew cfg module remove`, `rebrew coverage catalog --fix-sizes`,
 `rebrew source merge`, `rebrew source split`) refuse a non-terminal stdin. `--json`
@@ -222,28 +223,27 @@ For splitting/merging and call graphs, read `references/file-organization.md`.
 
 ## 6. Verify and Track Progress
 
-`rebrew doctor` for health, `rebrew verify --compare` as the CI regression gate
-against `.rebrew/verify_baseline.toml` (or its per-target copy), `rebrew lint --json` (with `--fix` to
-reject forbidden inline metadata). Full flag set, `rebrew orphans`, `rebrew types`,
-and `rebrew build check-text-placement`, live coverage, optional snapshot export,
-and decomp.me: `references/verify-and-progress.md`.
-`rebrew coverage serve` serves the same coverage data read-only at
-http://127.0.0.1:8000 (`--port` rebinds); start it only when the user asks for
-the UI, and stop it when they are done: it blocks until then.
+`rebrew doctor` checks setup. `rebrew verify --compare` uses a compatible
+baseline in `.rebrew/`. `rebrew lint --json` reports inline state, and
+`rebrew lint --fix` removes redundant flags and backfills missing data sections.
+See `references/verify-and-progress.md` for progress commands.
+Start the blocking `rebrew coverage serve` dashboard only when requested.
 
 ## 7. Final Validation: Round-Trip
 
-When a whole set is matched, splice EXACT/RELOC back into a byte-identical PE:
+Validate the splice of recorded EXACT/RELOC functions into the reference PE:
 
 ```bash
-rebrew build round-trip --json                # splice every EXACT/RELOC function back into the PE
+rebrew build round-trip --strict-catalog --json # fail on catalog entries that cannot be spliced
 rebrew build round-trip --dry-run             # preview without writing <binary>.reasm
 ```
 
 Round-trip needs canonical SIZE in `rebrew-functions.toml`: backfill it with
 `rebrew coverage catalog --fix-sizes`. Pass `--force` when stdin is not a
 terminal, and whenever `--json` is set. A piped answer does not approve.
-PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
+Check `spliced`, `skipped_catalog`, and `byte_coverage` alongside the image
+digest. The digest also covers any bytes left in place from the reference.
+Full fallback and drift rules are in `references/round-trip.md`.
 
 Shipped profiles use pinned toolchain images through the configured backend
 (Docker, Podman or supported experimental unshare); no host wine/wibo fallback.

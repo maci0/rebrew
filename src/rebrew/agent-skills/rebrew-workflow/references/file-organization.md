@@ -91,11 +91,10 @@ rebrew recommend --json                   # all lanes: TU layout + hygiene + nex
   Apply the reviewed binding without `--dry-run`; the destination
   identity/verdict stays unchanged. Verify library providers separately against
   the configured archive and raw link; binding requires no replacement C body.
-- A definition shared by several modules' rows renames only with
-  `--all-modules`; a per-target twin keeps its name unless `--all-modules`
-  is given. `rebrew source rename --all-modules` renames module rows. It is
-  not `--all`. Pick one twin by `MODULE.0xVA`. A name with no row in the active
-  target renames the source symbol and the other modules' rows bound to it.
+- Use `rebrew source rename MODULE.0xVA NEW --shared-definition --dry-run --json`
+  to preview the rename of a shared definition and its bound rows. Use
+  `--all-modules` when independent definitions with the old name should also
+  change. `MODULE.0xVA` identifies the starting row.
 - `--data` renames a global's rows, definition, `extern` declarations and
   uses (`rebrew data set --name` changes only the row). `--type` renames a tag
   or typedef and the `type` strings of data rows and function `locals`.

@@ -1161,10 +1161,22 @@ class CoverageSnapshot:
     function_stats: Mapping[str, Any]
     paths: Mapping[str, Any]
     functions_by_va: Mapping[int, Function] = field(init=False)
+    #: VA-ordered code rows, including distinct rows that share a VA.
+    code_functions: tuple[Function, ...] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "functions_by_va", MappingProxyType({fn.va: fn for fn in self.functions})
+        )
+        object.__setattr__(
+            self,
+            "code_functions",
+            tuple(
+                sorted(
+                    (fn for fn in self.functions if fn.markerType in FUNCTION_KINDS),
+                    key=lambda fn: fn.va,
+                )
+            ),
         )
 
 

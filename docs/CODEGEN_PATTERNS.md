@@ -111,7 +111,8 @@ with `rebrew match run`:
 | MSVCRT | `/O1` | Size optimization. Some need `/O1 /Oy-` (frame pointer) or `/O1 /Oi` (intrinsics) |
 | ZLIB | `/O2` | Full optimization (no `/Gd` needed; zlib uses default cdecl) |
 
-Always include `/nologo /c /MT` as base flags (added automatically by `rebrew test`).
+MSVC-style profiles default to `[compiler].base_cflags = "/nologo /c /MT"`.
+POSIX profiles default to an empty string. See [compiler configuration](CONFIG.md#compiler-configuration).
 
 Common knobs: `/O1` vs `/O2` (size vs speed), `/Gd` (cdecl), `/Oy` vs `/Oy-`
 (frame pointer omission), `/Oi` (intrinsics), `/Gy` (COMDAT).

@@ -65,17 +65,16 @@ disassembly you understand. See [status and queue accounting](CLI.md#rebrew-stat
 
 ### 5. Check library attribution
 
-Check whether the function comes from a library before writing C. Scan any
-`.sig` or `.pat` files in the project's `flirt_sigs/` directory:
+Check library attribution before writing C:
 
 ```bash
-rebrew library scan-signatures
+rebrew library identify --dry-run
 ```
 
-If you have neither signatures nor a shared signature checkout, use the
-[FLIRT guide](FLIRT_SIGNATURES.md) to obtain or generate signatures. Review
-candidate hits with `rebrew library identify --dry-run`, then run without
-`--dry-run` to record the identification results you reviewed. When you have
+Run again without `--dry-run` to record the reviewed results. To inspect
+signature matches separately, place compatible signatures in `flirt_sigs/`
+or configure a shared checkout, then run `rebrew library scan-signatures`.
+See the [FLIRT guide](FLIRT_SIGNATURES.md). When you have
 the stock archive, use `rebrew library match --lib <archive> --va <VA>` to
 compare the function against it. See the [library commands](CLI.md#rebrew-library).
 

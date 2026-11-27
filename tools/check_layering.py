@@ -4,20 +4,17 @@
 It says nothing about direction, so a module can stay cycle-free and still
 reach the wrong way across the package.  Four rules are enforced here, all of
 which the tree satisfies today:
-**Leaf helpers stay leaves.**  ``rebrew.utils`` is the module every other
-module may import, and its docstring promises the freedom that buys: it holds
-no rebrew imports, so it can never sit between a caller and a dependency.  The
-first rebrew import in it is a layering regression.
+
+**Leaf helpers stay leaves.**  Any module may import ``rebrew.utils``. Its
+only allowed Rebrew dependency is ``rebrew.errors``.
 
 **The composition layer is a sink.**  ``app.plugin``, ``app.builtins``,
 ``app.main`` and ``dashboard`` build the Typer app and know every command; nothing they import
 depends on them back.  A module that imports one at *module scope* joins the
 app's dependency graph and makes a leaf into a peer of the app, so only the
 layer itself may do it; a PEP 810 `lazy` import defers the load but not that
-edge.  Two escapes stay legal because neither runs at import time: a command
-registers itself with the umbrella inside its ``register()`` (``init``,
-``recommend``), and ``errors`` re-exports ``ComponentError`` for type
-checkers under ``TYPE_CHECKING``.
+edge. A ``TYPE_CHECKING`` re-export such as ``errors``' ``ComponentError``
+is allowed because it loads nothing at runtime.
 
 **A subpackage reaches outward only through its declared externals.**  Every
 ``src/rebrew/<package>/AGENTS.md`` states the externals that package may
@@ -38,9 +35,7 @@ surface, so the logic the two share belongs in a module the command imports
 rather than the other way round: ``coverage_toml`` reads the normalizers from
 ``coverage_db`` and never from ``build_db``, which is now only the command.  A
 command is detected from the tree (a ``main_entry`` or an ``app = typer.Typer``
-assignment) rather than from a list, so registering a console script is what
-makes a module a command and a second inventory cannot drift from
-``pyproject.toml``.  This rule reads every import that runs, function bodies
+assignment). This rule reads every import that runs, function bodies
 included, and skips ``if TYPE_CHECKING:`` blocks: ``errors`` re-exports the
 command modules' exception types for a type checker, which loads nothing.
 ``DEFERRED_LIBRARY_COMMAND_EDGES`` is the ratchet for this rule: it is empty

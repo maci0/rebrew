@@ -5,14 +5,11 @@ Clones the decomp.me repo (sparse, depth-1), reads their flags.py,
 and generates src/rebrew/flag_data.py using rebrew's own
 FlagSet/Checkbox classes (same data structure as decomp.me).
 
-Upstream is a branch, so a bare sync follows whatever decomp.me pushed since
-the last one.  ``--ref`` names the ref to sync from (a tag or a commit) and the
-resolved commit is printed on every run, so a re-sync of a known-good commit is
-one flag away and the run says which upstream state it read.  The generated
-header's ``Synced:`` line comes from SOURCE_DATE_EPOCH when that is set, so
-re-syncing one upstream commit twice yields the same file.
+Use ``--ref`` to pin an upstream tag or commit. Each run prints the resolved
+commit. Set SOURCE_DATE_EPOCH to control the generated ``Synced:`` date.
 
 Usage:
+    export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
     uv run --frozen python tools/sync_decomp_flags.py            # writes flag_data.py
     uv run --frozen python tools/sync_decomp_flags.py --dry-run  # print to stdout
     uv run --frozen python tools/sync_decomp_flags.py --check    # fail if a sync would change it
@@ -157,9 +154,8 @@ def resolved_commit(repo_dir: Path) -> str:
 def sync_date() -> str:
     """Date to stamp into the generated header.
 
-    SOURCE_DATE_EPOCH wins, so re-syncing one upstream commit on two days
-    writes the same file (reproducible-builds.org).  Without it the wall clock
-    moves, and every re-run is a diff whether or not upstream changed.
+    Require SOURCE_DATE_EPOCH as decimal UTC seconds so the same inputs
+    produce the same timestamp on every run.
     """
     epoch = os.environ.get("SOURCE_DATE_EPOCH", "").strip()
     if epoch.isdigit():

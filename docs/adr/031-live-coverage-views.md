@@ -1,6 +1,6 @@
 # ADR-031: Live coverage views and explicit portable exports
 
-- **Status**: Accepted. Amends [ADR-012](012-metadata-store-tiers.md) (coverage-tier: live views replace the generated coverage store).
+- **Status**: Accepted. Amends [ADR-012](012-metadata-store-tiers.md) with live views, and [ADR-028](028-cli-domains-and-explicit-operations.md) with `coverage export --output` in place of `coverage build`.
 - **Date**: 2026-10
 
 ## Context

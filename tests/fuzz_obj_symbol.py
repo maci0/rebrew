@@ -4,8 +4,8 @@ Same harness body and invariants as tests/test_property_obj_symbol.py
 (Hypothesis drives it in CI; this file is the coverage-guided libFuzzer
 entry point for local/OSSFuzz runs).
 
-    uv run --frozen python tests/fuzz_obj_symbol.py <corpus_dir> [flags]
-    uv run --frozen python tests/fuzz_obj_symbol.py tests/fixtures -runs=1000
+    uv run --frozen --group fuzz python tests/fuzz_obj_symbol.py <corpus_dir> [flags]
+    uv run --frozen --group fuzz python tests/fuzz_obj_symbol.py tests/fixtures -runs=1000
 
 Seed corpus: tests/fixtures/{mini.obj,thumb_arm.o,tg_msvc16.obj,tg_watcom.o}.
 """

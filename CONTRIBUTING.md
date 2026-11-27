@@ -49,10 +49,8 @@ make test-one T=tests/test_annotation_roundtrip.py   # smoke the edit-test loop
 
 `make vnu` and `make biome` print an `export PATH=` line to eval.
 
-`make setup` installs the `prove` extra and the `similarity` group. Those
-pull the attributed components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX,
-`OLDAP-2.8` lmdb, and GPL-3.0-only `resembl`). Rebrew's own source stays under
-[`LICENSE`](LICENSE).
+See [`NOTICE`](NOTICE) for the license terms of dependencies installed by
+`make setup` and [`LICENSE`](LICENSE) for Rebrew's own source.
 
 Use the locked contributor environment for type checks and the full test
 suite. A bare `uv sync` omits the extras and similarity group the gates need.
@@ -61,10 +59,10 @@ suite. A bare `uv sync` omits the extras and similarity group the gates need.
 
 `make add-dep ADD_DEP_SPEC=<spec>` wraps `uv add`, which is the only supported
 way in: it writes `pyproject.toml` and `uv.lock` together, and `make setup`
-and every CI job sync with `--locked`, so a hand-edited manifest that never
+and the Python lockfile gates sync with `--locked`, so a hand-edited manifest that never
 reached the lock fails several commands later instead of at the edit.
-`--optional dev <pkg>` puts it in a dev extra, `--group similarity` in that
-group.
+`--dev <pkg>` adds it to the contributor dependency group.
+`--group similarity <pkg>` adds it to the similarity group.
 
 One step is not automatable, and the gate for it runs in `make test`:
 `tools/licenses.py` records, per `name==version`, the license string the
@@ -72,8 +70,8 @@ pinned artifact declares in its own METADATA (`License-Expression`, else
 `License`, else the first `Classifier: License ::`).  Record it verbatim; a
 trove classifier such as `OSI Approved :: BSD License` does not say which BSD,
 and rewriting one into an SPDX id upstream never wrote puts a license claim
-in a released artifact.  A copyleft or attribution-bearing grant also gets a
-`NOTICE` section.  `TestCycloneDxSbom::test_license_table_covers_the_lock_exactly`
+in a released artifact. Copyleft, attribution-bearing, and restrictive
+grants also need a `NOTICE` section. `TestCycloneDxSbom::test_license_table_covers_the_lock_exactly`
 in `tests/test_packaging.py` fails the suite listing every distribution left
 `unrecorded`, and `make sbom` refuses to emit a component without one.
 

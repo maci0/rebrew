@@ -41,5 +41,6 @@ function discovery, and the old behavior was to reject the format outright
   `rebrew/msvc:1.52-win16` image (DOSBox in-image; execution is docker-only
   per ADR-008), the built-in `omf16` parser decodes both OMF dialects
   (objconv crashes on them), and `test`/`verify`/`match --flag-sweep-only`
-  run on NE targets (see TOOLCHAIN.md item 6).  Delphi's Borland ABI
+  run on NE targets. For current commands, see [16-bit Windows NE](../TOOLCHAIN.md#16-bit-windows-ne-binaries-native-parsing--disassembly--byte-matching).
+  Delphi's Borland ABI
   remains unmatchable: those functions are documented as blockers.

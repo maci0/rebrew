@@ -23,11 +23,8 @@ _LINE_DIRECTIVE = re.compile(r"(?im)^[ \t]*(?:#|%:)[ \t]*(?:line\b|[0-9]+)")
 _INCLUDE_ALIAS = re.compile(r"(?im)^[ \t]*(?:#|%:)[ \t]*pragma[ \t]+include_alias\b")
 _VOLATILE = re.compile(r"\b__(?:DATE|TIME|TIMESTAMP)__\b")
 
-#: ``O_NOFOLLOW`` is absent on Windows (and older CPython builds in
-#: general); ``getattr`` with a 0 default keeps the open working there,
-#: mirroring :func:`rebrew.matcher.solutions._record_run`.  The resulting
-#: un-followed symlink stays a refused input because the identity check
-#: (``path_identity``/``is_symlink``) still runs before the open.
+#: Use ``O_NOFOLLOW`` where available. The pre-open symlink check also runs
+#: on platforms without it.
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
 #: Windows drive-letter prefix (``C:``) in an include spelling.

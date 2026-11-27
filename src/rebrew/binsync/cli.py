@@ -243,7 +243,7 @@ def pull(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew binsync summary .binsync --json\n\n"
-        "Preview both synchronization directions without writing or contacting Git."
+        "Uses local Git refs. May initialize peer baseline fields."
     )
 )
 def summary(
@@ -252,7 +252,7 @@ def summary(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Preview what push and pull would change, without writing or touching git."""
+    """Preview outgoing and incoming BinSync changes."""
     require_declib(json_mode=json_output)
     resolved = importer.resolve_state_dir(state_dir, json_mode=json_output)
     cfg: ProjectConfig = require_config(target=target, json_mode=json_output)

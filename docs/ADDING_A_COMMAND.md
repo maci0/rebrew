@@ -43,8 +43,7 @@ Append a `CliComponent` (name, module, help, panel, `is_group`, optional
   `""`), mounted as `rebrew <domain> <name>`;
 - a root workflow goes in `BUILTIN_COMPONENTS` with a panel from `Panel.ALL`.
 
-This entry is what makes the command exist; no gate adds it for you, and a
-built module that is never registered fails `rebrew <name> --help`. Set
+Registration makes the command available to the umbrella CLI. Set
 `is_group=True` for a Typer group and `attr` for an exported callable or app
 other than the module's `main`/`app`. Mounted module help supplies both the
 parent listing and the command page, so keep its first sentence concise;
@@ -70,7 +69,7 @@ ignored with a warning: built-ins win.
   detail section with the full invocation line and an options table. Every
   nested route (`rebrew <domain> <name>`) must appear in the reference.
 - Keep the README quick start short; put the command reference in `docs/CLI.md`.
-- Agent skill: name the command in a `SKILL.md` or `references/*.md`
+- Agent skill: name each root component in a `SKILL.md` or `references/*.md`
   under `src/rebrew/agent-skills/`, or add the carve-out to
   `_SKILL_OUT_OF_SCOPE` in `tests/test_docs_hygiene.py` with a reason.
   Then regenerate the rendered copies
@@ -84,8 +83,9 @@ ignored with a warning: built-ins win.
 ## 4. Tests
 
 - `tests/test_<name>.py`: pure helpers first (no docker, no project
-  fixture); one CLI-mount test (`CliRunner().invoke(app, [name, --help])`
-  exits 0) so a missing registration fails fast.
+  fixture). Add a mount test using `app` from `rebrew.app.main` and assert
+  that `CliRunner().invoke(app, [*route, "--help"])` exits 0. Use the full
+  route, such as `["build", name]` for a build operation.
 - `tests/test_docs_hygiene.py` checks the rest: every `BUILTIN_COMPONENTS`
   entry has a CLI.md section, a skill mention (or carve-out) and a valid
   panel, and every nested route, walked recursively, appears in the
@@ -95,7 +95,7 @@ ignored with a warning: built-ins win.
 ## 5. Verify
 
 ```bash
-uv run --frozen rebrew <name> --help   # mounts, help renders
+uv run --frozen rebrew <route> --help  # replace with the complete route, such as build layout
 make test-one T="tests/test_<name>.py tests/test_docs_hygiene.py"
 uv run --frozen ruff check src/rebrew/<name>.py tests/test_<name>.py
 uv run --frozen mypy src/rebrew/<name>.py

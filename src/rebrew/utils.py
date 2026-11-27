@@ -1,10 +1,7 @@
 """utils.py — the leaf helpers every other rebrew module can depend on.
 
-This module has no rebrew binary imports list, so anything here may be called from
-anywhere without a cycle.  That freedom is also its cost: the name says
-nothing about what it owns, so the map below is the index.  Helpers are
-grouped by concern and stay in that group; a new helper joins the group
-it belongs to rather than starting another.
+This module depends only on ``rebrew.errors`` within Rebrew. The map below
+groups its commonly used helpers by purpose.
 
 - **Text and identifiers**: ``strip_bidi_format``, ``strip_body``,
   ``strip_comment_blocks``, ``strip_generated_timestamp``, ``filename_component``,
@@ -184,15 +181,14 @@ _BIDI_FORMAT_CHARS = frozenset(
     + "".join(chr(code) for code in range(0xE0020, 0xE0080))
 )
 _BIDI_FORMAT_TABLE = {ord(char): None for char in _BIDI_FORMAT_CHARS}
-#: Every stripped character is non-ASCII, so a regex scan over ordinary text
-#: finds nothing and skips the per-character translate table.  Dashboard
-#: responses scrub every cell of every row, where the translate dominated.
+#: On non-ASCII text, find a formatting character before paying for translation.
 _BIDI_FORMAT_SEARCH = re.compile(f"[{''.join(sorted(_BIDI_FORMAT_CHARS))}]")
 
 
 def strip_bidi_format(value: str) -> str:
     """*value* with the invisible reordering and hiding characters removed."""
-    if _BIDI_FORMAT_SEARCH.search(value) is None:
+    # Every stripped character is non-ASCII.
+    if str.isascii(value) or _BIDI_FORMAT_SEARCH.search(value) is None:
         return value
     return value.translate(_BIDI_FORMAT_TABLE)
 
