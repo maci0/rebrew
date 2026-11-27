@@ -2,6 +2,137 @@
 
 Measurements of Rebrew hot paths, retained optimizations, and rejected experiments.
 
+## Test feedback latency (2026-11-27)
+
+The baseline was the working tree at `b30e6ae3` including local dashboard,
+scoring and validator changes present during profiling. The measurements cover the Python
+suite, including its Bun and compiler integration tests. Python 3.15.2,
+pytest 9.2.0, xdist 3.8.0, Ryzen 9 9950X, local compiler images available.
+Both versions used the same venv, an explicit warmed uv dependency cache,
+`UV_OFFLINE=1 PIP_NO_INDEX=1`, a private temp root per run and
+`--hypothesis-seed=481`.
+
+### Full run
+
+| Metric | Before | After |
+|---|---:|---:|
+| Full wall time, median (range) | 95.28 s (90.35–142.39) | 99.04 s (91.45–123.85) |
+| CPU-minutes | 5.54 | 6.56 |
+| Retired user instructions, billions | 2,255.3 | 2,247.9 |
+| Per-test p50 / p95 | 1.05 / 153.35 ms | 1.37 / 150.11 ms |
+| Longest worker collection | 5.41 s | 4.66 s |
+| Summed setup / call / teardown | 47.60 / 599.56 / 7.60 s | 49.08 / 648.09 / 8.97 s |
+| Passed / skipped | 16,813 / 47 | 16,813 / 47 |
+
+Within these full runs, the median summed call time for the MinGW, ELF and
+all-profiles scenarios fell from 21.28 to 10.19 s. The remaining calls rose
+from 580.76 to 636.34 s. The full-run wall ranges overlap, and both median
+wall time and CPU-minutes increased on this host.
+
+Eight xdist workers used work stealing on CPUs 0–15. A pytest hook recorded
+each item's setup, call and teardown and timed collection per worker.
+Per-test percentiles include all three phases. Phase totals sum across
+workers and collection is the longest worker. Wall time covers process
+startup through exit. CPU time is `getrusage(RUSAGE_CHILDREN)` and
+instructions are from `perf stat -e instructions:u`. Docker daemon work
+is outside both counters. These are medians of three measured runs after
+warm-up. Other builds and rendering shared the host. The work counts below
+give the attributable savings. To reproduce the runner and see its slowest
+phases, run the following from the repo root on a host with those CPUs.
+
+```bash
+UV_CACHE_DIR="$(uv cache dir)" UV_OFFLINE=1 PIP_NO_INDEX=1 \
+  perf stat -r 3 -e instructions:u -- taskset -c 0-15 .venv/bin/pytest \
+  -q -n 8 --dist worksteal --hypothesis-seed=481 --durations=10
+```
+
+Before the edits, the five longest individual tests by median duration were
+MinGW GA (9.53 s), project-workspace isolation (7.16 s), setting every
+library profile (6.71 s), the MSVC 4.0 round-trip (5.09 s) and repairing a
+contradicted name on reanalysis (4.51 s). By summed worker time, ops led
+at 54.43 s, candidate application at 44.51 s, compiler round-trips at
+21.51 s and reanalysis at 20.53 s. No test retry plugin was configured.
+
+### Cleanup decisions
+
+| Candidate | Decision and retained signal | Measured effect |
+|---|---|---|
+| Cache creation in the autouse fixture | Give every test a fresh cache path under its worker's private temp root. Cache users create it on demand. | A full profiling run left 16,331 empty caches. Across 605 parser and mutation tests, eager directories fell from 605 to zero. Median summed setup fell from 106.5 to 73.4 ms and per-test median from 0.265 to 0.205 ms. |
+| All-profiles CLI loop | Stub only `os.fsync` in this test. Each of 335 profile names still goes through the CLI, real atomic file replacement and override readback. Other library write and durability tests use the normal writer. | 670 kernel flushes → zero. Whole focused invocation 6.87 → 2.26 s. |
+| Native MinGW GA test | Keep the known exact seed and one competing mutation in a real generation. The original seed already ended the search in generation one. Population ordering, breeding and restart tests keep their multi-candidate scenarios. | Four compiler containers → two. Focused invocation 12.80 → 8.47 s. Two incidental random variants no longer compile in this test. A direct mutation test now rejects a second generated label. |
+| Two ELF report tests | Compile the fixture once. Run the real project and capture intakes. Check the captured artifact against the returned report and compare symbol names, addresses and sizes with LIEF. | Two C builds → one, three intake children → two. Focused invocation 9.73 → 2.69 s. |
+| Wheel and sdist builds | Resolve uv's package cache before per-test XDG isolation. Use the same build helper for both formats and keep the pinned isolated backend. | Without an explicit `UV_CACHE_DIR`, all three build-dependent assertions failed offline before the change. The same tests pass using the already-provisioned cache. |
+| Relative-include projects | Use a unique Docker-visible project per test. Parameterize both depths and require extracted function bytes at the batch entry point. | Creating a second project at the old fixed path deleted the first project's marker. Two concurrent pytest processes now both pass all three cases. |
+| Scorer and dashboard assertions | Check the unequal-stream ratio and the seventh rendered cell in existing tests. | These catch the previously surviving perfect-ratio and missing-Files regressions without another test invocation. |
+
+The native, ELF and library timings are medians of three serial invocations
+after one warm-up per version, including startup. The cache comparison
+alternated the old and new fixture on one CPU for six measured pairs after
+warm-up. Its whole-invocation median was 1.308 → 1.327 s. Retain the change
+for the directory count and setup savings. Relative-include isolation and
+packaging reliability have no claimed timing delta.
+
+### Work gates
+
+The following fixed-input tests run offline. The cache test allows zero
+eager directories. On Linux the all-profiles test allows zero real
+`fsync` or `fdatasync` calls. The normal pytest run also checks each
+profile readback. No finish-time threshold depends on the host load.
+
+```bash
+scratch=$(mktemp -d)
+PYTEST_DEBUG_TEMPROOT="$scratch" UV_OFFLINE=1 PIP_NO_INDEX=1 \
+  strace --seccomp-bpf -f -qq -e signal=none -e trace=fsync,fdatasync -o "$scratch/trace" \
+  .venv/bin/pytest -q -n 0 \
+  tests/test_pytest_workers.py::TestSuiteWorkers::test_unused_cache_home_costs_no_directory \
+  tests/test_library.py::TestLibraryCli::test_known_toolchain_accepts_all_profiles &&
+  test ! -s "$scratch/trace"
+```
+
+With a local C compiler and the MinGW image already installed in Docker, the
+two native scenarios have an exact subprocess budget. Both tests run against
+fresh projects. A skipped native case fails the corresponding count.
+
+```bash
+scratch=$(mktemp -d)
+PYTEST_DEBUG_TEMPROOT="$scratch" UV_OFFLINE=1 PIP_NO_INDEX=1 \
+  strace --seccomp-bpf -ff -qq -s 1000 -e trace=execve -o "$scratch/exec" \
+  .venv/bin/pytest -q -n 0 \
+  tests/test_analysis_capture_inventory.py::test_elf_symbol_names_are_bound_to_normalized_report \
+  tests/test_shared_sources.py::TestGANativeEndToEnd::test_ga_finds_exact_match_with_mingw &&
+  test "$(grep -hE 'execve\(.*\["docker", "run",.* = 0$' "$scratch"/exec.* | wc -l)" -eq 2 &&
+  test "$(grep -hE 'execve\(.*"intake", "--json", "--target", "fixture".* = 0$' "$scratch"/exec.* | wc -l)" -eq 2
+```
+
+### Coverage and hosted feedback
+
+The four serial SlipCover shards passed the 85% floor before and after.
+Line coverage was 118,929 / 132,057 (90.059%) before and 118,934 / 132,057
+(90.063%) on the final tree. Five baseline lines went unhit in that run,
+in concurrent fingerprint publication, a disappearing procfs entry and
+lazy mutator import. The corresponding test modules still run. The local
+coverage validations took 201 s before and 250 and 122 s after. The last
+run includes a test type-annotation edit that changed the byte-size shard
+partition. Treat those times as validation runs.
+
+The separate Go jobs-service race suite took 8.76 s wall and 1.93 CPU-s
+as the median of three runs after warm-up on four logical CPUs. All 93
+test and subtest passes were present in each run. This used the installed
+Go 1.27.4, `go test -count=1 -race -json ./...`, readonly modules and
+offline dependency resolution. CI pins Go 1.27.3.
+
+Four recent successful hosted test jobs spent 143–191 s running coverage
+(median 159.5 s). Installing dependencies took 1, 1, 2 and 98 s. The
+successful November 23 PR returned its CLI contract result in 14 s and its
+test job in 338 s. Preserve the full four-shard coverage job on PRs and
+the existing dependency cache. Workspace isolation, reanalysis, compiler
+round-trips and child timeouts exercise real boundaries. None were moved
+to a slower tier or given shorter deadlines. These local edits have no
+hosted after measurement.
+[November 23 PR](https://github.com/maci0/rebrew/actions/runs/45089960546),
+[baseline commit CI](https://github.com/maci0/rebrew/actions/runs/45960263327),
+[November 27 warm install](https://github.com/maci0/rebrew/actions/runs/45974947152).
+
 ## Dashboard text scrubbing (2026-11-27)
 
 On 50 in-process bootstrap requests, cProfile attributed 35 of 38 ms to

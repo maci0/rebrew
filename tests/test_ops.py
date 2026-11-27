@@ -2491,40 +2491,6 @@ class TestReconstructionOps:
             ["build", "round-trip"],
         ]
 
-    def test_analysed_elf_reports_defined_symbol_names_and_sizes(self, tmp_path: Path) -> None:
-        import lief
-
-        compiler = shutil.which("cc")
-        if compiler is None:
-            pytest.skip("needs a C compiler")
-        source = tmp_path / "fixture.c"
-        source.write_text(
-            "__attribute__((noinline)) int checksum(int x) { return x*17+3; }\nint main(void) { return checksum(2); }\n"
-        )
-        binary = tmp_path / "fixture.elf"
-        subprocess.run([compiler, "-O0", "-no-pie", "-o", str(binary), str(source)], check=True)
-        filestore, workspace = _worker_dirs(tmp_path)
-        digest, key = _store(filestore, binary.read_bytes())
-        status, body = dispatch(
-            WorkerConfig(filestore.resolve(), workspace.resolve()),
-            "rebrew.analyse",
-            json.dumps(
-                {"binary_id": 1, "sha256": digest, "name": "fixture", "file_key": key}
-            ).encode(),
-        )
-        assert status == 200, body
-        elf = lief.ELF.parse(str(binary))
-        assert elf is not None
-        expected = {
-            s.name: (s.value, s.size)
-            for s in elf.symbols
-            if s.name in {"checksum", "main", "_start"}
-        }
-        found = {
-            f["name"]: (f["va"], f["size"]) for f in json.loads(body)["targets"][0]["functions"]
-        }
-        assert {name: found.get(name) for name in expected} == expected
-
     def test_analysed_import_thunks_are_stubs_whatever_follows_them(
         self, thunk_analysis: tuple[Path, dict[str, Any]]
     ) -> None:

@@ -173,10 +173,8 @@ def test_default_inventory_and_real_worker_dispatch(
     assert [row["name"] for row in normalized["functions"]] == ["fcn_00401000", "fcn_00401010"]
 
 
-def test_elf_symbol_names_are_bound_to_normalized_report(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import shutil
+def test_elf_symbol_names_are_bound_to_normalized_report(tmp_path: Path) -> None:
+    import lief
 
     compiler = shutil.which("cc")
     if compiler is None:
@@ -187,7 +185,6 @@ def test_elf_symbol_names_are_bound_to_normalized_report(
     )
     binary = tmp_path / "fixture.elf"
     subprocess.run([compiler, "-O0", "-no-pie", "-o", str(binary), str(source)], check=True)
-    _first_intake_copied(monkeypatch)
     files, workspace = _worker_dirs(tmp_path)
     digest, key = _store(files, binary.read_bytes())
     status, raw = ops.dispatch(
@@ -198,7 +195,16 @@ def test_elf_symbol_names_are_bound_to_normalized_report(
     assert status == 200, raw
     report = json.loads(raw)
     artifact = _report(report["analysis_capture"], report)
-    assert {row["name"] for row in artifact["functions"]} >= {"checksum", "main"}
+    elf = lief.ELF.parse(str(binary))
+    assert elf is not None
+    expected = {
+        symbol.name: (symbol.value, symbol.size)
+        for symbol in elf.symbols
+        if symbol.name in {"checksum", "main", "_start"}
+    }
+    found = {row["name"]: (row["va"], row["size"]) for row in artifact["functions"]}
+    assert found.keys() >= {"checksum", "main"}
+    assert {name: found.get(name) for name in expected} == expected
 
 
 def test_installed_http_worker_captures_inventory(tmp_path: Path) -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -30,6 +32,13 @@ def _quiet(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestSuiteWorkers:
+    def test_unused_cache_home_costs_no_directory(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ) -> None:
+        cache = Path(os.environ["XDG_CACHE_HOME"])
+        assert cache.parent == tmp_path_factory.getbasetemp()
+        assert not cache.exists()
+
     def test_full_suite_injects_auto(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _quiet(monkeypatch)
         args = ["tests/", "-v", "--tb=short"]

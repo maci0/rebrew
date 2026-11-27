@@ -505,8 +505,8 @@ class TestGANativeEndToEnd:
             cflags="-O2",
             symbol="_f",
             out_dir=tmp_path / "ga",
-            pop_size=4,
-            num_generations=3,
+            pop_size=2,  # The exact seed competes with one real compiled mutation.
+            num_generations=1,
             num_jobs=1,  # Bound real compiler concurrency independently of pytest workers.
             rng_seed=42,
             env=None,
