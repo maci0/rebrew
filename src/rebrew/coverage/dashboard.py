@@ -732,10 +732,11 @@ function renderFunctions(data, options) {
   setFunctionsEmptyMessage();
   $("empty-state").hidden = shown !== 0;
   $("results").hidden = shown === 0;
+  viewLoaded.functions = true;
   syncError();
 }
 async function loadFunctions(options) {
-  const grow = !!(options && options.append);
+  const grow = !!(options && options.append && viewLoaded.functions);
   clearTimeout(searchTimer);
   const t = $("target").value; if (!t) return;
   const seq = ++functionsSeq;
@@ -758,12 +759,15 @@ async function loadFunctions(options) {
     setLoadError("functions", "");
     $("results").hidden = false;
     $("empty-state").hidden = true;
-    if (!grow) resetList("rows", "results-hint", "show-more-wrap");
+    if (!grow) {
+      resetPaging();
+      viewLoaded.functions = false;
+      resetList("rows", "results-hint", "show-more-wrap");
+    }
     // aria-busy only: a polite-live "Loading…" per debounced keystroke is
     // chatter (WCAG 4.1.3).
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
     if (seq !== functionsSeq || signal.aborted) return;
-    viewLoaded.functions = true;
     renderFunctions(data, { append: grow });
   } catch (error) {
     if (seq !== functionsSeq || signal.aborted) return;
@@ -861,6 +865,7 @@ function scheduleSearch() {
   // Leaving before the debounce fires cancels the load, so the cached rows no
   // longer match the text still in the box. Reload them if the reader returns.
   viewLoaded.functions = false;
+  if (functionsController) functionsController.abort();
   clearTimeout(searchTimer);
   updateFilterActions();
   searchTimer = setTimeout(() => {
@@ -870,6 +875,7 @@ function scheduleSearch() {
 }
 function scheduleGlobalsSearch() {
   viewLoaded.globals = false;
+  if (viewController) viewController.abort();
   clearTimeout(globalsSearchTimer);
   updateFilterActions();
   globalsSearchTimer = setTimeout(() => {
@@ -948,6 +954,7 @@ function renderGlobals(data, options) {
     tipCapped: "Narrow the search: display stops at " + PAGE_MAX + " rows.",
     filtered: filtersActive("globals"),
   });
+  viewLoaded.globals = true;
   updateFilterActions();
   syncError();
 }
@@ -992,6 +999,7 @@ async function loadSections() {
   viewController = new AbortController();
   const { signal } = viewController;
   $("sections-empty").hidden = true;
+  viewLoaded.sections = false;
   resetList("sections-rows", "sections-hint");
   $("sections-results").hidden = false;
   try {
@@ -1010,7 +1018,7 @@ async function loadSections() {
   }
 }
 async function loadGlobals(options) {
-  const grow = !!(options && options.append);
+  const grow = !!(options && options.append && viewLoaded.globals);
   clearTimeout(globalsSearchTimer);
   const t = $("target").value; if (!t) return;
   const seq = ++viewSeq;
@@ -1026,14 +1034,17 @@ async function loadGlobals(options) {
   if ($("gq").value.trim()) params.set("q", $("gq").value.trim());
   updateFilterActions();
   $("globals-empty").hidden = true;
-  if (!grow) resetList("globals-rows", "globals-hint", "globals-show-more-wrap");
+  if (!grow) {
+    resetGlobalsPaging();
+    viewLoaded.globals = false;
+    resetList("globals-rows", "globals-hint", "globals-show-more-wrap");
+  }
   $("globals-results").hidden = false;
   try {
     setLoadError("view", "");
     const data = await whileBusy("globals-results", () =>
       get("/api/globals?" + params, signal));
     if (seq !== viewSeq || signal.aborted) return;
-    viewLoaded.globals = true;
     renderGlobals(data, { append: grow });
   } catch (error) {
     if (seq !== viewSeq || signal.aborted) return;
@@ -1068,7 +1079,10 @@ async function loadHistory(options) {
     offset: String(offset),
   });
   $("history-empty").hidden = true;
-  if (!grow) resetList("history-rows", "history-hint", "history-show-more-wrap");
+  if (!grow) {
+    viewLoaded.history = false;
+    resetList("history-rows", "history-hint", "history-show-more-wrap");
+  }
   $("history-results").hidden = false;
   try {
     setLoadError("view", "");
@@ -1415,7 +1429,6 @@ async function init() {
   if (boot.functions && bootFits && unfiltered) {
     setLoadError("functions", "");
     $("results").hidden = false;
-    viewLoaded.functions = true;
     renderFunctions(boot.functions);
   } else {
     functionsLoad = loadFunctions();

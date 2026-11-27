@@ -168,3 +168,13 @@ assert.equal(
 	"History keeps its loaded rows",
 );
 assert.match(el("history-rows").innerHTML, /WinMain/);
+
+setView("globals");
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(
+	requested.filter((path) => path === "/api/globals").length,
+	4,
+	"returning to Globals retries the canceled replacement request",
+);
+assert.match(el("globals-rows").innerHTML, /g_searched/);
+assert.equal(el("gq").value, "g_flag");

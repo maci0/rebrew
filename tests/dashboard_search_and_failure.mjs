@@ -15,18 +15,22 @@ const summary = {
 };
 const functionPage = {
 	count: 1,
-	total: 1,
+	total: 2,
 	functions: [
 		["0x00401000", "WinMain", "_WinMain", 16, "EXACT", "game", "game/main.c"],
 	],
 };
 
 const requested = [];
+const functionOffsets = [];
 let functionsFail = false;
 let sectionsFail = false;
 globalThis.fetch = async (path) => {
 	const url = new URL(path, "http://127.0.0.1:8000");
 	requested.push(url.pathname);
+	if (url.pathname === "/api/functions") {
+		functionOffsets.push(url.searchParams.get("offset"));
+	}
 	if (
 		(url.pathname === "/api/functions" && functionsFail) ||
 		(url.pathname === "/api/sections" && sectionsFail)
@@ -94,6 +98,15 @@ assert.equal(
 	countFunctions(),
 	beforeStatus + 1,
 	"an immediate filter change cancels the pending search",
+);
+
+el("q").value = "Other";
+el("q").oninput();
+await el("show-more").onclick();
+assert.equal(
+	functionOffsets.at(-1),
+	"0",
+	"Show more during a pending search starts the new query at its first page",
 );
 
 // A failed load empties the panel and hides Show more, so the paging hint

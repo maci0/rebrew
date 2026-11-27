@@ -171,11 +171,11 @@ bindControls();
 element("target").value = "tgt";
 element("status").value = "STUB";
 element("q").value = "  win ";
-element("show-more").onclick();
+element("q").onkeydown({ key: "Enter" });
 const failed = pending.shift();
 assert.match(failed.path, /target=tgt/);
 assert.match(failed.path, /status=STUB/);
-assert.match(failed.path, /limit=500&offset=0/);
+assert.match(failed.path, /limit=100&offset=0/);
 assert.match(failed.path, /q=win/);
 failed.reject(new Error("Connection lost"));
 await new Promise((resolve) => setImmediate(resolve));
@@ -196,7 +196,7 @@ retryResponse.resolve({
 	ok: true,
 	json: async () => ({
 		count: 1,
-		total: 1,
+		total: 2,
 		functions: [["0x1", "win", "", 0, "", "", ""]],
 	}),
 });
