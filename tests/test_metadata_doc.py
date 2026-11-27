@@ -76,6 +76,43 @@ class TestParsedDocumentCache:
         cache_path.write_text(json.dumps(payload), encoding="utf-8")
         assert _read_doc_cache(store, fingerprint, None) is None
 
+    def test_own_stale_sidecar_is_not_read_but_another_writers_is(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A sidecar this process wrote for another fingerprint is skipped unread."""
+        import json
+        import os
+
+        from rebrew.metadata import document
+        from rebrew.metadata.document import _doc_cache_file, _read_doc_cache, _write_doc_cache
+
+        store = tmp_path / "rebrew-functions.toml"
+        store.write_text('format = 3\n["GAME.0x00001000"]\nname = "f"\n', encoding="utf-8")
+        old, new = ((str(store), 1, 2, 3, 4),), ((str(store), 5, 6, 7, 8),)
+        _write_doc_cache(store, old, None, {("GAME", 0x1000): {"name": "f"}})
+        real_loads = json.loads
+        parsed: list[int] = []
+
+        def loads(text: str) -> Any:
+            parsed.append(len(text))
+            return real_loads(text)
+
+        monkeypatch.setattr(json, "loads", loads)
+        assert _read_doc_cache(store, new, None) is None
+        assert parsed == []
+
+        # Another process replaced the sidecar with one for the current fingerprint.
+        cache_path = _doc_cache_file(store)
+        payload = {
+            "version": document._DOC_CACHE_VERSION,
+            "fingerprint": document._fingerprint_token(new, None),
+            "rows": [["GAME", 0x1000, {"name": "g"}]],
+        }
+        replacement = cache_path.with_name("replacement.json")
+        replacement.write_text(json.dumps(payload), encoding="utf-8")
+        os.replace(replacement, cache_path)
+        assert _read_doc_cache(store, new, None) == {("GAME", 0x1000): {"name": "g"}}
+
 
 class TestQualifiedKey:
     def test_with_module(self) -> None:
