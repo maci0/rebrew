@@ -6970,7 +6970,9 @@ Show BLOCKER metadata for a function.
 
 `rebrew orphans [OPTIONS] COMMAND [ARGS]…`
 
-`orphans list` reports metadata with neither a live source binding nor a function-list entry. Import slots and named data are excluded. `orphans prune --dry-run` previews removals; EXACT, RELOC, and PROVEN records are held back unless `--include-matched` is supplied. `orphans drop FUNCTION` removes one explicitly selected record through the locked writers. `verify --prune-orphans` uses the same prune owner.
+`orphans list` reports metadata with neither a live source binding nor a function-list entry. Import slots and named data are excluded. `orphans prune --dry-run` previews removals; EXACT, RELOC, and PROVEN records are held back unless `--include-matched` is supplied. `orphans drop FUNCTION` removes one explicitly selected record through the locked writers. `verify --prune-orphans` uses the same prune owner for rows.
+
+A support-file purpose recorded with `rebrew source register FILE --support` is an orphan of its module once FILE no longer exists; source selection walks only existing files and would never see it. `list` reports these under `support_files` (file, module, purpose), and `prune` removes the target module's entries (`pruned_support_files`). To retire a support file, delete it, then run `rebrew orphans prune --dry-run` and `rebrew orphans prune` for each module that registered it.
 
 
 Use `rebrew orphans <operation> --help` for exact arguments and examples.

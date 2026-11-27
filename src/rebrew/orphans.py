@@ -7,6 +7,10 @@ the store.  Rows left behind when a function is deleted, moved without its
 identity, or re-discovered at a new VA are invisible to verify, status, and
 todo, and accumulate silently.
 
+A support-file purpose (``[source.files]``, recorded by
+``rebrew source register FILE --support``) is orphaned when its file is gone:
+source selection only walks existing files, so the entry would stay unseen.
+
 ``rebrew orphans list`` lists them; ``rebrew orphans prune`` deletes them;
 ``rebrew orphans drop`` removes one VA's block on demand.
 """
@@ -41,7 +45,7 @@ app = typer.Typer(
         "  rebrew orphans prune --dry-run\n\n"
         "  rebrew orphans prune\n\n"
         "  rebrew orphans drop 0x10009310 --dry-run\n\n"
-        "[dim]Orphans are metadata rows without a live source binding. Function addresses still in the target inventory are protected. prune also preserves EXACT, RELOC, and PROVEN results and VERIFIED data unless --include-matched is supplied. drop explicitly removes one selected row; inspect and preview it first.[/dim]\n\n"
+        "[dim]Orphans are metadata rows without a live source binding, and support-file purposes whose file is gone. Function addresses still in the target inventory are protected. prune also preserves EXACT, RELOC, and PROVEN results and VERIFIED data unless --include-matched is supplied. drop explicitly removes one selected row; inspect and preview it first.[/dim]\n\n"
     ),
 )
 
@@ -132,6 +136,21 @@ def find_orphans(
     return fn_orphans, data_orphans
 
 
+def support_orphans(cfg: Any) -> list[dict[str, str]]:
+    """Support-file purposes of the target's module whose file no longer exists."""
+    from rebrew.config import target_module
+    from rebrew.metadata.source_provenance import load_source_files
+
+    root = Path(cfg.metadata_dir).resolve()
+    module = target_module(cfg)
+    return [
+        {"file": record.file, "module": record.module, "purpose": record.purpose}
+        for record in load_source_files(cfg.metadata_dir)
+        if (not module or preset_module_key(record.module) == preset_module_key(module))
+        and not (root / record.file).is_file()
+    ]
+
+
 def split_prunable(
     cfg: Any,
     fn_orphans: list[tuple[str, int, str]],
@@ -209,20 +228,24 @@ def manage_orphans(
     except OrphanInventoryError as exc:
         error_exit(str(exc), json_mode=json_output)
     total = len(fn_orphans) + len(data_orphans)
+    support = support_orphans(cfg)
 
     orphans = orphan_dicts(cfg, fn_orphans, data_orphans)
     if not prune:
         if json_output:
-            json_print({"orphans": orphans, "pruned": 0})
+            json_print({"orphans": orphans, "support_files": support, "pruned": 0})
             return
-        if total == 0:
+        if total == 0 and not support:
             console.print("[green]No orphaned metadata blocks.[/green]")
             return
         for o in orphans:
             flag = f" [red]{o['status']}[/red]" if o["status"] in EARNED_STATUSES else ""
             console.print(f"  [yellow]orphan[/yellow] {o['module']} {o['va']} ({o['store']}){flag}")
+        for s in support:
+            console.print(f"  [yellow]orphan support file[/yellow] {s['file']} ({s['module']})")
         console.print(
-            f"\n{total} orphaned block(s) — re-run with [bold]rebrew orphans prune[/bold] to delete them"
+            f"\n{total} orphaned block(s), {len(support)} support file purpose(s) — "
+            "re-run with [bold]rebrew orphans prune[/bold] to delete them"
         )
         return
 
@@ -237,14 +260,17 @@ def manage_orphans(
             json_print(
                 {
                     "orphans": doomed_dicts,
+                    "support_files": support,
                     "pruned": 0,
+                    "pruned_support_files": 0,
                     "dry_run": True,
                     "held_back": held_count,
                 }
             )
             return
         console.print(
-            f"\n[yellow]Dry run:[/yellow] {len(doomed)} orphaned block(s) would be deleted"
+            f"\n[yellow]Dry run:[/yellow] {len(doomed)} orphaned block(s) and "
+            f"{len(support)} support file purpose(s) would be deleted"
             + (f" ({held_count} earned held back)" if held_count and not include_matched else "")
         )
         return
@@ -257,6 +283,7 @@ def manage_orphans(
 
     from rebrew.metadata.data import delete_data_entries_batch
     from rebrew.metadata.functions import delete_entries_batch
+    from rebrew.metadata.source_provenance import remove_source_files
 
     pruned = delete_entries_batch(
         cfg.metadata_dir,
@@ -266,10 +293,24 @@ def manage_orphans(
         cfg.metadata_dir,
         [(o["module"], int(o["va"], 16)) for o in doomed if o["store"] == "rebrew-data.toml"],
     )
+    pruned_support = remove_source_files(
+        Path(cfg.metadata_dir), [(s["file"], s["module"]) for s in support]
+    )
     if json_output:
-        json_print({"orphans": doomed_dicts, "pruned": pruned, "held_back": held_count})
+        json_print(
+            {
+                "orphans": doomed_dicts,
+                "support_files": support,
+                "pruned": pruned,
+                "pruned_support_files": pruned_support,
+                "held_back": held_count,
+            }
+        )
         return
-    console.print(f"\n[green]Pruned:[/green] deleted {pruned} orphaned block(s)")
+    console.print(
+        f"\n[green]Pruned:[/green] deleted {pruned} orphaned block(s) and "
+        f"{pruned_support} support file purpose(s)"
+    )
 
 
 @app.command(

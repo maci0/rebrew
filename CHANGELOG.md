@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- `rebrew orphans list` reports support-file purposes (`[source.files]`, from `rebrew source register FILE --support`) whose file no longer exists, under `support_files`, and `rebrew orphans prune` removes the target module's ones (`pruned_support_files`). There was no way to retire a support registration: deleting its file left the entry behind, unseen by source selection.
+
 ## [6.83.0] - 2026-11-27
 
 ### Changed
