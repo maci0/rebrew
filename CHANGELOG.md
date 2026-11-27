@@ -2,6 +2,10 @@
 
 ## [6.82.0] - 2026-11-27
 
+### Changed
+
+- **Breaking:** `app.builtins.DOMAIN_COMPONENTS` includes `source rename-batch`.
+
 ### Added
 
 - `rebrew source rename-batch PLAN_FILE` runs a list of renames in one process. Each plan line holds the arguments of one `rebrew source rename`; lines apply in order, a refused line is reported and the rest still run, and the exit code is 1 when any line was refused. On a 5,385-source project a rename inside a batch took about 9 s against 20 s as a preview plus an apply command, because later lines reuse the first line's source parses.
