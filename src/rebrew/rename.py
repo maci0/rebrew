@@ -193,6 +193,54 @@ def main(
 ) -> None:
     """Rename a function, global, type or struct member and update every reference."""
     cfg = require_config(target=target, json_mode=json_output)
+    plan, extra, updated = run_rename(
+        cfg,
+        target_ident,
+        new_name,
+        new_file=new_file,
+        data=data,
+        include_data_row=include_data_row,
+        include_scaffold=include_scaffold,
+        type_rename=type_rename,
+        field_rename=field_rename,
+        all_modules=all_modules,
+        shared_definition=shared_definition,
+        reference_owner=reference_owner,
+        preserve_reference_file=preserve_reference_file,
+        pending_owner=pending_owner,
+        expected_digest=expected_digest,
+        comments=comments,
+        dry_run=dry_run,
+        json_output=json_output,
+    )
+    _report(cfg, plan, extra, updated, dry_run, json_output)
+
+
+def run_rename(
+    cfg: Any,
+    target_ident: str,
+    new_name: str,
+    *,
+    new_file: str | None,
+    data: bool,
+    include_data_row: list[str] | None,
+    include_scaffold: list[str] | None,
+    type_rename: bool,
+    field_rename: bool,
+    all_modules: bool,
+    shared_definition: bool,
+    reference_owner: list[str] | None,
+    preserve_reference_file: list[str] | None,
+    pending_owner: list[str] | None,
+    expected_digest: str | None,
+    comments: bool,
+    dry_run: bool,
+    json_output: bool,
+) -> tuple[RenamePlan, dict[str, Any], int]:
+    """Plan one rename and, unless *dry_run*, write it: the plan, its report fields, files updated.
+
+    Refusals leave through :func:`error_exit`.
+    """
     include_data_row = option_default(include_data_row, None) or []
     include_scaffold = option_default(include_scaffold, None) or []
     if (include_data_row or include_scaffold) and not data:
@@ -335,7 +383,7 @@ def main(
             updated = apply_rename_plan(cfg, plan)
         except RenameError as exc:
             error_exit(_rename_failure(exc, getattr(cfg, "root", None)), json_mode=json_output)
-    _report(cfg, plan, extra, updated, dry_run, json_output)
+    return plan, extra, updated
 
 
 def _report(

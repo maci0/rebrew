@@ -1,6 +1,6 @@
 # CLI Reference
 
-The CLI exposes 243 surfaces: 209 leaf commands and 34 groups, including the
+The CLI exposes 244 surfaces: 210 leaf commands and 34 groups, including the
 root. Run `rebrew <command> --help` (or `-h`) for the installed command's
 arguments, defaults, and examples. See [CLI migration](CLI_MIGRATION.md) for
 renamed routes and [Getting started](GETTING_STARTED.md) for the first match.
@@ -1141,6 +1141,7 @@ Use `rebrew source <operation> --help` for exact arguments and examples.
 | `rebrew source register` | Register address-only source bindings, or a support file purpose, in metadata. |
 | `rebrew source anchors` | Materialize ADDRESS comments for existing canonical bindings. |
 | `rebrew source rename` | Rename a function, global, type or struct member and update every reference. |
+| `rebrew source rename-batch` | Run a list of renames in one process, each line one `rebrew source rename`. |
 | `rebrew source fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew source inline-strings` | Inline string-literal globals from the reference binary: s_<hint>_<ADDR> placeholders and g_<hex> externs bound to storage_kind = "literal" data rows. |
 | `rebrew source document-unmatched` | Document unmatched functions as STUB skeletons + blockers. |
@@ -1423,6 +1424,41 @@ or earn STATUS. Reverify all affected definitions and callers in every target.
 The decisions cover C sources and headers. If independent definitions still
 share a native linker symbol, ambiguous response-file references refuse the
 rename; a C reference owner does not establish export or linker ownership.
+
+### `rebrew source rename-batch`
+
+`rebrew source rename-batch [OPTIONS] PLAN_FILE`
+
+Runs many renames in one process. Each line of `PLAN_FILE` holds the arguments
+of one `rebrew source rename`, for example
+`GOLD.0x405000 gm_Init --shared-definition`; blank lines and `#` comments are
+skipped. Lines run in order through the same planner and writer as the single
+command, and each line sees the tree the lines before it left.
+
+A refused line is reported with its message and the lines after it still run;
+the exit code is 1 when any line was refused. A line may not carry `--dry-run`,
+`--json` or `--help`. Every other `rebrew source rename` option applies per
+line, `--target` and `--expected-digest` included, and the rules of the single
+command hold: reviewed reference selections still need their digest.
+
+`--dry-run` previews every line against the unchanged tree, so a line that
+depends on an earlier line of the same plan is refused in the preview.
+
+Each applied line is its own transaction: a failure in one line does not undo
+the lines before it. The process parses each source once and later lines reuse
+the parse caches, where separate commands each read the whole tree again. Each
+line still writes the metadata stores once.
+
+`--json` prints `dry_run`, `renamed`, `refused` and `items`. An item carries its
+plan `line`, its `arguments` and either the change list of
+`rebrew source rename --json` or `error`.
+
+| Argument or option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `PLAN_FILE` | path | required | Text file: the arguments of one `rebrew source rename` per line |
+| `--dry-run` | flag | `False` | Preview changes without writing |
+| `--json` | flag | `False` | Output results as JSON |
+| `--target` / `-t` | str | none | Select a [project target](#selection-flags) for lines without their own |
 
 ### `rebrew source binding`
 

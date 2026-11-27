@@ -88,6 +88,11 @@ to rename all rows bound to one source definition while preserving independent
 twins. `--all-modules` deliberately has wider scope. Ambiguous users still need
 explicit binding.
 
+For many renames, write one `rebrew source rename` argument list per line to a
+file and run `rebrew source rename-batch FILE --json`. One process reads the
+sources once, a refused line is reported and the rest still run, and each line
+sees the lines before it.
+
 For independent definitions in the same target, review every reference in a file
 and preview `source rename MODULE.0xVA NEW --shared-definition --reference-owner
 FILE=OWNER_MODULE.0xVA --dry-run --json`. Repeat the owner option for each ambiguous
