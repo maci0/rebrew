@@ -927,19 +927,19 @@ def _iter_masked(
 
     ``base_va`` is the VA of ``text[0]``; *exclude* holds ``(lo, hi)`` VA ranges
     a linked library occupies (``external_ranges``).  The cursor advances by the
-    pattern length so the yield count equals ``bytes.count`` - the fast path
-    callers use when nothing is excluded, and the reason ``_O2_WRAPPERS`` and
-    friends are scanned this way.
+    pattern length (one byte for an empty pattern) so the yield count matches
+    the ``bytes.count`` fast path when nothing is excluded.
     """
     start = 0
-    while True:
+    step = max(1, len(pattern))
+    while start <= len(text):
         index = text.find(pattern, start)
         if index < 0:
             return
         va = base_va + index
         if not any(lo <= va <= hi for lo, hi in exclude):
             yield va
-        start = index + len(pattern)
+        start = index + step
 
 
 def _pattern_vas(

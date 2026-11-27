@@ -1700,6 +1700,25 @@ class TestMissingSizeHint:
         assert "SIZE 32" in result.output
         assert "rebrew coverage catalog --fix-sizes" in result.output
 
+    def test_hint_uses_positive_size_after_zero_size_duplicate(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        inventory = tmp_path / "src" / "x" / "function_structure.json"
+        inventory.write_text(
+            json.dumps([{"va": 0x1000, "size": 0}, {"va": 0x1000, "size": 32}]),
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(umbrella, ["test", "src/x/f.c"])
+        assert result.exit_code == 2, result.output
+        assert "inventory has SIZE 32" in result.output
+
     def test_no_hint_without_inventory_entry(self, tmp_path: Path, monkeypatch: Any) -> None:
         import json as _json
 

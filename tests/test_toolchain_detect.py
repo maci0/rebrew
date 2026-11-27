@@ -734,6 +734,14 @@ class TestOptLevelFingerprint:
         assert info.o1_wrapper_sites == []
         assert len(info.o2_wrapper_sites) == 4
 
+    def test_empty_pattern_advances_past_excluded_positions(self) -> None:
+        from rebrew.toolchain_detect import _iter_masked
+
+        matches = _iter_masked(b"ab", b"", 0x1000, [(0x1001, 0x1001)])
+        assert next(matches) == 0x1000
+        assert next(matches) == 0x1002
+        assert next(matches, None) is None
+
     def test_opt_level_without_library_keeps_program_style(self) -> None:
         from rebrew.toolchain_detect import opt_level_without_library
 

@@ -1361,12 +1361,19 @@ def _lint_preamble(
 def _inventory_size(cfg: ProjectConfig, va_str: str, json_output: bool) -> int | None:
     """The function inventory's SIZE for *va_str*, or None when absent or unreadable."""
     try:
-        from rebrew.catalog import cached_function_by_va
+        from rebrew.catalog import cached_function_by_va, cached_function_list
 
         va_int = parse_va(va_str, json_mode=json_output)
         entry = cached_function_by_va(cfg).get(va_int)
-        if entry is not None and int(entry.get("size") or 0) > 0:
-            return int(entry["size"])
+        if entry is None:
+            return None
+        size = int(entry["size"])
+        if size > 0:
+            return size
+        # The index keeps the first row, which can have an unknown extent.
+        for candidate in cached_function_list(cfg):
+            if candidate["va"] == va_int and (size := int(candidate["size"])) > 0:
+                return size
     except (ValueError, OSError, KeyError, TypeError) as exc:
         # The size is the only thing that turns a missing-size error into a
         # comparison or a named fix; losing it leaves a bare "no size".
