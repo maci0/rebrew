@@ -362,13 +362,20 @@ def prune(
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew orphans drop 0x401000 --dry-run --json\n\n"
-        "Explicitly selects one row for deletion, even if bound. Remove --dry-run to delete it."
+        "  # Drop a support-file purpose\n"
+        "  rebrew orphans drop src/shim.c --support --dry-run\n\n"
+        "Explicitly selects one row for deletion, even if bound, or with --support the target "
+        "module's support-file purpose of FILE, whether or not FILE exists. Remove --dry-run to "
+        "delete it."
     ),
 )
 def drop(
     function: str = typer.Argument(..., help=SOURCE_HELP),
     va_override: str | None = typer.Option(
         None, "--va", help="Disambiguate VA in a multi-function file (hex)"
+    ),
+    support: bool = typer.Option(
+        False, "--support", help="Drop FILE's support-file purpose for the target's module"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -378,6 +385,11 @@ def drop(
     from rebrew.blocker import resolve_function
 
     cfg = require_config(target=target, json_mode=json_output)
+    if support:
+        if va_override is not None:
+            error_exit("--support selects a file; --va does not apply", json_mode=json_output)
+        _drop_support(cfg, function, dry_run=dry_run, json_output=json_output)
+        return
     module, va_int = resolve_function(cfg, function, va_override, json_output)
 
     from rebrew.metadata.data import delete_data_entries_batch, get_data_entry
@@ -416,6 +428,48 @@ def drop(
         json_print({"module": module, "va": f"0x{va_int:x}", "stores": stores, "dropped": dropped})
     else:
         console.print(f"[green]Dropped:[/green] {module} 0x{va_int:x} block ({stores})")
+
+
+def _drop_support(cfg: Any, file: str, *, dry_run: bool, json_output: bool) -> None:
+    """Remove the target module's support-file purpose of *file*, previewed with *dry_run*."""
+    from rebrew.config import target_module
+    from rebrew.metadata.functions import identity_file, stored_file_matches
+    from rebrew.metadata.source_provenance import load_source_files, remove_source_files
+
+    module = target_module(cfg)
+    stored = identity_file(Path(file).absolute(), cfg.metadata_dir)
+    record = next(
+        (
+            r
+            for r in load_source_files(cfg.metadata_dir)
+            if stored_file_matches(r.file, stored)
+            and preset_module_key(r.module) == preset_module_key(module)
+        ),
+        None,
+    )
+    if record is None:
+        error_exit(
+            f"No support-file purpose for {stored} in {module} — nothing to drop",
+            json_mode=json_output,
+        )
+    dropped = (
+        0
+        if dry_run
+        else remove_source_files(Path(cfg.metadata_dir), [(record.file, record.module)])
+    )
+    result = {
+        "file": record.file,
+        "module": record.module,
+        "purpose": record.purpose,
+        "dropped": dropped,
+        "dry_run": dry_run,
+    }
+    if json_output:
+        json_print(result)
+    elif dry_run:
+        console.print(f"  [dim]Would drop[/dim] support file {record.file} ({record.module})")
+    else:
+        console.print(f"[green]Dropped:[/green] support file {record.file} ({record.module})")
 
 
 def main_entry() -> None:

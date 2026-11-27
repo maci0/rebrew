@@ -582,3 +582,44 @@ class TestSupportFileOrphans:
             ("reversed/shim.c", "SERVER"),
             ("reversed/gone.c", "GOLD"),
         }
+
+    def test_drop_support_removes_one_purpose_of_an_existing_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        _write_project(tmp_path)
+        self._register(tmp_path)
+        shim = str(tmp_path / "reversed" / "shim.c")
+        before = self._purposes(tmp_path)
+        preview = CliRunner().invoke(app, ["drop", shim, "--support", "--dry-run", "--json"])
+        assert preview.exit_code == 0, preview.output
+        assert cli_payload(preview)["dropped"] == 0
+        assert self._purposes(tmp_path) == before
+
+        res = CliRunner().invoke(app, ["drop", shim, "--support", "--json"])
+        assert res.exit_code == 0, res.output
+        assert cli_payload(res) == {
+            "file": "reversed/shim.c",
+            "module": "SERVER",
+            "purpose": "native link layout",
+            "dropped": 1,
+            "dry_run": False,
+        }
+        assert self._purposes(tmp_path) == before - {("reversed/shim.c", "SERVER")}
+        assert (tmp_path / "reversed" / "shim.c").exists()
+
+    def test_drop_support_refuses_a_file_without_a_purpose_in_this_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        _write_project(tmp_path)
+        self._register(tmp_path)
+        foo = str(tmp_path / "reversed" / "foo.c")
+        res = CliRunner().invoke(app, ["drop", foo, "--support", "--json"])
+        assert res.exit_code == 2, res.output
+        assert "No support-file purpose for reversed/foo.c in SERVER" in cli_payload(res)["error"]
+        assert ("reversed/gone.c", "GOLD") in self._purposes(tmp_path)

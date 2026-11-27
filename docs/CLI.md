@@ -6972,7 +6972,7 @@ Show BLOCKER metadata for a function.
 
 `orphans list` reports metadata with neither a live source binding nor a function-list entry. Import slots and named data are excluded. `orphans prune --dry-run` previews removals; EXACT, RELOC, and PROVEN records are held back unless `--include-matched` is supplied. `orphans drop FUNCTION` removes one explicitly selected record through the locked writers. `verify --prune-orphans` uses the same prune owner for rows.
 
-A support-file purpose recorded with `rebrew source register FILE --support` is an orphan of its module once FILE no longer exists; source selection walks only existing files and would never see it. `list` reports these under `support_files` (file, module, purpose), and `prune` removes the target module's entries (`pruned_support_files`). To retire a support file, delete it, then run `rebrew orphans prune --dry-run` and `rebrew orphans prune` for each module that registered it.
+A support-file purpose recorded with `rebrew source register FILE --support` is an orphan of its module once FILE no longer exists; source selection walks only existing files and would never see it. `list` reports these under `support_files` (file, module, purpose), and `prune` removes the target module's entries (`pruned_support_files`). `prune` also removes the module's unearned orphan rows, so to retire one support file use `rebrew orphans drop FILE --support --target T` (preview with `--dry-run`): it removes that module's purpose of FILE whether or not FILE still exists.
 
 
 Use `rebrew orphans <operation> --help` for exact arguments and examples.
@@ -7033,6 +7033,7 @@ rebrew orphans drop 0x401000 --dry-run --json
 | --- | --- | --- | --- |
 | `FUNCTION` | str | required | Source file, symbol name, or VA (hex) |
 | `--va` | str | none | Disambiguate VA in a multi-function file (hex) |
+| `--support` | flag | `False` | Drop FILE's support-file purpose for the target's module |
 | `--dry-run` | flag | `False` | Preview changes without writing |
 | `--json` | flag | `False` | Output results as JSON |
 | `--target` / `-t` | str | none | Select a [project target](#selection-flags) |
