@@ -1,10 +1,15 @@
 ## [Unreleased]
 
+## [6.86.0] - 2026-11-27
+
 ### Changed
 
 - Reuse coverage row ordering across dashboard requests and reduce per-row search work.
 - Skip detail reads for completed and parked functions during todo ranking.
 - Reuse one copy buffer when hashing or snapshotting a jobs workspace.
+- Skip Unicode formatting scans for ASCII dashboard text.
+- Share binary analysis fixtures and replace fixed waits in deadline and lock tests.
+- Refresh contributor documentation and command references.
 
 ## [6.85.0] - 2026-11-27
 
