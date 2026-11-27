@@ -107,6 +107,18 @@ def _migrate_legacy_schema(connection: sqlite3.Connection, location: Path) -> No
         "INSERT INTO metadata_documents(path, revision, content) "
         "SELECT path, revision, content FROM metadata_documents_legacy ORDER BY path"
     )
+    # The INSERT is the only copy of these rows, and the source table is about
+    # to be dropped.  Compare the logical rows, not just the count: a row
+    # whose path or revision did not survive must roll the rename back.
+    drifted = connection.execute(
+        "SELECT path FROM metadata_documents_legacy AS source "
+        "WHERE NOT EXISTS ("
+        "SELECT 1 FROM metadata_documents AS copied "
+        "WHERE copied.path = source.path AND copied.revision = source.revision "
+        "AND copied.content = source.content)"
+    ).fetchone()
+    if drifted is not None:
+        raise MetadataStorageError(f"{location}: legacy metadata migration dropped {drifted[0]!r}")
     connection.execute("DROP TABLE metadata_documents_legacy")
     connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
     # A legacy database may carry stray indexes from the old UNIQUE/PK; the

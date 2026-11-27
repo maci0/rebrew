@@ -165,6 +165,29 @@ class TestBackendContract:
         with pytest.raises(MetadataStorageError, match="unsupported metadata schema"):
             store.read("test")
 
+    def test_legacy_schema_upgrade_keeps_every_row(self, tmp_path: Path) -> None:
+        from rebrew.metadata.sqlite import _LEGACY_DDL
+
+        path = tmp_path / DATABASE_FILENAME
+        rows = (
+            ("rebrew-functions.toml", 3, "format = 3\n"),
+            ("src/rebrew-data.toml", 1, "format = 2\n"),
+        )
+        with sqlite3.connect(path) as connection:
+            connection.execute("PRAGMA user_version = 1")
+            connection.execute(_LEGACY_DDL)
+            connection.executemany(
+                "INSERT INTO metadata_documents(path, revision, content) VALUES (?, ?, ?)",
+                rows,
+            )
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        assert store.read("test") == {"format": 3}
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as connection:
+            kept = connection.execute(
+                "SELECT path, revision, content FROM metadata_documents ORDER BY path"
+            ).fetchall()
+        assert kept == sorted(rows)
+
     def test_existing_non_rebrew_database_is_not_adopted(self, tmp_path: Path) -> None:
         path = tmp_path / DATABASE_FILENAME
         with sqlite3.connect(path) as connection:
