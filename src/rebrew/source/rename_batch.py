@@ -3,8 +3,9 @@
 Each line of the plan file holds the arguments of one ``rebrew source rename``.
 The lines run in order through that command's planner and writer, each against
 the tree the lines before it left. A refused line is reported and the lines
-after it still run. One process parses each source once and later lines reuse
-the parse caches, where separate commands each read the whole tree again.
+after it still run. One process parses each source once; later lines reuse the parse
+caches, the bindings of sources whose text and rows did not change, and the bound
+source path of each row file, where separate commands each read the whole tree again.
 """
 
 lazy import contextlib
@@ -25,7 +26,12 @@ from rebrew.cli import (
     require_config,
     untrusted_text,
 )
-lazy from rebrew.metadata.bindings import BindingConflictError, strict_bindings
+lazy from rebrew.metadata.bindings import (
+    BindingConflictError,
+    reuse_source_bindings,
+    strict_bindings,
+)
+lazy from rebrew.source.rename_ops import reuse_bound_sources
 lazy from rebrew.utils import rel_display_path
 
 #: Options a plan line may not carry: the batch sets the first two for every line.
@@ -119,15 +125,17 @@ def main(
         error_exit(f"cannot read plan file {plan_file}: {exc}", json_mode=json_output)
     command = _rename_command()
     items: list[dict[str, Any]] = []
-    for number, line in enumerate(text.splitlines(), start=1):
-        try:
-            arguments = shlex.split(line, comments=True)
-        except ValueError as exc:
-            items.append({"line": number, "arguments": [], "error": f"unparsable line: {exc}"})
-            continue
-        if arguments:
-            outcome = _run_line(command, arguments, target, dry_run)
-            items.append({"line": number, "arguments": arguments, **outcome})
+    # Lines reread the tree; a source's bindings are reused while its inputs are unchanged.
+    with reuse_source_bindings(), reuse_bound_sources():
+        for number, line in enumerate(text.splitlines(), start=1):
+            try:
+                arguments = shlex.split(line, comments=True)
+            except ValueError as exc:
+                items.append({"line": number, "arguments": [], "error": f"unparsable line: {exc}"})
+                continue
+            if arguments:
+                outcome = _run_line(command, arguments, target, dry_run)
+                items.append({"line": number, "arguments": arguments, **outcome})
     refused = sum(1 for item in items if "error" in item)
     if json_output:
         json_print(

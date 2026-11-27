@@ -28,6 +28,9 @@
 - Updated `matching.round_trip` and `buildsys.objdiff` for multi-arch ELF support (`write_elf_object`, COFF machine constants by arch, ELF string symbol extraction and PIE/padding handling).
 - Updated `library.identify` with console SDK stems and prefixes (`LIBULTRA`, `PSYQ`, `PSX_LIBC`, `DOLPHIN`).
 - Updated documented dashboard cold-entry wire checkpoint (`12157 B zstd` / `12785 B gzip`, within the `13600 B` budget).
+- Supplemented the 6.91.0 notes with the shared function inventory (`catalog.cached_function_by_va`), dashboard globals paging and search synchronization, and indexed CRT name lookups.
+- Recorded the 6.91.0 fixes for empty toolchain-detection pattern scans and duplicate inventory sizes in `rebrew test`, and the check that legacy metadata rows survive the SQLite schema upgrade.
+- Recorded the 6.91.0 updates to the coverage and verification guides.
 
 ### Added
 
@@ -35,20 +38,19 @@
 
 ## [6.91.0] - 2026-11-27
 
+### Added
+
+- `rebrew.compiler.cache.fold_name(name)` is the include-component comparison key (NFC-normalized, then case-folded) that `compiler.preprocessed_context` shares.
+- `rebrew.metadata.source_provenance.move_source_provenance(directory, moves)` follows several byte-preserving source moves, in order, in one locked write; each move does what `rename_source_provenance(directory, {}, move=move)` does, and a move that one refuses changes nothing while the rest still apply.
+
 ### Changed
 
-- **Breaking:** Updated public inventory and utility helpers:
-  - Removed unused `utils.BoundedLRU` (and re-exports in `compiler.cache`, `compiler.overrides`, `matcher.solutions`, `metadata.files`), `crt_match.inventory_path_for`, `pdb_info.parse_compile3`, and `pdb_info.parse_procs`.
-  - `catalog.loaders.cached_function_list` now returns `tuple[dict[str, Any], ...]` instead of `list[dict[str, Any]]`; `build_function_registry`, `catalog.build_coverage_data`, and `workspace.status.TrustedCoverage.bind` accept `Sequence[dict[str, Any]]`.
-  - `crt_match.build_crt_index` now returns `CrtIndex` (with `.hits`) instead of `list[CrtSourceEntry]`.
-- Share the function inventory across lookups (adding `catalog.cached_function_by_va`), page dashboard globals once, and index CRT name lookups.
-- Align coverage and verification documentation with current code.
-
-### Fixed
-
-- Handle empty pattern scans in toolchain detection and duplicate inventory sizes in `rebrew test`.
-- Verify legacy metadata rows survive the SQLite schema upgrade.
-- Keep dashboard results in sync with active searches.
+- **Breaking:** `BoundedLRU` (`rebrew.utils.BoundedLRU`, re-exported as `compiler.cache.BoundedLRU`, `compiler.overrides.BoundedLRU`, `matcher.solutions.BoundedLRU` and `metadata.files.BoundedLRU`) keeps only `get`, `put` and `replace_where`; `clear`, `currsize`, `drop_where`, `get_or_put`, `maxsize` and `pop` are removed.
+- **Breaking:** `cached_function_list(cfg)` returns a tuple instead of a list (`catalog.cached_function_list`, `catalog.loaders.cached_function_list`, `catalog.pipeline.cached_function_list`, `binsync.state.cached_function_list`, `buildsys.layout_map.cached_function_list`, `describe.cached_function_list`, `document_unmatched.cached_function_list`, `extract.cached_function_list`, `source.merge_sweep.cached_function_list`, `source.units.cached_function_list`, `verify.cli.cached_function_list`), and the functions that take its result accept any sequence for `funcs`: `build_function_registry` (`catalog`, `catalog.pipeline`, `catalog.registry`, `binsync.state`, `buildsys.layout_map`, `cu_map`, `source.merge_sweep`, `verify.cli`), `build_coverage_data` (`catalog`, `catalog.grid`, `catalog.pipeline`) and `TrustedCoverage.bind` (`catalog.pipeline`, `workspace.status`).
+- **Breaking:** `crt_match.build_crt_index` returns a `CrtIndex` instead of a list of `CrtSourceEntry`, and `crt_match.inventory_path_for` is removed.
+- **Breaking:** `pdb_info.parse_compile3` and `pdb_info.parse_procs` are removed.
+- `rebrew source rehome 0xVA=PATH ...` files the assembly evidence of every moved definition in one locked write instead of one replication transaction per spec: 200 Gold specs after `git mv` of their planned files took 2.8 s instead of 140 s (medians of three interleaved runs on a 5,300-source project with a 25 MB function store replicated to SQLite and TOML), with the same sources, function store text and JSON report. The replication clock and SQLite revision of the function store advance once for the evidence instead of once per moved file that holds evidence.
+- `rebrew source rename-batch` applies a line after the first in 1.84 s instead of 2.67 s (medians of three interleaved runs of 100 renames, 95 applied and 5 refused, on a 5,300-source project with a 25 MB function store replicated to SQLite and TOML; the batch took 214 s instead of 271 s), with the same sources, stores and JSON report. A line still plans against the tree the lines before it left and commits on its own. Inside the batch a source's bindings are read again only when its text, its address-comment syntax, the function rows naming it or at its anchors, or its data rows changed, and each row file's bound source path is resolved once. A store write hands its replication digest the record split of the text it rendered instead of segmenting the whole document again, a replication state save hands the next load the records it rendered when the store reads back that text, and `data_rows_for_path` slices an in-tree path instead of walking it.
 
 ## [6.90.0] - 2026-11-27
 

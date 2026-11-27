@@ -304,7 +304,15 @@ def _parse_state(
 def _save(
     store: MetadataStore, records: dict[str, _Record], node: str = "", body: str | None = None
 ) -> None:
-    store.write_text(_render_state(records, node, body), "metadata replication state")
+    text = _render_state(records, node, body)
+    store.write_text(text, "metadata replication state")
+    # A store that already reads back this text parses to these records, so the
+    # next load of the version skips parsing it. A SQL state still inside its
+    # transaction reads the committed text and is parsed when it is next loaded.
+    fingerprint = store.fingerprint()
+    if fingerprint and store.text() == text and store.fingerprint() == fingerprint:
+        with _LOADED_LOCK:
+            _LOADED[(str(store.location), str(store.path), fingerprint)] = (dict(records), node)
 
 
 def _observed(store: MetadataStore, recorded: _Record | None) -> _Record | None:

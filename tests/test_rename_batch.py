@@ -285,3 +285,62 @@ def test_a_line_whose_metadata_write_fails_leaves_no_trace_and_the_rest_still_ru
     assert _row(rows, "GOLDTL", 0x00402100)["name"] == "tl_Apply"
     documents = _documents(root)
     assert 'name = "cm_Route"' not in documents["rebrew-functions.toml"]
+
+
+#: Line 3 renames the name line 1 wrote; line 2 asks for a name another writer gave a row.
+_REUSE_PLAN = """\
+srv_Tick srv_Step
+SERVER.0x10004100 cm_Spawn
+srv_Step srv_Loop
+SERVER.0x10004100 cm_Route
+"""
+
+
+def test_a_line_sees_rows_another_writer_changed_after_an_earlier_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reused source bindings follow store rows that change while their source text does not."""
+    from rebrew.metadata.functions import record_function_rows
+    from rebrew.source import rename_batch
+
+    root = _project(tmp_path)
+    real = rename_batch._run_line
+    lines: list[list[str]] = []
+
+    def then_rename_a_row(command: Any, arguments: list[str], *args: Any) -> dict[str, Any]:
+        outcome = real(command, arguments, *args)
+        lines.append(arguments)
+        if len(lines) == 1:
+            # Another writer names the row of cm_ExCreateCitizen; command.c is unchanged.
+            record_function_rows(
+                root,
+                [
+                    {
+                        "module": "SERVER",
+                        "va": 0x10004000,
+                        "identity": {"name": "cm_Spawn", "symbol": "_cm_Spawn"},
+                        "fields": {},
+                    }
+                ],
+                overwrite_name=True,
+                updated_by="test",
+            )
+        return outcome
+
+    monkeypatch.setattr(rename_batch, "_run_line", then_rename_a_row)
+    command_c = _text(root, "command.c")
+    result = _batch(root, monkeypatch, _REUSE_PLAN, "--json")
+    assert result.exit_code == 1, result.output
+    report = cli_payload(result)
+    assert (report["renamed"], report["refused"]) == (3, 1)
+    items = report["items"]
+    assert ["error" in item for item in items] == [False, True, False, False]
+    assert items[1]["error"].startswith("'cm_Spawn' is already used by command.c")
+    assert (items[2]["old_name"], items[2]["new_name"]) == ("srv_Step", "srv_Loop")
+    assert (items[3]["old_name"], items[3]["new_name"]) == ("cm_Dispatch", "cm_Route")
+    assert "void srv_Loop(OfficeSlot* slot, PlayerSlot* player)" in _text(root, "server.c")
+    assert _text(root, "command.c") == command_c.replace("cm_Dispatch", "cm_Route")
+    rows = _functions(root)
+    assert _row(rows, "SERVER", 0x10003000)["name"] == "srv_Loop"
+    assert _row(rows, "SERVER", 0x10004000)["name"] == "cm_Spawn"
+    assert _row(rows, "SERVER", 0x10004100)["name"] == "cm_Route"

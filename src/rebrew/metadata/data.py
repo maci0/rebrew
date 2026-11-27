@@ -44,7 +44,7 @@ lazy from rebrew.metadata.document import (
     stamp_format,
 )
 lazy from rebrew.metadata.storage import metadata_store, metadata_write_lock
-lazy from rebrew.utils import resolved_path
+lazy from rebrew.utils import posix_child, resolved_path
 
 if TYPE_CHECKING:
     from rebrew.metadata.bindings import SourceBinding
@@ -137,10 +137,16 @@ def data_rows_for_path(
     call resolves and fingerprints the store again.
     """
     dir_path = resolve_metadata_dir(directory)
-    try:
-        rel = resolved_path(filepath).relative_to(resolved_path(dir_path)).as_posix()
-    except ValueError:
-        rel = Path(os.path.relpath(filepath, dir_path)).as_posix()
+    resolved = os.fspath(resolved_path(filepath))
+    # A whole-tree scan calls this once per source; the slice skips two Path walks.
+    child = None if "\\" in resolved else posix_child(resolved, os.fspath(resolved_path(dir_path)))
+    if child is not None:
+        rel = child or "."
+    else:
+        try:
+            rel = resolved_path(filepath).relative_to(resolved_path(dir_path)).as_posix()
+        except ValueError:
+            rel = Path(os.path.relpath(filepath, dir_path)).as_posix()
     seen: set[tuple[str, int]] = set()
     rows: list[tuple[str, int, dict[str, Any]]] = []
     if index is None:

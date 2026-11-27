@@ -920,7 +920,7 @@ _fold_name = fold_name
 def _folded_children(
     directory: str, st: os.stat_result | None = None
 ) -> dict[str, tuple[str, ...]]:
-    """Child paths of *directory*, grouped by :func:`_fold_name` of their names.
+    """Child paths of *directory*, grouped by :func:`fold_name` of their names.
 
     *st* is the caller's ``os.stat(directory)`` when it already took one.
     """
@@ -936,7 +936,7 @@ def _folded_children(
     grouped: dict[str, list[str]] = {}
     with os.scandir(directory) as children:
         for child in children:
-            grouped.setdefault(_fold_name(child.name), []).append(child.path)
+            grouped.setdefault(fold_name(child.name), []).append(child.path)
     index = {name: tuple(paths) for name, paths in grouped.items()}
     if time.time_ns() - st.st_mtime_ns > _DIR_INDEX_RACY_NS:
         size = sum(len(paths) for paths in index.values())
@@ -975,7 +975,7 @@ def _walk_include_path_checked(
             candidate = os.path.join(candidate, part)  # noqa: PTH118 -- include-walk hot path
             st = None
             continue
-        matches = _folded_children(candidate, st).get(_fold_name(part), ())
+        matches = _folded_children(candidate, st).get(fold_name(part), ())
         if len(matches) > 1:
             raise ValueError("ambiguous case-insensitive include component")
         if not matches:

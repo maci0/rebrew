@@ -115,6 +115,44 @@ def test_all_edits_together_render_like_full_parse(store: str) -> None:
     assert render(lazy) == tomlkit.dumps(full)
 
 
+@pytest.mark.parametrize("edit", [*EDITS, None], ids=lambda edit: getattr(edit, "__name__", "all"))
+def test_a_render_remembers_the_split_its_text_segments_to(
+    store: str, edit: Callable[[Any], None] | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The replication digest of a write reads the render's split instead of segmenting again."""
+    lazy = parse_roundtrip(store)
+    for each in EDITS if edit is None else [edit]:
+        each(lazy)
+    edited = render(lazy)
+    segmented: list[str] = []
+    real = lazydoc._segment
+
+    def segment(text: str) -> Any:
+        segmented.append(text)
+        return real(text)
+
+    monkeypatch.setattr(lazydoc, "_segment", segment)
+    remembered = lazydoc.split_records(edited)
+    assert segmented == []
+    monkeypatch.setattr(lazydoc, "_SPLITS", OrderedDict())
+    assert remembered is not None
+    assert remembered == lazydoc.split_records(edited)
+    assert segmented == [edited]
+
+
+def test_a_render_whose_pieces_do_not_segment_alone_remembers_nothing(
+    store: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-dumped record holding a multi-line string leaves the split to a full segmentation."""
+    lazy = parse_roundtrip(store)
+    lazy["GAME.0x00001010"]["note"] = tomlkit.string("two\nlines", multiline=True)
+    monkeypatch.setattr(lazydoc, "_SPLITS", OrderedDict())
+    edited = render(lazy)
+    assert '"""' in edited
+    assert list(lazydoc._SPLITS) == []
+    assert lazydoc.split_records(edited) is None
+
+
 def test_untouched_document_renders_verbatim_and_iterates_in_order(store: str) -> None:
     text = store
     lazy = parse_roundtrip(text)
@@ -223,13 +261,14 @@ def test_an_edited_document_parses_only_the_record_it_changed(
 ) -> None:
     lazy = parse_roundtrip(store)
     _edit_existing(lazy)
-    edited = render(lazy)
     parsed = _parsed_texts(monkeypatch)
-    doc = parse_roundtrip(edited)
-    assert isinstance(doc, LazyDocument)
-    # The preamble, then the one record the edit re-rendered.
+    edited = render(lazy)
+    # The render splits its own text: the preamble, then the one record it re-rendered.
     assert len(parsed) == 2
     assert parsed[1].startswith('["GAME.0x00001010"]')
+    doc = parse_roundtrip(edited)
+    assert isinstance(doc, LazyDocument)
+    assert len(parsed) == 2
     whole = tomllib.loads(edited)
     assert all(doc.peek(key) == whole[key] for key in whole if key != "format")
     assert render(doc) == edited

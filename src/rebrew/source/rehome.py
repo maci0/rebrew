@@ -105,7 +105,9 @@ def _check_definition_ownership(cfg: Any, rows: list[dict[str, Any]]) -> None:
     from rebrew.metadata.functions import load_metadata
     from rebrew.utils import preset_module_key
 
-    stored = load_metadata(cfg.metadata_dir, deepcopy=False)
+    # The property probes the stores for every ancestor; read it once.
+    metadata_dir = cfg.metadata_dir
+    stored = load_metadata(metadata_dir, deepcopy=False)
     changes = {
         (row["module"], row["va"]): stored.get((row["module"], row["va"]), {}) | row["identity"]
         for row in rows
@@ -114,9 +116,9 @@ def _check_definition_ownership(cfg: Any, rows: list[dict[str, Any]]) -> None:
         raise ValueError("rehome repeats a function address")
     effective = stored | changes
     for (module, va), entry in changes.items():
-        root = cfg.root if entry.get("kind") == "LIBRARY" else cfg.metadata_dir
+        root = cfg.root if entry.get("kind") == "LIBRARY" else metadata_dir
         providers = function_rows_for_file(
-            root / entry["file"], cfg.metadata_dir, effective, project_root=cfg.root
+            root / entry["file"], metadata_dir, effective, project_root=cfg.root
         )
         for other_module, other_va, other in providers:
             if (
@@ -151,6 +153,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
     from rebrew.source.rename_ops import redecorated_symbol
 
     module = target_module(cfg) or ""
+    metadata_dir = cfg.metadata_dir
     if not module:
         raise ValueError("no target module configured to address the function metadata")
     rows: list[dict[str, Any]] = []
@@ -161,7 +164,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
         if not sep or not value:
             raise ValueError(f"rehome wants 0xVA=PATH or 0xVA=PATH:NAME, got {spec!r}")
         va = int(va_s, 16)
-        entry = get_entry(cfg.metadata_dir, va, module)
+        entry = get_entry(metadata_dir, va, module)
         old_name = _row_name(entry)
         if not old_name:
             raise ValueError(f"no function row at {module}.0x{va:x}")
@@ -170,7 +173,7 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
         path = _source(cfg, value)
         if not _defines(path, _defined_names(path), name, entry):
             raise ValueError(f"{value} does not define {name}")
-        owner_root = cfg.root if entry.get("kind") == "LIBRARY" else cfg.metadata_dir
+        owner_root = cfg.root if entry.get("kind") == "LIBRARY" else metadata_dir
         identity = validate_identity_file(identity_file(path, owner_root))
         old_file = str(entry.get("file") or "")
         if old_file and old_file != identity:
@@ -197,9 +200,8 @@ def rehome_functions(cfg: Any, specs: list[str], *, dry_run: bool = False) -> li
     ]
     _check_definition_ownership(cfg, updates)
     if not dry_run:
-        record_function_rows(cfg.metadata_dir, updates, overwrite_name=True, updated_by="rehome")
-        for old_path, new_path in evidence_moves:
-            _follow_assembly_evidence(cfg, old_path, new_path)
+        record_function_rows(metadata_dir, updates, overwrite_name=True, updated_by="rehome")
+        _follow_assembly_evidence(cfg, evidence_moves)
     return rows
 
 
@@ -270,25 +272,25 @@ def retarget_file(
                 for module, va, _entry in data
             ],
         )
-        _follow_assembly_evidence(cfg, old_path, new_path)
+        _follow_assembly_evidence(cfg, [(old_path, new_path)])
     return function_rows, data_rows
 
 
-def _follow_assembly_evidence(cfg: Any, old_path: Path, new_path: Path) -> None:
-    """Keep documented original-assembly records filed under the live path.
+def _follow_assembly_evidence(cfg: Any, moves: list[tuple[Path, Path]]) -> None:
+    """Keep documented original-assembly records filed under the live paths.
 
     Assembly provenance is keyed by source path, so a moved file would lose its
     reviewed evidence and fall back to "whole-function asm is not allowed".
+    Every move goes into one locked write, in order.
     """
-    from rebrew.metadata.source_provenance import rename_source_provenance
+    from rebrew.metadata.source_provenance import move_source_provenance
 
     directory = cfg.metadata_dir.resolve()
-    if not old_path.exists() and not new_path.exists():
-        return
+    live = [(old, new) for old, new in moves if old.exists() or new.exists()]
     try:
-        rename_source_provenance(directory, {}, move=(old_path, new_path))
+        move_source_provenance(directory, live)
     except ValueError:
-        # A record already under the new path means an earlier pass moved it.
+        # An invalid store refuses every move.
         return
 
 

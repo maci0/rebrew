@@ -2240,7 +2240,9 @@ class TestLiteralSearch:
         monkeypatch.setattr(dash, "_FOLDED_GLOBALS", {})
 
         class Snapshot(SimpleNamespace):
-            pass
+            @property
+            def ordered_globals(self) -> list[SimpleNamespace]:
+                return self.globals  # CoverageSnapshot orders by VA; these stubs are in order
 
         first = Snapshot(
             code_functions=[SimpleNamespace(name="OLD", symbol="X")],
@@ -2269,7 +2271,9 @@ class TestLiteralSearch:
         import rebrew.coverage.dashboard as dash
 
         class Snapshot(SimpleNamespace):
-            pass
+            @property
+            def ordered_globals(self) -> list[SimpleNamespace]:
+                return self.globals  # CoverageSnapshot orders by VA; these stubs are in order
 
         dash._FOLDED.clear()
         dash._FOLDED_GLOBALS.clear()
@@ -2293,7 +2297,9 @@ class TestLiteralSearch:
         import rebrew.coverage.dashboard as dash
 
         class Snapshot(SimpleNamespace):
-            pass
+            @property
+            def ordered_globals(self) -> list[SimpleNamespace]:
+                return self.globals  # CoverageSnapshot orders by VA; these stubs are in order
 
         dash._FOLDED.clear()
         dash._FOLDED_GLOBALS.clear()
