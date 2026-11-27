@@ -496,7 +496,7 @@ def _inventory_size(cfg: Any, va: int) -> int:
 
     try:
         entry = cached_function_by_va(cfg).get(va)
-    except (OSError, ValueError, KeyError, TypeError):
+    except OSError, ValueError, KeyError, TypeError:
         return 0
     if entry is None:
         return 0

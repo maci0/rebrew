@@ -433,7 +433,7 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
         return 0
     try:
         return int(entry["size"])
-    except (TypeError, ValueError, KeyError):
+    except TypeError, ValueError, KeyError:
         return 0
 
 
