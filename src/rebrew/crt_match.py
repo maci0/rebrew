@@ -14,9 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 from dataclasses import dataclass
-lazy import contextlib
 lazy from pathlib import Path
 lazy from typing import Any
 
@@ -32,7 +30,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.naming import normalize_name
-lazy from rebrew.config import ProjectConfig, inventory_path_for
+lazy from rebrew.config import ProjectConfig
 lazy from rebrew.metadata.bindings import SourceBinding, read_source_bindings, set_binding_field
 lazy from rebrew.source.discovery import iter_library_headers, iter_sources, scan_files
 lazy from rebrew.utils import TerminalTable, fold_ident, preset_module_key
@@ -373,64 +371,37 @@ def _build_indexes(cfg: ProjectConfig) -> dict[str, list[CrtSourceEntry]]:
     return indexes
 
 
-# Inventory fingerprint → {va: size}.  Keyed by (path, mtime_ns, size, inode,
-# ctime_ns), not ``id(cfg)``: a rewritten function_structure.json must not keep
-# serving sizes from the first snapshot (same-ns rewrites, same-size
-# rename-overs, and a rewrite that restores the old mtime included), and a
-# long-lived process that constructs many ProjectConfig objects must not retain
-# one dict per id forever.  Guarded: verify -j N / parallel crt-match callers
-# share this map.
-_canonical_sizes: dict[tuple[str, int, int, int, int], dict[int, int]] = {}
-_CANONICAL_SIZES_MAX = 32
-_canonical_sizes_lock = threading.Lock()
-
-
 def _canonical_size(cfg: ProjectConfig, va: int) -> int:
-    """Best-effort canonical size for *va* from the function list registry.
+    """Best-effort canonical size for *va* from the discovery inventory.
 
     LIBRARY-header annotations often lack a SIZE, so crt-match reported
     ``binary_size: 0`` for e.g. _malloc (real size 252).  Falls back to the
-    registry's canonical size; returns 0 when unavailable.
+    inventory size; returns 0 when unavailable. The inventory cache keys the
+    rewrite (mtime, size, inode), so a replaced ``function_structure.json``
+    is read again instead of serving the first snapshot.
     """
-    from rebrew.catalog import cached_function_list
+    from rebrew.catalog import cached_function_by_va
 
-    reversed_dir = getattr(cfg, "reversed_dir", "") or ""
-    path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
-    mtime_ns = 0
-    fsize = 0
-    ino = 0
-    ctime_ns = 0
-    if path:
-        with contextlib.suppress(OSError):
-            st = Path(path).stat()
-            mtime_ns = st.st_mtime_ns
-            fsize = st.st_size
-            ino = st.st_ino
-            ctime_ns = st.st_ctime_ns
-    cache_key = (path, mtime_ns, fsize, ino, ctime_ns)
-    with _canonical_sizes_lock:
-        sizes = _canonical_sizes.get(cache_key)
-    if sizes is None:
-        try:
-            sizes = {f["va"]: int(f["size"]) for f in cached_function_list(cfg)}
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            # 0 is the caller's "size unknown", so a broken inventory read
-            # would read as a function whose extent is genuinely 0 rather
-            # than as the failed lookup it is.
-            log.warning("canonical size inventory unreadable (%s: %s); reporting size 0", path, exc)
-            return 0
-        if not sizes:
-            # Empty is also what a failed inventory load returns; never pin it.
-            return 0
-        with _canonical_sizes_lock:
-            if cache_key not in _canonical_sizes:
-                if len(_canonical_sizes) >= _CANONICAL_SIZES_MAX:
-                    oldest = next(iter(_canonical_sizes))
-                    _canonical_sizes.pop(oldest, None)
-                _canonical_sizes[cache_key] = sizes
-            else:
-                sizes = _canonical_sizes[cache_key]
-    return sizes.get(va, 0)
+    path = ""
+    try:
+        entry = cached_function_by_va(cfg).get(va)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        # 0 is the caller's "size unknown", so a broken inventory read
+        # would read as a function whose extent is genuinely 0 rather
+        # than as the failed lookup it is.
+        reversed_dir = getattr(cfg, "reversed_dir", "") or ""
+        if reversed_dir:
+            from rebrew.config import inventory_path_for
+
+            path = str(inventory_path_for(reversed_dir, cfg))
+        log.warning("canonical size inventory unreadable (%s: %s); reporting size 0", path, exc)
+        return 0
+    if entry is None:
+        return 0
+    try:
+        return int(entry["size"])
+    except (TypeError, ValueError, KeyError):
+        return 0
 
 
 def match_all(cfg: ProjectConfig) -> list[CrtMatch]:

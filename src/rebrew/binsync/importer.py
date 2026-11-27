@@ -492,15 +492,18 @@ def _stub_text(cfg: Any, va: int, bs_name: str, bs_proto: str) -> tuple[Path, st
 
 def _inventory_size(cfg: Any, va: int) -> int:
     """Catalog size for *va*, or 0 when the inventory has none."""
-    from rebrew.catalog import cached_function_list
+    from rebrew.catalog import cached_function_by_va
 
-    for func in cached_function_list(cfg):
-        try:
-            if int(func.get("va", -1)) == va:
-                return int(func.get("size") or 0)
-        except TypeError, ValueError:
-            continue
-    return 0
+    try:
+        entry = cached_function_by_va(cfg).get(va)
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+    if entry is None:
+        return 0
+    try:
+        return int(entry.get("size") or 0)
+    except TypeError, ValueError:
+        return 0
 
 
 def _queue_stub(

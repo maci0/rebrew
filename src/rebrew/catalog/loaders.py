@@ -5,11 +5,11 @@ and scans reversed directories for annotated source files.
 """
 
 import threading
+from typing import Any
 lazy import json
 lazy import warnings
 lazy from collections.abc import Sequence
 lazy from pathlib import Path
-lazy from typing import Any
 
 lazy from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 lazy from rebrew.config import ProjectConfig, inventory_path_for, target_module
@@ -179,7 +179,7 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 # must not keep serving the previous inventory.
 # Guarded: eviction is a multi-step next(iter)+del on a shared dict; concurrent
 # catalog/verify callers must not race the check-then-act.
-_function_list_cache: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+_function_list_cache: dict[str, tuple[str, tuple[dict[str, Any], ...]]] = {}
 _FUNCTION_LIST_CACHE_MAX = 32
 _function_list_cache_lock = threading.Lock()
 # VA frozenset derived from the same inventory — avoids rebuilding
@@ -188,6 +188,10 @@ _function_vas_cache: dict[str, tuple[str, frozenset[int]]] = {}
 # Same derivation, ordered: callers that bisect for the next function VA
 # (skeleton generation, gap tracing) run once per function over a batch.
 _sorted_vas_cache: dict[str, tuple[str, tuple[int, ...]]] = {}
+# VA → entry, same fingerprint. A size or name lookup runs once per function
+# (verify, asm, binsync import); scanning the inventory each time is the
+# whole list again.
+_function_by_va_cache: dict[str, tuple[str, dict[int, dict[str, Any]]]] = {}
 
 
 def _inventory_fingerprint(path: str) -> str:
@@ -201,15 +205,20 @@ def _inventory_fingerprint(path: str) -> str:
     return f"{st.st_mtime_ns}:{st.st_ctime_ns}:{st.st_size}:{st.st_ino}"
 
 
-def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
-    """Discovery inventory as ``[{va, size, name}]``, once per path.
+def cached_function_list(cfg: ProjectConfig) -> tuple[dict[str, Any], ...]:
+    """Discovery inventory as ``({va, size, name}, ...)``, once per path.
 
     Reads ``function_structure.json`` next to the target (written by
     ``rebrew intake``/``discover`` or a Ghidra export) — the former
-    ``functions.txt`` list is gone.  Returns ``[]`` when unset, missing,
+    ``functions.txt`` list is gone.  Returns ``()`` when unset, missing,
     or corrupt.  Corruption is logged at WARNING — callers that must not
     treat a corrupt inventory as empty (e.g. orphan pruning) should call
     :func:`load_function_structure` and fail closed instead.
+
+    The tuple and its dicts are the cached objects. A hit returns them
+    without copying: verify, asm, and the other per-function lookups call
+    this once per function, and copying every entry each time dominated
+    the lookup. Mutate a copy (``dict(entry)``), not the entry itself.
     """
     import logging
 
@@ -219,11 +228,11 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     with _function_list_cache_lock:
         cached = _function_list_cache.get(path)
         if cached is not None and cached[0] == fp:
-            return [dict(f) for f in cached[1]]
-    funcs: list[dict[str, Any]] = []
+            return cached[1]
+    loaded: list[dict[str, Any]] = []
     if path and Path(path).is_file():
         try:
-            funcs = [
+            loaded = [
                 {"va": e.va, "size": e.size, "name": e.name or e.tool_name}
                 for e in load_function_structure(Path(path))
             ]
@@ -234,8 +243,9 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
                 exc,
             )
             # Not memoized: a transient read error under an unchanged
-            # mtime/size would otherwise pin [] until the file is rewritten.
-            return []
+            # mtime/size would otherwise pin () until the file is rewritten.
+            return ()
+    funcs = tuple(loaded)
     with _function_list_cache_lock:
         if (
             len(_function_list_cache) >= _FUNCTION_LIST_CACHE_MAX
@@ -245,6 +255,7 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
             _function_list_cache.pop(oldest, None)
             _function_vas_cache.pop(oldest, None)
             _sorted_vas_cache.pop(oldest, None)
+            _function_by_va_cache.pop(oldest, None)
         _function_list_cache[path] = (fp, funcs)
         _function_vas_cache[path] = (
             fp,
@@ -254,7 +265,7 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
             fp,
             tuple(sorted(va for f in funcs if isinstance((va := f.get("va")), int))),
         )
-    return [dict(f) for f in funcs]
+    return funcs
 
 
 def trusted_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
@@ -298,12 +309,40 @@ def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:
     return frozenset(va for f in funcs if isinstance((va := f.get("va")), int))
 
 
+def cached_function_by_va(cfg: ProjectConfig) -> dict[int, dict[str, Any]]:
+    """Discovery inventory keyed by VA, once per path.
+
+    Shares invalidation with :func:`cached_function_list`. The values are
+    that cache's own entries, so a lookup reads size and name without
+    scanning the inventory. A duplicate VA keeps the first entry.
+    """
+    reversed_dir = getattr(cfg, "reversed_dir", "")
+    path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
+    fp = _inventory_fingerprint(path)
+    with _function_list_cache_lock:
+        cached = _function_by_va_cache.get(path)
+        if cached is not None and cached[0] == fp:
+            return cached[1]
+        listed = _function_list_cache.get(path)
+    funcs = listed[1] if listed is not None and listed[0] == fp else cached_function_list(cfg)
+    by_va: dict[int, dict[str, Any]] = {}
+    for entry in funcs:
+        va = entry.get("va")
+        if isinstance(va, int):
+            by_va.setdefault(va, entry)
+    with _function_list_cache_lock:
+        current = _function_list_cache.get(path)
+        if current is not None and current[0] == fp:
+            _function_by_va_cache[path] = (fp, by_va)
+    return by_va
+
+
 def cached_sorted_function_vas(cfg: ProjectConfig) -> tuple[int, ...]:
     """Function VAs from the discovery inventory, ascending, once per path.
 
     Shares invalidation with :func:`cached_function_list`.  Callers that ask
     "which function starts after this VA" read this instead of re-sorting
-    :func:`cached_function_list`, which copies every entry per call.
+    the inventory on every lookup.
     """
     reversed_dir = getattr(cfg, "reversed_dir", "")
     path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""

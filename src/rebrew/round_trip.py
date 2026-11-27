@@ -843,20 +843,24 @@ def _list_name(cfg: ProjectConfig, va: int | None) -> str:
     The annotated-function map only knows reversed functions; the function
     list (r2) names everything the disassembler found.  Falls back to the
     ``fcn.<va>``-style name so drift details are actionable even for
-    un-reversed targets.  Returns "" when unavailable.  The underlying
-    parse is cached by ``cached_function_list`` (path-keyed); this helper
-    is only reached on mismatch error paths, so the projection is rebuilt
-    per call rather than kept in a second cache.
+    un-reversed targets.  Returns "" when unavailable.  The inventory is
+    indexed by VA (:func:`rebrew.catalog.cached_function_by_va`), so a
+    mismatch asks for one entry instead of projecting every name.
     """
     if va is None:
         return ""
-    from rebrew.catalog import cached_function_list
+    from rebrew.catalog import cached_function_by_va
 
     try:
-        names = {f["va"]: str(f["name"]) for f in cached_function_list(cfg)}
+        entry = cached_function_by_va(cfg).get(va)
     except OSError, ValueError, KeyError, TypeError:
-        names = {}
-    return names.get(va, "")
+        return ""
+    if entry is None:
+        return ""
+    try:
+        return str(entry["name"])
+    except KeyError, TypeError:
+        return ""
 
 
 def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:

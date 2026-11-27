@@ -8,6 +8,9 @@ lazy from rebrew.catalog.grid import (
     build_coverage_data as build_coverage_data,
 )
 lazy from rebrew.catalog.loaders import (
+    cached_function_by_va as cached_function_by_va,
+)
+lazy from rebrew.catalog.loaders import (
     cached_function_list as cached_function_list,
 )
 lazy from rebrew.catalog.loaders import (
@@ -57,6 +60,7 @@ __all__ = [
     "build_catalog_data",
     "build_coverage_data",
     "build_function_registry",
+    "cached_function_by_va",
     "cached_function_list",
     "cached_function_vas",
     "cached_sorted_function_vas",

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
-lazy from collections.abc import Mapping
+lazy from collections.abc import Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -55,7 +55,7 @@ class TrustedCoverage:
         name = source.relative_to(resolved_root).as_posix()
         return record if record.source == name else None
 
-    def bind(self, cfg: Any, entries: list[Any], funcs: list[dict[str, Any]]) -> list[Any]:
+    def bind(self, cfg: Any, entries: list[Any], funcs: Sequence[dict[str, Any]]) -> list[Any]:
         inventory = {int(item["va"]): int(item["size"]) for item in funcs}
         records = self._by_va
         counts = Counter(entry.va for entry in entries if not entry.is_data and entry.va in records)

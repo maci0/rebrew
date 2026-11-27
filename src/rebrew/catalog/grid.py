@@ -8,6 +8,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 lazy import bisect
 lazy import hashlib
+lazy from collections.abc import Sequence
 lazy from pathlib import Path
 
 if TYPE_CHECKING:
@@ -278,7 +279,7 @@ def _build_cells(
 
 def build_coverage_data(
     entries: list[SourceBinding],
-    funcs: list[dict[str, Any]],
+    funcs: Sequence[dict[str, Any]],
     text_size: int,
     bin_path: Path | None = None,
     registry: dict[int, RegistryEntry] | None = None,

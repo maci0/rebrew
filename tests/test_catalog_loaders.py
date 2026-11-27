@@ -504,7 +504,7 @@ class TestCachedFunctionList:
         )
         cfg = SimpleNamespace(reversed_dir=str(tmp_path))
         first = loaders_mod.cached_function_list(cfg)
-        assert first == [{"va": 0x1000, "size": 8, "name": "a"}]
+        assert first == ({"va": 0x1000, "size": 8, "name": "a"},)
         assert len(loaders_mod._function_list_cache) == 1
 
         previous_stat = inv.stat()
@@ -514,13 +514,18 @@ class TestCachedFunctionList:
         )
         os.utime(inv, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns + 2_000_000_000))
         second = loaders_mod.cached_function_list(cfg)
-        assert second == [{"va": 0x2000, "size": 16, "name": "b"}]
+        assert second == ({"va": 0x2000, "size": 16, "name": "b"},)
         # Same path key — no orphaned path:mtime entries.
         assert len(loaders_mod._function_list_cache) == 1
 
-    def test_caller_mutation_does_not_corrupt_cache(
+    def test_repeat_call_returns_the_cached_tuple(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A hit is the stored tuple, so a second lookup does not copy it.
+
+        The entries are the cache's own dicts. A caller that needs to write
+        copies one entry (``dict(entry)``) instead of the whole inventory.
+        """
         import json
         from types import SimpleNamespace
 
@@ -535,9 +540,12 @@ class TestCachedFunctionList:
         )
         cfg = SimpleNamespace(reversed_dir=str(tmp_path))
         first = loaders_mod.cached_function_list(cfg)
-        first[0]["name"] = "corrupted"
         second = loaders_mod.cached_function_list(cfg)
+        assert first is second
         assert second[0]["name"] == "orig"
+        own = dict(second[0])
+        own["name"] = "local"
+        assert loaders_mod.cached_function_list(cfg)[0]["name"] == "orig"
 
     def test_same_mtime_size_change_invalidates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -556,7 +564,7 @@ class TestCachedFunctionList:
             encoding="utf-8",
         )
         cfg = SimpleNamespace(reversed_dir=str(tmp_path))
-        assert loaders_mod.cached_function_list(cfg) == [{"va": 0x1000, "size": 8, "name": "a"}]
+        assert loaders_mod.cached_function_list(cfg) == ({"va": 0x1000, "size": 8, "name": "a"},)
         previous_stat = inv.stat()
         inv.write_text(
             json.dumps([{"va": "0x2000", "size": 16, "name": "b"}, {"va": "0x3000", "size": 4}]),
@@ -566,10 +574,10 @@ class TestCachedFunctionList:
         os.utime(inv, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns))
         assert inv.stat().st_mtime_ns == previous_stat.st_mtime_ns
         assert inv.stat().st_size != previous_stat.st_size
-        assert loaders_mod.cached_function_list(cfg) == [
+        assert loaders_mod.cached_function_list(cfg) == (
             {"va": 0x2000, "size": 16, "name": "b"},
             {"va": 0x3000, "size": 4, "name": ""},
-        ]
+        )
 
     def test_failed_load_is_not_memoized(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -592,10 +600,10 @@ class TestCachedFunctionList:
             raise OSError("transient")
 
         monkeypatch.setattr(loaders_mod, "load_function_structure", _failing_load)
-        assert loaders_mod.cached_function_list(cfg) == []
+        assert loaders_mod.cached_function_list(cfg) == ()
         assert loaders_mod._function_list_cache == {}
         monkeypatch.setattr(loaders_mod, "load_function_structure", real_load)
-        assert loaders_mod.cached_function_list(cfg) == [{"va": 0x1000, "size": 8, "name": "a"}]
+        assert loaders_mod.cached_function_list(cfg) == ({"va": 0x1000, "size": 8, "name": "a"},)
 
     def test_evicts_when_full(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
@@ -612,9 +620,9 @@ class TestCachedFunctionList:
                 json.dumps([{"va": hex(0x1000 + i), "size": 4, "name": f"f{i}"}]),
                 encoding="utf-8",
             )
-            assert loaders_mod.cached_function_list(SimpleNamespace(reversed_dir=str(d))) == [
-                {"va": 0x1000 + i, "size": 4, "name": f"f{i}"}
-            ]
+            assert loaders_mod.cached_function_list(SimpleNamespace(reversed_dir=str(d))) == (
+                {"va": 0x1000 + i, "size": 4, "name": f"f{i}"},
+            )
             assert len(loaders_mod._function_list_cache) == min(i + 1, 2)
         assert set(loaders_mod._function_list_cache) == {
             str(tmp_path / "p1" / FUNCTION_STRUCTURE_JSON),

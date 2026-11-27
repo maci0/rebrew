@@ -7,6 +7,7 @@ size resolution (jump table detection, padding absorption, etc.).
 import logging
 from typing import Any, TypedDict
 lazy import struct
+lazy from collections.abc import Sequence
 lazy from pathlib import Path
 
 lazy from rebrew.config import ProjectConfig, arch_byte_order, arch_pointer_size
@@ -232,7 +233,7 @@ def _resolve_canonical_size(
 
 
 def build_function_registry(
-    funcs: list[dict[str, Any]],
+    funcs: Sequence[dict[str, Any]],
     cfg: ProjectConfig | None,
     ghidra_path: Path | None = None,
     bin_path: Path | None = None,

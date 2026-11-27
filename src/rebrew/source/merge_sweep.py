@@ -707,11 +707,10 @@ def main(
 
     if not cfg.target_binary.exists():
         error_exit(f"Target binary not found: {cfg.target_binary}", json_mode=json_output)
-    if not cached_function_list(cfg):
+    funcs = cached_function_list(cfg)
+    if not funcs:
         error_exit("No function inventory — run `rebrew intake` first", json_mode=json_output)
     info = load_binary(cfg.target_binary)
-
-    funcs = cached_function_list(cfg)
     ghidra_path = inventory_path_for(cfg.reversed_dir, cfg)
     registry = build_function_registry(
         funcs, cfg, ghidra_path=ghidra_path, bin_path=cfg.target_binary

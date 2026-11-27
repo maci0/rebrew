@@ -1089,12 +1089,11 @@ class TestCanonicalSizeCache:
         import json
         import os
 
-        from rebrew import crt_match
         from rebrew.catalog import loaders
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-        monkeypatch.setattr(crt_match, "_canonical_sizes", {})
         monkeypatch.setattr(loaders, "_function_list_cache", {})
+        monkeypatch.setattr(loaders, "_function_by_va_cache", {})
 
         rev = tmp_path / "reversed"
         rev.mkdir()
@@ -1103,6 +1102,8 @@ class TestCanonicalSizeCache:
             json.dumps([{"va": 0x1000, "size": 10, "name": "f"}]),
             encoding="utf-8",
         )
+        from rebrew import crt_match
+
         cfg = SimpleNamespace(reversed_dir=str(rev), root=tmp_path)
         assert crt_match._canonical_size(cfg, 0x1000) == 10
 
@@ -1120,12 +1121,11 @@ class TestCanonicalSizeCache:
         """A same-length inventory replace in one mtime tick must not keep old sizes."""
         import os
 
-        from rebrew import crt_match
         from rebrew.catalog import loaders
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-        monkeypatch.setattr(crt_match, "_canonical_sizes", {})
         monkeypatch.setattr(loaders, "_function_list_cache", {})
+        monkeypatch.setattr(loaders, "_function_by_va_cache", {})
 
         rev = tmp_path / "reversed"
         rev.mkdir()
@@ -1134,6 +1134,8 @@ class TestCanonicalSizeCache:
         text_b = '[{"va": "0x1000", "size": 11, "name": "f"}]'
         assert len(text_a) == len(text_b)
         inv.write_text(text_a, encoding="utf-8")
+        from rebrew import crt_match
+
         cfg = SimpleNamespace(reversed_dir=str(rev), root=tmp_path)
         assert crt_match._canonical_size(cfg, 0x1000) == 10
 

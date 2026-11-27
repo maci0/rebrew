@@ -1956,15 +1956,18 @@ def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
     Lets ``rebrew binary asm show <va>`` default to the real function size instead of a
     hardcoded 32-byte window (which bleeds into the adjacent function).
     """
-    from rebrew.catalog import cached_function_list
+    from rebrew.catalog import cached_function_by_va
 
     try:
-        for f in cached_function_list(cfg):
-            if int(f["va"]) == va_int:
-                return int(f["size"])
+        entry = cached_function_by_va(cfg).get(va_int)
     except OSError, ValueError, KeyError:
         return None
-    return None
+    if entry is None:
+        return None
+    try:
+        return int(entry["size"])
+    except TypeError, ValueError, KeyError:
+        return None
 
 
 def disassemble(

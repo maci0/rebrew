@@ -203,9 +203,13 @@ def match_complete_body(index: Index, data: bytes) -> list[tuple[str, str]]:
 
 def native_sizes(cfg: Any) -> dict[int, int]:
     """Return positive extents from the configured discovery inventory."""
-    from rebrew.catalog.loaders import cached_function_list
+    from rebrew.catalog.loaders import cached_function_by_va
 
-    return {int(f["va"]): int(f["size"]) for f in cached_function_list(cfg) if int(f["size"]) > 0}
+    return {
+        va: int(entry["size"])
+        for va, entry in cached_function_by_va(cfg).items()
+        if int(entry["size"]) > 0
+    }
 
 
 def match_leading_body(index: Index, data: bytes) -> list[tuple[str, str]]:
