@@ -69,7 +69,7 @@ and C build tools. See [BinSync setup](https://github.com/maci0/rebrew/blob/main
 ## Development
 
 Follow the [contributor bootstrap](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md#bootstrap-clean-clone)
-for the pinned sibling `resembl` checkout (`v5.4.0`) and host tools. Run `make help` for
+for the pinned sibling `resembl` checkout (`v5.4.1`) and host tools. Run `make help` for
 contributor targets.
 
 Rebrew distributes wheels and source archives through GitHub Releases. The

@@ -51,18 +51,18 @@ UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 # RESEMBL_SHA is the commit that tag must resolve to: tags move, and a
 # same-version checkout on another commit passes the version string check
 # while CI clones this commit.
-RESEMBL_REF ?= v5.4.0
-RESEMBL_SHA ?= 28bbef2c93065cdbb738c7698d391682aad367e6
+RESEMBL_REF ?= v5.4.1
+RESEMBL_SHA ?= 904cefda83b891adeb9929f1a4fdf8c15e02fa22
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
-UV_VERSION ?= 0.13.6
+UV_VERSION ?= 0.13.10
 # Match the CI Go pin (.github/workflows/ci.yml GO_VERSION) and the
 # services/jobs/go.mod toolchain. `make jobs-check` runs on any newer Go,
 # but contributors should install this exact release to track CI.
-GO_VERSION ?= 1.27.3
+GO_VERSION ?= 1.27.4
 # Match the CI bun pin (.github/workflows/ci.yml bun-version). Presence is
 # hard for `make test`, version drift only warns, like uv above.
-BUN_VERSION ?= 1.4.4
+BUN_VERSION ?= 1.4.5
 # Rust toolchain pin for the python-flirt sdist build (see CONTRIBUTING.md).
 # Keep in step with rust-toolchain.toml at the repo root; `ensure-rust`
 # warns (never hard-fails) on drift, like the uv/bun checks, so a newer

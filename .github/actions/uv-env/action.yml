@@ -16,17 +16,17 @@ inputs:
   uv-version:
     description: uv installer version (never setup-uv's floating "latest").
     required: false
-    default: "0.13.6"
+    default: "0.13.10"
   resembl-ref:
     description: Tag of maci0/resembl to clone into ../resembl (must match uv.lock).
     required: false
-    default: "v5.4.0"
+    default: "v5.4.1"
   resembl-sha:
     description: >-
       Commit the resembl-ref tag must resolve to. A retargeted tag fails the
       clone instead of silently changing the path dependency.
     required: false
-    default: "28bbef2c93065cdbb738c7698d391682aad367e6"
+    default: "904cefda83b891adeb9929f1a4fdf8c15e02fa22"
   clone-resembl:
     description: >-
       Clone the sibling resembl checkout. Set to "false" for jobs whose sync

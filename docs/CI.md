@@ -13,7 +13,7 @@ test job fetches full Git history and tags for release-contract tests.
 ### Dependencies and host tools
 
 The [uv setup action](../.github/actions/uv-env/action.yml) pins uv, Python,
-and the sibling Resembl checkout (`v5.4.0` at a checked commit). Update the
+and the sibling Resembl checkout (`v5.4.1` at a checked commit). Update the
 action, Makefile, and lock together when advancing that pin. The sibling
 clone checks the commit before replacing an existing checkout and retries
 transient failures. Both workflows can be dispatched manually after an
