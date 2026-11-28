@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [6.93.0] - 2026-11-28
+
 - **Breaking:** Removed five modules only tests used: `rebrew.binding_replacement_plan`, `rebrew.binding_replacement_conditions`, `rebrew.compiler.preprocessed_context`, `rebrew.source.preprocessed`, `rebrew.compare.strict_relocation`. Removed or reshaped these names (test-only functions and aliases, `canonicalize_cflags`, and injection keywords that only fed same-module functions). Import `parse_obj_symbol_and_relocs` from `rebrew.matcher.parsers`, where it is defined:
   - `rebrew.binary.fingerprints`: `imphash_from_pairs`.
   - `rebrew.binsync.state`: `parse_struct_fields`.
