@@ -1918,11 +1918,11 @@ class TestCollectStatusSizeFallback:
 
 class TestDataByteCoverage:
     def test_cut_range_drops_a_copied_span(self) -> None:
-        from rebrew.status import _cut_range
+        from rebrew.status.collect import cut_range
 
-        assert _cut_range([(0x1000, 0x2000)], 0x1800, 0x2000) == [(0x1000, 0x1800)]
-        assert _cut_range([(0x1000, 0x2000)], 0x1000, 0x1100) == [(0x1100, 0x2000)]
-        assert _cut_range([(0x1000, 0x2000)], 0x1400, 0x1600) == [
+        assert cut_range([(0x1000, 0x2000)], 0x1800, 0x2000) == [(0x1000, 0x1800)]
+        assert cut_range([(0x1000, 0x2000)], 0x1000, 0x1100) == [(0x1100, 0x2000)]
+        assert cut_range([(0x1000, 0x2000)], 0x1400, 0x1600) == [
             (0x1000, 0x1400),
             (0x1600, 0x2000),
         ]
@@ -1961,11 +1961,11 @@ class TestDataByteCoverage:
 
     def test_data_directory_of_a_non_pe_is_absent(self, tmp_path: Path) -> None:
         from rebrew.formats.binary_model import BinaryInfo
-        from rebrew.status import _pe_data_directory
+        from rebrew.status.collect import pe_data_directory
 
         not_pe = BinaryInfo(path=tmp_path / "notes.bin", format="elf")
 
-        assert _pe_data_directory(not_pe, "IAT") == (0, 0)
+        assert pe_data_directory(not_pe, "IAT") == (0, 0)
 
 
 class TestDataVerdicts:
@@ -2509,18 +2509,18 @@ class TestUnattributedRanges:
 
 class TestNativeTailAccounting:
     def test_subtracts_overlapping_claims_from_tail(self) -> None:
-        from rebrew.status import _merge_claimed, _unclaimed
+        from rebrew.status.collect import merge_claimed, unclaimed
 
-        claims = _merge_claimed([(0, 30), (10, 15), (35, 45), (40, 50), (60, 70)])
+        claims = merge_claimed([(0, 30), (10, 15), (35, 45), (40, 50), (60, 70)])
         assert claims == [(0, 30), (35, 50), (60, 70)]
-        assert _unclaimed(20, 60, claims) == [(30, 35), (50, 60)]
+        assert unclaimed(20, 60, claims) == [(30, 35), (50, 60)]
 
     def test_claims_touching_the_span_are_not_inside_it(self) -> None:
-        from rebrew.status import _merge_claimed, _unclaimed
+        from rebrew.status.collect import merge_claimed, unclaimed
 
-        claims = _merge_claimed([(0, 30), (35, 50)])
-        assert _unclaimed(30, 35, claims) == [(30, 35)]
-        assert _unclaimed(29, 36, claims) == [(30, 35)]
+        claims = merge_claimed([(0, 30), (35, 50)])
+        assert unclaimed(30, 35, claims) == [(30, 35)]
+        assert unclaimed(29, 36, claims) == [(30, 35)]
 
     def test_tails_are_unverified_and_do_not_overlap_another_body(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

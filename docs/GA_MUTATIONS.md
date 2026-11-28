@@ -49,7 +49,7 @@ Source (.c) ──→ mutate_code(source, rng, track_mutation=True)
 - **Crossover**: Line-level: a prefix of one parent joined to a suffix of the other at a cut where their lines align (`difflib`), so a changed line count never drops or repeats a line
 - **Scope**: Mutations query only the target function, located afresh in each source
 - **Stagnation**: After half the stagnation budget (20 generations by default) without improvement, a quarter of the population is reseeded from the seed, at most twice per run; the run stops after 40 flat generations
-- **Caching**: Same-run memo is an in-memory dict; cross-run persistence is the shared compile cache (`.rebrew/compile_cache/`).
+- **Caching**: Same-run memo is an in-memory dict. Native (image-less) toolchains also reuse the shared compile cache (`.rebrew/compile_cache/`) across runs; image-backed candidates compile in a fresh directory and skip it.
 
 ### Measuring a change to the GA loop
 

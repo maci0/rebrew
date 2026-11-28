@@ -21,16 +21,16 @@ from rebrew.config import (
     ConfigNotFoundError,
     ConfigWarning,
     ProjectConfig,
-    _detect_binary_layout,
-    _resolve,
     arch_byte_order,
     arch_padding_bytes,
     arch_pointer_size,
+    detect_binary_layout,
     find_root,
     inventory_path_for,
     llm_max_requests,
     llm_max_tokens,
     load_config,
+    resolve_path,
     validate_target_name,
 )
 from rebrew.errors import RebrewError
@@ -84,30 +84,30 @@ def _isolate_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _resolve()
+# resolve_path()
 # ---------------------------------------------------------------------------
 
 
 class TestResolve:
     def test_relative_path(self, tmp_path: Path) -> None:
-        result = _resolve(tmp_path, "foo/bar.dll")
+        result = resolve_path(tmp_path, "foo/bar.dll")
         assert result == tmp_path / "foo" / "bar.dll"
 
     def test_windows_separators_normalize(self, tmp_path: Path) -> None:
         """Config paths copied from Windows must resolve as POSIX components."""
-        result = _resolve(tmp_path, r"foo\bar.dll")
+        result = resolve_path(tmp_path, r"foo\bar.dll")
         assert result == tmp_path / "foo" / "bar.dll"
 
     def test_absolute_path(self, tmp_path: Path) -> None:
-        result = _resolve(tmp_path, "/absolute/path.dll")
+        result = resolve_path(tmp_path, "/absolute/path.dll")
         assert result == Path("/absolute/path.dll")
 
     def test_dot_path(self, tmp_path: Path) -> None:
-        result = _resolve(tmp_path, ".")
+        result = resolve_path(tmp_path, ".")
         assert result == tmp_path / "."
 
     def test_none_returns_none(self, tmp_path: Path) -> None:
-        result = _resolve(tmp_path, None)
+        result = resolve_path(tmp_path, None)
         assert result is None
 
 
@@ -835,7 +835,7 @@ class TestProjectConfig:
 class TestPEDetection:
     def test_nonexistent_file_returns_zeros(self) -> None:
         with pytest.warns(UserWarning, match="Could not detect binary layout"):
-            result = _detect_binary_layout(Path("/nonexistent/file.dll"))
+            result = detect_binary_layout(Path("/nonexistent/file.dll"))
         assert result["image_base"] == 0
         assert result["text_va"] == 0
         assert result["text_raw_offset"] == 0
@@ -844,7 +844,7 @@ class TestPEDetection:
         fake = tmp_path / "not_a_pe.dll"
         fake.write_bytes(b"this is not a PE file")
         with pytest.warns(UserWarning, match="Could not detect binary layout"):
-            result = _detect_binary_layout(fake)
+            result = detect_binary_layout(fake)
         assert result["image_base"] == 0
 
     def test_pe32_header_answers_without_loading_lief(
@@ -861,7 +861,7 @@ class TestPEDetection:
             "load_binary",
             lambda *a, **k: (_ for _ in ()).throw(AssertionError("LIEF path must not run")),
         )
-        assert _detect_binary_layout(binary) == {
+        assert detect_binary_layout(binary) == {
             "image_base": 0x400000,
             "text_va": 0x401000,
             "text_raw_offset": 0x200,
@@ -870,11 +870,11 @@ class TestPEDetection:
     def test_pe32_plus_is_left_to_the_loader(self, tmp_path: Path) -> None:
         from bin_util import make_pe
 
-        from rebrew.config import _pe_header_layout
+        from rebrew.config import pe_header_layout
 
         binary = tmp_path / "program64.exe"
         binary.write_bytes(make_pe(b"\x90", pe32_plus=True))
-        assert _pe_header_layout(binary, "auto") is None
+        assert pe_header_layout(binary, "auto") is None
 
 
 # ---------------------------------------------------------------------------
@@ -1806,22 +1806,22 @@ commmand = "clang-18.1.8"
 
 class TestParseIntList:
     def test_valid(self) -> None:
-        from rebrew.config import _parse_int_list
+        from rebrew.config import parse_int_list
 
-        assert _parse_int_list([1, "0x10", "20"], "x") == [1, 16, 20]
+        assert parse_int_list([1, "0x10", "20"], "x") == [1, 16, 20]
 
     def test_invalid_entries_skipped_with_warning(self) -> None:
-        from rebrew.config import _parse_int_list
+        from rebrew.config import parse_int_list
 
         with pytest.warns(UserWarning, match="Invalid integer"):
-            assert _parse_int_list(["oops", 5], "x") == [5]
+            assert parse_int_list(["oops", 5], "x") == [5]
 
     def test_non_list_ignored(self) -> None:
-        from rebrew.config import _parse_int_list
+        from rebrew.config import parse_int_list
 
         with pytest.warns(UserWarning):
-            assert _parse_int_list(42, "x") == []
-        assert _parse_int_list(None, "x") == []
+            assert parse_int_list(42, "x") == []
+        assert parse_int_list(None, "x") == []
 
 
 class TestParseVaRanges:
@@ -1830,42 +1830,43 @@ class TestParseVaRanges:
     (config checklist: invalid values fail at load, not later)."""
 
     def test_hex_and_decimal_bands_parse(self) -> None:
-        from rebrew.config import _parse_va_ranges
+        from rebrew.config import parse_va_ranges
 
-        assert _parse_va_ranges(
-            ["0x5e0000-0x64ffff", "1000-2000"], "targets.g.external_ranges"
-        ) == [(0x5E0000, 0x64FFFF), (1000, 2000)]
+        assert parse_va_ranges(["0x5e0000-0x64ffff", "1000-2000"], "targets.g.external_ranges") == [
+            (0x5E0000, 0x64FFFF),
+            (1000, 2000),
+        ]
 
     def test_missing_dash_warns_and_drops(self) -> None:
-        from rebrew.config import _parse_va_ranges
+        from rebrew.config import parse_va_ranges
 
         with pytest.warns(UserWarning, match="expected '0xLO-0xHI'"):
-            assert _parse_va_ranges(["0x5e0000"], "targets.g.external_ranges") == []
+            assert parse_va_ranges(["0x5e0000"], "targets.g.external_ranges") == []
 
     def test_non_numeric_warns_and_drops(self) -> None:
-        from rebrew.config import _parse_va_ranges
+        from rebrew.config import parse_va_ranges
 
         with pytest.warns(UserWarning, match="Invalid range"):
-            assert _parse_va_ranges(["nope-0x20"], "targets.g.external_ranges") == []
+            assert parse_va_ranges(["nope-0x20"], "targets.g.external_ranges") == []
 
     def test_end_before_start_warns_and_drops(self) -> None:
-        from rebrew.config import _parse_va_ranges
+        from rebrew.config import parse_va_ranges
 
         with pytest.warns(UserWarning, match="end before start"):
-            assert _parse_va_ranges(["0x200-0x100"], "targets.g.external_ranges") == []
+            assert parse_va_ranges(["0x200-0x100"], "targets.g.external_ranges") == []
 
     def test_non_list_warns_and_returns_empty(self) -> None:
-        from rebrew.config import _parse_va_ranges
+        from rebrew.config import parse_va_ranges
 
         with pytest.warns(UserWarning, match="Expected list"):
-            assert _parse_va_ranges("0x1-0x2", "targets.g.external_ranges") == []  # type: ignore[arg-type]
-        assert _parse_va_ranges(None, "targets.g.external_ranges") == []
+            assert parse_va_ranges("0x1-0x2", "targets.g.external_ranges") == []  # type: ignore[arg-type]
+        assert parse_va_ranges(None, "targets.g.external_ranges") == []
 
     def test_mixed_list_keeps_valid_bands(self) -> None:
-        from rebrew.config import _parse_va_ranges
+        from rebrew.config import parse_va_ranges
 
         with pytest.warns(UserWarning, match="Invalid range"):
-            assert _parse_va_ranges(
+            assert parse_va_ranges(
                 ["0x10-0x20", "garbage", "0x30-0x40"], "targets.g.external_ranges"
             ) == [(0x10, 0x20), (0x30, 0x40)]
 
@@ -1891,137 +1892,137 @@ external_ranges = ["0x5e0000-0x64ffff", "not-a-band"]
 
 class TestParseHexDict:
     def test_valid(self) -> None:
-        from rebrew.config import _parse_hex_dict
+        from rebrew.config import parse_hex_dict
 
-        assert _parse_hex_dict({"0x1000": "a"}) == {0x1000: "a"}
-        assert _parse_hex_dict({"4096": "b"}) == {4096: "b"}
+        assert parse_hex_dict({"0x1000": "a"}) == {0x1000: "a"}
+        assert parse_hex_dict({"4096": "b"}) == {4096: "b"}
 
     def test_invalid_key_skipped(self) -> None:
-        from rebrew.config import _parse_hex_dict
+        from rebrew.config import parse_hex_dict
 
         with pytest.warns(UserWarning, match="Invalid hex key"):
-            assert _parse_hex_dict({"zzz": "x", "0x2000": "y"}) == {0x2000: "y"}
+            assert parse_hex_dict({"zzz": "x", "0x2000": "y"}) == {0x2000: "y"}
 
     def test_non_dict_ignored(self) -> None:
-        from rebrew.config import _parse_hex_dict
+        from rebrew.config import parse_hex_dict
 
         with pytest.warns(UserWarning):
-            assert _parse_hex_dict("nope") == {}
-        assert _parse_hex_dict(None) == {}
+            assert parse_hex_dict("nope") == {}
+        assert parse_hex_dict(None) == {}
 
 
 class TestParseStrList:
     def test_valid(self) -> None:
-        from rebrew.config import _parse_str_list
+        from rebrew.config import parse_str_list
 
-        assert _parse_str_list(["a", "b"], "x") == ["a", "b"]
+        assert parse_str_list(["a", "b"], "x") == ["a", "b"]
 
     def test_non_string_skipped(self) -> None:
-        from rebrew.config import _parse_str_list
+        from rebrew.config import parse_str_list
 
         with pytest.warns(UserWarning):
-            assert _parse_str_list(["a", 3], "x") == ["a"]
+            assert parse_str_list(["a", 3], "x") == ["a"]
 
     def test_none_and_non_list(self) -> None:
-        from rebrew.config import _parse_str_list
+        from rebrew.config import parse_str_list
 
-        assert _parse_str_list(None, "x") == []
+        assert parse_str_list(None, "x") == []
         with pytest.warns(UserWarning):
-            assert _parse_str_list("str", "x") == []
+            assert parse_str_list("str", "x") == []
 
 
 class TestSafeInt:
     def test_valid(self) -> None:
-        from rebrew.config import _safe_int
+        from rebrew.config import safe_int
 
-        assert _safe_int("42", 0, "x") == 42
+        assert safe_int("42", 0, "x") == 42
 
     def test_invalid_uses_default(self) -> None:
-        from rebrew.config import _safe_int
+        from rebrew.config import safe_int
 
         with pytest.warns(UserWarning, match="Expected integer"):
-            assert _safe_int("abc", 7, "x") == 7
+            assert safe_int("abc", 7, "x") == 7
 
     def test_non_integral_float_uses_default(self) -> None:
-        from rebrew.config import _safe_int
+        from rebrew.config import safe_int
 
         with pytest.warns(UserWarning, match="Expected integer"):
-            assert _safe_int(3.9, 7, "x") == 7
+            assert safe_int(3.9, 7, "x") == 7
 
     def test_integral_float_accepted(self) -> None:
-        from rebrew.config import _safe_int
+        from rebrew.config import safe_int
 
-        assert _safe_int(4.0, 0, "x") == 4
+        assert safe_int(4.0, 0, "x") == 4
 
     def test_bool_uses_default(self) -> None:
-        from rebrew.config import _safe_int
+        from rebrew.config import safe_int
 
         with pytest.warns(UserWarning, match="Expected integer"):
-            assert _safe_int(True, 7, "x") == 7
+            assert safe_int(True, 7, "x") == 7
 
 
 class TestPositiveInt:
     def test_valid(self) -> None:
-        from rebrew.config import _positive_int
+        from rebrew.config import positive_int
 
-        assert _positive_int(4, 1, "x") == 4
+        assert positive_int(4, 1, "x") == 4
 
     def test_zero_uses_default(self) -> None:
-        from rebrew.config import _positive_int
+        from rebrew.config import positive_int
 
         with pytest.warns(UserWarning, match="positive"):
-            assert _positive_int(0, 1, "x") == 1
+            assert positive_int(0, 1, "x") == 1
 
 
 class TestParseOptionalInt:
     def test_none_int_hex_string(self) -> None:
-        from rebrew.config import _parse_optional_int
+        from rebrew.config import parse_optional_int
 
-        assert _parse_optional_int(None, "x") is None
-        assert _parse_optional_int(5, "x") == 5
-        assert _parse_optional_int("0x10", "x") == 16
+        assert parse_optional_int(None, "x") is None
+        assert parse_optional_int(5, "x") == 5
+        assert parse_optional_int("0x10", "x") == 16
 
     def test_invalid_returns_none(self) -> None:
-        from rebrew.config import _parse_optional_int
+        from rebrew.config import parse_optional_int
 
         with pytest.warns(UserWarning):
-            assert _parse_optional_int("zzz", "x") is None
+            assert parse_optional_int("zzz", "x") is None
         with pytest.warns(UserWarning):
-            assert _parse_optional_int(3.5, "x") is None
+            assert parse_optional_int(3.5, "x") is None
 
     def test_bool_ignored(self) -> None:
-        from rebrew.config import _parse_optional_int
+        from rebrew.config import parse_optional_int
 
         with pytest.warns(UserWarning, match="Expected integer"):
-            assert _parse_optional_int(True, "link.stack_reserve") is None
+            assert parse_optional_int(True, "link.stack_reserve") is None
 
     def test_out_of_range_raises(self) -> None:
-        from rebrew.config import ConfigError, _parse_optional_int
+        from rebrew.config import ConfigError, parse_optional_int
 
         with pytest.raises(ConfigError, match="unsigned 32-bit"):
-            _parse_optional_int(-1, "link.timestamp")
+            parse_optional_int(-1, "link.timestamp")
         with pytest.raises(ConfigError, match="unsigned 32-bit"):
-            _parse_optional_int(0x100000000, "link.stack_reserve")
+            parse_optional_int(0x100000000, "link.stack_reserve")
 
 
 class TestParseStrDict:
     def test_valid(self) -> None:
-        from rebrew.config import _parse_str_dict
+        from rebrew.config import parse_str_dict
 
-        assert _parse_str_dict({"a": "b"}, "x") == {"a": "b"}
+        assert parse_str_dict({"a": "b"}, "x") == {"a": "b"}
 
     def test_none_and_non_mapping(self) -> None:
-        from rebrew.config import _parse_str_dict
+        from rebrew.config import parse_str_dict
 
-        assert _parse_str_dict(None, "x") == {}
+        assert parse_str_dict(None, "x") == {}
         with pytest.warns(UserWarning):
-            assert _parse_str_dict("str", "x") == {}
+            assert parse_str_dict("str", "x") == {}
 
     def test_non_string_pair_skipped(self) -> None:
-        from rebrew.config import _parse_str_dict
+        from rebrew.config import parse_str_dict
 
         with pytest.warns(UserWarning):
-            assert _parse_str_dict({"a": 1}, "x") == {}
+            assert parse_str_dict({"a": 1}, "x") == {}
 
 
 class TestPosixStyleProfiles:

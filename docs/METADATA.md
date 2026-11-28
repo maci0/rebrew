@@ -36,7 +36,9 @@ transfer. A failed transfer leaves the source selected; retry to replace any
 incomplete inactive destination.
 
 SQLite uses the canonical project-root `rebrew-metadata.sqlite3` database,
-protected by its `.lock` sidecar and mode 0444 at rest. Back up the database as
+protected by its `.lock` sidecar and mode 0444 at rest. A read that finds a
+killed writer's hot `-journal` rolls it back through the locked write path
+before reading. Back up the database as
 durable project data; ignore its `.lock` and transient `-journal`. It stores each
 logical document using TOML encoding to preserve existing value types. A
 transaction can cover all four stores in that database. This experimental
@@ -380,11 +382,13 @@ Every `rebrew metadata backup` bundle carries a manifest
 the TOML bundle directory) listing each backed-up file with its size
 and sha256. Restore verifies the whole manifest before installing
 anything and refuses a bundle with a missing or corrupted listed file.
-Files left in a reused backup directory are skipped when the current
-manifest omits them. Keep the most
-recent backup alongside the current one: the manifest detects a torn
-or truncated copy, and the previous backup is the only copy of the
-pre-restore state if a restore is pointed at the wrong bundle. A
+Each run stages and verifies a complete bundle before publishing it. Reusing
+a destination creates a separate generation and leaves earlier backups
+available. Pass the path printed by the backup command to restore that
+generation. A TOML restore replaces each included collection. It preserves
+destination-only drop-ins as `.before-restore` files and removes them from the
+active collection. A TOML backup copies while holding the project-config lock
+and every collection lock, so it never captures half of a collection write. A
 backup never restored is a hypothesis, not a backup: run the restore
 procedure against a scratch copy of the latest bundle (not the live
 tree) whenever the backup job, the backend, or the restore command
@@ -421,6 +425,8 @@ open. Restore a verified online backup or take a new backup after SQLite has
 recovered the original database. A corrupt or wrong-schema database is refused with
 `MetadataStorageError` and never silently replaced; restore it from
 the backup copy or migrate back to TOML from a TOML backup.
+`rebrew metadata restore` refuses to replace a live database it cannot
+read, since it could not preserve it; move that file aside first.
 
 ### PostgreSQL backup and restore
 
@@ -500,6 +506,7 @@ journal beside it is part of the file set, and a torn file copy is not a
 backup.  `rebrew.metadata.sqlite.backup_metadata_database` copies it
 transactionally with the SQLite online backup API and verifies the copy
 before reporting it; `restore_metadata_database` installs it back,
+rolling back a killed writer's journal, then
 preserving the current database as `.before-restore` and rotating an
 older sidecar to a numbered sibling when a later restore displaces
 different bytes.  A backend transfer
@@ -513,7 +520,7 @@ bytes survive the switch and a later one.
 | **Canonical (durable)** | pure C sources, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-types.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | Source/config are editable; identity and other non-derivable evidence are CLI/API-managed. Optional ADDRESS anchors bind declarations; old inline blocks and earlier schemas are rejected. Derived views are rebuilt from these plus the binary; recorded history is identified separately below. |
 | **Derived, VCS-intended** | `src/<target>/function_structure.json` (discovery inventory), `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (`rebrew build layout`, `rebrew binary functions`, `rebrew coverage catalog`, `rebrew build link-stubs`, `rebrew data fix-bss`, `rebrew data header`, signature tools).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
 | **Derived, gitignored (build output)** | `snapshots/coverage-<target>.toml`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew coverage export --output snapshots/` / `rebrew verify` / `rebrew binary extract` / `rebrew coverage report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives beside the selected verify cache (see [`rebrew verify`](CLI.md#rebrew-verify)). The `--compare` baseline is loaded via `verify_cache.load_baseline` and written only on a passing gate. |
-| **Cache (delete-safe)** | `.rebrew/verify_cache.toml` (and its legacy JSON sidecar `.rebrew/verify_cache.json`) (or under `.rebrew/targets/<sha256-of-exact-target-name>/` once the project keeps per-target verification state), `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, in-flight `.rebrew/source-backups/*.orig` (removed on clean finish), in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  Durable exceptions: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  Two rewrites keep their copy after a clean run, because the live file no longer holds the old bytes: `rebrew skeleton --force` (`*.pre-skeleton.*.orig`) and a shared import that strips a claim (`*.shared-import.*.orig`).  Those retained pre-images are durable, carried by `rebrew metadata backup` and restored with the bundle.  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
+| **Cache (delete-safe)** | `.rebrew/verify_cache.toml` (and its legacy JSON sidecar `.rebrew/verify_cache.json`) (or under `.rebrew/targets/<sha256-of-exact-target-name>/` once the project keeps per-target verification state), `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, `output/ga_runs/*/<symbol>.best.c`, in-flight `.rebrew/source-backups/*.orig` (removed on clean finish), in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  Durable exceptions: `.rebrew/ga_runs.jsonl` is *history*, not cache; it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce, each record is fsynced before `rebrew match run` reports the run so a host that loses power does not take the win with it, and only the non-winning lines are capped (newest `_LOSS_RECORD_RETENTION`, wins kept forever).  `.rebrew/source-backups/` holds a copy of a `.c` that `rebrew match climb` / `rebrew match qualifiers` is about to rewrite in place: it exists only while that run is in flight, is removed when the run finishes, and is the way back to the pre-run bytes after a kill that runs no cleanup (SIGKILL, OOM, power cut).  Two rewrites keep their copy after a clean run, because the live file no longer holds the old bytes: `rebrew skeleton --force` (`*.pre-skeleton.*.orig`) and a shared import that strips a claim (`*.shared-import.*.orig`).  Those retained pre-images are durable, carried by `rebrew metadata backup` and restored with the bundle.  They accumulate one file per rewrite; prune the directory when the migration or the overwrite is confirmed good.  There is no per-run build diskcache: same-run compiles memoize in memory, and only native (image-less) candidates reuse the shared compile cache across runs. |
 
 ## Who owns which fact
 
@@ -528,12 +535,10 @@ control and ignore its `.lock`. `types check`/lint W031 report stale evidence;
 reviewing a changed definition/context. A type has no instance address and
 these records create no game progress or function/data verdict.
 
-The type owner can record a reviewed source-path change inside a coordinated
-transaction. It retains each prior full type record in `path_history`, labels
-its freshness unassessed, and sets `path_revalidation_required`. Type checks
-report that binding stale without compiling it. A successful reviewed rebind
-clears the marker and retains the history. `rehome_type_bindings` is a metadata
-owner API: it does not move files or establish include and target equivalence.
+A type record may carry `path_revalidation_required` and a `path_history` of
+prior full type records. Type checks report such a binding stale without
+compiling it. A successful reviewed rebind clears the marker and retains the
+history. No current writer sets these fields.
 Older Rebrew versions with strict
 format-1 field validation do not understand these optional fields; do not write
 them in a project that still relies on such a version.

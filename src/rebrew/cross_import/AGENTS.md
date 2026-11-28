@@ -6,7 +6,7 @@ Cross-target function matching, shared-tree promotion, source import, and byte-l
 
 | Module | Role |
 |--------|------|
-| `__init__.py` | CLI surface (`app`, `main`, `main_entry`) and package re-exports |
+| `__init__.py` | CLI surface (`app`, `main`, `main_entry`), package re-exports, and wrappers injecting the command-module callables (`compare.similar`, `verify.cli`, `source.split`) the library submodules may not import |
 | `matching.py` | Pure structural matching, signature extraction, target byte / disasm / preview helpers |
 | `importer.py` | Shared promotion, copy/shared import, anchor rewriting, and verification helpers |
 

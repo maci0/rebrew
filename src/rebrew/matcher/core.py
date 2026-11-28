@@ -1,8 +1,8 @@
 """core.py – Data types for the GA matching engine.
 
 Defines Score, StructuralSimilarity, BuildResult, and GACheckpoint
-(serializable run state).  Same-run compiles memoize in memory; cross-run
-persistence is the shared compile cache.
+(serializable run state).  Same-run compiles memoize in memory; only native
+(image-less) toolchains also reuse the shared compile cache across runs.
 """
 
 from __future__ import annotations

@@ -22,6 +22,7 @@ from rebrew.compiler.toolchain import (
     image_msvc_env,
     run_toolchain,
 )
+from rebrew.toolchain_cli.smoke import DOCKER_BUILD_TIMEOUT_S
 
 
 class _FakeProc:
@@ -158,6 +159,7 @@ class TestRegistry:
             "invalidate_toolchain_digest",
             "kill_container",
             "list_toolchains",
+            "native_compiler_env",
             "profile_family",
             "pull_toolchain",
             # Public per registry.refresh_all's docstring — a long-lived
@@ -513,6 +515,32 @@ class TestRunToolchain:
         assert run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path).ok
         assert seen[0] is not None
         assert seen[0].get("TZ") == expected_tz
+        assert seen[0].get("SOURCE_DATE_EPOCH") == epoch
+
+    def test_native_runtime_drops_unkeyed_host_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CPATH, CL and INCLUDE change what a host compiler emits but are not in the cache key."""
+        for name in ("CPATH", "C_INCLUDE_PATH", "CL", "_CL_", "INCLUDE", "GCC_EXEC_PREFIX"):
+            monkeypatch.setenv(name, str(tmp_path / "elsewhere"))
+        monkeypatch.setenv("PATH", "/usr/bin")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("TMPDIR", str(tmp_path))
+        cc = tmp_path / "bin" / "cc"
+        cc.parent.mkdir()
+        cc.write_bytes(b"\x7fELF")
+        spec = ToolchainSpec(
+            name="t", image=None, binary="cc", runtime="native", host_path=tmp_path, host_bin="bin"
+        )
+        seen: list[dict[str, str]] = []
+
+        def _run(cmd: list[str], **kwargs: Any) -> _FakeProc:
+            seen.append(kwargs["env"])
+            return _FakeProc(0, "", "")
+
+        monkeypatch.setattr("rebrew.compiler.toolchain.run_process_group", _run)
+        assert run_toolchain(spec, ["-c", "t.c"], workdir=tmp_path).ok
+        assert seen[0] == {"PATH": "/usr/bin", "HOME": str(tmp_path), "TMPDIR": str(tmp_path)}
 
     def test_docker_compile_runs_as_the_image_user(self, tmp_path: Path, monkeypatch) -> None:
         # The toolchain images run as their own unprivileged user (rebrew, uid 1000), which owns the baked
@@ -2176,28 +2204,28 @@ class TestTrustedToolchainDownload:
 
     def test_rejects_http_and_offlist_hosts(self) -> None:
         from rebrew.compiler.toolchain import ToolchainError
-        from rebrew.toolchain_cli import _trusted_toolchain_download_url
+        from rebrew.toolchain_cli.vendor import trusted_toolchain_download_url
 
         with pytest.raises(ToolchainError, match="trusted https"):
-            _trusted_toolchain_download_url("http://github.com/x/y/z")
+            trusted_toolchain_download_url("http://github.com/x/y/z")
         with pytest.raises(ToolchainError, match="trusted https"):
-            _trusted_toolchain_download_url("https://evil.example/payload")
+            trusted_toolchain_download_url("https://evil.example/payload")
         with pytest.raises(ToolchainError, match="trusted https"):
-            _trusted_toolchain_download_url("https://169.254.169.254/latest/meta-data")
+            trusted_toolchain_download_url("https://169.254.169.254/latest/meta-data")
         # No pin downloads from archive.org any more (borland-5.5 comes from archaic-toolchains).
         with pytest.raises(ToolchainError, match="trusted https"):
-            _trusted_toolchain_download_url(
+            trusted_toolchain_download_url(
                 "https://ia801234.us.archive.org/0/items/BorlandC55/file.zip"
             )
 
     def test_accepts_pinned_publisher_hosts(self) -> None:
-        from rebrew.toolchain_cli import _trusted_toolchain_download_url
+        from rebrew.toolchain_cli.vendor import trusted_toolchain_download_url
 
-        gh = _trusted_toolchain_download_url(
+        gh = trusted_toolchain_download_url(
             "https://codeload.github.com/archaic-msvc/msvc600/tar.gz/refs/heads/master"
         )
         assert gh.endswith("/master")
-        gnu = _trusted_toolchain_download_url(
+        gnu = trusted_toolchain_download_url(
             "https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz"
         )
         assert gnu.startswith("https://ftp.gnu.org/")
@@ -2275,7 +2303,8 @@ class TestTrustedToolchainDownload:
         """A flaky fetch records its backoff without waiting on the wall clock."""
         import httpx
 
-        from rebrew.toolchain_cli import _HTTP_RETRY_BACKOFF_S, _download_pinned_url
+        from rebrew.toolchain_cli import _download_pinned_url
+        from rebrew.toolchain_cli.vendor import HTTP_RETRY_BACKOFF_S
 
         calls = 0
 
@@ -2291,7 +2320,7 @@ class TestTrustedToolchainDownload:
         monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", naps.append)
         dest = tmp_path / "out.bin"
         _download_pinned_url("https://github.com/o/r/releases/download/v1/m.7z", dest)
-        assert naps == [_HTTP_RETRY_BACKOFF_S]
+        assert naps == [HTTP_RETRY_BACKOFF_S]
 
 
 def _streamed(get: Callable[..., Any]) -> Callable[..., Any]:
@@ -2379,7 +2408,8 @@ class TestLiveCommitShaRetry:
         """Every attempt failing still raises, so the row reads `check failed`."""
         import httpx
 
-        from rebrew.toolchain_cli import _HTTP_ATTEMPTS, _live_commit_sha
+        from rebrew.toolchain_cli import _live_commit_sha
+        from rebrew.toolchain_cli.vendor import HTTP_ATTEMPTS
 
         calls = 0
 
@@ -2392,13 +2422,13 @@ class TestLiveCommitShaRetry:
         monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
         with pytest.raises(httpx.ReadTimeout):
             _live_commit_sha("o", "r", "master")
-        assert calls == _HTTP_ATTEMPTS
+        assert calls == HTTP_ATTEMPTS
 
 
 class TestLiveCommitShaReply:
     """GitHub's commit JSON lists the commit's files with their patches: for the
     archaic-msvc/msvc710_sp1 import it is 1,184,601 bytes, past
-    `_MAX_LIVE_SHA_BYTES`, and the nightly drift gate read `check failed
+    `MAX_LIVE_SHA_BYTES`, and the nightly drift gate read `check failed
     (ToolchainError)` for a pin that had not moved."""
 
     def test_a_large_commit_reads_current(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2407,7 +2437,7 @@ class TestLiveCommitShaReply:
 
         from rebrew.app.main import app as umbrella
         from rebrew.compiler import toolchain_data
-        from rebrew.toolchain_cli import _MAX_LIVE_SHA_BYTES
+        from rebrew.toolchain_cli.updates import MAX_LIVE_SHA_BYTES
 
         src = toolchain_data.pinned_sources()["msvc-7.1-sp1"]
         monkeypatch.setattr(toolchain_data, "pinned_sources", lambda: {"msvc-7.1-sp1": src})
@@ -2416,7 +2446,7 @@ class TestLiveCommitShaReply:
             request = httpx.Request("GET", url, headers=headers)
             if headers.get("Accept") == "application/vnd.github.sha":
                 return httpx.Response(200, content=src.commit.encode(), request=request)
-            files = "x" * (_MAX_LIVE_SHA_BYTES + 1)
+            files = "x" * (MAX_LIVE_SHA_BYTES + 1)
             return httpx.Response(200, json={"sha": src.commit, "files": files}, request=request)
 
         monkeypatch.setattr(httpx, "stream", _streamed(_github))
@@ -2440,11 +2470,12 @@ class TestLiveCommitShaReply:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A reply with no Content-Length, four times the cap, is refused once the
-        bytes read pass `_MAX_LIVE_SHA_BYTES`, not buffered whole first. The body is
+        bytes read pass `MAX_LIVE_SHA_BYTES`, not buffered whole first. The body is
         finite so a broken cap fails the test instead of hanging it."""
         import httpx
 
-        from rebrew.toolchain_cli import _MAX_LIVE_SHA_BYTES, _live_commit_sha
+        from rebrew.toolchain_cli import _live_commit_sha
+        from rebrew.toolchain_cli.updates import MAX_LIVE_SHA_BYTES
 
         chunk = 64 * 1024
         pulled = 0
@@ -2452,7 +2483,7 @@ class TestLiveCommitShaReply:
         class _Oversized(httpx.SyncByteStream):
             def __iter__(self) -> Iterator[bytes]:
                 nonlocal pulled
-                for _ in range(4 * (_MAX_LIVE_SHA_BYTES // chunk)):
+                for _ in range(4 * (MAX_LIVE_SHA_BYTES // chunk)):
                     pulled += 1
                     yield b"0" * chunk
 
@@ -2462,7 +2493,7 @@ class TestLiveCommitShaReply:
         monkeypatch.setattr(httpx, "stream", _streamed(_github))
         with pytest.raises(ToolchainError, match="exceeds"):
             _live_commit_sha("o", "r", "master")
-        assert pulled == _MAX_LIVE_SHA_BYTES // chunk + 1
+        assert pulled == MAX_LIVE_SHA_BYTES // chunk + 1
 
 
 class TestVendorRetryAfterPartialFailure:
@@ -2685,7 +2716,7 @@ class TestDockerBuildProcessGroup:
             "rebrew/msvc-6.0:6.0",
             str(tmp_path),
         ]
-        assert calls[0]["kwargs"]["timeout"] == cli._DOCKER_BUILD_TIMEOUT_S
+        assert calls[0]["kwargs"]["timeout"] == DOCKER_BUILD_TIMEOUT_S
 
     def test_streaming_build_passes_no_timeout_kwarg_conflict(
         self, tmp_path: Path, monkeypatch

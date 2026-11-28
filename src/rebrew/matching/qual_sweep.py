@@ -331,7 +331,7 @@ def main(
             # Private dir per round: a concurrent sweep of the same symbol (another
             # target sharing this root) would otherwise overwrite a candidate
             # between its write and its compile, scoring the wrong source.
-            # -j 0 (or negative) bypasses config's _positive_int validation, so
+            # -j 0 (or negative) bypasses config's positive_int validation, so
             # clamp before the pool: max_workers=0 raises ValueError.
             # The cleanup does not raise on a failed remove: the pool below
             # deliberately leaves its in-flight workers running when the round

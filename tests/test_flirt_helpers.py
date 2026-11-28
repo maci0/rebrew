@@ -73,18 +73,18 @@ class TestMatchTextDedup:
 
 class TestLoadSignaturesErrors:
     def test_bad_file_warns(self, tmp_path: Path) -> None:
-        from rebrew.library.flirt import load_signatures
+        from rebrew.library.flirt import load_signatures_for
 
         (tmp_path / "bad.pat").write_text("not a pat file", encoding="utf-8")
         with pytest.warns(UserWarning, match="Error loading"):
-            assert load_signatures(str(tmp_path)) == []
+            assert load_signatures_for([tmp_path]) == []
 
     def test_unreadable_file_warns(self, tmp_path: Path) -> None:
-        from rebrew.library.flirt import load_signatures
+        from rebrew.library.flirt import load_signatures_for
 
         (tmp_path / "broken.sig").write_bytes(b"")
         with pytest.warns(UserWarning, match="Error loading"):
-            assert load_signatures(str(tmp_path)) == []
+            assert load_signatures_for([tmp_path]) == []
 
 
 class TestUndecodableByteEndsScan:

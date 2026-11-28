@@ -11,7 +11,8 @@ lazy from pathlib import Path
 import pytest
 
 import rebrew.wibo as wibo_mod
-from rebrew.doctor import _OK, _WARN, check_runner
+from rebrew.doctor import check_runner
+from rebrew.doctor.checks import OK, WARN
 from rebrew.wibo import _WIBO_API_URL, _wibo_asset_name, download_wibo, find_wibo
 
 
@@ -230,7 +231,7 @@ class TestDoctorCheckRunner:
     def test_no_runner_passes(self, tmp_path: Path) -> None:
         cfg = SimpleNamespace(compiler_runner="", root=tmp_path)
         result = check_runner(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "No runner configured" in result.message
 
     def test_wibo_found_passes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -239,7 +240,7 @@ class TestDoctorCheckRunner:
         monkeypatch.setattr("rebrew.wibo.find_wibo", lambda _root: found)
         cfg = SimpleNamespace(compiler_runner="wibo", root=tmp_path)
         result = check_runner(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert str(found) in result.message
 
     def test_wibo_missing_warns(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -247,14 +248,14 @@ class TestDoctorCheckRunner:
         monkeypatch.setattr("rebrew.wibo.find_wibo", lambda _root: None)
         cfg = SimpleNamespace(compiler_runner="wibo", root=tmp_path)
         result = check_runner(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "install-wibo" in result.fix
 
     def test_wine_passes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda _name: None)
         cfg = SimpleNamespace(compiler_runner="wine", root=tmp_path)
         result = check_runner(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "checked by compiler check" in result.message
 
 

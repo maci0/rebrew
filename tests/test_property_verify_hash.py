@@ -66,18 +66,16 @@ class TestCflagsEquivalent:
 
         check()
 
-    def test_flag_order_does_not_matter_across_groups(self) -> None:
-        # /O2 (option) and /Gd (checkbox) are separate groups, so they
-        # commute.  Two members of ONE group do not: MSVC takes the last, so
-        # ``/O2 /Ot`` and ``/Ot /O2`` are a material difference.
+    def test_only_identical_token_lists_are_equivalent(self) -> None:
+        # cl's option switches interact (/Ox /Os is not /Os), so no reorder
+        # or repeat is assumed harmless: only the same token list matches.
         @given(
-            left=st.lists(st.sampled_from(["/O2", "/Gd"]), unique=True, min_size=1, max_size=2),
-            right=st.lists(st.sampled_from(["/O2", "/Gd"]), unique=True, min_size=1, max_size=2),
+            left=st.lists(st.sampled_from(["/O2", "/Gd", "/Ot"]), min_size=1, max_size=3),
+            right=st.lists(st.sampled_from(["/O2", "/Gd", "/Ot"]), min_size=1, max_size=3),
         )
         @settings(max_examples=200)
         def check(left: list[str], right: list[str]) -> None:
-            assume(sorted(left) == sorted(right))
-            assert cflags_equivalent(" ".join(left), " ".join(right))
+            assert cflags_equivalent(" ".join(left), " ".join(right)) == (left == right)
 
         check()
 

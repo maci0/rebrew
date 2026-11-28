@@ -735,9 +735,9 @@ class TestOptLevelFingerprint:
         assert len(info.o2_wrapper_sites) == 4
 
     def test_empty_pattern_advances_past_excluded_positions(self) -> None:
-        from rebrew.toolchain_detect import _iter_masked
+        from rebrew.toolchain_detect import iter_masked
 
-        matches = _iter_masked(b"ab", b"", 0x1000, [(0x1001, 0x1001)])
+        matches = iter_masked(b"ab", b"", 0x1000, [(0x1001, 0x1001)])
         assert next(matches) == 0x1000
         assert next(matches) == 0x1002
         assert next(matches, None) is None
@@ -836,7 +836,7 @@ class TestCodegenCorpusOptLevel:
         assert [bytes.fromhex(p) for p in rule["o2_wrappers"]] == list(td._O2_WRAPPERS)
         assert [bytes.fromhex(p) for p in rule["o1_wrappers"]] == list(td._O1_WRAPPERS)
         sites, ratio = rule["min_sites"], rule["dominance_ratio"]
-        assert sites == td._OPT_MIN_SITES
+        assert sites == td.OPT_MIN_SITES
         assert td.opt_level_from_counts(sites, 0) == "/O2"
         assert td.opt_level_from_counts(sites - 1, 0) == ""
         assert td.opt_level_from_counts(sites * ratio, sites) == "/O2"

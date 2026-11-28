@@ -30,13 +30,6 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.toolchain_cli.smoke import DOCKER_BUILD_TIMEOUT_S
-from rebrew.toolchain_cli.updates import MAX_LIVE_SHA_BYTES
-from rebrew.toolchain_cli.vendor import (
-    HTTP_ATTEMPTS,
-    HTTP_RETRY_BACKOFF_S,
-    trusted_toolchain_download_url,
-)
 lazy from rebrew.compiler.toolchain import (
     ToolchainError,
     docker_available,
@@ -125,14 +118,6 @@ lazy from rebrew.utils import (
     run_process_group,
     sha256_file,
 )
-
-# Local backward-compat aliases for tests that patch or inspect private helpers
-# on ``rebrew.toolchain_cli`` while keeping cross-module imports public.
-_DOCKER_BUILD_TIMEOUT_S = DOCKER_BUILD_TIMEOUT_S
-_HTTP_ATTEMPTS = HTTP_ATTEMPTS
-_HTTP_RETRY_BACKOFF_S = HTTP_RETRY_BACKOFF_S
-_MAX_LIVE_SHA_BYTES = MAX_LIVE_SHA_BYTES
-_trusted_toolchain_download_url = trusted_toolchain_download_url
 
 
 def _docker_build(tag: str, context: Path, *, stream: bool) -> tuple[int, str]:

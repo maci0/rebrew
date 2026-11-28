@@ -1239,16 +1239,16 @@ def test_a_compile_cut_off_with_its_child_command_is_reported_unsettled(
     arrived, release = threading.Event(), threading.Event()
     seen: list[dict[str, str]] = []
     answer: dict[str, tuple[int, bytes]] = {}
-    cancellation = ops._Cancellation()
+    cancellation = ops.Cancellation()
     with _recompile(seen, held=(arrived, release)) as url:
         config, entries = _compiling_at(url, tmp_path, monkeypatch)
 
         def call() -> None:
-            token = ops._CANCELLATION.set(cancellation)
+            token = ops.CANCELLATION_VAR.set(cancellation)
             try:
                 answer["reply"] = dispatch(config, "rebrew.apply_candidate", _request(entries))
             finally:
-                ops._CANCELLATION.reset(token)
+                ops.CANCELLATION_VAR.reset(token)
 
         worker = threading.Thread(target=call)
         worker.start()

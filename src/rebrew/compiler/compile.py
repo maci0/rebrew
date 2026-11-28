@@ -3072,7 +3072,7 @@ def _extract_and_compare(
             section_va=section_va,
             iat_region=iat_region,
         )
-        if check_known_bindings
+        if check_known_bindings or getattr(cfg, "arch", "") in {"mips32", "mips64"}
         else None
     )
 

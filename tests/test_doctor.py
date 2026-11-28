@@ -9,9 +9,6 @@ from source_util import write_source
 
 from rebrew.cli import EXIT_ERROR, EXIT_OK
 from rebrew.doctor import (
-    _FAIL,
-    _OK,
-    _WARN,
     CheckResult,
     DoctorReport,
     check_arch_format,
@@ -25,6 +22,7 @@ from rebrew.doctor import (
     check_target_binary,
     run_doctor,
 )
+from rebrew.doctor.checks import FAIL, OK, WARN
 
 
 def _make_project(tmp_path: Path, toml: str) -> Path:
@@ -54,15 +52,15 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
 
 class TestCheckResult:
     def test_to_dict_minimal(self) -> None:
-        r = CheckResult(name="test", status=_OK, message="ok")
+        r = CheckResult(name="test", status=OK, message="ok")
         d = r.to_dict()
         assert d["name"] == "test"
-        assert d["status"] == _OK
+        assert d["status"] == OK
         assert d["message"] == "ok"
         assert "fix" not in d
 
     def test_to_dict_with_fix(self) -> None:
-        r = CheckResult(name="test", status=_FAIL, message="bad", fix="do X")
+        r = CheckResult(name="test", status=FAIL, message="bad", fix="do X")
         d = r.to_dict()
         assert d["fix"] == "do X"
 
@@ -77,8 +75,8 @@ class TestDoctorReport:
     def test_all_pass(self) -> None:
         r = DoctorReport(
             checks=[
-                CheckResult(name="a", status=_OK, message="ok"),
-                CheckResult(name="b", status=_OK, message="ok"),
+                CheckResult(name="a", status=OK, message="ok"),
+                CheckResult(name="b", status=OK, message="ok"),
             ]
         )
         assert r.passed is True
@@ -87,8 +85,8 @@ class TestDoctorReport:
     def test_one_fail(self) -> None:
         r = DoctorReport(
             checks=[
-                CheckResult(name="a", status=_OK, message="ok"),
-                CheckResult(name="b", status=_FAIL, message="bad"),
+                CheckResult(name="a", status=OK, message="ok"),
+                CheckResult(name="b", status=FAIL, message="bad"),
             ]
         )
         assert r.passed is False
@@ -97,7 +95,7 @@ class TestDoctorReport:
     def test_warn_still_passes(self) -> None:
         r = DoctorReport(
             checks=[
-                CheckResult(name="a", status=_WARN, message="hmm"),
+                CheckResult(name="a", status=WARN, message="hmm"),
             ]
         )
         assert r.passed is True
@@ -107,7 +105,7 @@ class TestDoctorReport:
         r = DoctorReport(
             target="test",
             checks=[
-                CheckResult(name="a", status=_OK, message="ok"),
+                CheckResult(name="a", status=OK, message="ok"),
             ],
         )
         d = r.to_dict()
@@ -124,13 +122,13 @@ class TestCheckConfigParse:
         )
         monkeypatch.chdir(tmp_path)
         result, cfg = check_config_parse(target=None)
-        assert result.status == _OK
+        assert result.status == OK
         assert cfg is not None
 
     def test_missing_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)
         result, cfg = check_config_parse(target=None)
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert cfg is None
         assert result.fix
 
@@ -139,7 +137,7 @@ class TestCheckTargetBinary:
     def test_missing_binary(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         result = check_target_binary(cfg)
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "Not found" in result.message
 
     def test_existing_non_pe(self, tmp_path: Path) -> None:
@@ -147,31 +145,31 @@ class TestCheckTargetBinary:
         binary.write_bytes(b"not a real binary")
         cfg = _make_cfg(tmp_path)
         result = check_target_binary(cfg)
-        assert result.status == _FAIL
+        assert result.status == FAIL
 
 
 class TestCheckArchFormat:
     def test_valid(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         result = check_arch_format(cfg)
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_unknown_arch(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path, arch="riscv32")
         result = check_arch_format(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
 
     def test_unknown_format(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path, binary_format="coff")
         result = check_arch_format(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
 
     def test_mz_format_is_known(self, tmp_path: Path) -> None:
         """`format = "mz"` is accepted by the config loader, so the doctor must
         not report it as unknown (and suggest changing it)."""
         cfg = _make_cfg(tmp_path, binary_format="mz", arch="x86_16")
         result = check_arch_format(cfg)
-        assert result.status == _OK
+        assert result.status == OK
 
 
 class TestCheckIncludes:
@@ -181,13 +179,13 @@ class TestCheckIncludes:
         (inc / "stdio.h").write_text("", encoding="utf-8")
         cfg = _make_cfg(tmp_path)
         result = check_includes(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "1 headers" in result.message
 
     def test_missing(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         result = check_includes(cfg)
-        assert result.status == _FAIL
+        assert result.status == FAIL
 
 
 class TestDockerIncludeLibs:
@@ -205,19 +203,19 @@ class TestDockerIncludeLibs:
     def test_docker_profile_with_image_passes(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda img: True)
         inc = check_includes(self._cfg(tmp_path))
-        assert inc.status == _OK
+        assert inc.status == OK
         assert "toolchain image" in inc.message
         lib = check_libs(self._cfg(tmp_path))
-        assert lib.status == _OK
+        assert lib.status == OK
         assert "toolchain image" in lib.message
 
     def test_docker_profile_without_image_warns_with_fix(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda img: False)
         inc = check_includes(self._cfg(tmp_path))
-        assert inc.status == _WARN
+        assert inc.status == WARN
         assert "toolchain build" in inc.fix
         lib = check_libs(self._cfg(tmp_path))
-        assert lib.status == _WARN
+        assert lib.status == WARN
 
     def test_image_backed_mingw_ignores_the_host_include_path(
         self, tmp_path: Path, monkeypatch
@@ -231,7 +229,7 @@ class TestDockerIncludeLibs:
             compiler_includes=tmp_path / "nope" / "include",
         )
         result = check_includes(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "toolchain image" in result.message
 
 
@@ -257,7 +255,7 @@ class TestConfiguredRunner:
             doctor.check_includes,
             doctor.check_libs,
         ):
-            assert check(cfg).status == _OK
+            assert check(cfg).status == OK
         assert inspected == [backend] * 5
         assert backend in doctor.check_runner(cfg).message
 
@@ -274,7 +272,7 @@ class TestConfiguredRunner:
         )
         cfg = _make_cfg(tmp_path, compiler_profile="msvc-6.0", execution_backend="unshare")
         result = doctor.check_runner(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "unshare" in result.message
         assert probed == ["msvc-6.0"]
 
@@ -291,7 +289,7 @@ class TestConfiguredRunner:
         monkeypatch.setattr("rebrew.compiler.toolchain.check_experimental_unshare", fail_probe)
         cfg = _make_cfg(tmp_path, compiler_profile="msvc-6.0", execution_backend="unshare")
         result = doctor.check_runner(cfg)
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "user namespaces unavailable" in result.message
 
     def test_default_runner_follows_runtime_environment(
@@ -302,7 +300,7 @@ class TestConfiguredRunner:
         monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda image: True)
         result = doctor.check_runner(_make_cfg(tmp_path, compiler_profile="msvc-6.0"))
-        assert result.status == _OK
+        assert result.status == OK
         assert "podman" in result.message
 
     def test_missing_image_does_not_probe_unshare(
@@ -320,7 +318,7 @@ class TestConfiguredRunner:
         )
         cfg = _make_cfg(tmp_path, compiler_profile="msvc-6.0", execution_backend="unshare")
         result = doctor.check_runner(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "unshare" in result.message
         assert "toolchain build" in result.fix
 
@@ -331,12 +329,12 @@ class TestCheckLibs:
         lib.mkdir()
         cfg = _make_cfg(tmp_path)
         result = check_libs(cfg)
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_missing_is_warn(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         result = check_libs(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
 
 
 class TestCheckFunctionList:
@@ -357,20 +355,20 @@ class TestCheckFunctionList:
         )
         cfg = _make_cfg(tmp_path)
         result = check_function_list(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "2 entries" in result.message
 
     def test_missing_is_warn(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         result = check_function_list(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
 
     def test_no_parseable_entries_warns(self, tmp_path: Path) -> None:
         """An inventory with no valid-VA entries warns, like a missing one."""
         self._write_structure(tmp_path, [{"va": 0, "size": 0, "name": "null"}])
         cfg = _make_cfg(tmp_path)
         result = check_function_list(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
 
 
 class TestCheckSourceFiles:
@@ -385,7 +383,7 @@ class TestCheckSourceFiles:
         )
         cfg = _make_cfg(tmp_path)
         result = check_source_files(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "1 source" in result.message
 
     def test_no_sources(self, tmp_path: Path) -> None:
@@ -393,12 +391,12 @@ class TestCheckSourceFiles:
         src.mkdir()
         cfg = _make_cfg(tmp_path)
         result = check_source_files(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
 
     def test_missing_dir(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         result = check_source_files(cfg)
-        assert result.status == _WARN
+        assert result.status == WARN
 
 
 class TestCheckBinDir:
@@ -406,12 +404,12 @@ class TestCheckBinDir:
         (tmp_path / "bin").mkdir()
         cfg = _make_cfg(tmp_path)
         result = check_bin_dir(cfg)
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_missing_still_passes(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         result = check_bin_dir(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "will be created" in result.message
 
 
@@ -473,7 +471,7 @@ class TestExtraBranches:
 
         monkeypatch.setattr(doctor, "load_config", boom)
         result, cfg = doctor.check_config_parse("x")
-        assert result.status == doctor._FAIL
+        assert result.status == FAIL
         assert cfg is None
 
     def test_config_parse_valueerror(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -483,7 +481,7 @@ class TestExtraBranches:
             doctor, "load_config", lambda target=None: (_ for _ in ()).throw(ValueError("bad toml"))
         )
         result, cfg = doctor.check_config_parse("x")
-        assert result.status == doctor._FAIL
+        assert result.status == FAIL
         assert "Unexpected error" in result.message
 
     def test_target_binary_load_success(
@@ -501,7 +499,7 @@ class TestExtraBranches:
             ),
         )
         result = doctor.check_target_binary(cfg)
-        assert result.status == doctor._OK
+        assert result.status == OK
         assert "2 sections" in result.message
 
     def test_target_binary_load_failure(
@@ -518,7 +516,7 @@ class TestExtraBranches:
 
         monkeypatch.setattr("rebrew.formats.binary_loader.load_binary", boom)
         result = doctor.check_target_binary(cfg)
-        assert result.status == doctor._FAIL
+        assert result.status == FAIL
         assert "Failed to load" in result.message
 
     def test_runner_checked_by_compiler(
@@ -529,7 +527,7 @@ class TestExtraBranches:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda _name: None)
         cfg = SimpleNamespace(compiler_runner="wine", root=tmp_path)
         result = doctor.check_runner(cfg)
-        assert result.status == doctor._OK
+        assert result.status == OK
         assert "checked by compiler check" in result.message
 
 
@@ -543,7 +541,7 @@ class TestCheckFlirtSigs:
         from rebrew.doctor import check_flirt_sigs
 
         result = check_flirt_sigs(self._cfg(tmp_path))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "not found" in result.message
         assert "rebrew library signatures" in result.fix
 
@@ -552,7 +550,7 @@ class TestCheckFlirtSigs:
 
         (tmp_path / "flirt_sigs").mkdir()
         result = check_flirt_sigs(self._cfg(tmp_path))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "no .pat/.sig" in result.message
 
     def test_valid_pat_passes(self, tmp_path: Path) -> None:
@@ -564,7 +562,7 @@ class TestCheckFlirtSigs:
         line = bytes_to_pat_line("_f", bytes(range(40)), set())
         (sig_dir / "test.pat").write_text(line + "\n---\n", encoding="utf-8")
         result = check_flirt_sigs(self._cfg(tmp_path))
-        assert result.status == _OK
+        assert result.status == OK
         assert "1 signatures" in result.message
 
     def test_corrupt_pat_warns(self, tmp_path: Path) -> None:
@@ -574,7 +572,7 @@ class TestCheckFlirtSigs:
         sig_dir.mkdir()
         (sig_dir / "broken.pat").write_text("this is not a pat file", encoding="utf-8")
         result = check_flirt_sigs(self._cfg(tmp_path))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "problem file(s)" in result.message
         assert "broken.pat" in result.fix
         assert "rebrew library signatures" in result.fix
@@ -588,7 +586,7 @@ class TestCheckFlirtSigs:
         line = bytes_to_pat_line("_f", bytes(range(40)), set()).encode("utf-8")
         (sig_dir / "latin1.pat").write_bytes(line.replace(b"_f", b"_f\xe9") + b"\n---\n")
         result = check_flirt_sigs(self._cfg(tmp_path))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "latin1.pat (corrupt:" in result.fix
 
     def test_zero_signature_pat_warns(self, tmp_path: Path) -> None:
@@ -598,7 +596,7 @@ class TestCheckFlirtSigs:
         sig_dir.mkdir()
         (sig_dir / "empty.pat").write_text("---\n", encoding="utf-8")
         result = check_flirt_sigs(self._cfg(tmp_path))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "0 sigs" in result.message
         assert "0 signatures" in result.fix
         assert "Remove signature files" in result.fix
@@ -636,7 +634,7 @@ class TestCheckOptionalToolsClaripy:
         fake.claripy = ModuleType("claripy")
         monkeypatch.setitem(sys.modules, "angr", fake)
         result = check_optional_tools()
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_probe_silences_optional_engine_log_and_restores_level(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -657,7 +655,7 @@ class TestCheckOptionalToolsClaripy:
         monkeypatch.setitem(sys.modules, "angr", FakeAngr("angr"))
         angr_logger = logging.getLogger("angr")
         previous_level = angr_logger.level
-        assert check_optional_tools().status == _OK
+        assert check_optional_tools().status == OK
         assert "optional engine unavailable" not in caplog.text
         assert angr_logger.level == previous_level
 
@@ -672,7 +670,7 @@ class TestCheckOptionalToolsClaripy:
         monkeypatch.setitem(sys.modules, "angr", ModuleType("angr"))
         monkeypatch.delitem(sys.modules, "angr.claripy", raising=False)
         result = check_optional_tools()
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "claripy" in result.message
         assert "--editable '/path/to/rebrew[prove]'" in (result.fix or "")
         assert "uv sync --extra prove" not in (result.fix or "")
@@ -688,7 +686,7 @@ class TestCheckOptionalToolsClaripy:
         monkeypatch.setitem(sys.modules, "claripy", ModuleType("claripy"))
         monkeypatch.setitem(sys.modules, "angr", None)
         result = check_optional_tools()
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "missing" in result.message
 
     def test_neither_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -699,7 +697,7 @@ class TestCheckOptionalToolsClaripy:
         monkeypatch.setitem(sys.modules, "angr", None)
         monkeypatch.setitem(sys.modules, "claripy", None)
         result = check_optional_tools()
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "missing" in result.message
 
 
@@ -717,7 +715,7 @@ class TestCheckGhidraSync:
         from rebrew.doctor import check_ghidra_sync
 
         result = check_ghidra_sync(self._cfg(tmp_path))  # type: ignore[arg-type]
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_reva_without_program_path_warns(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_ghidra_sync
@@ -725,7 +723,7 @@ class TestCheckGhidraSync:
         result = check_ghidra_sync(
             self._cfg(tmp_path, ghidra_program_path="")  # type: ignore[arg-type]
         )
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "ghidra_program_path" in result.message
 
     def test_cli_backend_binary_missing_warns(
@@ -747,7 +745,7 @@ class TestCheckGhidraSync:
         bin_file.chmod(0o755)
         cfg = self._cfg(tmp_path, ghidra_backend="cli")
         result = check_ghidra_sync(cfg)  # type: ignore[arg-type]
-        assert result.status == _OK
+        assert result.status == OK
         assert "ghidra-cli" in result.message
 
     def test_cli_backend_non_executable_tools_warns(self, tmp_path: Path) -> None:
@@ -758,7 +756,7 @@ class TestCheckGhidraSync:
         (tools_bin / "ghidra-cli").write_bytes(b"not executable")  # no chmod
         cfg = self._cfg(tmp_path, ghidra_backend="cli")
         result = check_ghidra_sync(cfg)  # type: ignore[arg-type]
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "no ghidra-cli binary" in result.message
 
 
@@ -768,12 +766,12 @@ class TestCheckArchFormat16Bit:
     def test_ne_format_valid(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path, binary_format="ne", arch="x86_16")
         result = check_arch_format(cfg)
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_x86_16_arch_valid(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path, binary_format="pe", arch="x86_16")
         result = check_arch_format(cfg)
-        assert result.status == _OK
+        assert result.status == OK
 
 
 class TestCheckIncludes16BitProfiles:
@@ -793,16 +791,15 @@ class TestCheckIncludes16BitProfiles:
         ],
     )
     def test_bits16_profile_not_warned(self, tmp_path: Path, monkeypatch, profile: str) -> None:
-        from rebrew.doctor import _WARN
 
         # The docker-image probe is environment-dependent (the image is not
         # built on a CI runner); this test is about the include-path guard.
-        monkeypatch.setattr("rebrew.doctor._image_toolchain_check", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.doctor.checks.image_toolchain_check", lambda *a, **k: None)
         cfg = _make_cfg(tmp_path, arch="x86_16", compiler_profile=profile)
         result = check_includes(cfg)
         # The missing include dir is a real FAIL; the 16-bit guard must not
         # short-circuit a bits=16 project into "configure a 16-bit profile".
-        assert result.status != _WARN, result.message
+        assert result.status != WARN, result.message
 
 
 class TestCrtLinkage:
@@ -831,7 +828,7 @@ class TestCrtLinkage:
         )
         cfg = self._cfg(tmp_path, base_cflags="/nologo /c /MD")
         res = self.check(cfg)
-        assert res.status == _OK
+        assert res.status == OK
 
     def test_mismatch_md_vs_mt(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.toolchain_detect as td
@@ -845,7 +842,7 @@ class TestCrtLinkage:
         )
         cfg = self._cfg(tmp_path, base_cflags="/nologo /c /MT")
         res = self.check(cfg)
-        assert res.status == _WARN
+        assert res.status == WARN
         assert "/MD" in res.fix
 
     def test_non_msvc_skips(self, tmp_path: Path) -> None:
@@ -891,7 +888,7 @@ class TestOptLevel:
         )
         cfg = self._cfg(tmp_path)
         res = self.check(cfg)
-        assert res.status == _OK
+        assert res.status == OK
 
     def test_mismatch_o1_vs_o2_warns(self, tmp_path: Path, monkeypatch: object) -> None:
         import rebrew.toolchain_detect as td
@@ -901,7 +898,7 @@ class TestOptLevel:
         )
         cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
         res = self.check(cfg)
-        assert res.status == _WARN
+        assert res.status == WARN
         assert "/O1" in res.fix
 
     def test_mixed_with_pinned_flag_pass_hint(self, tmp_path: Path, monkeypatch: object) -> None:
@@ -912,7 +909,7 @@ class TestOptLevel:
         )
         cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
         res = self.check(cfg)
-        assert res.status == _WARN
+        assert res.status == WARN
         assert "rebrew match flags" in (res.fix or "")
 
     def test_static_libcmt_does_not_make_an_o2_program_mixed(
@@ -933,7 +930,7 @@ class TestOptLevel:
         monkeypatch.setattr(doctor_mod, "_library_site_counts", lambda cfg, found: (1, 4))
         cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
         res = self.check(cfg)
-        assert res.status == _OK
+        assert res.status == OK
         assert "/O2" in res.message
         assert "LIBCMT" in res.message
 
@@ -988,20 +985,20 @@ class TestBackupReadiness:
     def test_toml_stores_present_is_ready(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
         result = check_backup_readiness(self._cfg(tmp_path))
-        assert result.status == _OK, result.message
+        assert result.status == OK, result.message
 
     def test_no_stores_warns(self, tmp_path: Path) -> None:
         result = check_backup_readiness(self._cfg(tmp_path))
-        assert result.status == _WARN, result.message
+        assert result.status == WARN, result.message
 
     def test_pgsql_warns_with_pg_dump_fix(self, tmp_path: Path) -> None:
         result = check_backup_readiness(self._cfg(tmp_path, "pgsql"))
-        assert result.status == _WARN, result.message
+        assert result.status == WARN, result.message
         assert "pg_dump" in result.fix
 
     def test_missing_sqlite_database_warns(self, tmp_path: Path) -> None:
         result = check_backup_readiness(self._cfg(tmp_path, "sqlite"))
-        assert result.status == _WARN, result.message
+        assert result.status == WARN, result.message
 
     def test_binsync_state_dir_noted_in_backup_readiness(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
@@ -1010,7 +1007,7 @@ class TestBackupReadiness:
         cfg = self._cfg(tmp_path)
         cfg.binsync_state_dir = str(binsync)
         result = check_backup_readiness(cfg)
-        assert result.status == _OK, result.message
+        assert result.status == OK, result.message
         assert "BinSync" in result.message
 
 
@@ -1029,7 +1026,7 @@ class TestCheckBinsyncState:
 
     def test_no_config_warns(self, tmp_path: Path) -> None:
         r = self._check(tmp_path)
-        assert r.status == _WARN
+        assert r.status == WARN
         assert "binsync_state_dir" in r.message
 
     def test_configured_without_declib_fails(
@@ -1042,19 +1039,19 @@ class TestCheckBinsyncState:
         from rebrew.doctor import check_binsync_state
 
         r = check_binsync_state(_make_cfg(tmp_path, binsync_state_dir=str(tmp_path / "state")))
-        assert r.status == _FAIL
+        assert r.status == FAIL
         assert "declib" in r.message
 
     def test_configured_missing_warns(self, tmp_path: Path) -> None:
         r = self._check(tmp_path, binsync_state_dir=str(tmp_path / "state"))
-        assert r.status == _WARN
+        assert r.status == WARN
         assert "not found" in r.message
 
     def test_not_git_warns(self, tmp_path: Path) -> None:
         state = tmp_path / "state"
         state.mkdir()
         r = self._check(tmp_path, binsync_state_dir=str(state))
-        assert r.status == _WARN
+        assert r.status == WARN
         assert "git repository" in r.message
 
     def test_git_recent_passes(self, tmp_path: Path) -> None:
@@ -1081,7 +1078,7 @@ class TestCheckBinsyncState:
             check=True,
         )
         r = self._check(tmp_path, binsync_state_dir=str(state))
-        assert r.status == _OK
+        assert r.status == OK
 
     def test_git_stale_warns(self, tmp_path: Path) -> None:
         import subprocess
@@ -1125,19 +1122,19 @@ class TestCheckBinsyncState:
             },
         )
         r = self._check(tmp_path, binsync_state_dir=str(state))
-        assert r.status == _WARN
+        assert r.status == WARN
         assert "not been committed" in r.message
 
     @pytest.mark.parametrize(
         ("timestamp", "status", "message"),
         [
-            ("253402300800", _WARN, "unchecked"),
-            ("999999999999999999999999", _WARN, "unchecked"),
-            ("invalid", _WARN, "unchecked"),
-            ("", _WARN, "unchecked"),
-            ("0", _WARN, "not been committed"),
-            ("946684800", _WARN, "not been committed"),
-            ("4102444800", _OK, "ready"),
+            ("253402300800", WARN, "unchecked"),
+            ("999999999999999999999999", WARN, "unchecked"),
+            ("invalid", WARN, "unchecked"),
+            ("", WARN, "unchecked"),
+            ("0", WARN, "not been committed"),
+            ("946684800", WARN, "not been committed"),
+            ("4102444800", OK, "ready"),
         ],
     )
     def test_commit_timestamp(
@@ -1172,7 +1169,7 @@ class TestCheckBinsyncState:
         state.mkdir()
         subprocess.run(["git", "init", "-q", str(state)], check=True)
         r = self._check(tmp_path, binsync_state_dir=str(state))
-        assert r.status == _WARN
+        assert r.status == WARN
         assert "no commits" in r.message
 
     def test_binary_hash_mismatch_warns(self, tmp_path: Path) -> None:
@@ -1183,7 +1180,7 @@ class TestCheckBinsyncState:
         state.mkdir()
         (state / "binary_hash").write_text("0" * 32, encoding="utf-8")
         r = self._check(tmp_path, binsync_state_dir=str(state))
-        assert r.status == _WARN
+        assert r.status == WARN
         assert "different binary" in r.message
 
     def test_unreadable_binary_hash_never_passes(self, tmp_path: Path) -> None:
@@ -1200,7 +1197,7 @@ class TestCheckBinsyncState:
             r = self._check(tmp_path, binsync_state_dir=str(state))
         finally:
             hash_file.chmod(0o644)
-        assert r.status == _WARN
+        assert r.status == WARN
         assert "could not read" in r.message
 
     def test_binary_hash_match_passes(self, tmp_path: Path) -> None:
@@ -1233,7 +1230,7 @@ class TestCheckBinsyncState:
             check=True,
         )
         r = self._check(tmp_path, binsync_state_dir=str(state))
-        assert r.status == _OK
+        assert r.status == OK
 
 
 class TestModuleExecution:
@@ -1337,7 +1334,7 @@ class TestDoctorTableRendering:
             checks=[
                 CheckResult(
                     name="[x] name",
-                    status=_WARN,
+                    status=WARN,
                     message="missing [targets] section",
                     fix="pip-free: 'rebrew[prove] @ git+url' and [compiler] profile",
                 )
@@ -1361,7 +1358,7 @@ class TestDoctorExitCode:
 
         report = DoctorReport(
             target="t",
-            checks=[CheckResult(name="rebrew-project.toml", status=_FAIL, message="not found")],
+            checks=[CheckResult(name="rebrew-project.toml", status=FAIL, message="not found")],
         )
         monkeypatch.setattr(doctor, "run_doctor", lambda target=None: report)
         result = CliRunner().invoke(doctor.app, ["--json"])
@@ -1375,7 +1372,7 @@ class TestDoctorExitCode:
 
         report = DoctorReport(
             target="t",
-            checks=[CheckResult(name="rebrew-project.toml", status=_OK, message="ok")],
+            checks=[CheckResult(name="rebrew-project.toml", status=OK, message="ok")],
         )
         monkeypatch.setattr(doctor, "run_doctor", lambda target=None: report)
         assert CliRunner().invoke(doctor.app, ["--json"]).exit_code == EXIT_OK
@@ -1405,7 +1402,7 @@ class TestLibcmtIndexFailures:
         monkeypatch.setattr(lib_match, "index_library", _unparsable)
         cfg = SimpleNamespace(root=str(tmp_path), compiler_profile="msvc-6.0")
         with pytest.raises(typer.Exit):
-            doctor_mod._libcmt_index(cfg)
+            doctor_mod.libcmt_index(cfg)
 
     def test_unreadable_archive_degrades_to_a_skip(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.doctor as doctor_mod
@@ -1422,7 +1419,7 @@ class TestLibcmtIndexFailures:
         monkeypatch.setattr(lib_match, "index_library", _unreadable)
         cfg = SimpleNamespace(root=str(tmp_path), compiler_profile="msvc-6.0")
         with pytest.raises(doctor_mod.LibIndexUnavailable):
-            doctor_mod._libcmt_index(cfg)
+            doctor_mod.libcmt_index(cfg)
 
 
 class TestInventorySpanNumbers:
@@ -1433,31 +1430,31 @@ class TestInventorySpanNumbers:
     ) -> None:
         import json
 
-        from rebrew.doctor import _inventory_spans
+        from rebrew.doctor.integrations import inventory_spans
 
         row = {"va": 0x1000, "size": 16, field: value}
         src = tmp_path / "src"
         src.mkdir()
         (src / "function_structure.json").write_text(json.dumps([row]), encoding="utf-8")
-        assert _inventory_spans(_make_cfg(tmp_path)) == []
+        assert inventory_spans(_make_cfg(tmp_path)) == []
 
     def test_hex_inventory_numbers_are_preserved(self, tmp_path: Path) -> None:
         import json
 
-        from rebrew.doctor import _inventory_spans
+        from rebrew.doctor.integrations import inventory_spans
 
         src = tmp_path / "src"
         src.mkdir()
         (src / "function_structure.json").write_text(
             json.dumps([{"va": "0x1000", "size": "0x10"}]), encoding="utf-8"
         )
-        assert _inventory_spans(_make_cfg(tmp_path)) == [(0x1000, 16)]
+        assert inventory_spans(_make_cfg(tmp_path)) == [(0x1000, 16)]
 
 
 def test_doctor_lists_each_decompiler_and_what_it_lacks(monkeypatch: pytest.MonkeyPatch) -> None:
     """The same states rebrew.vocabulary reports for the engine, with the same reasons."""
     from rebrew import decompiler
-    from rebrew.doctor import _OK, check_decompilers
+    from rebrew.doctor import check_decompilers
 
     monkeypatch.setattr(decompiler, "_states", {})
     monkeypatch.setattr(
@@ -1470,5 +1467,5 @@ def test_doctor_lists_each_decompiler_and_what_it_lacks(monkeypatch: pytest.Monk
         ),
     )
     result = check_decompilers()
-    assert result.status == _OK
+    assert result.status == OK
     assert result.message.startswith("available: kuna; not available: r2ghidra (neither rizin")

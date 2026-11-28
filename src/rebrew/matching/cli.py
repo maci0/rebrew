@@ -217,7 +217,7 @@ def execute_search(
 
     if jobs is None:
         jobs = int(getattr(cfg, "default_jobs", 4))
-    # The -j flag bypasses config's _positive_int validation, so `-j 0` (or a
+    # The -j flag bypasses config's positive_int validation, so `-j 0` (or a
     # negative) reached ThreadPoolExecutor(max_workers=...) verbatim and raised
     # ValueError. Clamp once here: every pool this command drives (the GA, the
     # flag sweep, the per-stub batch, --all-targets) inherits the bound.

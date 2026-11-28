@@ -1,10 +1,9 @@
 """Property-based fuzzing for the NE comparison/analysis layer.
 
-``formats.ne_analysis.NeImage`` and ``published_method_candidates`` walk
-untrusted bytes from a 16-bit NE target: the segment table geometry is
-forgeable (a segment can point past EOF or overlap the fixup block), each
-segment's fixup block is a counted record stream, and the Delphi
-published-method probe scans arbitrary bytes for a class-marker table.
+``formats.ne_analysis.NeImage`` walks untrusted bytes from a 16-bit NE
+target: the segment table geometry is forgeable (a segment can point past
+EOF or overlap the fixup block), and each segment's fixup block is a
+counted record stream.
 Every sibling parser (NE tables, LZEXE, DFM, OMF16, ar/COFF, PE) already
 has a Hypothesis harness; this layer had only hand-written cases in
 ``test_ne_analysis.py``.
@@ -19,11 +18,9 @@ and pure-random bytes, and assert:
 * whatever ``NeImage`` accepts satisfies its own geometry invariants
   (segments inside the file, ``seg_bytes`` round-trips the stored bytes,
   fixup blocks stay inside the segment's following region);
-* ``segment_refs`` / ``relocation_census`` only report declared fixups
+* ``relocation_census`` only reports declared fixups
   (pair assertion across the fixup-read boundary: every reported record
-  was actually read from the image);
-* ``published_method_candidates`` returns only offsets inside the input
-  for names it actually decoded, and never raises on arbitrary bytes.
+  was actually read from the image).
 """
 
 from __future__ import annotations
@@ -36,9 +33,6 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-_CLASS = "TExample"
-_MARKER = b"\x08TExample"
-
 _EXPORTS = st.lists(
     st.tuples(
         st.binary(min_size=1, max_size=8).map(lambda b: b.decode("latin1")),
@@ -50,7 +44,6 @@ _MODULES = st.lists(
     st.binary(min_size=1, max_size=6).map(lambda b: b.decode("latin1", "replace")),
     max_size=2,
 )
-_METHOD_NAME = st.binary(min_size=0, max_size=8).map(lambda b: b.decode("latin1"))
 
 
 @st.composite
@@ -138,8 +131,8 @@ def test_ne_image_geometry_or_parse_error(_ne_dir: Path, blob: bytes) -> None:
 def test_ne_fixups_stay_inside_following_region(_ne_dir: Path, blob: bytes) -> None:
     """Fuzz: every fixup block ``NeImage.fixups`` returns is complete —
     its records sit after the segment, before the next on-disk segment,
-    and the census/refs only ever report records that were read."""
-    from rebrew.formats.ne_analysis import relocation_census, segment_refs
+    and the census only ever reports records that were read."""
+    from rebrew.formats.ne_analysis import relocation_census
     from rebrew.formats.ne_loader import NeParseError
 
     path = _ne_dir / "fuzz.exe"
@@ -165,12 +158,6 @@ def test_ne_fixups_stay_inside_following_region(_ne_dir: Path, blob: bytes) -> N
         addr_hist, reloc_hist = relocation_census(image)
         assert all(v > 0 for v in addr_hist.values())
         assert all(v > 0 for v in reloc_hist.values())
-    with suppress(NeParseError):
-        refs, imports = segment_refs(image)
-        for index, targets in refs.items():
-            assert 0 <= index < image.seg_count
-            for target in targets:
-                assert 0 <= target < image.seg_count
 
 
 @settings(max_examples=300, deadline=None)
@@ -190,104 +177,3 @@ def test_ne_image_random_bytes_never_leak(_ne_dir: Path, blob: bytes) -> None:
     for index, (off, length, _flags) in enumerate(image.segments):
         if image.segment_records[index].on_disk:
             assert off + length <= len(blob)
-
-
-@st.composite
-def _method_table_blob(draw: st.DrawFn) -> bytes:
-    """Bytes carrying a Delphi published-method marker + candidate table.
-
-    The table is drawn with forgeable count, pointer, size and name
-    fields so both the accepted-table and the skip-and-scan-later
-    branches are reached; trailing garbage follows the table.
-    """
-    count = draw(st.integers(0, 4))
-    table = bytearray(struct.pack("<H", count))
-    for _ in range(count):
-        name = draw(_METHOD_NAME)
-        pointer = draw(st.integers(0, 0xFFFFFFFF))
-        size = draw(st.integers(0, 0xFF))
-        table += struct.pack("<IB", pointer & 0xFFFFFFFF, size)
-        table += name.encode("latin1")[:size] if size else b""
-    blob = _MARKER + bytes(table) + draw(st.binary(max_size=16))
-    # Occasionally prepend a decoy marker with a zero count so the
-    # "invalid marker does not hide a later table" path is exercised.
-    if draw(st.booleans()):
-        blob = _MARKER + b"\x00\x00" + blob
-    return blob
-
-
-def _check_methods(blob: bytes, result: list[tuple[str, int]]) -> None:
-    for name, offset in result:
-        assert name
-        assert 0 <= offset < len(blob)
-        # The decoded name must appear verbatim after its size byte
-        # somewhere in the input (never an invented string).
-        assert name.encode("latin1") in blob
-
-
-@settings(max_examples=300, deadline=None)
-@given(_method_table_blob())
-def test_published_method_candidates_structured(blob: bytes) -> None:
-    """Fuzz: marker + forgeable method table.  Returned (name, offset)
-    pairs point inside the input at names actually present."""
-    from rebrew.formats.ne_analysis import published_method_candidates
-
-    result = published_method_candidates(blob, _CLASS)
-    _check_methods(blob, result)
-
-
-@settings(max_examples=200, deadline=None)
-@given(_method_table_blob())
-def test_published_method_candidates_fixups_stay_same_segment(blob: bytes) -> None:
-    """Fuzz: a cross-segment fixup at the pointer site rejects the whole
-    candidate; a same-segment fixup rewrites the offset to the target."""
-    from rebrew.formats.ne_analysis import published_method_candidates
-
-    sites = [i + len(_MARKER) + 2 for i in range(len(blob)) if blob.startswith(_MARKER, i)]
-    cross = published_method_candidates(blob, _CLASS, fixups={(0, site): (1, 0) for site in sites})
-    assert cross == []
-    same = published_method_candidates(blob, _CLASS, fixups={(0, site): (0, 0) for site in sites})
-    _check_methods(blob, same)
-    # Fixing the first pointer can expose later unfixed entries in a table
-    # which the unfixed scan rejected as a whole.
-    if same:
-        assert same[0][1] == 0
-
-        def matches_table(first_site: int) -> bool:
-            if first_site > len(blob) or struct.unpack_from("<H", blob, first_site - 2)[0] != len(
-                same
-            ):
-                return False
-            pos = first_site
-            for name, offset in same:
-                encoded = name.encode("latin1")
-                if pos + 5 + len(encoded) > len(blob):
-                    return False
-                raw_offset = struct.unpack_from("<I", blob, pos)[0] & 0xFFFF
-                expected = 0 if pos in sites else raw_offset
-                if (
-                    offset != expected
-                    or blob[pos + 4] != len(encoded)
-                    or blob[pos + 5 : pos + 5 + len(encoded)] != encoded
-                ):
-                    return False
-                pos += 5 + len(encoded)
-            return True
-
-        assert any(matches_table(site) for site in sites)
-
-
-@settings(max_examples=300, deadline=None)
-@given(st.binary(max_size=512))
-def test_published_method_candidates_random_bytes(blob: bytes) -> None:
-    """Fuzz: arbitrary bytes plus an embedded marker.  Never raises
-    (except ``ValueError`` for an unrepresentable class name) and every
-    returned offset lies inside the input."""
-    from rebrew.formats.ne_analysis import published_method_candidates
-
-    data = _MARKER + blob if blob else _MARKER
-    try:
-        result = published_method_candidates(data, _CLASS)
-    except ValueError:
-        return
-    _check_methods(data, result)

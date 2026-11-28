@@ -6,15 +6,17 @@ from typing import Any
 import pytest
 
 from rebrew.data.layout import estimate_type_size
-from rebrew.matching import prove
 from rebrew.metadata.functions import GA_CEILING_PREFIX
-from rebrew.todo import (
-    CAT_IMPROVE_MATCH,
-    CAT_RUN_PROVER,
-    _collect_active_functions,
-    _rank_by_impact,
-)
+from rebrew.status import effective_status
+from rebrew.todo import CAT_IMPROVE_MATCH, CAT_RUN_PROVER, rank_by_impact
+from rebrew.todo.collectors import collect_active_functions
 from tools import bench_perf10_workflow as bench
+
+
+def _fns(probe: Any) -> dict[str, Any]:
+    """The overlay and prover probe ``rebrew todo`` injects into the lane."""
+    return {"effective_status_fn": effective_status, "prover_available_fn": probe}
+
 
 _TYPES = [
     "int",
@@ -72,30 +74,26 @@ class TestProverProbe:
     @pytest.mark.parametrize(
         ("available", "category"), [(True, CAT_RUN_PROVER), (False, CAT_IMPROVE_MATCH)]
     )
-    def test_probe_runs_once_for_many_rows(
-        self, monkeypatch: pytest.MonkeyPatch, available: bool, category: str
-    ) -> None:
+    def test_probe_runs_once_for_many_rows(self, available: bool, category: str) -> None:
         calls: list[None] = []
 
         def probe() -> bool:
             calls.append(None)
             return available
 
-        monkeypatch.setattr(prove, "angr_available", probe)
-        items = _collect_active_functions(_ga_rows(25), {}, {}, {})
+        items = collect_active_functions(_ga_rows(25), {}, {}, {}, **_fns(probe))
         assert len(items) == 25
         assert {item.category for item in items} == {category}
         assert len(calls) == 1
 
-    def test_probe_not_taken_without_ga_ceiling_rows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_probe_not_taken_without_ga_ceiling_rows(self) -> None:
         def probe() -> bool:
             raise AssertionError("angr probed without a GA ceiling row")
 
-        monkeypatch.setattr(prove, "angr_available", probe)
         rows = _ga_rows(3)
         for row in rows.values():
             row["blocker"] = "2B diff"
-        assert len(_collect_active_functions(rows, {}, {}, {})) == 3
+        assert len(collect_active_functions(rows, {}, {}, {}, **_fns(probe))) == 3
 
 
 class TestBenchmarkInputs:
@@ -104,9 +102,10 @@ class TestBenchmarkInputs:
     def test_todo_inputs_reach_every_category(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(bench, "TODO_FUNCTIONS", 3000)
         monkeypatch.setattr(bench, "TODO_VERIFY_ONLY", 200)
-        monkeypatch.setattr(prove, "angr_available", lambda: True)
         existing, sizes, names, verify, callees = bench._make_todo_inputs(random.Random(bench.SEED))
-        ranked = _rank_by_impact(_collect_active_functions(existing, sizes, names, verify, callees))
+        ranked = rank_by_impact(
+            collect_active_functions(existing, sizes, names, verify, callees, **_fns(lambda: True))
+        )
         categories = {item.category for item in ranked}
         assert {
             "compile-error",

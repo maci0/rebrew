@@ -298,38 +298,12 @@ func TestDockerOwnerPersistsExactStopBeforeRelease(t *testing.T) {
 	if receipt.State != "finished" || !receipt.StopVerified || receipt.ContainerID == "" || receipt.Image != image || receipt.ExitCode == nil || receipt.OutputSHA256 == "" || receipt.ResultWorkspaceSHA256 == "" {
 		t.Fatal("no retained exact stop and output receipt")
 	}
-	// Model a lost final reply: retain only uncertain custody, then re-observe the exact container.
-	owner.mu.Lock()
-	receipt.State, receipt.StopVerified = "uncertain", false
-	if err = owner.save(receipt); err != nil {
-		owner.mu.Unlock()
-		t.Fatal(err)
+	// Lost-reply reconciliation is covered by TestReconcileReleasesContainerOnlyAfterProof.
+	if exec.Command(docker, "inspect", receipt.ContainerID).Run() == nil {
+		t.Fatal("stopped container was not removed")
 	}
-	owner.occupied = true
-	owner.mu.Unlock()
-	resultFile := filepath.Join(dir, receipt.ID+".result", "seed.c")
-	originalResult, err := os.ReadFile(resultFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.Chmod(resultFile, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(resultFile, []byte("changed"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = owner.ReconcileDocker(context.Background(), receipt.ID); err == nil {
-		t.Fatal("changed result released capacity")
-	}
-	if err = os.WriteFile(resultFile, originalResult, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.Chmod(resultFile, 0400); err != nil {
-		t.Fatal(err)
-	}
-	recovered, err := owner.ReconcileDocker(context.Background(), receipt.ID)
-	if err != nil || recovered.State != "stopped_unsettled" || !recovered.StopVerified || !recovered.OutputIncomplete {
-		t.Fatal("exact stop was not recovered conservatively")
+	if _, err = os.Lstat(filepath.Join(dir, receipt.ID+".workspace")); !os.IsNotExist(err) {
+		t.Fatalf("working copy kept after its result was sealed: %v", err)
 	}
 	next, created, err := testAdmit(owner, root+"-second", "seed.c")
 	if err != nil || !created {

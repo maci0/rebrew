@@ -3,6 +3,7 @@
 import re
 import struct
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -485,3 +486,79 @@ class TestRawCompilerCacheKey:
         _build()
         assert keys[0] == keys[1]
         assert keys[2] != keys[1]
+
+    @pytest.mark.parametrize("caller_env", [False, True])
+    def test_compiler_sees_only_keyed_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caller_env: bool
+    ) -> None:
+        """Ambient CPATH/CL/INCLUDE would change the object without changing the key."""
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        for name in ("SOURCE_DATE_EPOCH", "DISPLAY", "XAUTHORITY", "WINEPREFIX", "WINEPATH"):
+            monkeypatch.delenv(name, raising=False)
+        for name in ("CPATH", "CL", "_CL_", "INCLUDE", "LIB", "TZ"):
+            monkeypatch.setenv(name, "ambient")
+        monkeypatch.setenv("PATH", "/usr/bin")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        compiler = tmp_path / "cc"
+        compiler.write_bytes(b"compiler")
+        seen: list[dict[str, str]] = []
+
+        def _run(cmd: list[str], **kwargs: Any) -> Any:
+            seen.append(kwargs["env"])
+            raise OSError("not run")
+
+        monkeypatch.setattr("rebrew.matcher.compiler.run_process_group", _run)
+        env = {"PATH": "/vc/bin", "INCLUDE": "/vc/include", "LIB": "/vc/lib", "CL": "/Od"}
+        res = build_candidate_obj_only(
+            "int f(void){return 1;}",
+            str(compiler),
+            "",
+            "/O2",
+            "_f",
+            env=env if caller_env else None,
+        )
+        assert not res.ok
+        expected = (
+            {"PATH": "/vc/bin", "INCLUDE": "/vc/include", "LIB": "/vc/lib"}
+            if caller_env
+            else {"PATH": "/usr/bin", "HOME": str(tmp_path)}
+        )
+        assert seen == [expected]
+
+
+class TestCandidateCompileCache:
+    def test_image_backed_candidate_skips_the_disk_cache(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Each candidate compiles from a fresh temp dir, which the key hashes,
+        so a disk entry could never be read back and would only evict others."""
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        seen: dict[str, Any] = {}
+
+        def _fake_compile_to_obj(
+            cfg: Any, src: Path, cflags: list[str], workdir: Path, **kwargs: Any
+        ) -> Any:
+            seen.update(kwargs)
+            (workdir / "cand.obj").write_bytes(b"\x00" * 8)
+            return str(workdir / "cand.obj"), ""
+
+        monkeypatch.setattr("rebrew.compiler.compile.compile_to_obj", _fake_compile_to_obj)
+        monkeypatch.setattr(
+            "rebrew.matcher.compiler.parse_obj_symbol_and_relocs",
+            lambda obj, sym: (b"\x00" * 8, {}, []),
+        )
+        unused_cache: Any = object()
+        res = build_candidate_obj_only(
+            "int f(void){return 1;}",
+            "cl.exe",
+            "",
+            "/O2",
+            "_f",
+            profile="msvc-6.0",
+            cache=unused_cache,
+        )
+        assert res.ok
+        assert seen["use_cache"] is False
+        assert seen.get("cache") is None

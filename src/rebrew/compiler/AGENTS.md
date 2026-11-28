@@ -10,7 +10,6 @@ eligible outputs, and compare the extracted bytes against the target.
 | `compile.py` | `compile_to_obj`, `compile_and_compare`, `CompareResult`, batch precompile, remote backend dispatch |
 | `cache.py` | Compile cache keys and storage (`CACHE_SCHEMA_VERSION`, diskcache backend, `rebrew.cache_backends` plugins) |
 | `context.py` | `CompileContext`: the declarations document a compile is pinned to |
-| `preprocessed_context.py` | Opt-in, scoped pinned-MSVC preprocessing capture; unresolved inputs refuse |
 | `overrides.py` | Effective `TOOLCHAIN` / `CFLAGS` per source (function → `rebrew-libraries.toml` → project) |
 | `xtensa.py` | Core-aware XCC relocation/relaxation linking and verified native disassembly |
 | `toolchain.py` | Toolchain registry, image id admission, `run_toolchain` (image-backed for shipped profiles) |
@@ -23,7 +22,7 @@ eligible outputs, and compare the extracted bytes against the target.
 | `dosbox.py`, `msvc16.py`, `tc16.py`, `delphi16.py` | 16-bit DOSBox compile drivers |
 | `image_headers.py` | Fresh image-bound MSVC header trees for read-only include reviews |
 
-Externals (the only packages this one may import): `compare.coff_reloc`, `config`, `errors`, `flag_data`, `flags`, `formats.binary_loader`, `formats.binary_model`, `formats.ne_loader`, `formats.xtensa`, `matcher.parsers`, `metadata.functions`, `registry`, `source.discovery`, `telemetry`, `utils`, `workspace`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
+Externals (the only packages this one may import): `compare.coff_reloc`, `config`, `errors`, `formats.binary_loader`, `formats.binary_model`, `formats.ne_loader`, `formats.xtensa`, `matcher.parsers`, `metadata.functions`, `registry`, `source.discovery`, `telemetry`, `utils`, `workspace`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 

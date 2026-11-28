@@ -437,6 +437,11 @@ class BinaryMatchingGA:
         # ran the DOS compiler binary natively.
         self.profile = profile
         self.cfg = cfg
+        self._mips_bindings: dict[str, int] | None = None
+        if getattr(cfg, "arch", "") in {"mips32", "mips64"}:
+            from rebrew.compare.coff_reloc import build_name_to_va
+
+            self._mips_bindings = build_name_to_va(cfg)
         self.seed_source = seed_source
         self.target_bytes = target_bytes
         self.cl_cmd = cl_cmd
@@ -546,6 +551,12 @@ class BinaryMatchingGA:
             cl_cmd=self.cl_cmd,
             inc_dir=self.inc_dir,
         )
+        if self._mips_bindings is not None:
+            self.args_hash = hashlib.sha256(
+                self.args_hash.encode()
+                + b"\0mips-jump-bindings\0"
+                + json.dumps(self._mips_bindings, sort_keys=True).encode()
+            ).hexdigest()
         self._start_generation = 0
         # Generations actually executed by the last run() (resume-aware), read
         # by the batch driver to record the run in .rebrew/ga_runs.jsonl.
@@ -696,9 +707,9 @@ class BinaryMatchingGA:
 
     def _compile_source(self, src: str, *, use_memo: bool = True) -> BuildResult:
         # Same-run memo (plain dict): elites persist across generations
-        # unchanged, and a resumed run replays its population.  Cross-run
-        # persistence is the shared compile cache's job (`self.compile_cache`,
-        # keyed on full compile inputs).
+        # unchanged, and a resumed run replays its population.  Only the
+        # native raw path persists across runs (`self.compile_cache`); image
+        # candidates compile in a fresh directory and skip the disk cache.
         # The key must cover everything that changes the .obj, not just
         # the source, so a sweep-then-GA or CFLAGS-metadata change never
         # reuses the previous flag combination's .obj.
@@ -815,19 +826,34 @@ class BinaryMatchingGA:
                 f"[{src_hash[:8]}] Candidate {len(obj_bytes)}B > target {target_len}B (+{excess}B excess)"
             )
         score_bytes = obj_bytes[:target_len]
+        offsets: dict[int, str] | list[int] | None = res.reloc_offsets
+        mips_match = True
+        if self._mips_bindings is not None:
+            from rebrew.compare.coff_reloc import smart_reloc_compare
+
+            mips_match, _, _, offsets, _ = smart_reloc_compare(
+                score_bytes,
+                self.target_bytes,
+                res.typed_relocs or [],
+                name_to_va=self._mips_bindings,
+            )
         sc = score_candidate(
             self.target_bytes,
             score_bytes,
-            res.reloc_offsets,
+            offsets,
             _pre_norm_target=self._pre_norm_target,
             _pre_target_mnems=self._pre_target_mnems,
             cs_mode=self.cs_mode,
             # 16-bit targets carry 2-byte reloc slots (omf16 rel16/disp16) —
             # the 4-byte default would mask the bytes after every slot.
-            pointer_size=getattr(self.cfg, "pointer_size", 4) if self.cfg else 4,
+            pointer_size=4
+            if self._mips_bindings is not None
+            else getattr(self.cfg, "pointer_size", 4),
         )
         excess_penalty = excess * 1500.0  # per-byte penalty comparable to byte_score weight
         total = sc.total + excess_penalty
+        if not mips_match:
+            total = max(total, EXACT_SCORE_THRESHOLD)
         # Memoize the fitness on the BuildResult so a warm-cache rerun (same
         # stub, same source hash → same obj bytes → same score) skips the
         # re-disassembly + re-scoring entirely (~2.8s per

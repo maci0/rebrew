@@ -543,6 +543,15 @@ class VerifyCacheEntry:
     image_id: str = ""
     """Immutable image ID reported by the local runner, empty for an unreceipted measurement."""
 
+    catalog_hash: str = ""
+    """:func:`catalog_hash` of the symbol catalog the relocation checks used.
+
+    Data and function names live outside the ``.c`` file, so a ``data set``
+    that adds or moves a global changes the verdict without touching any
+    other fingerprint.  Known-binding mode checks per-row
+    ``relocation_bindings`` instead.  ``""`` marks a legacy entry, re-verified
+    once."""
+
     headers_fp: str = ""
     """Per-source header-dependency fingerprint (reached ``#include`` closure).
 
@@ -678,6 +687,11 @@ def binary_id(cfg: ProjectConfig) -> str:
         return ""
     token = f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}:{st.st_ctime_ns}"
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def catalog_hash(name_to_va: dict[str, int]) -> str:
+    """SHA-256 of the symbol catalog's sorted ``(name, va)`` pairs."""
+    return hashlib.sha256(json.dumps(sorted(name_to_va.items())).encode()).hexdigest()
 
 
 _VERIFY_CACHE_LOCK = threading.Lock()
@@ -1128,6 +1142,9 @@ def save_verify_cache(
             "headers_fp": fp_entry.headers_fp,
             "toolchain": fp_entry.toolchain,
             "image_id": snapshot.get("image_id", "") if isinstance(snapshot, dict) else "",
+            "catalog_hash": (
+                snapshot.get("catalog_hash", "") if isinstance(snapshot, dict) else ""
+            ),
             "defines": fp_entry.defines,
             # Context digest the verdict was earned under (None = bare
             # source).  Part of the cache identity: a changed context is a

@@ -1181,7 +1181,7 @@ class TestToolchainDetectorRegistry:
         import rebrew.toolchain_detect as td
 
         self._patch(monkeypatch)
-        compat = td._merged_profile_compat()
+        compat = td.merged_profile_compat()
         assert "mytc" in compat["msvc"]
         assert compat["delphi"] == {"mytc"}  # un-matchable family opened
         _publish_detection_tables(monkeypatch, profile_compat=compat)
@@ -1192,7 +1192,7 @@ class TestToolchainDetectorRegistry:
         assert aligned
 
     def test_bad_provider_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.toolchain_detect import _merged_profile_compat
+        from rebrew.toolchain_detect import merged_profile_compat
 
         _install_fake_module(
             monkeypatch, "detector_provider_bad", provider=lambda: {"msvc": "nope"}
@@ -1203,7 +1203,7 @@ class TestToolchainDetectorRegistry:
                 **{"rebrew.toolchain_detectors": [("p", "detector_provider_bad:provider")]}
             ),
         )
-        compat = _merged_profile_compat()
+        compat = merged_profile_compat()
         assert "msvc-6.0" in compat["msvc"]  # packaged family table intact
 
 
@@ -1432,7 +1432,7 @@ class TestBinaryDetectorRegistry:
         import rebrew.toolchain_detect as td
 
         self._patch(monkeypatch)
-        _publish_detection_tables(monkeypatch, detectors=td._discover_binary_detectors())
+        _publish_detection_tables(monkeypatch, detectors=td.discover_binary_detectors())
         junk = tmp_path / "junk.bin"
         junk.write_bytes(b"\x00" * 64)
         info = td.detect_toolchain(junk)
@@ -1451,7 +1451,7 @@ class TestBinaryDetectorRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.binary_detectors": [("bad", "detector_fn_bad:detect")]}),
         )
-        assert td._discover_binary_detectors() == []
+        assert td.discover_binary_detectors() == []
 
 
 class TestSixteenBitAlignment:
@@ -1518,7 +1518,7 @@ class TestMsvcVersionRegistry:
         import rebrew.toolchain_detect as td
 
         self._patch(monkeypatch)
-        rich, eras = td._merged_msvc_version_tables()
+        rich, eras = td.merged_msvc_version_tables()
         # plugin appended after packaged profiles (packaged order preserved)
         assert "mytc" in rich[8168]
         assert rich[8168][0] == "msvc-6.0"
@@ -1538,13 +1538,13 @@ class TestMsvcVersionRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_bad:provider")]}),
         )
-        rich, eras = td._merged_msvc_version_tables()
+        rich, eras = td.merged_msvc_version_tables()
         # A bare integer key is not ``build:<n>``: the row is dropped and the
         # packaged table is unchanged. Non-emptiness alone would pass if the
         # key were parsed as 8168 and ``mytc`` were appended.
-        assert rich[8168] == td._RICH_BUILD_PROFILES[8168]
+        assert rich[8168] == td.RICH_BUILD_PROFILES[8168]
         assert "mytc" not in rich[8168]
-        assert eras == td._LINKER_ERA_PROFILES
+        assert eras == td.LINKER_ERA_PROFILES
 
     def test_empty_profiles_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
@@ -1554,16 +1554,16 @@ class TestMsvcVersionRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_empty:provider")]}),
         )
-        rich, eras = td._merged_msvc_version_tables()
+        rich, eras = td.merged_msvc_version_tables()
         # An empty profile list is skipped, not stored as a build with no names.
-        assert rich[8168] == td._RICH_BUILD_PROFILES[8168]
-        assert eras == td._LINKER_ERA_PROFILES
+        assert rich[8168] == td.RICH_BUILD_PROFILES[8168]
+        assert eras == td.LINKER_ERA_PROFILES
 
     def test_plugin_passes_version_exact_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
 
         self._patch(monkeypatch)
-        rich, _ = td._merged_msvc_version_tables()
+        rich, _ = td.merged_msvc_version_tables()
         compat = dict(td.PROFILE_COMPAT_ALL)
         compat["msvc"] = set(compat["msvc"]) | {"mytc"}  # family alignment
         _publish_detection_tables(monkeypatch, rich_build_profiles=rich, profile_compat=compat)

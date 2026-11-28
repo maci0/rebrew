@@ -407,11 +407,6 @@ def seed_usage_total() -> SeedUsage | None:
     return getattr(_usage_tls, "value", None)
 
 
-def reset_last_seed_usage() -> None:
-    """Drop this thread's running cost total, so the next one starts from None."""
-    _usage_tls.value = None
-
-
 _SYSTEM_PROMPT = """\
 You are helping byte-match a C function in an old MSVC binary.  The current
 C implementation almost matches the target assembly but the bytes differ.

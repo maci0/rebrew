@@ -21,7 +21,6 @@ from rebrew.binary.fingerprints import (
     file_hashes,
     fingerprint_bundle,
     imphash,
-    imphash_from_pairs,
     rich_header_bytes_from_parts,
     rich_header_hash,
     rich_header_hash_from_parts,
@@ -149,22 +148,6 @@ class TestFileHashes:
 
 
 class TestImphash:
-    def test_pairs_golden(self) -> None:
-        assert imphash_from_pairs([("KERNEL32.dll", "GetTickCount")]) == MINI_PE_IMPHASH
-
-    def test_dll_basename_before_first_dot(self) -> None:
-        pairs = [("ADVAPI32.dll", "RegOpenKeyA")]
-        assert imphash_from_pairs(pairs) == hashlib.md5(b"advapi32.regopenkeya").hexdigest()
-
-    def test_ordinal_form(self) -> None:
-        pairs = [("WS2_32.dll", "ord5")]
-        assert imphash_from_pairs(pairs) == hashlib.md5(b"ws2_32.ord5").hexdigest()
-
-    def test_record_order_matters(self) -> None:
-        a = imphash_from_pairs([("KERNEL32.dll", "GetTickCount"), ("USER32.dll", "MessageBoxA")])
-        b = imphash_from_pairs([("USER32.dll", "MessageBoxA"), ("KERNEL32.dll", "GetTickCount")])
-        assert a != b
-
     def test_mini_pe_golden(self) -> None:
         assert imphash(MINI_PE) == MINI_PE_IMPHASH
 

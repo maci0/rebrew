@@ -34,12 +34,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from rebrew.config import (
-    _DEFINE_NAME_RE,
+    DEFINE_NAME_RE,
     ConfigError,
-    _parse_defines,
-    _parse_hex_dict,
-    _parse_int_list,
-    _parse_va_ranges,
+    parse_defines,
+    parse_hex_dict,
+    parse_int_list,
+    parse_va_ranges,
 )
 from rebrew.utils import console
 
@@ -73,7 +73,7 @@ _FIELD = "targets.g.external_ranges"
 @settings(max_examples=300, deadline=None)
 @given(st.one_of(st.none(), _TOML_LIST, _TOML_VALUE))
 def test_ranges_are_ordered_int_pairs_or_dropped(values: Any) -> None:
-    parsed = _parse_va_ranges(values, _FIELD)
+    parsed = parse_va_ranges(values, _FIELD)
     assert isinstance(parsed, list)
     for lo, hi in parsed:
         assert type(lo) is int and type(hi) is int
@@ -83,7 +83,7 @@ def test_ranges_are_ordered_int_pairs_or_dropped(values: Any) -> None:
 @settings(max_examples=300, deadline=None)
 @given(_TOML_LIST)
 def test_int_list_keeps_only_real_integers(values: list[Any]) -> None:
-    parsed = _parse_int_list(values, _FIELD)
+    parsed = parse_int_list(values, _FIELD)
     assert isinstance(parsed, list)
     assert all(type(v) is int for v in parsed), "a bool or float reached the int list"
     # A dropped entry is a value no branch accepts, so it is one the field
@@ -96,21 +96,21 @@ def test_int_list_keeps_only_real_integers(values: list[Any]) -> None:
 @given(st.one_of(st.none(), _TOML_LIST, _TOML_VALUE))
 def test_defines_are_c_macro_names_or_refuse_the_load(values: Any) -> None:
     try:
-        parsed = _parse_defines(values, _FIELD)
+        parsed = parse_defines(values, _FIELD)
     except ConfigError:
         # Refusing the load is the correct answer for a token that is not a
         # macro name; it must never come back as a flag.
         return
     assert isinstance(parsed, list)
     for name in parsed:
-        assert _DEFINE_NAME_RE.fullmatch(name), f"{name!r} is not a single argv token"
+        assert DEFINE_NAME_RE.fullmatch(name), f"{name!r} is not a single argv token"
         assert name == name.strip() and name
 
 
 @settings(max_examples=300, deadline=None)
 @given(st.one_of(st.none(), _TOML_VALUE))
 def test_hex_dict_keeps_only_int_keys_with_string_values(mapping: Any) -> None:
-    result = _parse_hex_dict(mapping)
+    result = parse_hex_dict(mapping)
     assert isinstance(result, dict)
     for addr, name in result.items():
         assert type(addr) is int
@@ -129,7 +129,7 @@ def test_a_range_entry_is_all_or_nothing(entries: list[str]) -> None:
     ``"0x10-0x20"`` splits on the first ``-``, so an entry carrying more
     separators must not yield a band built from the wrong piece of it.
     """
-    parsed = _parse_va_ranges(entries, _FIELD)
+    parsed = parse_va_ranges(entries, _FIELD)
     for lo, hi in parsed:
         assert lo <= hi
         assert lo >= -(1 << 64) and hi < (1 << 64), "a range left int-address space"
@@ -138,7 +138,7 @@ def test_a_range_entry_is_all_or_nothing(entries: list[str]) -> None:
 @settings(max_examples=200, deadline=None)
 @given(st.floats(allow_nan=True, allow_infinity=True))
 def test_a_non_integral_float_never_becomes_an_offset(value: float) -> None:
-    parsed = _parse_int_list([value], _FIELD)
+    parsed = parse_int_list([value], _FIELD)
     if not math.isfinite(value) or not value.is_integer():
         assert parsed == []
     else:

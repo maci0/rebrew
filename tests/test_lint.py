@@ -2217,13 +2217,13 @@ class TestAnnotationStaleness:
 
 class TestFunctionContainingVa:
     def test_outer_tail_past_a_nested_span_stays_inside(self) -> None:
-        from rebrew.lint import _function_containing_va
+        from rebrew.lint.source_rules import function_containing_va
 
         spans = [(0x1000, 0x1300, "outer"), (0x1100, 0x1120, "inner")]
-        assert _function_containing_va(spans, 0x1200) == (0x1000, 0x1300, "outer")
-        assert _function_containing_va(spans, 0x1110) == (0x1100, 0x1120, "inner")
-        assert _function_containing_va(spans, 0x1000) is None
-        assert _function_containing_va(spans, 0x1400) is None
+        assert function_containing_va(spans, 0x1200) == (0x1000, 0x1300, "outer")
+        assert function_containing_va(spans, 0x1110) == (0x1100, 0x1120, "inner")
+        assert function_containing_va(spans, 0x1000) is None
+        assert function_containing_va(spans, 0x1400) is None
 
 
 class TestBuildFunctionIndexVaFloor:
@@ -2923,7 +2923,7 @@ class TestStackedSharedMarkers:
 class TestStripWorkCounter:
     """Deterministic perf gate: one shared strip pass per file.
 
-    E023/W020/W022 read one ``_strip_all`` code view; before, each check
+    E023/W020/W022 read one ``strip_all`` code view; before, each check
     re-stripped every line (four full passes per file — ~70% of batch-lint
     CPU).  The counter is load-independent, so this holds on busy CI.
     """
@@ -3234,26 +3234,26 @@ class TestDataSectionNamesMemoConcurrent:
     def test_concurrent_lookups_return_their_own_document(self) -> None:
         from concurrent.futures import ThreadPoolExecutor
 
-        from rebrew.lint import _DATA_SECTION_NAMES, _data_section_names_for
+        from rebrew.lint.source_rules import DATA_SECTION_NAMES, data_section_names_for
 
-        _DATA_SECTION_NAMES.clear()
+        DATA_SECTION_NAMES.clear()
         docs = [self._entries(f"t{i}") for i in range(8)]
         with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(_data_section_names_for, docs * 16))
+            results = list(pool.map(data_section_names_for, docs * 16))
         for doc, names in zip(docs * 16, results, strict=True):
             assert names == frozenset(e["name"] for e in doc.values())
 
     def test_missing_index_entry_after_a_racing_clear_rebuilds(self) -> None:
-        from rebrew import lint
+        from rebrew.lint import source_rules
 
         entries = self._entries("solo")
         key = id(entries)
         expected = frozenset(e["name"] for e in entries.values())
-        assert lint._data_section_names_for(entries) == expected
+        assert source_rules.data_section_names_for(entries) == expected
         # The interleaving an unlocked eviction can produce: the owner store
         # lands after the index clear, so the owner hits with no index entry.
-        lint._DATA_SECTION_NAMES.pop(key, None)
-        assert lint._data_section_names_for(entries) == expected
+        source_rules.DATA_SECTION_NAMES.pop(key, None)
+        assert source_rules.data_section_names_for(entries) == expected
 
 
 class TestW031MetadataStore:

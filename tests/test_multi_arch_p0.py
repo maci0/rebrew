@@ -8,6 +8,7 @@ results, reloc application), never private table contents.
 """
 
 from types import SimpleNamespace
+from typing import Any
 lazy from pathlib import Path
 
 import pytest
@@ -547,3 +548,244 @@ class TestMipsElfEndToEnd:
         assert len(cfg1["blocks"]) == 1
         sim = cfg_similarity(fn2, fn2, 0x00401010, cs_mode=mode, cs_arch=capstone.CS_ARCH_MIPS)
         assert sim["overall"] == 100.0
+
+
+class TestMipsObjectComparison:
+    @pytest.mark.parametrize(("triple", "order"), [("mips", "big"), ("mipsel", "little")])
+    def test_linked_jump_compares_opcode_and_destination(
+        self, tmp_path: Path, triple: str, order: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import shutil
+        import subprocess
+
+        from rebrew.compare import coff_reloc
+        from rebrew.compiler.compile import compile_and_compare
+        from rebrew.matcher import compiler
+        from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, BuildResult
+        from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+        from rebrew.matching.ga import BinaryMatchingGA
+
+        clang = shutil.which("clang")
+        if clang is None:
+            pytest.skip("clang is needed to assemble the MIPS fixture")
+        source = tmp_path / "caller.s"
+        source.write_text(
+            ".text\n.set noreorder\n.globl caller\n.type caller,@function\n"
+            "caller:\n jal callee\n nop\n.size caller, .-caller\n"
+        )
+        obj = tmp_path / "caller.o"
+        compiled = subprocess.run(
+            [
+                clang,
+                f"--target={triple}-linux-gnu",
+                "-fno-pic",
+                "-mno-abicalls",
+                "-c",
+                str(source),
+                "-o",
+                str(obj),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if "unknown target triple" in compiled.stderr:
+            pytest.skip(compiled.stderr)
+        assert compiled.returncode == 0, compiled.stderr
+
+        code, offsets, typed = parse_obj_symbol_and_relocs(obj, "caller")
+        assert code is not None
+        assert typed
+        monkeypatch.setattr(coff_reloc, "build_name_to_va", lambda _cfg: {"callee": 0x2000})
+        monkeypatch.setattr(compiler, "generate_flag_combinations", lambda **_: [""])
+        monkeypatch.setattr(
+            compiler,
+            "build_candidate_obj_only",
+            lambda *args, **kwargs: BuildResult(
+                ok=True, obj_bytes=code, reloc_offsets=offsets, typed_relocs=typed
+            ),
+        )
+        for check_known_bindings in (False, True):
+            cfg = SimpleNamespace(
+                arch="mips32",
+                target_binary=tmp_path / "absent",
+                check_known_bindings=check_known_bindings,
+            )
+            for instruction, matches in [
+                (0x0C000800, True),
+                (0x08000800, False),
+                (0x0C000801, False),
+            ]:
+                result = compile_and_compare(
+                    cfg,
+                    source,
+                    "caller",
+                    instruction.to_bytes(4, order) + bytes(4),
+                    "",
+                    _precompiled_obj=str(obj),
+                    name_to_va={"callee": 0x2000},
+                    section_va=0x1000,
+                )
+                assert result.matched is matches
+                if matches:
+                    assert result.status == "RELOC"
+
+                if not check_known_bindings:
+                    reference = instruction.to_bytes(4, order) + bytes(4)
+                    with BinaryMatchingGA(
+                        "", reference, "", "", "", "caller", tmp_path, cfg=cfg
+                    ) as ga:
+                        build = BuildResult(
+                            ok=True, obj_bytes=code, reloc_offsets=offsets, typed_relocs=typed
+                        )
+                        assert (
+                            ga._compute_fitness(build, "seed", "") < EXACT_SCORE_THRESHOLD
+                        ) is matches
+                    [(score, _)] = compiler.flag_sweep("", reference, "", "", "", "caller", cfg=cfg)
+                    assert (score < EXACT_SCORE_THRESHOLD) is matches
+
+
+_MIPS_PAIR_SOURCE = """\
+.text
+.set noreorder
+.globl caller
+.type caller,@function
+caller:
+ jal helper
+ nop
+ jal ext
+ nop
+.size caller, .-caller
+.type helper,@function
+helper:
+ jr $ra
+ nop
+.size helper, .-helper
+.globl load
+.type load,@function
+load:
+ lui $v0, %hi(g_var)
+ addiu $v0, $v0, %lo(g_var)
+ jr $ra
+ nop
+.size load, .-load
+"""
+
+
+def _assemble_mips(tmp_path: Path, triple: str) -> Path:
+    import shutil
+    import subprocess
+
+    clang = shutil.which("clang")
+    if clang is None:
+        pytest.skip("clang is needed to assemble the MIPS fixture")
+    source = tmp_path / "pair.s"
+    source.write_text(_MIPS_PAIR_SOURCE)
+    obj = tmp_path / "pair.o"
+    compiled = subprocess.run(
+        [clang, f"--target={triple}-linux-gnu", "-fno-pic", "-mno-abicalls", "-c"]
+        + [str(source), "-o", str(obj)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if "unknown target triple" in compiled.stderr:
+        pytest.skip(compiled.stderr)
+    assert compiled.returncode == 0, compiled.stderr
+    return obj
+
+
+def _mips_words(order: str, *words: int) -> bytes:
+    return b"".join(word.to_bytes(4, order) for word in words)
+
+
+class TestMipsHalfWordAndLocalJumps:
+    """HI16/LO16 patch 16 bits; a jal to a static function names the section symbol."""
+
+    _G_VAR = 0x80129000  # %lo is negative, so %hi carries to 0x8013
+    _LUI_V0, _LUI_V1, _ADDIU_V0, _LW_V0 = 0x3C020000, 0x3C030000, 0x24420000, 0x8C420000
+    _JR_RA = 0x03E00008
+
+    def _compare(self, tmp_path: Path, triple: str, symbol: str, target: bytes, **cfg: Any) -> Any:
+        from rebrew.compiler.compile import compile_and_compare
+
+        obj = _assemble_mips(tmp_path, triple)
+        config = SimpleNamespace(arch="mips32", target_binary=tmp_path / "absent", **cfg)
+        return compile_and_compare(
+            config,
+            tmp_path / "pair.s",
+            symbol,
+            target,
+            "",
+            _precompiled_obj=str(obj),
+            name_to_va={"g_var": self._G_VAR, "ext": 0x2000},
+            section_va=0x1000,
+        )
+
+    @pytest.mark.parametrize(("triple", "order"), [("mips", "big"), ("mipsel", "little")])
+    @pytest.mark.parametrize("check_known_bindings", [False, True])
+    def test_linked_hi_lo_pair_matches(
+        self, tmp_path: Path, triple: str, order: str, check_known_bindings: bool
+    ) -> None:
+        target = _mips_words(order, self._LUI_V0 | 0x8013, self._ADDIU_V0 | 0x9000, self._JR_RA, 0)
+        result = self._compare(
+            tmp_path, triple, "load", target, check_known_bindings=check_known_bindings
+        )
+        assert result.matched, result.message
+        assert result.status == "RELOC"
+        assert [row["status"] for row in result.relocation_bindings] == ["VALIDATED"] * 2
+
+    @pytest.mark.parametrize(("triple", "order"), [("mips", "big"), ("mipsel", "little")])
+    @pytest.mark.parametrize(
+        ("hi", "lo"),
+        [
+            (0x3C030000 | 0x8013, 0x24420000 | 0x9000),  # lui $v1, not $v0
+            (0x3C020000 | 0x8013, 0x8C420000 | 0x9000),  # lw, not addiu
+        ],
+    )
+    def test_hi_lo_opcode_and_register_bits_are_compared(
+        self, tmp_path: Path, triple: str, order: str, hi: int, lo: int
+    ) -> None:
+        target = _mips_words(order, hi, lo, self._JR_RA, 0)
+        assert not self._compare(tmp_path, triple, "load", target).matched
+
+    @pytest.mark.parametrize(("triple", "order"), [("mips", "big"), ("mipsel", "little")])
+    def test_known_binding_rejects_wrong_hi_lo_address(
+        self, tmp_path: Path, triple: str, order: str
+    ) -> None:
+        target = _mips_words(order, self._LUI_V0 | 0x8013, self._ADDIU_V0 | 0x9004, self._JR_RA, 0)
+        result = self._compare(tmp_path, triple, "load", target, check_known_bindings=True)
+        assert not result.matched
+        assert [row["status"] for row in result.relocation_bindings] == [
+            "VALIDATED",
+            "CONFLICT",
+        ]
+
+    @pytest.mark.parametrize(("triple", "order"), [("mips", "big"), ("mipsel", "little")])
+    def test_jal_to_static_function_binds_through_section_offset(
+        self, tmp_path: Path, triple: str, order: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compare import coff_reloc
+        from rebrew.compare.coff_reloc import binding_evidence_current
+        from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, BuildResult
+        from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+        from rebrew.matching.ga import BinaryMatchingGA
+
+        # caller at 0x1000, helper 0x10 bytes after it, ext at 0x2000
+        target = _mips_words(order, 0x0C000404, 0, 0x0C000800, 0)
+        result = self._compare(tmp_path, triple, "caller", target, check_known_bindings=True)
+        assert result.matched, result.message
+        rows = result.relocation_bindings
+        assert [row["status"] for row in rows] == ["VALIDATED"] * 2
+        assert binding_evidence_current(rows, {"g_var": self._G_VAR, "ext": 0x2000})
+
+        wrong = _mips_words(order, 0x0C000405, 0, 0x0C000800, 0)
+        assert not self._compare(tmp_path, triple, "caller", wrong).matched
+
+        # The GA scores without the function VA: the local destination is masked.
+        code, offsets, typed = parse_obj_symbol_and_relocs(tmp_path / "pair.o", "caller")
+        cfg = SimpleNamespace(arch="mips32", target_binary=tmp_path / "absent")
+        monkeypatch.setattr(coff_reloc, "build_name_to_va", lambda _cfg: {"ext": 0x2000})
+        with BinaryMatchingGA("", target, "", "", "", "caller", tmp_path, cfg=cfg) as ga:
+            build = BuildResult(ok=True, obj_bytes=code, reloc_offsets=offsets, typed_relocs=typed)
+            assert ga._compute_fitness(build, "seed", "") < EXACT_SCORE_THRESHOLD

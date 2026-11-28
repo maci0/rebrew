@@ -288,26 +288,6 @@ def data_field_updates(
     return updates, list(rows.values())
 
 
-def _set_global_field(
-    cfg: ProjectConfig,
-    specs: list[str],
-    *,
-    field: str,
-    dry_run: bool = False,
-) -> list[dict[str, Any]]:
-    """Apply a single-field request through the same complete patch planner."""
-    rows: list[dict[str, Any]] = patch_data_fields(cfg, {field: specs}, dry_run=dry_run)["set"]
-    return rows
-
-
-def set_data_files(
-    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
-) -> list[dict[str, Any]]:
-    """Point globals at existing source files through an atomic data patch."""
-    rows: list[dict[str, Any]] = patch_data_fields(cfg, {"file": specs}, dry_run=dry_run)["set"]
-    return rows
-
-
 #: Recorded storage kinds a compiler literal at the same VA may replace. A
 #: named object is refined to the literal the build emits there; an alias,
 #: span, or import slot describes a different relationship and is reported.
@@ -383,50 +363,7 @@ def mark_literal_rows(
     return {"module": module, "marked": marked, "unchanged": unchanged, "conflicts": conflicts}
 
 
-def set_data_types(
-    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
-) -> list[dict[str, str]]:
-    """Set declared global types in rebrew-data.toml from ``0xVA=TYPE`` specs.
-
-    The declared type decides which of two conflicting declarations the
-    compiler sees, and `rebrew data header` reads it from the metadata, so a wrong
-    one has to be correctable through the tool rather than by editing the TOML.
-    """
-    return _set_global_field(cfg, specs, field="type", dry_run=dry_run)
-
-
-def set_data_names(
-    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
-) -> list[dict[str, Any]]:
-    """Name annotated globals so data verification can attribute their spans."""
-    return _set_global_field(cfg, specs, field="name", dry_run=dry_run)
-
-
-def set_data_sizes(
-    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
-) -> list[dict[str, Any]]:
-    """Correct positive byte sizes and invalidate verdicts for the old spans."""
-    return _set_global_field(cfg, specs, field="size", dry_run=dry_run)
-
-
 _DATA_SECTIONS = (".data", ".rdata", ".bss", ".text")
-
-
-def set_data_sections(
-    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
-) -> list[dict[str, str]]:
-    """Set a global's PE section in rebrew-data.toml from ``0xVA=SECTION`` specs.
-
-    ``rebrew lint`` W016 wants a SECTION for every data binding, but the type
-    setter never wrote one, so a global known only through a source declaration
-    could not carry the binding without a warning.
-    """
-    return _set_global_field(
-        cfg,
-        specs,
-        field="section",
-        dry_run=dry_run,
-    )
 
 
 _VA_COMMENT_RE = re.compile(r"/\*\s*(0x[0-9a-fA-F]+)")

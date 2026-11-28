@@ -920,41 +920,16 @@ lazy from rebrew.formats.binary_loader import UnsupportedBinaryFormat
 
 logger = logging.getLogger(__name__)
 
-_CANCELLATION = CANCELLATION_VAR
+# Read by name through ``ops_binding`` (and ``_invalid`` by ``named_snapshot``).
 _DNS_SLOTS = DNS_SLOTS
-_FAILED_STEP = FAILED_STEP_VAR
-_FINAL_RECOMPILE_REFUSALS = FINAL_RECOMPILE_REFUSALS
-_LATENCY_BUCKETS_MS = LATENCY_BUCKETS_MS
-_PROGRESS = PROGRESS_VAR
-_Cancellation = Cancellation
-_attach_server_log_handler = attach_server_log_handler
-_bounded = bounded
-_bounded_lines = bounded_lines
-_declared_reply = declared_reply
-_escape_log_text = escape_log_text
-_existing_dir = existing_dir
-_failure_detail = failure_detail
-_final_recompile_refusal = final_recompile_refusal
-_ghidra_outage = ghidra_outage
 _invalid = invalid_request
-_not_run_detail = not_run_detail
-_refuse_compiler_not_offered = refuse_compiler_not_offered
-_request_id = request_id
-_step = step
-_toolchain_rejected = toolchain_rejected
-_trace_id = trace_id
-_without_host_paths = without_host_paths
 _call_scan_inflight = CALL_SCAN_INFLIGHT
 _call_scans = CALL_SCANS
 _call_scans_lock = CALL_SCANS_LOCK
 _communicate = communicate
 _run_rebrew_child = run_rebrew_child
 _stage_retained_snapshot = stage_retained_snapshot
-_stamp_request = stamp_request
-_OpsHandler = OpsHandler
 _allowed_hosts_for = allowed_hosts_for
-_capstone_for = capstone_for
-_check_manifest_size = check_manifest_size
 _fresh_sqlite_metadata = fresh_sqlite_metadata
 _run_intake = run_intake
 

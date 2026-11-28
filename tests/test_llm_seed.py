@@ -73,7 +73,7 @@ def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rebrew.matching.llm_seed._resolved_max_tokens", None)
     monkeypatch.setattr("rebrew.matching.llm_seed._resolved_timeout", None)
     rebrew.matching.llm_seed._seed_cache.clear()
-    rebrew.matching.llm_seed.reset_last_seed_usage()
+    monkeypatch.setattr("rebrew.matching.llm_seed._usage_tls", threading.local())
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
     monkeypatch.delenv("REBREW_LLM_MAX_TOKENS", raising=False)
     monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)

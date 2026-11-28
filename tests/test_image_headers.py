@@ -10,11 +10,9 @@ lazy from pathlib import Path
 
 import pytest
 
-from rebrew.binding_replacement_plan import plan_binding_replacement
 from rebrew.compiler.cache import include_specs, scan_include_closure
 from rebrew.compiler.image_headers import ImageHeaders
 from rebrew.config import ProjectConfig
-from rebrew.metadata.functions import record_function_identity
 from rebrew.source.contracts import contract_contexts
 
 IMAGE = "sha256:" + "a" * 64
@@ -194,81 +192,6 @@ def test_ordinary_compiler_flags_are_allowed(tmp_path: Path, runtime):
     with ImageHeaders() as images:
         _contexts, unknown = contract_contexts(cfg, image_headers=images)
     assert not unknown
-
-
-def test_planner_pins_image_and_sdk_closure_with_stable_digest(tmp_path: Path, runtime):
-    src = tmp_path / "src"
-    src.mkdir()
-    donor = src / "donor.c"
-    donor.write_text("void old(void) {}\n")
-    replacement = src / "replacement.c"
-    replacement.write_text("void canonical(void) {}\n")
-    (src / "caller.c").write_text(
-        "#include <api.h>\nvoid old(void);\nvoid caller(void) { old(); }\n"
-    )
-    cfg = ProjectConfig(root=tmp_path, reversed_dir=src, module="TL", target_name="TL")
-    record_function_identity(
-        tmp_path,
-        module="TL",
-        va=0x1000,
-        file="src/donor.c",
-        name="old",
-        symbol="_old",
-        kind="FUNCTION",
-        size=4,
-    )
-    args = ([cfg], {"TL": 0x1000}, donor, replacement, "old", "canonical")
-    first = plan_binding_replacement(*args, use_image_headers=True)
-    second = plan_binding_replacement(
-        *args, use_image_headers=True, expected_digest=first["input_digest"]
-    )
-    assert first["input_digest"] == second["input_digest"]
-    assert first["compiler_images"][cfg.compiler_profile] == IMAGE
-    assert any(
-        key.startswith("image://") and key.endswith("/inner.h") for key in first["input_hashes"]
-    )
-    assert not first["include_unknown"] and not first["safety_review_complete"]
-    state, _ = runtime
-    state["archive"] = archive({"api.h": b"#include <inner.h>\n", "inner.h": b"int changed;\n"})
-    with pytest.raises(ValueError, match="inputs changed"):
-        plan_binding_replacement(
-            *args, use_image_headers=True, expected_digest=first["input_digest"]
-        )
-
-
-@pytest.mark.parametrize(
-    "directive",
-    ["#include <missing.h>", "#include SDK_HEADER", "/* comment\n*/ #include <missing.h>"],
-)
-def test_planner_refuses_unknown_include_in_reference_context(tmp_path: Path, runtime, directive):
-    src = tmp_path / "src"
-    src.mkdir()
-    donor = src / "donor.c"
-    donor.write_text("void old(void) {}\n")
-    replacement = src / "replacement.c"
-    replacement.write_text("void canonical(void) {}\n")
-    (src / "caller.c").write_text(f"{directive}\nvoid old(void);\nvoid caller(void) {{ old(); }}\n")
-    cfg = ProjectConfig(root=tmp_path, reversed_dir=src, module="TL", target_name="TL")
-    record_function_identity(
-        tmp_path,
-        module="TL",
-        va=0x1000,
-        file="src/donor.c",
-        name="old",
-        symbol="_old",
-        kind="FUNCTION",
-        size=4,
-    )
-    with pytest.raises(ValueError, match="include closure is incomplete"):
-        plan_binding_replacement(
-            [cfg],
-            {"TL": 0x1000},
-            donor,
-            replacement,
-            "old",
-            "canonical",
-            use_image_headers=True,
-        )
 
 
 def test_multiline_comments_are_preprocessor_whitespace(tmp_path: Path, runtime):

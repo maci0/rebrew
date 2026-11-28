@@ -16,14 +16,14 @@ import tomllib
 from pathlib import Path
 
 from rebrew.config import (
-    _KNOWN_CACHE_KEYS,
-    _KNOWN_COMPILER_KEYS,
-    _KNOWN_LINK_KEYS,
-    _KNOWN_LINT_KEYS,
-    _KNOWN_LLM_KEYS,
-    _KNOWN_TOP_KEYS,
+    KNOWN_CACHE_KEYS,
+    KNOWN_COMPILER_KEYS,
+    KNOWN_LINK_KEYS,
+    KNOWN_LINT_KEYS,
+    KNOWN_LLM_KEYS,
     KNOWN_PROJECT_KEYS,
     KNOWN_TARGET_KEYS,
+    KNOWN_TOP_KEYS,
 )
 
 _REPO = Path(__file__).resolve().parents[1]
@@ -46,7 +46,7 @@ def _example() -> dict[str, object]:
 
 def _as_table(raw: object, label: str) -> dict[str, object]:
     """The table *raw* holds, or an empty table when the section is absent."""
-    from rebrew.config import _as_table as loader_table
+    from rebrew.config import as_table as loader_table
 
     return loader_table(raw, label)
 
@@ -67,7 +67,7 @@ class TestProjectTomlExample:
         about, and the template is what a new project starts from.
         """
         raw = _example()
-        unknown = set(raw) - _KNOWN_TOP_KEYS
+        unknown = set(raw) - KNOWN_TOP_KEYS
         assert not unknown, f"rebrew-project.toml.example: unknown sections {sorted(unknown)}"
         assert "targets" in raw, "the example declares no [targets.*]"
 
@@ -76,11 +76,11 @@ class TestProjectTomlExample:
         raw = _example()
         for section, known in (
             ("project", KNOWN_PROJECT_KEYS),
-            ("project.lint", _KNOWN_LINT_KEYS),
-            ("compiler", _KNOWN_COMPILER_KEYS),
-            ("link", _KNOWN_LINK_KEYS),
-            ("llm", _KNOWN_LLM_KEYS),
-            ("cache", _KNOWN_CACHE_KEYS),
+            ("project.lint", KNOWN_LINT_KEYS),
+            ("compiler", KNOWN_COMPILER_KEYS),
+            ("link", KNOWN_LINK_KEYS),
+            ("llm", KNOWN_LLM_KEYS),
+            ("cache", KNOWN_CACHE_KEYS),
         ):
             table = _section(raw, section)
             unknown = set(table) - known
@@ -92,7 +92,7 @@ class TestProjectTomlExample:
             unknown = set(table) - KNOWN_TARGET_KEYS
             assert not unknown, f"[targets.{name}]: unknown keys {sorted(unknown)}"
             compiler = _as_table(table.get("compiler", {}), f"targets.{name}.compiler")
-            unknown = set(compiler) - _KNOWN_COMPILER_KEYS
+            unknown = set(compiler) - KNOWN_COMPILER_KEYS
             assert not unknown, f"[targets.{name}.compiler]: unknown keys {sorted(unknown)}"
 
     def test_every_known_key_is_documented(self) -> None:
@@ -100,11 +100,11 @@ class TestProjectTomlExample:
         text = _example_text()
         for label, keys in (
             ("[project]", KNOWN_PROJECT_KEYS),
-            ("[project.lint]", _KNOWN_LINT_KEYS),
-            ("[compiler]", _KNOWN_COMPILER_KEYS - _MACHINE_WRITTEN),
-            ("[link]", _KNOWN_LINK_KEYS),
-            ("[llm]", _KNOWN_LLM_KEYS),
-            ("[cache]", _KNOWN_CACHE_KEYS),
+            ("[project.lint]", KNOWN_LINT_KEYS),
+            ("[compiler]", KNOWN_COMPILER_KEYS - _MACHINE_WRITTEN),
+            ("[link]", KNOWN_LINK_KEYS),
+            ("[llm]", KNOWN_LLM_KEYS),
+            ("[cache]", KNOWN_CACHE_KEYS),
             ("[targets.*]", KNOWN_TARGET_KEYS - _MACHINE_WRITTEN),
         ):
             undocumented = sorted(key for key in keys if key not in text)

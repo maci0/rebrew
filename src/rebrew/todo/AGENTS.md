@@ -6,7 +6,7 @@ Prioritized action dashboard (`rebrew todo`): synthesizes verify cache verdicts,
 
 | Module | Role |
 |--------|------|
-| `__init__.py` | `rebrew todo` Typer CLI entry point, public re-exports, and monkeypatch-compatible wrappers |
+| `__init__.py` | `rebrew todo` Typer CLI entry point, public re-exports, and `collect_all`, which injects the command-module callables (`status`, `matching.prove`, `library.*`) the library collectors may not import |
 | `models.py` | Category constants (`CAT_*`), `TodoItem`, ROI scoring, impact ranking, extern-names cache, and verify-cache loader |
 | `collectors.py` | Per-lane action collectors (`collect_setup_steps`, `collect_active_functions`, `collect_new_functions`, data/prover/postlink/binding collectors) and `collect_all` |
 | `render.py` | Terminal rendering helpers (`CATEGORY_COLORS`, `render_matched_headline`, `render_stats_header`, `render_todo_panel`) |

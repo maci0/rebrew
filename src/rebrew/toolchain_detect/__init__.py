@@ -128,7 +128,8 @@ from rebrew.utils import SOURCE_CHECKOUT, fold_ident, run_process_group
 
 logger = logging.getLogger(__name__)
 
-# Local private aliases preserving existing test imports and monkeypatch targets.
+# Read by this module, or by name through ``resolve_pkg_hook`` and the
+# detection-table refresh in ``tables`` (``_DETECTION_TABLES``, ``_PLUGIN_DETECTORS``).
 _DELPHI_MARKERS = DELPHI_MARKERS
 _MSVC_MARKERS = MSVC_MARKERS
 _BORLAND_SECTIONS = BORLAND_SECTIONS
@@ -138,21 +139,9 @@ _SYMANTEC_MARKERS = SYMANTEC_MARKERS
 _ZORTECH_MARKERS = ZORTECH_MARKERS
 _ICC_MARKERS = ICC_MARKERS
 _BORLANDC_IMPORTS = BORLANDC_IMPORTS
-_VENDORED_DIEC = VENDORED_DIEC
-_MSVC_VERSION_HINTS = MSVC_VERSION_HINTS
-_MSVC_LINKER_VERSIONS = MSVC_LINKER_VERSIONS
-_RICH_BUILD_PROFILES = RICH_BUILD_PROFILES
-_LINKER_ERA_PROFILES = LINKER_ERA_PROFILES
-_merged_msvc_version_tables = merged_msvc_version_tables
-_MSVCP_IMPORT_VERSIONS = MSVCP_IMPORT_VERSIONS
-_BACKEND_DISPLAY = BACKEND_DISPLAY
-_discover_binary_detectors = discover_binary_detectors
 _PLUGIN_DETECTORS = PLUGIN_DETECTORS
-_PROFILE_COMPAT = PROFILE_COMPAT
-_merged_profile_compat = merged_profile_compat
 _DETECTION_TABLES = DETECTION_TABLES
 _CONFIDENCE_RANK = CONFIDENCE_RANK
-_rich_compiler_build = rich_compiler_build
 _find_diec = find_diec
 _diec_env = diec_env
 _run_diec = run_diec
@@ -164,11 +153,8 @@ _count_const_hoists = count_const_hoists
 _mz_codegen_scan = mz_codegen_scan
 _O2_WRAPPERS = O2_WRAPPERS
 _O1_WRAPPERS = O1_WRAPPERS
-_OPT_MIN_SITES = OPT_MIN_SITES
 _PROBE_SYMBOLS = PROBE_SYMBOLS
-_iter_masked = iter_masked
 _pattern_vas = pattern_vas
-_count_masked = count_masked
 _count_codegen_signals = count_codegen_signals
 _msvc_version_hint = msvc_version_hint
 _is_16bit_target = is_16bit_target

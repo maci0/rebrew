@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 lazy import json
 lazy import math
 lazy import os
-lazy from collections.abc import Callable, Sequence
+lazy from collections.abc import Sequence
 lazy from pathlib import Path
 
 if TYPE_CHECKING:
@@ -368,11 +368,7 @@ def extern_cache_remember(
         cache["dirty"] = True
 
 
-def flush_extern_cache(
-    cache: dict[str, Any],
-    *,
-    write_text: Callable[..., Any] | None = None,
-) -> None:
+def flush_extern_cache(cache: dict[str, Any]) -> None:
     """Write extern names for the next process. A failure leaves the counts.
 
     Snapshot and write share the record lock so a remember that lands during
@@ -380,13 +376,12 @@ def flush_extern_cache(
     """
     from rebrew.utils import atomic_write_text
 
-    writer = write_text or atomic_write_text
     with cache["lock"]:
         if not cache.get("dirty"):
             return
         cache_path = Path(cache["dir"]) / ".rebrew" / "extern-names.json"
         try:
-            writer(
+            atomic_write_text(
                 cache_path,
                 json.dumps(
                     {"version": EXTERN_CACHE_VERSION, "files": cache["files"]},

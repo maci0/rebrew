@@ -7,7 +7,6 @@ from source_util import SourceFixture, write_source
 from rebrew.matching.batch import (
     find_all_stubs,
     find_near_miss,
-    parse_matching_info,
     parse_stub_info,
 )
 
@@ -72,27 +71,7 @@ class TestParseStubInfo:
         assert parse_stub_info(f) == []
 
 
-class TestParseMatchingInfo:
-    def test_near_matching_delta_filter(self, tmp_path: Path) -> None:
-        f = _write_stub(
-            tmp_path,
-            "func.c",
-            SourceFixture(
-                "/* ADDRESS: SERVER 0x10001000 */\n\n\nint func(void) { return 1; }\n",
-                {"SERVER.0x10001000": {"kind": "FUNCTION", "size": 32, "symbol": "_func"}},
-            ),
-        )
-        _write_meta(tmp_path, 0x10001000, "NEAR_MATCHING", blocker_delta=4)
-        stubs = parse_matching_info(f, max_delta=10)
-        assert len(stubs) == 1
-        assert stubs[0].delta == 4
-        # max_delta below the blocker delta excludes it.
-        assert parse_matching_info(f, max_delta=2) == []
-
-    def test_exact_not_near(self, tmp_path: Path) -> None:
-        f = _stub_file(tmp_path, status="EXACT")
-        assert parse_matching_info(f) == []
-
+class TestParseMatchingAll:
     def test_near_matching_without_delta_uses_no_delta_sentinel(self, tmp_path: Path) -> None:
         """A NEAR_MATCHING row with no ``blocker_delta`` carries NO_DELTA.
 
@@ -115,7 +94,6 @@ class TestParseMatchingInfo:
             ),
         )
         _write_meta(tmp_path, 0x10001000, "NEAR_MATCHING")
-        assert parse_matching_info(f, max_delta=10) == []
         all_stubs = parse_matching_all(f)
         assert len(all_stubs) == 1
         assert all_stubs[0].delta == NO_DELTA

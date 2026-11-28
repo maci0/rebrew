@@ -59,10 +59,11 @@ def test_a_toolchain_sweep_leaves_it_out() -> None:
 
 
 def test_doctor_names_the_reason_not_a_build() -> None:
-    from rebrew.doctor import _FAIL, check_toolchain_backed
+    from rebrew.doctor import check_toolchain_backed
+    from rebrew.doctor.checks import FAIL
 
     result = check_toolchain_backed(SimpleNamespace(compiler_profile=WITHDRAWN, root=Path(".")))
-    assert result.status == _FAIL
+    assert result.status == FAIL
     assert "Itanium" in result.message
     assert "build" not in result.fix and "vendor" not in result.fix
 

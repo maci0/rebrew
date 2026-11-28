@@ -512,7 +512,7 @@ class TestContract:
         """An op's ``errors`` are :data:`rebrew.ops.DISPATCH_PROBLEMS` and its
         ``OP_PROBLEMS``, which are exactly the other codes its handler reaches: every
         refusal call in a function the handler calls, transitively.  A code taken from
-        :data:`rebrew.ops._FINAL_RECOMPILE_REFUSALS` counts each code that table holds."""
+        :data:`rebrew.ops.FINAL_RECOMPILE_REFUSALS` counts each code that table holds."""
         from rebrew import ops
 
         sites = _refusal_sites(
@@ -524,7 +524,7 @@ class TestContract:
             "ops/http",
             "ops/snapshot_mutations",
         )
-        table = {code for code, _detail in ops._FINAL_RECOMPILE_REFUSALS.values()}
+        table = {code for code, _detail in ops.FINAL_RECOMPILE_REFUSALS.values()}
 
         def reached(name: str) -> set[str]:
             seen: set[str] = set()
@@ -537,10 +537,7 @@ class TestContract:
                 seen.add(function)
                 definition = sites[function]
                 codes |= {code for _where, code, _status in definition.refusals if code}
-                if (
-                    "_FINAL_RECOMPILE_REFUSALS" in definition.names
-                    or "FINAL_RECOMPILE_REFUSALS" in definition.names
-                ):
+                if "FINAL_RECOMPILE_REFUSALS" in definition.names:
                     codes |= table
                 todo.extend(definition.calls)
             return codes
@@ -3427,13 +3424,13 @@ def _deadline_once_the_child_runs(monkeypatch: pytest.MonkeyPatch, pid_file: Pat
     """
     import rebrew.ops as ops
 
-    real_check = ops._Cancellation.check
+    real_check = ops.Cancellation.check
 
     def check(self: Any) -> None:
         if self._refusal is not None or (pid_file.is_file() and pid_file.read_text().strip()):
             real_check(self)
 
-    monkeypatch.setattr(ops._Cancellation, "check", check)
+    monkeypatch.setattr(ops.Cancellation, "check", check)
 
 
 def _stopped(pid: int, within: float) -> bool:
@@ -4967,14 +4964,14 @@ def test_handler_fault_is_logged_with_its_request_id_and_counted(
     to reach the counter ``/health`` and ``/metrics`` read.  A peer that simply
     went away is not a fault and must not move that counter.
     """
-    from rebrew.ops import OpsServer, _stamp_request
+    from rebrew.ops import OpsServer, stamp_request
 
     server = OpsServer.__new__(OpsServer)
     server._metrics_lock = threading.Lock()
     server._unhandled_errors = 0
 
     def raise_fault() -> None:
-        _stamp_request("r7")
+        stamp_request("r7")
         try:
             raise RuntimeError("handler exploded")
         except RuntimeError:
@@ -4990,7 +4987,7 @@ def test_handler_fault_is_logged_with_its_request_id_and_counted(
     assert "handler exploded" in blob
 
     caplog.clear()
-    _stamp_request("r8")
+    stamp_request("r8")
     try:
         raise ConnectionResetError("peer reset")
     except ConnectionResetError:

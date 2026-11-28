@@ -49,7 +49,7 @@ lazy from rebrew.utils import (
     safe_shlex_split,
 )
 
-lazy from .core import BuildResult
+lazy from .core import EXACT_SCORE_THRESHOLD, BuildResult
 lazy from .parsers import extract_function_from_binary, parse_obj_symbol_and_relocs
 
 log = logging.getLogger(__name__)
@@ -332,6 +332,25 @@ def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, st
     return env
 
 
+#: Wine reads its prefix, DLL path and (non-headless) display from these;
+#: ``maybe_headless_wine`` reads REBREW_WINE_HEADLESS from the compile env.
+_WINE_ENV = ("WINEPREFIX", "WINEDEBUG", "WINEPATH", "DISPLAY", "XAUTHORITY", "REBREW_WINE_HEADLESS")
+
+
+def _keyed_compile_env(env: dict[str, str] | None) -> dict[str, str]:
+    """The environment a cached raw compile may run with.
+
+    A caller *env* (``msvc_env_from_config``) keeps INCLUDE and LIB, which it
+    sets from ``[compiler]``; ambient values of those, CPATH, CL or _CL_ would
+    change the object without reaching the cache key.
+    """
+    from rebrew.compiler.toolchain import native_compiler_env
+
+    if env is None:
+        return native_compiler_env(os.environ, _WINE_ENV)
+    return native_compiler_env(env, (*_WINE_ENV, "INCLUDE", "LIB"))
+
+
 #: Profiles whose compiler runs ONLY through its docker image.  Derived from
 #: the toolchain registry (all specs with an image); the raw subprocess path
 #: is reserved for a registered toolchain with no image (a plugin/overlay
@@ -582,11 +601,12 @@ def build_candidate_obj_only(
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking).
 
-    When *cache* is provided, the raw ``.obj`` bytes are cached on disk under
+    On the raw subprocess path, *cache* stores the raw ``.obj`` bytes under
     :func:`rebrew.compiler.cache.compile_cache_key`'s inputs (source,
-    filename, canonicalized flags, include dirs, toolchain identity,
-    extension, source directory and build epoch).  On cache hit only the fast
-    LIEF symbol extraction runs, skipping the docker/compiler startup entirely.
+    filename, flags, include dirs, toolchain identity, extension, source
+    directory and build epoch); a hit runs only the LIEF symbol extraction.
+    An image-backed candidate compiles from a fresh temp dir that the key
+    hashes, so it never reads or writes *cache*.
 
     Every image-backed profile (all shipped toolchains, including mingw/
     gcc/clang) routes through the shared ``compile_to_obj`` runner
@@ -640,8 +660,9 @@ def build_candidate_obj_only(
                 src_path,
                 shlex.split(cflags),
                 workdir,
-                use_cache=cache is not None,
-                cache=cache,
+                # The key hashes this run's temp source dir, so a stored
+                # entry could never be read back; it would only evict others.
+                use_cache=False,
                 obj_name="cand.obj",
                 # The source is compiled from a temp copy; the original
                 # source's parent dir must reach the container for relative
@@ -760,7 +781,7 @@ def build_candidate_obj_only(
                 + [f"/Fo{obj_name}", src_name]
             )
         )
-        env = _ensure_wine_env(env, cmd)
+        env = _ensure_wine_env(_keyed_compile_env(env), cmd)
         cmd, env = _maybe_headless_wine(cmd, env)
 
         r = _run_compiler(cmd, workdir, env, timeout, "Compile")
@@ -919,7 +940,8 @@ def flag_sweep(
         tier: Sweep effort level — "quick", "targeted", "normal", "thorough", or "full".
         env: MSVC environment.
         source_ext: Extension of the source file.
-        cache: Optional ``CacheBackend`` for cross-run persistence.
+        cache: Optional ``CacheBackend``; only an image-less compiler's
+            objects persist across runs (see :func:`build_candidate_obj_only`).
         timeout: Subprocess timeout in seconds.
         extra_include_dirs: Extra include roots (the source's own directory,
             so relative ``#include "..."`` resolves) passed to every compile.
@@ -960,7 +982,7 @@ def flag_sweep(
     combos = generate_flag_combinations(tier=tier, profile=profile)
     log.info("Sweeping %d flag combinations (tier=%s)...", len(combos), tier)
 
-    # The CLI -j flag bypasses config's _positive_int validation, so `match
+    # The CLI -j flag bypasses config's positive_int validation, so `match
     # flags -j 0` reaches the pool verbatim and
     # ThreadPoolExecutor(max_workers=0) raises ValueError.  Clamp to a single
     # worker instead of aborting the sweep; 1 worker is the same serial result.
@@ -974,6 +996,12 @@ def flag_sweep(
     # candidate bytes with 32-bit mnemonics and masked two bytes past every
     # reloc slot.
     sweep_cs_mode, sweep_ptr_size = _sweep_scoring_params(cfg)
+    mips_bindings: dict[str, int] | None = None
+    if cfg is not None and getattr(cfg, "arch", "") in {"mips32", "mips64"}:
+        from rebrew.compare.coff_reloc import build_name_to_va
+
+        mips_bindings = build_name_to_va(cfg)
+        sweep_ptr_size = 4
 
     pre_norm_target, pre_target_mnems = precompute_target(target_bytes, cs_mode=sweep_cs_mode)
 
@@ -1000,15 +1028,25 @@ def flag_sweep(
             cfg=cfg,
         )
         if res.ok and res.obj_bytes:
+            offsets: dict[int, str] | list[int] | None = res.reloc_offsets
+            mips_match = True
+            if mips_bindings is not None:
+                from rebrew.compare.coff_reloc import smart_reloc_compare
+
+                mips_match, _, _, offsets, _ = smart_reloc_compare(
+                    res.obj_bytes, target_bytes, res.typed_relocs or [], name_to_va=mips_bindings
+                )
             score = score_candidate(
                 target_bytes,
                 res.obj_bytes,
-                res.reloc_offsets,
+                offsets,
                 _pre_norm_target=pre_norm_target,
                 _pre_target_mnems=pre_target_mnems,
                 cs_mode=sweep_cs_mode,
                 pointer_size=sweep_ptr_size,
             )
+            if not mips_match:
+                return max(score.total, EXACT_SCORE_THRESHOLD), flags
             return score.total, flags
         if res.error_msg:
             with _compile_errors_lock:

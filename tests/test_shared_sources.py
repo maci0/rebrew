@@ -92,10 +92,10 @@ class TestConfig:
     def test_defines_reject_non_string(self, tmp_path: Path) -> None:
         """Non-string define entries are dropped with a warning — str(None)
         would otherwise become a garbage -DNone flag."""
-        from rebrew.config import _parse_defines
+        from rebrew.config import parse_defines
 
         with pytest.warns(ConfigWarning, match="non-string define") as caught:
-            assert _parse_defines(["V2", None, 42, "", "  DEBUG  "], "targets.X.defines") == [
+            assert parse_defines(["V2", None, 42, "", "  DEBUG  "], "targets.X.defines") == [
                 "V2",
                 "DEBUG",
             ]

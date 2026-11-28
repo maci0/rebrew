@@ -6,9 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from rebrew.toolchain_detect import (
-    _MSVC_LINKER_VERSIONS,
-    _MSVCP_IMPORT_VERSIONS,
-    _RICH_BUILD_PROFILES,
+    MSVC_LINKER_VERSIONS,
+    MSVCP_IMPORT_VERSIONS,
+    RICH_BUILD_PROFILES,
     ToolchainInfo,
     _is_16bit_target,
     _msvc_version_hint,
@@ -34,11 +34,11 @@ def _fake_pe(linker: str, rich_builds: list[int] | None = None, imports: list[st
 
 class TestVersionTables:
     def test_linker_ladder(self) -> None:
-        assert _MSVC_LINKER_VERSIONS["2.50"] == (9, 0)
-        assert _MSVC_LINKER_VERSIONS["4.20"] == (10, 20)
-        assert _MSVC_LINKER_VERSIONS["6.0"] == (12, 0)
-        assert _MSVC_LINKER_VERSIONS["7.10"] == (13, 10)
-        assert _MSVC_LINKER_VERSIONS["10.0"] == (16, 0)
+        assert MSVC_LINKER_VERSIONS["2.50"] == (9, 0)
+        assert MSVC_LINKER_VERSIONS["4.20"] == (10, 20)
+        assert MSVC_LINKER_VERSIONS["6.0"] == (12, 0)
+        assert MSVC_LINKER_VERSIONS["7.10"] == (13, 10)
+        assert MSVC_LINKER_VERSIONS["10.0"] == (16, 0)
 
     def test_rich_build_profiles_sp_levels(self) -> None:
         """The VC 6.0 SP builds are distinct compilers in the Rich header.
@@ -46,24 +46,24 @@ class TestVersionTables:
         8966 SP5, 9782 SP6.)"""
         # 8168 is the C1 build for VC6 RTM through SP2 (SP3 bumped it to
         # 8447) — every profile carrying that build can byte-match.
-        assert "msvc-6.0" in _RICH_BUILD_PROFILES[8168]
-        assert "msvc-6.0-sp3" not in _RICH_BUILD_PROFILES[8168]
-        assert _RICH_BUILD_PROFILES[8447] == ("msvc-6.0-sp3",)
+        assert "msvc-6.0" in RICH_BUILD_PROFILES[8168]
+        assert "msvc-6.0-sp3" not in RICH_BUILD_PROFILES[8168]
+        assert RICH_BUILD_PROFILES[8447] == ("msvc-6.0-sp3",)
         # 8966 is shared by VC6 SP4 and SP5 (SP4 shipped the 8966 C1;
         # SP5 kept it) - both can byte-match.
-        assert "msvc-6.0-sp5" in _RICH_BUILD_PROFILES[8966]
-        assert _RICH_BUILD_PROFILES[9782] == ("msvc-6.0-sp6",)
+        assert "msvc-6.0-sp5" in RICH_BUILD_PROFILES[8966]
+        assert RICH_BUILD_PROFILES[9782] == ("msvc-6.0-sp6",)
         # msvc-7.0 builds the VC 7.0 RTM compiler, so it carries 9466 too.
-        assert 9466 in _RICH_BUILD_PROFILES and _RICH_BUILD_PROFILES[9466] == (
+        assert 9466 in RICH_BUILD_PROFILES and RICH_BUILD_PROFILES[9466] == (
             "msvc-7.0",
             "msvc-7.0-rtm",
             "msvc-7.0-sp1",
         )
-        assert _RICH_BUILD_PROFILES[21022] == ("msvc-9.0",)
+        assert RICH_BUILD_PROFILES[21022] == ("msvc-9.0",)
 
     def test_msvcp_import_binder(self) -> None:
-        assert _MSVCP_IMPORT_VERSIONS["msvcp71.dll"] == "7.1"
-        assert _MSVCP_IMPORT_VERSIONS["msvcp100.dll"] == "10.0"
+        assert MSVCP_IMPORT_VERSIONS["msvcp71.dll"] == "7.1"
+        assert MSVCP_IMPORT_VERSIONS["msvcp100.dll"] == "10.0"
 
 
 class TestMsvcVersionHint:
@@ -314,9 +314,9 @@ class TestCodeGeneratorFamily:
 
     def test_pack_profile_is_family_compatible(self) -> None:
         """A correctly configured pack project must not be reported misaligned."""
-        from rebrew.toolchain_detect import _PROFILE_COMPAT
+        from rebrew.toolchain_detect import PROFILE_COMPAT
 
-        assert "msvc-6.0-sp5-pp" in (_PROFILE_COMPAT["msvc"] or set())
+        assert "msvc-6.0-sp5-pp" in (PROFILE_COMPAT["msvc"] or set())
 
     def _info(self, codegen: str) -> ToolchainInfo:
         info = ToolchainInfo(family="msvc", codegen=codegen, msvc_version="12.00.8804")

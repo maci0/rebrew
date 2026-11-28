@@ -290,8 +290,6 @@ PACKAGE_EXTERNALS: dict[str, frozenset[str]] = {
             "compare.coff_reloc",
             "config",
             "errors",
-            "flag_data",
-            "flags",
             "formats.binary_loader",
             "formats.binary_model",
             "formats.ne_loader",

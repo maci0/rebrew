@@ -8,7 +8,7 @@ from bin_util import make_ne
 from typer.testing import CliRunner
 
 from rebrew.binary.ne_compare import compare_images
-from rebrew.formats.ne_analysis import NeImage, block_set, covered_bytes, segment_refs
+from rebrew.formats.ne_analysis import NeImage, block_set, covered_bytes
 from rebrew.formats.ne_loader import NeParseError
 
 
@@ -26,7 +26,7 @@ class TestNeComparison:
         b.write_bytes(make_ne(segments=[(b"abcxyz", 0)]))
         left, right = NeImage(a), NeImage(b)
         expected_score = ne_analysis.byte_score(left, right, window)
-        expected_budget = ne_analysis.segment_budget(left, right, window)
+        expected_budget = ne_analysis.comparison_content(left, right, window)[2]
         original = ne_analysis.block_set
         calls = []
 
@@ -78,7 +78,6 @@ class TestNeComparison:
         path.write_bytes(data)
         image = NeImage(path)
         assert image.fixups(0)[0].addend == 4
-        assert segment_refs(image) == ({0: {0}}, {0: 0})
         path.write_bytes(data[:-1])
         with pytest.raises(NeParseError, match="truncated fixup"):
             NeImage(path).fixups(0)
@@ -99,33 +98,3 @@ class TestNeComparison:
             NeImage(path)
         path.write_bytes(make_ne(segments=[(bytes(16), 8)]))
         assert NeImage(path).seg_bytes(0) == bytes(16)
-
-
-class TestPublishedMethods:
-    def test_first_fixup_can_recover_table_with_later_unfixed_pointer(self) -> None:
-        from rebrew.formats.ne_analysis import published_method_candidates
-
-        raw = b"\x08TExample\x02\x00\x17\x00\x00\x00\x010\x01\x00\x00\x00\x010"
-        assert published_method_candidates(raw, "TExample") == []
-        assert published_method_candidates(raw, "TExample", fixups={(0, 11): (0, 0)}) == [
-            ("0", 0),
-            ("0", 1),
-        ]
-        assert published_method_candidates(raw, "TExample", fixups={(0, 11): (1, 0)}) == []
-
-    def test_complete_same_segment_pointer_and_rejecting_controls(self) -> None:
-        from rebrew.formats.ne_analysis import published_method_candidates
-
-        raw = b"\x08TExample\x01\x00\xff\xff\x00\x00\x04Test"
-        assert published_method_candidates(raw, "TExample", fixups={(0, 11): (0, 16)}) == [
-            ("Test", 16)
-        ]
-        assert published_method_candidates(raw, "TExample", fixups={(0, 11): (1, 16)}) == []
-        assert published_method_candidates(raw[:-1], "TExample", fixups={(0, 11): (0, 16)}) == []
-
-    def test_invalid_marker_does_not_hide_later_complete_table(self) -> None:
-        from rebrew.formats.ne_analysis import published_method_candidates
-
-        marker = b"\x08TExample"
-        raw = marker + b"\x00\x00" + marker + b"\x01\x00\x10\x00\x00\x00\x04Test"
-        assert published_method_candidates(raw, "TExample") == [("Test", 16)]

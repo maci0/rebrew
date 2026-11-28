@@ -1,6 +1,6 @@
 """bench_perf10_workflow.py — load-independent microbenchmarks of two workflow kernels.
 
-1. ``todo_rank``: ``rebrew.todo._collect_active_functions`` then ``_rank_by_impact``
+1. ``todo_rank``: ``rebrew.todo.collectors.collect_active_functions`` then ``rank_by_impact``
    over synthetic metadata rows and verify-cache entries (the aggregation behind
    ``rebrew todo``; no disk, no project scan).
 2. ``data_inventory``: the pure analysis behind ``rebrew data list`` over a synthetic
@@ -213,8 +213,9 @@ def _make_todo_inputs(rng: random.Random) -> tuple[Any, ...]:
 
 
 def bench_todo_rank() -> dict[str, Any]:
-    from rebrew.matching import prove
-    from rebrew.todo import _collect_active_functions, _rank_by_impact
+    from rebrew.status import effective_status
+    from rebrew.todo import rank_by_impact
+    from rebrew.todo.collectors import collect_active_functions
 
     # The pinned categories include the GA-ceiling prover lane, which only
     # exists when the optional [prove] extra is installed. Pin the probe so a
@@ -223,14 +224,20 @@ def bench_todo_rank() -> dict[str, Any]:
     def prover_available() -> bool:
         return True
 
-    prove.angr_available = prover_available
-
     rng = random.Random(SEED)
     existing, size_by_va, name_by_va, verify, callees = _make_todo_inputs(rng)
 
     def run() -> list[Any]:
-        return _rank_by_impact(
-            _collect_active_functions(existing, size_by_va, name_by_va, verify, callees)
+        return rank_by_impact(
+            collect_active_functions(
+                existing,
+                size_by_va,
+                name_by_va,
+                verify,
+                callees,
+                effective_status_fn=effective_status,
+                prover_available_fn=prover_available,
+            )
         )
 
     def summarize(ranked: list[Any]) -> tuple[int, dict[str, int], str]:

@@ -31,6 +31,13 @@ _REL_ABSOLUTE = 0x0000
 _REL_DIR32 = 0x0006
 _REL_REL32 = 0x0014
 
+# R_MIPS_* types the compare path links itself instead of masking.
+_R_MIPS_26 = 4
+_R_MIPS_HI16 = 5
+_R_MIPS_LO16 = 6
+_MIPS_ELF_FORMATS = frozenset({"elf-mips", "elf-mipsel"})
+_MIPS_LINKED_KINDS = {_R_MIPS_26: "mips26", _R_MIPS_HI16: "mips_hi16", _R_MIPS_LO16: "mips_lo16"}
+
 # A conflicting identity is present but cannot resolve to a native address.
 AMBIGUOUS_VA = -1
 
@@ -70,6 +77,7 @@ _RELOC_TABLES: dict[str, dict[int, str]] = {
 _RELOC_BYTE_ORDER: dict[str, str] = {
     "coff-i386": "little",
     "elf-mips": "big",
+    "elf-mipsel": "little",
     "elf-ppc": "big",
 }
 
@@ -530,31 +538,8 @@ def apply_coff_relocations(
         elif kind == "rel32":
             pc = section_va + r.offset + 4
             value = (target_va + addend - pc) & 0xFFFFFFFF
-        elif kind == "mips26":
-            instr_addend = r.addend if r.addend else ((addend & 0x03FFFFFF) << 2)
-            value = (addend & 0xFC000000) | (((target_va + instr_addend) >> 2) & 0x03FFFFFF)
-        elif kind == "mips_hi16":
-            # MIPS ELF pairs each R_MIPS_HI16 with the next R_MIPS_LO16 for the
-            # same symbol to form the signed AHL addend.
-            lo_addend = 0
-            for paired in relocs[idx + 1 :]:
-                if (
-                    paired.symbol == r.symbol
-                    and table.get(paired.type) == "mips_lo16"
-                    and paired.offset >= 0
-                    and paired.offset + 4 <= len(buf)
-                ):
-                    lo_word = struct.unpack_from(fmt, buf, paired.offset)[0]
-                    lo_imm = lo_word & 0xFFFF
-                    lo_addend = (lo_imm - 0x10000) if (lo_imm & 0x8000) else lo_imm
-                    break
-            ahl = ((addend & 0xFFFF) << 16) + lo_addend + r.addend
-            hi_imm = ((target_va + ahl + 0x8000) >> 16) & 0xFFFF
-            value = (addend & 0xFFFF0000) | hi_imm
-        elif kind == "mips_lo16":
-            lo_imm = addend & 0xFFFF
-            lo_signed = (lo_imm - 0x10000) if (lo_imm & 0x8000) else lo_imm
-            value = (addend & 0xFFFF0000) | ((target_va + lo_signed + r.addend) & 0xFFFF)
+        elif kind in {"mips26", "mips_hi16", "mips_lo16"}:
+            value = _mips_linked_word(relocs, idx, buf, fmt, target_va)
         elif kind == "ppc_rel24":
             imm26 = addend & 0x03FFFFFC
             inline_addend = (imm26 - 0x04000000) if (imm26 & 0x02000000) else imm26
@@ -711,6 +696,41 @@ def _catalog_va_set(name_to_va: dict[str, int] | None) -> set[int]:
     return result
 
 
+def _mips_jump_word(word: int, target_va: int, addend: int) -> int:
+    addend = addend or ((word & 0x03FFFFFF) << 2)
+    return (word & 0xFC000000) | (((target_va + addend) >> 2) & 0x03FFFFFF)
+
+
+def _sign16(word: int) -> int:
+    imm = word & 0xFFFF
+    return imm - 0x10000 if imm & 0x8000 else imm
+
+
+def _mips_linked_word(
+    records: Sequence[CoffRelocRecord], idx: int, buf: bytes | bytearray, fmt: str, target_va: int
+) -> int:
+    """The R_MIPS_26, R_MIPS_HI16 or R_MIPS_LO16 word at ``records[idx]`` linked to *target_va*."""
+    rec = records[idx]
+    word: int = struct.unpack_from(fmt, buf, rec.offset)[0]
+    if rec.type == _R_MIPS_26:
+        return _mips_jump_word(word, target_va, rec.addend)
+    if rec.type == _R_MIPS_LO16:
+        return (word & 0xFFFF0000) | ((target_va + _sign16(word) + rec.addend) & 0xFFFF)
+    # R_MIPS_HI16 takes the signed AHL addend from the next R_MIPS_LO16 for the same symbol.
+    lo_addend = next(
+        (
+            _sign16(struct.unpack_from(fmt, buf, paired.offset)[0])
+            for paired in records[idx + 1 :]
+            if paired.type == _R_MIPS_LO16
+            and (paired.symbol, paired.local_offset) == (rec.symbol, rec.local_offset)
+            and _slot_in_prefix(paired.offset, len(buf))
+        ),
+        0,
+    )
+    ahl = ((word & 0xFFFF) << 16) + lo_addend + rec.addend
+    return (word & 0xFFFF0000) | (((target_va + ahl + 0x8000) >> 16) & 0xFFFF)
+
+
 def relocation_binding_evidence(
     obj_bytes: bytes,
     target_bytes: bytes,
@@ -723,49 +743,72 @@ def relocation_binding_evidence(
 ) -> list[dict[str, Any]]:
     """Explain bound, conflicting and unresolved operands without promoting masks to proof."""
     table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
+    records: list[tuple[int, str, str, CoffRelocRecord | None]]
     if isinstance(coff_relocs, dict):
-        records = [(offset, "abs32", symbol, False) for offset, symbol in coff_relocs.items()]
+        records = [(offset, "abs32", symbol, None) for offset, symbol in coff_relocs.items()]
     else:
         records = [
             (
                 rec.offset,
-                table.get(rec.type, "unsupported") if rec.format == "coff-i386" else "unsupported",
+                _MIPS_LINKED_KINDS.get(rec.type, "abs32")
+                if rec.format in _MIPS_ELF_FORMATS
+                else (
+                    table.get(rec.type, "unsupported")
+                    if rec.format == "coff-i386"
+                    else "unsupported"
+                ),
                 rec.symbol,
-                True,
+                rec,
             )
             if isinstance(rec, CoffRelocRecord)
-            else (rec, "mask", "", False)
+            else (rec, "mask", "", None)
             for rec in coff_relocs or []
         ]
     evidence: list[dict[str, Any]] = []
-    for offset, kind, symbol, typed in records:
-        row: dict[str, Any] = {"offset": offset, "symbol": symbol, "kind": kind, "typed": typed}
+    for idx, (offset, kind, symbol, record) in enumerate(records):
+        row: dict[str, Any] = {
+            "offset": offset,
+            "symbol": symbol,
+            "kind": kind,
+            "typed": record is not None,
+        }
         if kind == "none":
             row["status"] = "IGNORED"
         elif not _slot_in_prefix(offset, len(obj_bytes)):
             row["status"] = "OUT_OF_EXTENT"
-        elif kind not in {"abs32", "rel32"}:
+        elif kind not in {"abs32", "rel32", *_MIPS_LINKED_KINDS.values()}:
             row["status"] = "UNSUPPORTED"
         else:
-            addend = struct.unpack_from(_reloc_fmt(reloc_table), obj_bytes, offset)[0]
+            mips = record is not None and record.format in _MIPS_ELF_FORMATS
+            fmt = record.format if mips and record is not None else reloc_table
+            addend = struct.unpack_from(_reloc_fmt(fmt), obj_bytes, offset)[0]
             bound = _resolve_exact_then_stripped(name_to_va or {}, symbol)
-            row.update(
-                {"addend": addend, "bound_va": bound, "byte_order": reloc_byte_order(reloc_table)}
-            )
+            if mips and record is not None and record.local_offset is not None:
+                row["local_offset"] = record.local_offset
+                bound = None if section_va is None else section_va + record.local_offset
+            row.update({"addend": addend, "bound_va": bound, "byte_order": reloc_byte_order(fmt)})
             if (
                 bound is not None
                 and bound != AMBIGUOUS_VA
-                and (kind == "abs32" or section_va is not None)
+                and (kind != "rel32" or section_va is not None)
             ):
                 expected = (bound + addend) & 0xFFFFFFFF
                 if kind == "rel32" and section_va is not None:
                     expected = (expected - section_va - offset - 4) & 0xFFFFFFFF
+                if kind in _MIPS_LINKED_KINDS.values():
+                    expected = _mips_linked_word(
+                        cast("Sequence[CoffRelocRecord]", coff_relocs),
+                        idx,
+                        obj_bytes,
+                        _reloc_fmt(fmt),
+                        bound,
+                    )
                 row["expected_value"] = expected
             if not _slot_in_prefix(offset, len(target_bytes)):
                 row["status"] = "OUT_OF_EXTENT"
                 evidence.append(row)
                 continue
-            actual = struct.unpack_from(_reloc_fmt(reloc_table), target_bytes, offset)[0]
+            actual = struct.unpack_from(_reloc_fmt(fmt), target_bytes, offset)[0]
             row["native_value"] = actual
             if kind == "abs32" and iat_region and actual in iat_region:
                 row["status"] = "IAT_POLICY"
@@ -785,7 +828,8 @@ def binding_evidence_current(evidence: object, name_to_va: dict[str, int]) -> bo
 
     ``check_known_bindings`` serves a verify-cache row only with this proof.
     The list must be present; an empty list means the verdict had no operands.
-    Each row needs a symbol. The stored VA is compared with
+    Each row needs a symbol, except a MIPS operand against its own section
+    (``local_offset``), whose VA follows the function's. The stored VA is compared with
     ``_resolve_exact_then_stripped``, the lookup that recorded it. A missing
     ``bound_va`` is a recorded unresolved binding when ``status`` is
     ``UNRESOLVED`` or ``IAT_POLICY``, because the cache TOML drops nulls.
@@ -800,6 +844,8 @@ def binding_evidence_current(evidence: object, name_to_va: dict[str, int]) -> bo
         if not isinstance(row, dict):
             return False
         symbol = row.get("symbol")
+        if type(row.get("local_offset")) is int and symbol == "":
+            continue
         if not isinstance(symbol, str) or not symbol:
             return False
         if "bound_va" in row:
@@ -969,6 +1015,7 @@ def smart_reloc_compare(
 
     valid_relocs: list[int] = []
     invalid_relocs: list[int] = []
+    mips_jump_conflict = False
 
     # Fast set lookup for absolute-address validation.  One ``name_to_va`` map is
     # threaded through a whole compare run (it is built once per config, not per
@@ -993,17 +1040,47 @@ def smart_reloc_compare(
         ):
             typed_relocs = cast("Sequence[CoffRelocRecord]", coff_relocs)
             table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
-            for rec in typed_relocs:
+            for idx, rec in enumerate(typed_relocs):
                 r = rec.offset
                 if not _slot_in_prefix(r, min_len):
                     if strict:
                         invalid_relocs.append(r)
                     continue
                 valid = True
-                if map_unusable:
+                mips_elf = rec.format in _MIPS_ELF_FORMATS
+                if mips_elf and rec.type in _MIPS_LINKED_KINDS:
+                    fmt = _reloc_fmt(rec.format)
+                    original = struct.unpack_from(fmt, obj_bytes, r)[0]
+                    actual = struct.unpack_from(fmt, target_bytes, r)[0]
+                    if rec.local_offset is None:
+                        bound = _resolve_exact_then_stripped(name_to_va or {}, rec.symbol)
+                    else:
+                        bound = None if section_va is None else section_va + rec.local_offset
+                    linked = (
+                        None
+                        if bound is None or bound < 0
+                        else _mips_linked_word(typed_relocs, idx, obj_bytes, fmt, bound)
+                    )
+                    if rec.type == _R_MIPS_26 and (
+                        rec.local_offset is None or section_va is not None
+                    ):
+                        valid = actual == linked
+                        mips_jump_conflict |= not valid
+                    else:
+                        # Only the relocated field is masked. Like a DIR32, a known
+                        # binding must agree under strict or check_known_bindings; a
+                        # section-local jump without section_va is masked like a REL32.
+                        field = 0x03FFFFFF if rec.type == _R_MIPS_26 else 0xFFFF
+                        valid = not (original ^ actual) & ~field and (
+                            (actual == linked or not (strict or check_known_bindings))
+                            if linked is not None
+                            else not strict and (rec.local_offset is not None or not map_unusable)
+                        )
+                elif map_unusable:
                     valid = False
                 elif name_to_va:
-                    kind = table.get(rec.type)
+                    # Other MIPS ELF fixups retain the legacy offset-map policy.
+                    kind = "abs32" if mips_elf else table.get(rec.type)
                     if kind == "none":
                         # ABSOLUTE: a no-op reloc (alignment/terminator).  Do not
                         # mask — a real difference at this offset must show.
@@ -1017,7 +1094,7 @@ def smart_reloc_compare(
                             name_to_va,
                             catalog_va_set,
                             iat_region,
-                            reloc_table,
+                            rec.format if mips_elf else reloc_table,
                             strict=strict,
                             check_known_bindings=check_known_bindings,
                         )
@@ -1133,6 +1210,7 @@ def smart_reloc_compare(
         not has_mismatch
         and len(obj_bytes) == len(target_bytes)
         and not ((strict or ambiguous_offsets) and invalid_relocs)
+        and not mips_jump_conflict
     )
     return masked_match, match_count, max_len, valid_relocs, invalid_relocs
 

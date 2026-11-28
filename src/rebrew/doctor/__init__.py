@@ -23,16 +23,6 @@ import typer
 from rebrew.cli import EXIT_ERROR, TargetOption, json_print
 from rebrew.cli import console as console
 from rebrew.doctor.checks import (
-    FAIL,
-    KNOWN_ARCHES,
-    OK,
-    SKIP,
-    WARN,
-    image_available,
-    image_toolchain_check,
-    toolchain_download_hint,
-)
-from rebrew.doctor.checks import (
     CheckResult as CheckResult,
 )
 from rebrew.doctor.checks import (
@@ -98,6 +88,9 @@ from rebrew.doctor.checks import (
 from rebrew.doctor.checks import (
     check_toolchain_backed as check_toolchain_backed,
 )
+from rebrew.doctor.checks import (
+    image_toolchain_check,
+)
 from rebrew.doctor.integrations import (
     check_binsync_state as check_binsync_state,
 )
@@ -118,9 +111,6 @@ from rebrew.doctor.integrations import (
 )
 from rebrew.doctor.integrations import (
     check_optional_tools as base_check_optional_tools,
-)
-from rebrew.doctor.integrations import (
-    inventory_spans,
 )
 from rebrew.doctor.integrations import (
     libcmt_index as base_libcmt_index,
@@ -205,18 +195,10 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
     return base_check_opt_level(cfg, exclude_ranges_fn=external_ranges)
 
 
-# Local `_`-aliases retained for test compatibility (never imported across modules).
-_OK = OK
-_FAIL = FAIL
-_WARN = WARN
-_SKIP = SKIP
-_KNOWN_ARCHES = KNOWN_ARCHES
-_image_available = image_available
+# Read by name through ``resolve_pkg_hook`` in ``doctor.checks`` and
+# ``doctor.integrations``; the site counter carries this command's match helpers.
 _image_toolchain_check = image_toolchain_check
-_inventory_spans = inventory_spans
-_libcmt_index = libcmt_index
 _library_site_counts = library_site_counts
-_toolchain_download_hint = toolchain_download_hint
 
 # ---------------------------------------------------------------------------
 # CLI

@@ -157,24 +157,6 @@ def file_hashes(path: str | Path) -> dict[str, str]:
     }
 
 
-def imphash_from_pairs(pairs: Iterable[tuple[str, str]]) -> str:
-    """Mandiant import hash over ``(dll, name)`` pairs.
-
-    Each record is ``<dll-basename>.<name>``: the DLL basename before its
-    first dot and the function name, both folded with :func:`fold_ident`
-    (NFC, then casefold).  ``str.lower`` alone splits NFC ``\u00e9`` from
-    NFD ``e\u0301`` and ``\u00df`` from ``SS``, so the same import named
-    from a PE table on a decomposing volume and from one that composes
-    its text hashed as two different binaries.  Records keep the input
-    order and are joined with ``,``; ordinal imports pass the name as
-    ``ord<N>``.  Callers pass a non-empty iterable: :func:`imphash`
-    returns ``None`` for a binary without imports rather than hashing an
-    empty record list.
-    """
-    records = [f"{fold_ident(dll.split('.', 1)[0])}.{fold_ident(name)}" for dll, name in pairs]
-    return hashlib.md5(",".join(records).encode("utf-8"), usedforsecurity=False).hexdigest()
-
-
 def _imphash_from_pe(pe: Any) -> str | None:
     """Mandiant/pefile import hash from an already-parsed LIEF PE, or ``None``."""
     import lief

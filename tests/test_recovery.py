@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
-from contextlib import contextmanager
+import shutil
+import sqlite3
+from contextlib import closing, contextmanager
 from types import SimpleNamespace
 lazy from collections.abc import Iterator
 lazy from pathlib import Path
@@ -20,6 +23,7 @@ from rebrew.metadata.sqlite import (
     MetadataStorageError,
     backup_metadata_database,
     backup_metadata_toml,
+    read_metadata_database_documents,
     restore_metadata_database,
     restore_metadata_toml,
     verify_backup_manifest,
@@ -142,6 +146,30 @@ def _project(root: Path, backend: str = "sqlite") -> SimpleNamespace:
         f'[metadata]\nbackend = "{backend}"\n'
     )
     return load_config(root)
+
+
+def _kill_writer_mid_transaction(database: Path) -> Path:
+    """Leave *database* as a writer killed before COMMIT does: a hot rollback journal."""
+    journal = database.with_name(database.name + "-journal")
+    aside = database.parent / "killed-writer"
+    aside.mkdir()
+    database.chmod(0o644)
+    with closing(sqlite3.connect(database, isolation_level=None)) as writer:
+        writer.execute("PRAGMA journal_mode = DELETE")
+        writer.execute("PRAGMA cache_size = 1")
+        writer.execute("BEGIN IMMEDIATE")
+        for index in range(200):
+            writer.execute(
+                "INSERT INTO metadata_documents(path, revision, content) VALUES (?, 1, ?)",
+                (f"uncommitted-{index}.toml", "x" * 2000),
+            )
+        shutil.copyfile(database, aside / database.name)
+        shutil.copyfile(journal, aside / journal.name)
+        writer.rollback()
+    shutil.copyfile(aside / database.name, database)
+    shutil.copyfile(aside / journal.name, journal)
+    assert journal.stat().st_size
+    return journal
 
 
 class TestSqliteBackup:
@@ -296,50 +324,70 @@ class TestSqliteBackup:
         assert store.read("test")["GAME.0x1000"]["size"] == 4
         assert (tmp_path / (DATABASE_FILENAME + ".before-restore")).is_file()
 
-    def test_rerun_refuses_when_previous_backup_stays_readonly(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_restore_after_a_killed_writer_preserves_the_live_rows(self, tmp_path: Path) -> None:
         _project(tmp_path)
         store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
         store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
         dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
-        real = Path.chmod
+        store.write({"format": 2, "GAME.0x1000": {"size": 4}, "GAME.0x2000": {"size": 8}}, "test")
+        journal = _kill_writer_mid_transaction(store.location)
 
-        def _chmod(self: Path, mode: int) -> None:
-            if self == dest and mode == 0o644:
-                raise OSError("operation not permitted")
-            real(self, mode)
+        restore_metadata_database(dest, tmp_path)
 
-        monkeypatch.setattr(Path, "chmod", _chmod)
-        with pytest.raises(MetadataStorageError, match="cannot make the previous backup writable"):
-            backup_metadata_database(tmp_path, tmp_path / "off-tree")
-        assert dest.stat().st_mode & 0o777 == 0o444
-        assert store.read("test")["GAME.0x1000"]["size"] == 4
+        assert not journal.exists()
+        assert "GAME.0x2000" not in store.read("test")
+        preserved = tmp_path / (DATABASE_FILENAME + ".before-restore")
+        documents = read_metadata_database_documents(preserved)
+        assert documents["rebrew-functions.toml"]["GAME.0x2000"] == {"size": 8}
+        assert not any(name.startswith("uncommitted-") for name in documents)
 
-    def test_restore_refuses_when_journal_cannot_be_removed(
+    def test_restore_refuses_an_unreadable_live_database(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
+        dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
+        store.location.chmod(0o644)
+        store.location.write_bytes(b"not a database, but the only copy")
+
+        with pytest.raises(MetadataStorageError, match="cannot read the live database"):
+            restore_metadata_database(dest, tmp_path)
+
+        assert store.location.read_bytes() == b"not a database, but the only copy"
+
+    def test_read_after_a_killed_writer_rolls_the_journal_back(self, tmp_path: Path) -> None:
+        _project(tmp_path)
+        store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
+        store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
+        journal = _kill_writer_mid_transaction(store.location)
+
+        assert store.read("test") == {"format": 2, "GAME.0x1000": {"size": 4}}
+
+        assert not journal.exists() or not journal.stat().st_size
+        assert store.location.stat().st_mode & 0o777 == 0o444
+
+    def test_restore_refuses_when_sidecar_cannot_be_removed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Opening the live database recovers -journal and -wal; a stray -shm stays.
         _project(tmp_path)
         store = metadata_store(tmp_path / "rebrew-functions.toml", backend="sqlite", root=tmp_path)
         store.write({"format": 2, "GAME.0x1000": {"size": 4}}, "test")
         dest = backup_metadata_database(tmp_path, tmp_path / "off-tree")
         store.write({"format": 2, "GAME.0x1000": {"size": 8}}, "test")
-        journal = tmp_path / (DATABASE_FILENAME + "-journal")
-        journal.write_bytes(b"old-journal")
+        shm = tmp_path / (DATABASE_FILENAME + "-shm")
+        shm.write_bytes(b"old-shm")
         real = Path.unlink
 
         def _unlink(self: Path, missing_ok: bool = False) -> None:
-            if self.name.endswith("-journal"):
+            if self.name.endswith("-shm"):
                 raise OSError("busy")
             real(self, missing_ok=missing_ok)
 
         monkeypatch.setattr(Path, "unlink", _unlink)
         with pytest.raises(MetadataStorageError, match="stale SQLite sidecar"):
             restore_metadata_database(dest, tmp_path)
-        assert journal.read_bytes() == b"old-journal"
-        # The planted journal is what a read would replay; drop it only after
-        # proving the restore left it, then check the live rows.
-        real(journal)
+        assert shm.read_bytes() == b"old-shm"
+        real(shm)
         assert store.read("test")["GAME.0x1000"]["size"] == 8
 
     def test_second_restore_refuses_when_preserved_copy_stays_readonly(
@@ -713,7 +761,7 @@ def _reseal_manifest(bundle: Path) -> None:
 
 
 @pytest.mark.parametrize("backend", ["sqlite", "toml"])
-def test_restore_from_a_reused_backup_only_installs_manifest_files(
+def test_reused_backup_directory_preserves_earlier_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
     source = _project(tmp_path, backend)
@@ -735,13 +783,30 @@ def test_restore_from_a_reused_backup_only_installs_manifest_files(
     args = ["metadata", "backup", "--dir", str(tmp_path / "off-tree"), "--json"]
     first = runner.invoke(app, args)
     assert first.exit_code == 0, first.output
+    first_backup = Path(json.loads(first.output)["file"])
+    first_bundle = first_backup if backend == "toml" else first_backup.parent
     retired.unlink()
+    metadata_store(functions, backend=backend, root=tmp_path).write(
+        {"format": 3, "GAME.0x2000": {"name": "added"}}, "test"
+    )
+
+    def fail_manifest(*_args: Any) -> None:
+        raise OSError("failed before publication")
+
+    with monkeypatch.context() as failed:
+        failed.setattr("rebrew.metadata.sqlite._write_backup_manifest", fail_manifest)
+        failure = runner.invoke(app, args)
+        assert failure.exit_code != 0
+        assert "failed before publication" in failure.output
+
+    relative = retired.relative_to(tmp_path)
+    assert relative.as_posix() in verify_backup_manifest(first_bundle)
     second = runner.invoke(app, args)
     assert second.exit_code == 0, second.output
     backup = Path(json.loads(second.output)["file"])
     bundle = backup if backend == "toml" else backup.parent
-    relative = retired.relative_to(tmp_path)
-    assert (bundle / relative).is_file()
+    assert bundle != first_bundle
+    assert relative.as_posix() in verify_backup_manifest(first_bundle)
     assert relative.as_posix() not in verify_backup_manifest(bundle)
 
     config = SimpleNamespace(root=restored, metadata_backend=backend)
@@ -930,6 +995,39 @@ class TestTomlBackup:
             == "format=3\nchanged=1\n"
         )
 
+    def test_backup_copies_under_the_restore_locks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _project(tmp_path, "toml")
+        (tmp_path / "rebrew-functions.toml").write_text("format=3\n", encoding="utf-8")
+        dropins = tmp_path / "rebrew-functions.d"
+        dropins.mkdir()
+        (dropins / "crt.toml").write_text("format=3\n", encoding="utf-8")
+        locks = ("rebrew-project.toml.lock", "rebrew-functions.toml.lock")
+        held: dict[str, list[bool]] = {}
+        from rebrew import utils
+
+        real_write = utils.atomic_write_bytes
+
+        def _write(dest: Path, payload: bytes, **kwargs: Any) -> None:
+            for name in locks:
+                with (tmp_path / name).open("a") as probe:
+                    try:
+                        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        held.setdefault(dest.name, []).append(True)
+                    else:
+                        fcntl.flock(probe, fcntl.LOCK_UN)
+                        held.setdefault(dest.name, []).append(False)
+            real_write(dest, payload, **kwargs)
+
+        monkeypatch.setattr(utils, "atomic_write_bytes", _write)
+        backup_metadata_toml(tmp_path, tmp_path / "off-tree")
+
+        assert held["rebrew-functions.toml"] == [True, True]
+        assert held["crt.toml"] == [True, True]
+        assert held["rebrew-project.toml"] == [True, True]
+
     def test_restore_twice_keeps_first_preserved_copy(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("format=3\norig=1\n", encoding="utf-8")
         bundle = backup_metadata_toml(tmp_path, tmp_path / "off-tree")
@@ -943,6 +1041,25 @@ class TestTomlBackup:
             dest.with_name(dest.name + ".before-restore").read_text(encoding="utf-8")
             == "format=3\norig=2\n"
         )
+
+    def test_restore_preserves_and_deactivates_new_dropins(self, tmp_path: Path) -> None:
+        root = tmp_path / "project"
+        store = metadata_store(root / "rebrew-functions.toml", backend="toml", root=root)
+        row = {"name": "original"}
+        store.write({"format": 3, "GAME.0x1000": row}, "functions")
+        backup = backup_metadata_toml(root, tmp_path / "backups")
+        store.write({"format": 3}, "functions")
+        dropin = root / "rebrew-functions.d" / "new.toml"
+        metadata_store(dropin, backend="toml", root=root).write(
+            {"format": 3, "GAME.0x1000": row}, "functions"
+        )
+        old_bytes = dropin.read_bytes()
+
+        restore_metadata_toml(backup, root)
+
+        assert store.read("functions")["GAME.0x1000"] == row
+        assert not dropin.exists()
+        assert dropin.with_suffix(".toml.before-restore").read_bytes() == old_bytes
 
     def test_second_restore_keeps_the_first_displaced_store(self, tmp_path: Path) -> None:
         # Restoring a different bundle must rotate the sidecar aside instead

@@ -159,26 +159,6 @@ def parse_stub_info(
     )
 
 
-def parse_matching_info(
-    filepath: Path,
-    ignored: set[str] | None = None,
-    max_delta: int = 10,
-    metadata_dir: Path | None = None,
-    min_va: int = 0x1000,
-    min_size: int = 0,
-) -> list[StubInfo]:
-    """Extract NEAR_MATCHING annotation fields with byte delta <= max_delta."""
-    return _parse_annotations(
-        filepath,
-        status_filter={"NEAR_MATCHING"},
-        max_delta=max_delta,
-        ignored=ignored,
-        metadata_dir=metadata_dir,
-        min_va=min_va,
-        min_size=min_size,
-    )
-
-
 def parse_matching_all(
     filepath: Path,
     ignored: set[str] | None = None,

@@ -25,7 +25,7 @@ from rebrew.cli import (
     run_cli,
     select_annotation,
 )
-from rebrew.config import _config_warn
+from rebrew.config import config_warn
 from rebrew.utils import console as utils_console
 
 # ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@ class TestRunCliConfigWarning:
     def test_config_warning_printed_once(self, capsys: pytest.CaptureFixture[str]) -> None:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            run_cli(lambda: _config_warn("target binary not found"))
+            run_cli(lambda: config_warn("target binary not found"))
         assert caught == []
         captured = capsys.readouterr()
         assert captured.err.count("target binary not found") == 1
@@ -1451,7 +1451,7 @@ class TestConfigWarningEscapes:
 
         with console.capture() as buf, warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            _config_warn("bad value 'sub_[/bold]name'")
+            config_warn("bad value 'sub_[/bold]name'")
         assert "sub_[/bold]name" in buf.get()
 
 

@@ -20,32 +20,6 @@ from rebrew.verify.cache import VerifyCacheEntry
 
 
 class TestFlagWork:
-    def test_unknown_anchors_do_not_sort_empty_groups(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        sorts = []
-
-        def ordered(values: Any) -> Any:
-            sorts.append(1)
-            return sorted(values)
-
-        monkeypatch.setattr(cache, "sorted", ordered, raising=False)
-        anchors = ["/D", "A=1", "/I", "include", "/D", "A=2"]
-        assert cache.canonicalize_cflags(anchors) == anchors
-        assert sorts == []
-        assert cache.canonicalize_cflags(["/O1", "/O2", *anchors, "/O1"]) == [
-            "/O2",
-            *anchors,
-            "/O1",
-        ]
-        assert len(sorts) == 2
-
-    def test_quote_normalization_keeps_interior_spaces(self) -> None:
-        assert cache.canonicalize_cflags(['" /O2 "', "'/Gd'", " /MT "]) == [
-            " /O2 ",
-            *cache.canonicalize_cflags(["/Gd", "/MT"]),
-        ]
-
     def test_no_directive_marker_skips_line_splitting(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

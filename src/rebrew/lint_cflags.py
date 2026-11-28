@@ -11,7 +11,7 @@ lazy from pathlib import Path
 lazy from typing import Any
 
 lazy from rebrew.config import ProjectConfig
-lazy from rebrew.utils import atomic_write_text, console, parse_int_literal, preset_module_key
+lazy from rebrew.utils import atomic_write_text, console, preset_module_key
 
 
 def cflags_key(cflags: str) -> frozenset[str]:
@@ -34,27 +34,6 @@ def codegen_cflags_key(cflags: str) -> frozenset[str]:
     ambiguous; a different ``/O``/``/G`` set can.
     """
     return frozenset(t for t in cflags_key(cflags) if not t.startswith(("/D", "-D")))
-
-
-def inline_equals_store(found_key: str, inline_value: str, store_value: str) -> bool:
-    """Whether an inline annotation duplicates its metadata-store value.
-
-    CFLAGS compares the codegen set: order does not matter and a ``/D``
-    define is not a disagreement (``/DREBREW_ALLOW_NAKED /O2`` == ``/O2``).
-    SIZE compares numerically when both sides parse (``32`` == ``0x20``).
-    Every other key compares stripped strings. A differing inline copy is
-    left alone: deleting it would destroy information a human may rely on.
-    """
-    inline = inline_value.strip()
-    store = store_value.strip()
-    if found_key == "CFLAGS":
-        return codegen_cflags_key(inline) == codegen_cflags_key(store)
-    if found_key == "SIZE":
-        try:
-            return parse_int_literal(inline) == parse_int_literal(store)
-        except ValueError:
-            return inline == store
-    return inline == store
 
 
 @dataclass(frozen=True)

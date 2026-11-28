@@ -7,7 +7,8 @@ import pytest
 from cli_json import cli_payload
 from source_util import write_store_fixture
 
-from rebrew.doctor import _FAIL, _OK, _WARN, check_compiler, check_runner
+from rebrew.doctor import check_compiler, check_runner
+from rebrew.doctor.checks import FAIL, OK, SKIP, WARN
 
 
 def _cfg(**overrides: object) -> SimpleNamespace:
@@ -26,7 +27,7 @@ class TestCheckCompiler:
         compile path — a missing toolchain is expected, so the compiler
         check downgrades to a warning instead of failing the project."""
         result = check_compiler(_cfg(arch="x86_16", compiler_command="wine missing/CL.EXE"))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "16-bit" in result.message
 
     def test_x86_16_with_msvc152_checks_image(self, monkeypatch) -> None:
@@ -41,7 +42,7 @@ class TestCheckCompiler:
                 compiler_command="",
             )
         )
-        assert result.status == _FAIL  # image not built -> real failure
+        assert result.status == FAIL  # image not built -> real failure
         assert "not built" in result.message
         assert "toolchain build" in (result.fix or "")
         # and a built image passes
@@ -54,12 +55,12 @@ class TestCheckCompiler:
                 root=Path("/"),
             )
         )
-        assert result2.status == _OK
+        assert result2.status == OK
         assert "future" not in (result2.fix or "")
 
     def test_x86_32_target_still_checks(self) -> None:
         result = check_compiler(_cfg(arch="x86_32", compiler_command=""))
-        assert result.status == _FAIL
+        assert result.status == FAIL
 
 
 class TestCompilerAvailability:
@@ -72,7 +73,7 @@ class TestCompilerAvailability:
         result = check_compiler(
             _cfg(arch="x86_16", compiler_profile="delphi-1.0", compiler_command="")
         )
-        assert result.status == (_OK if present else _FAIL)
+        assert result.status == (OK if present else FAIL)
 
     def test_shlex_valueerror_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Unbalanced quotes → shlex.split raises → plain split fallback."""
@@ -81,23 +82,23 @@ class TestCompilerAvailability:
         monkeypatch.setattr(shlex, "split", lambda s: (_ for _ in ()).throw(ValueError()))
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: f"/usr/bin/{exe}")
         result = check_compiler(_cfg(compiler_command='gcc "unclosed'))
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_exe_not_in_path_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
         result = check_compiler(_cfg(compiler_command="clang-99"))
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "not found in PATH" in result.message
 
     def test_native_compiler_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: f"/usr/bin/{exe}")
         result = check_compiler(_cfg(compiler_command="gcc"))
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_wine_not_installed_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
         result = check_compiler(_cfg(compiler_command="wine CL.EXE"))
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "Wine is not installed" in result.message
 
     def test_wine_cl_missing_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,7 +108,7 @@ class TestCompilerAvailability:
         result = check_compiler(
             _cfg(compiler_command="wine tools/CL.EXE", root=Path("/tmp/msvc-6.0toolchain"))
         )
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "CL.EXE not found" in result.message
         assert "msvc-6.0-win32" in result.fix  # msvc-6.0 hint
 
@@ -199,7 +200,7 @@ class TestCompilerAvailability:
         # seam the check actually calls, or the real wine runs.
         monkeypatch.setattr("rebrew.utils.run_process_group", _run)
         result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
-        assert result.status == _OK
+        assert result.status == OK
         assert "reachable" in result.message
 
     def test_wine_smoke_timeout_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -217,7 +218,7 @@ class TestCompilerAvailability:
 
         monkeypatch.setattr("rebrew.utils.run_process_group", _run)
         result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "timed out" in result.message
 
     def test_wine_smoke_filenotfound_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -233,7 +234,7 @@ class TestCompilerAvailability:
 
         monkeypatch.setattr("rebrew.utils.run_process_group", _run)
         result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "Failed to invoke Wine" in result.message
 
     def test_wine_without_cl_path_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -241,32 +242,32 @@ class TestCompilerAvailability:
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
         result = check_compiler(_cfg(compiler_command="wine"))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "no CL.EXE path specified" in result.message
 
 
 class TestCheckRunner:
     def test_no_runner_pass(self) -> None:
         result = check_runner(_cfg())
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_runner_in_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: f"/usr/bin/{exe}")
         result = check_runner(_cfg(compiler_runner="wibo"))
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_wibo_found_via_finder(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
         monkeypatch.setattr("rebrew.wibo.find_wibo", lambda root: Path("/tmp/wibo"))
         result = check_runner(_cfg(compiler_runner="wibo"))
-        assert result.status == _OK
+        assert result.status == OK
         assert "wibo found" in result.message
 
     def test_wibo_missing_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
         monkeypatch.setattr("rebrew.wibo.find_wibo", lambda root: None)
         result = check_runner(_cfg(compiler_runner="wibo"))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "wibo not found" in result.message
 
     def test_wine_runner_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -274,7 +275,7 @@ class TestCheckRunner:
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
         result = check_runner(_cfg(compiler_runner="wine"))
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_wine_with_wibo_available_keeps_wine_default(
         self, monkeypatch: pytest.MonkeyPatch
@@ -287,7 +288,7 @@ class TestCheckRunner:
         )
         monkeypatch.setattr("rebrew.wibo.find_wibo", lambda root: Path("/tmp/wibo"))
         result = check_runner(_cfg(compiler_runner="wine"))
-        assert result.status == _OK
+        assert result.status == OK
         assert "wibo" in result.message
         assert "fails on some tools" in result.message
         assert (result.fix or "") == ""
@@ -295,7 +296,7 @@ class TestCheckRunner:
     def test_unknown_runner_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
         result = check_runner(_cfg(compiler_runner="mystery"))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "Unknown runner" in result.message
 
 
@@ -315,21 +316,21 @@ class TestCheckCompilerMore:
 
 class TestCheckMetadataFiles:
     def test_missing_metadata_warns(self, tmp_path: Path) -> None:
-        from rebrew.doctor import _WARN, check_metadata_files
+        from rebrew.doctor import check_metadata_files
 
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         result = check_metadata_files(cfg)  # type: ignore[arg-type]
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "Missing" in result.message
 
     def test_present_metadata_passes(self, tmp_path: Path) -> None:
-        from rebrew.doctor import _OK, check_metadata_files
+        from rebrew.doctor import check_metadata_files
 
         write_store_fixture(tmp_path / "rebrew-functions.toml", "", encoding="utf-8")
         write_store_fixture(tmp_path / "rebrew-data.toml", "", encoding="utf-8")
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         result = check_metadata_files(cfg)  # type: ignore[arg-type]
-        assert result.status == _OK
+        assert result.status == OK
 
 
 class TestDoctorCli:
@@ -455,12 +456,12 @@ class TestCheckOptionalTools:
     def test_missing_both_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import sys
 
-        from rebrew.doctor import _WARN, check_optional_tools
+        from rebrew.doctor import check_optional_tools
 
         monkeypatch.setitem(sys.modules, "angr", None)  # import fails
         monkeypatch.setitem(sys.modules, "claripy", None)  # import fails
         result = check_optional_tools()
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "angr" in result.message
         assert "claripy" in result.message
 
@@ -468,18 +469,18 @@ class TestCheckOptionalTools:
         import sys
         from types import ModuleType
 
-        from rebrew.doctor import _OK, check_optional_tools
+        from rebrew.doctor import check_optional_tools
 
         fake = ModuleType("angr")
         fake.claripy = ModuleType("claripy")
         monkeypatch.setitem(sys.modules, "angr", fake)
         result = check_optional_tools()
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_registered_in_run_doctor(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.doctor import _OK, CheckResult, check_optional_tools, run_doctor
+        from rebrew.doctor import CheckResult, check_optional_tools, run_doctor
 
         # Previously this called run_doctor with a missing config and asserted
         # `any(...) or report.target == "x"`. Config-missing early-return sets
@@ -502,11 +503,11 @@ class TestCheckOptionalTools:
         )
         monkeypatch.setattr(
             "rebrew.doctor.check_config_parse",
-            lambda target=None: (CheckResult(name="Config", status=_OK, message="ok"), cfg),
+            lambda target=None: (CheckResult(name="Config", status=OK, message="ok"), cfg),
         )
 
         def _noop(*_a: object, **_k: object) -> CheckResult:
-            return CheckResult(name="noop", status=_OK, message="ok")
+            return CheckResult(name="noop", status=OK, message="ok")
 
         # Keep other checks cheap; we only care that optional tools is appended.
         for name in (
@@ -548,13 +549,13 @@ class TestCheckToolchainAlignment:
         return self._cfg(target_binary=binary, **overrides)
 
     def test_missing_binary_skips(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.doctor import _SKIP, check_toolchain_alignment
+        from rebrew.doctor import check_toolchain_alignment
 
         result = check_toolchain_alignment(self._cfg())
-        assert result.status == _SKIP
+        assert result.status == SKIP
 
     def test_mismatch_fails(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        from rebrew.doctor import _FAIL, check_toolchain_alignment
+        from rebrew.doctor import check_toolchain_alignment
         from rebrew.toolchain_detect import ToolchainInfo
 
         # A genuine mismatch — a MinGW-built binary with the msvc-6.0 profile
@@ -564,7 +565,7 @@ class TestCheckToolchainAlignment:
             lambda *a, **k: ToolchainInfo(family="mingw", confidence="high", version_hint="GCC 8"),
         )
         result = check_toolchain_alignment(self._cfg_with_binary(tmp_path))
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "mingw" in result.message
         assert "does not align" in (result.fix or "")
 
@@ -572,7 +573,7 @@ class TestCheckToolchainAlignment:
         """A Delphi target has no matchable profile at all (ADR-001-style:
         documented blockers, analysis-only) — the alignment check downgrades
         to a warning instead of failing the project."""
-        from rebrew.doctor import _WARN, check_toolchain_alignment
+        from rebrew.doctor import check_toolchain_alignment
         from rebrew.toolchain_detect import ToolchainInfo
 
         monkeypatch.setattr(
@@ -582,12 +583,12 @@ class TestCheckToolchainAlignment:
             ),
         )
         result = check_toolchain_alignment(self._cfg_with_binary(tmp_path))
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "delphi" in result.message
         assert "Delphi" in (result.fix or "")
 
     def test_aligned_passes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        from rebrew.doctor import _OK, check_toolchain_alignment
+        from rebrew.doctor import check_toolchain_alignment
         from rebrew.toolchain_detect import ToolchainInfo
 
         monkeypatch.setattr(
@@ -597,10 +598,10 @@ class TestCheckToolchainAlignment:
             ),
         )
         result = check_toolchain_alignment(self._cfg_with_binary(tmp_path))
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_zig_caveat_warns(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        from rebrew.doctor import _WARN, check_toolchain_alignment
+        from rebrew.doctor import check_toolchain_alignment
         from rebrew.toolchain_detect import ToolchainInfo
 
         monkeypatch.setattr(
@@ -610,7 +611,7 @@ class TestCheckToolchainAlignment:
         result = check_toolchain_alignment(
             self._cfg_with_binary(tmp_path, compiler_profile="mingw-16.2.0")
         )
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "structural" in (result.fix or "")
 
 
@@ -619,7 +620,7 @@ class TestCheckToolchainBacked:
         from rebrew.compiler import toolchain as toolchain_mod
         from rebrew.compiler.toolchain import TOOLCHAINS
         from rebrew.compiler.toolchain_spec import ToolchainSpec
-        from rebrew.doctor import _SKIP, check_toolchain_backed
+        from rebrew.doctor import check_toolchain_backed
 
         monkeypatch.setattr(
             toolchain_mod,
@@ -629,36 +630,36 @@ class TestCheckToolchainBacked:
         result = check_toolchain_backed(
             SimpleNamespace(compiler_profile="hostcc", root=Path("/tmp"))
         )
-        assert result.status == _SKIP
+        assert result.status == SKIP
 
     def test_mingw_reports_its_image(self, monkeypatch) -> None:
         """mingw-16.2.0 is image-backed now — the docker-backed check reports the
         image state instead of skipping it as a native profile."""
-        from rebrew.doctor import _OK, check_toolchain_backed
+        from rebrew.doctor import check_toolchain_backed
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         result = check_toolchain_backed(
             SimpleNamespace(compiler_profile="mingw-16.2.0", root=Path("/tmp"))
         )
-        assert result.status == _OK
+        assert result.status == OK
         assert "rebrew/mingw:16.2.0-win32" in result.message
 
     def test_watcom_image_present_passes(self, monkeypatch) -> None:
-        from rebrew.doctor import _OK, check_toolchain_backed
+        from rebrew.doctor import check_toolchain_backed
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         cfg = SimpleNamespace(compiler_profile="watcom-2.0-win32", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "pulled" in result.message
 
     def test_missing_image_fails(self, monkeypatch) -> None:
-        from rebrew.doctor import _FAIL, check_toolchain_backed
+        from rebrew.doctor import check_toolchain_backed
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         cfg = SimpleNamespace(compiler_profile="watcom-2.0-win32", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "toolchain build" in (result.fix or "")
 
 
@@ -668,7 +669,7 @@ class TestCheckCompilerRelativeCommand:
     direct command is not on PATH."""
 
     def test_relative_command_resolves(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.doctor import _OK, check_compiler
+        from rebrew.doctor import check_compiler
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         cl = tmp_path / "toolchain" / "msvc" / "1.52-win16" / "BIN" / "CL.EXE"
@@ -682,10 +683,10 @@ class TestCheckCompilerRelativeCommand:
             compiler_runner="",
         )
         result = check_compiler(cfg)
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_missing_image_fails(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.doctor import _FAIL, check_compiler
+        from rebrew.doctor import check_compiler
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         cfg = SimpleNamespace(
@@ -696,7 +697,7 @@ class TestCheckCompilerRelativeCommand:
             compiler_runner="",
         )
         result = check_compiler(cfg)
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "not built" in result.message
 
 
@@ -705,33 +706,33 @@ class TestToolchainDownloadHint:
     vendored toolchain — including msvc-1.52 (direct DOSBox command)."""
 
     def test_msvc152_hint(self) -> None:
-        from rebrew.doctor import _toolchain_download_hint
+        from rebrew.doctor.checks import toolchain_download_hint
 
-        hint = _toolchain_download_hint("tools/msvc152/bin/cl.exe")
+        hint = toolchain_download_hint("tools/msvc152/bin/cl.exe")
         assert "archive.org" in hint
         assert "MSVC 1.52" in hint
 
     def test_watcom_hint(self) -> None:
-        from rebrew.doctor import _toolchain_download_hint
+        from rebrew.doctor.checks import toolchain_download_hint
 
-        hint = _toolchain_download_hint("tools/watcom/binl/wcc386")
+        hint = toolchain_download_hint("tools/watcom/binl/wcc386")
         assert "watcom" in hint.lower()
 
     def test_msvc_6_0_3_before_msvc_6_0_order(self) -> None:
-        from rebrew.doctor import _toolchain_download_hint
+        from rebrew.doctor.checks import toolchain_download_hint
 
-        hint = _toolchain_download_hint("toolchain/msvc/6.0-sp3-win32/bin/cl.exe")
+        hint = toolchain_download_hint("toolchain/msvc/6.0-sp3-win32/bin/cl.exe")
         assert hint.endswith(
             "/msvc600-win9x/releases/download/2026-11-10/msvc6.3.tar.gz"
         )  # not msvc-6.0
 
     def test_unknown_no_hint(self) -> None:
-        from rebrew.doctor import _toolchain_download_hint
+        from rebrew.doctor.checks import toolchain_download_hint
 
-        assert _toolchain_download_hint("tools/weird/cc") == ""
+        assert toolchain_download_hint("tools/weird/cc") == ""
 
     def test_missing_image_fix_has_build_hint(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.doctor import _FAIL, check_compiler
+        from rebrew.doctor import check_compiler
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         cfg = SimpleNamespace(
@@ -742,38 +743,38 @@ class TestToolchainDownloadHint:
             compiler_runner="",
         )
         result = check_compiler(cfg)
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "toolchain build" in (result.fix or "")
 
 
 class TestCheckToolchainBackedNewProfiles:
     def test_borland_3_1_image_present_passes(self, monkeypatch) -> None:
-        from rebrew.doctor import _OK, check_toolchain_backed
+        from rebrew.doctor import check_toolchain_backed
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         cfg = SimpleNamespace(compiler_profile="borland-3.1", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
-        assert result.status == _OK
+        assert result.status == OK
         assert "pulled" in result.message
 
     def test_borlandc55_image_present_passes(self, monkeypatch) -> None:
-        from rebrew.doctor import _OK, check_toolchain_backed
+        from rebrew.doctor import check_toolchain_backed
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         cfg = SimpleNamespace(compiler_profile="borland-5.5", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
-        assert result.status == _OK
+        assert result.status == OK
 
     def test_watcom_2_0_win16_reports_its_image(self, monkeypatch) -> None:
         """watcom-2.0-win16 is image-backed now (rebrew/watcom:2.0-win16) — the
         docker-backed check reports the image state, not a native skip."""
-        from rebrew.doctor import _OK, check_toolchain_backed
+        from rebrew.doctor import check_toolchain_backed
 
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: True)
         result = check_toolchain_backed(
             SimpleNamespace(compiler_profile="watcom-2.0-win16", root=Path("/tmp"))
         )
-        assert result.status == _OK
+        assert result.status == OK
         assert "rebrew/watcom:2.0-win16" in result.message
 
 
@@ -787,7 +788,7 @@ class TestCheckCompiler16BitProfiles:
         result = check_compiler(
             _cfg(arch="x86_16", compiler_profile="borland-3.1", compiler_command="")
         )
-        assert result.status == _FAIL  # image not built -> real failure, not the 16-bit warn
+        assert result.status == FAIL  # image not built -> real failure, not the 16-bit warn
         assert "16-bit" not in (result.message or "")
 
     def test_watcom_2_0_win16_profile_not_warned(self) -> None:
@@ -803,7 +804,7 @@ class TestCheckCompiler16BitProfiles:
         """Registry bits=16 profiles are 16-bit compilers, not a missing one."""
         monkeypatch.setattr("rebrew.compiler.toolchain.image_present", lambda tag: False)
         result = check_compiler(_cfg(arch="x86_16", compiler_profile=profile, compiler_command=""))
-        assert result.status == _FAIL
+        assert result.status == FAIL
         assert "not built" in (result.message or "")
         assert "configure a 16-bit" not in (result.message or "")
 
@@ -830,7 +831,7 @@ class TestCheckCompiler16BitProfiles:
                 target_binary=binary,
             )
         )
-        assert result.status == _WARN
+        assert result.status == WARN
         assert "borland-3.1" in (result.message or "") + (result.fix or "")
 
 

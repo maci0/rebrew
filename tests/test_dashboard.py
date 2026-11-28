@@ -33,11 +33,8 @@ from typer.testing import CliRunner
 
 from rebrew.coverage import dashboard as dashboard_module
 from rebrew.coverage.dashboard import (
-    _APP_JS,
-    _APP_JS_URL,
     _APP_JS_VERSION,
     _APP_JS_WIRE,
-    _BOOT_GUARD_JS,
     _BOOTSTRAP_FUNCTION_LIMIT,
     _DEFAULT_LIMIT,
     _FAVICON_VERSION,
@@ -46,6 +43,7 @@ from rebrew.coverage.dashboard import (
     _files_display,
     _Handler,
 )
+from rebrew.coverage.dashboard_assets import APP_JS, APP_JS_URL, BOOT_GUARD_JS, ENTRY_PATHS
 from rebrew.coverage.db import write_coverage
 from rebrew.coverage.toml import (
     CoverageSnapshot,
@@ -1053,7 +1051,7 @@ class TestHandle:
         assert 'id="boot-status"' in body
         assert 'id="empty-state"' in body
         assert "Showing " in body and "of " in body  # truncation copy in JS
-        assert "aria-busy only" in _APP_JS  # loading via aria-busy, not live-region chatter
+        assert "aria-busy only" in APP_JS  # loading via aria-busy, not live-region chatter
         assert "Loading functions…" not in body
         assert "class=value" in body
         assert 'id="clear-filters"' in body
@@ -1157,9 +1155,9 @@ class TestHandle:
         assert 'get("/api/bootstrap")' in body
         # Full-line comments stay in the source, not on the wire. A comment
         # after code stays: cutting it needs a real parse.
-        assert "// Hash" in _APP_JS
+        assert "// Hash" in APP_JS
         assert "\n//" not in body
-        source_lines = [line for line in _APP_JS.splitlines() if not line.lstrip().startswith("//")]
+        source_lines = [line for line in APP_JS.splitlines() if not line.lstrip().startswith("//")]
         assert body.splitlines() == source_lines
 
     def test_boot_guard_is_inline_and_runs_after_the_client(self, dashboard: Dashboard) -> None:
@@ -1167,22 +1165,22 @@ class TestHandle:
         from rebrew.coverage.dashboard import _BOOT_GUARD_HASH
 
         _, _, html = dashboard.handle("GET", "/", {})
-        assert f'<script src="{_APP_JS_URL}" defer fetchpriority="high"></script>' in html
-        assert f"<script>{_BOOT_GUARD_JS}</script>" in html
+        assert f'<script src="{APP_JS_URL}" defer fetchpriority="high"></script>' in html
+        assert f"<script>{BOOT_GUARD_JS}</script>" in html
         # Deferred scripts run before DOMContentLoaded, so the guard is after
         # the client without a second request on the cold path.
-        assert "DOMContentLoaded" in _BOOT_GUARD_JS
+        assert "DOMContentLoaded" in BOOT_GUARD_JS
         assert "/boot-guard.js" not in html
         # Without this the guard would report a failure on a healthy load.
-        assert "__rebrewBooted = true" in _APP_JS
-        assert "globalThis.__rebrewBooted) return" in _BOOT_GUARD_JS
+        assert "__rebrewBooted = true" in APP_JS
+        assert "globalThis.__rebrewBooted) return" in BOOT_GUARD_JS
         # A stuck client leaves the user a message, not a permanent spinner.
-        assert 'getElementById("boot-status")' in _BOOT_GUARD_JS
-        assert "Reload to retry" in _BOOT_GUARD_JS
+        assert 'getElementById("boot-status")' in BOOT_GUARD_JS
+        assert "Reload to retry" in BOOT_GUARD_JS
         # ...and a control that does what the message says, since the client
         # that normally reveals the Reload button is what failed.
-        assert 'getElementById("reload")' in _BOOT_GUARD_JS
-        assert "location.reload()" in _BOOT_GUARD_JS
+        assert 'getElementById("reload")' in BOOT_GUARD_JS
+        assert "location.reload()" in BOOT_GUARD_JS
         # Inline, but the policy still names only this script, not
         # 'unsafe-inline'.
         assert _BOOT_GUARD_HASH.startswith("sha256-")
@@ -2638,7 +2636,7 @@ class TestEncodingNegotiation:
         headers = dict(call.args for call in handler.send_header.call_args_list)
         body = gzip.decompress(handler.wfile.getvalue())
         assert headers["Content-Encoding"] == "gzip"
-        assert _BOOT_GUARD_JS.encode() in body
+        assert BOOT_GUARD_JS.encode() in body
 
     @pytest.mark.parametrize("accept", ["gzip", "zstd"])
     def test_entry_assets_fit_initial_congestion_window(
@@ -2654,14 +2652,13 @@ class TestEncodingNegotiation:
         from unittest.mock import Mock
 
         from rebrew.coverage.dashboard import (
-            _ENTRY_PATHS,
             _ENTRY_WIRE_BUDGET_BYTES,
             _Handler,
             allowed_hosts_for,
         )
 
         wire = 0
-        for path in _ENTRY_PATHS:
+        for path in ENTRY_PATHS:
             handler = _Handler.__new__(_Handler)
             handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": accept}
             handler.path = path
@@ -2702,7 +2699,6 @@ class TestEncodingNegotiation:
         from unittest.mock import Mock
 
         from rebrew.coverage.dashboard import (
-            _ENTRY_PATHS,
             _INITCWND_BYTES,
             _Handler,
             allowed_hosts_for,
@@ -2727,7 +2723,7 @@ class TestEncodingNegotiation:
             return len(head.encode()) + 2, len(handler.wfile.getvalue())
 
         entry_head = entry_body = 0
-        for path in _ENTRY_PATHS:
+        for path in ENTRY_PATHS:
             head, body = flight_bytes(path)
             entry_head += head
             entry_body += body
@@ -2754,13 +2750,12 @@ class TestEncodingNegotiation:
         """
         import rebrew.coverage.dashboard as dashboard_module
         from rebrew.coverage.dashboard import (
-            _ENTRY_PATHS,
             _ENTRY_WIRE_BUDGET_BYTES,
             _precompressed_static,
         )
 
         wire = 0
-        for path in _ENTRY_PATHS:
+        for path in ENTRY_PATHS:
             is_index = path == "/"
             raw = dashboard_module._INDEX_HTML_BYTES if is_index else dashboard_module._APP_JS_BYTES
             zstd_blob = (
@@ -3006,7 +3001,6 @@ class TestServerTiming:
         return dict(call.args for call in handler.send_header.call_args_list)
 
     def test_api_response_reports_route_duration(self, dashboard: Dashboard) -> None:
-        from rebrew.coverage.dashboard import _APP_JS_URL
 
         timing = self._headers(dashboard, "/api/targets")["Server-Timing"]
         assert timing.startswith("route;dur=")
@@ -3017,7 +3011,7 @@ class TestServerTiming:
         assert duration >= 0.0
         # The shell and the content-hashed clients are on the congestion
         # window budget: no extra header bytes there.
-        for path in ("/", _APP_JS_URL):
+        for path in ("/", APP_JS_URL):
             assert "Server-Timing" not in self._headers(dashboard, path), path
 
     def test_route_duration_tracks_the_query(

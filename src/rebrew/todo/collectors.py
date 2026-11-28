@@ -25,7 +25,7 @@ lazy from rebrew.naming import (
     inside_annotated_vas,
     parse_byte_delta,
 )
-lazy from rebrew.utils import console as default_console
+lazy from rebrew.utils import console
 lazy from rebrew.workspace.status import (
     EARNED_STATUSES,
     FUZZY_STATUSES,
@@ -566,7 +566,7 @@ def collect_prover_candidates(
     return items
 
 
-def load_target_binary(cfg: ProjectConfig, *, out_console: Any = None) -> Any | None:
+def load_target_binary(cfg: ProjectConfig) -> Any | None:
     """Parse the target binary for unmatchable detection, or ``None``.
 
     A parse failure is not the same answer as "no binary": the callers below
@@ -580,12 +580,11 @@ def load_target_binary(cfg: ProjectConfig, *, out_console: Any = None) -> Any | 
         return None
     from rebrew.formats.binary_loader import load_binary
 
-    target_console = default_console if out_console is None else out_console
     try:
         return load_binary(Path(bin_path))
     except (OSError, ValueError, RuntimeError) as exc:
         log.warning("cannot parse %s: %s", bin_path, exc, exc_info=True)
-        target_console.print(
+        console.print(
             f"[yellow]WARNING: cannot parse {bin_path} ({exc}); "
             "unmatchable detection is disabled[/yellow]"
         )
@@ -616,10 +615,8 @@ def collect_new_functions(
     cfg: ProjectConfig,
     skip_vas: frozenset[int] | set[int] = frozenset(),
     *,
-    unmatchable_detector: Callable[..., str | None] | None = None,
     infer_module_fn: Callable[[str, str], str] | None = None,
     stock_lib_fns: tuple[Any, Any, Any, Any] | None = None,
-    out_console: Any = None,
 ) -> list[TodoItem]:
     """Collect uncovered functions as start-function candidates.
 
@@ -627,8 +624,6 @@ def collect_new_functions(
     functions found against rows the caller has already removed from
     *existing*.  Skipping them first keeps them out of the 50-item cap.
     """
-    target_console = default_console if out_console is None else out_console
-    unmatchable_fn = unmatchable_detector or detect_unmatchable
     ignored = ignored_symbols(cfg)
     iat_set: set[int] = set(getattr(cfg, "iat_thunks", None) or [])
     sorted_covered = sorted(covered_vas)
@@ -666,12 +661,12 @@ def collect_new_functions(
             try:
                 lib_index = index_library(cached)
             except Exception as exc:  # any archive parse failure; the filter is advisory
-                target_console.print(
+                console.print(
                     f"[yellow]WARNING: cannot index {cached} ({exc}); "
                     "library functions are not filtered from the list[/yellow]"
                 )
         elif cached is not None and cached.exists():
-            target_console.print(
+            console.print(
                 f"[yellow]WARNING: ignoring incomplete stock archive {cached}; "
                 "run `rebrew library match --stock-lib LIBCMT.LIB` to refresh it[/yellow]"
             )
@@ -692,7 +687,7 @@ def collect_new_functions(
             # once instead of recommending library code as new work silently.
             if not lib_probe_warned:
                 lib_probe_warned = True
-                target_console.print(
+                console.print(
                     f"[yellow]WARNING: cannot read {cfg.target_binary} at 0x{probe:08x} "
                     f"({exc}); library functions may not be filtered[/yellow]"
                 )
@@ -700,7 +695,7 @@ def collect_new_functions(
         return list(match_bytes_fn(lib_index, data))
 
     # Load binary for unmatchable detection
-    binary_info = load_target_binary(cfg, out_console=target_console)
+    binary_info = load_target_binary(cfg)
 
     items: list[TodoItem] = []
     for func in ghidra_funcs:
@@ -739,7 +734,7 @@ def collect_new_functions(
         if size < 10:
             continue
 
-        reason = unmatchable_fn(
+        reason = detect_unmatchable(
             va,
             size,
             binary_info,
@@ -792,19 +787,16 @@ def collect_library_candidates(
     existing: dict[int, dict[str, str]],
     cfg: ProjectConfig,
     *,
-    unmatchable_detector: Callable[..., str | None] | None = None,
     infer_module_fn: Callable[[str, str], str] | None = None,
-    out_console: Any = None,
 ) -> list[TodoItem]:
     """Collect uncovered functions with library module for identification."""
-    unmatchable_fn = unmatchable_detector or detect_unmatchable
     lib_modules = set(cfg.library_modules) if cfg.library_modules else {"ZLIB", "MSVCRT"}
     # Same non-targets the start-function lane skips: an IAT thunk or ASM
     # builtin is import glue / compiler support, not a library function to
     # identify, and a sub-10B row is not actionable.
     ignored: set[str] = set(getattr(cfg, "ignored_symbols", None) or [])
     iat_set: set[int] = set(getattr(cfg, "iat_thunks", None) or [])
-    binary_info = load_target_binary(cfg, out_console=out_console)
+    binary_info = load_target_binary(cfg)
     items: list[TodoItem] = []
     for func in ghidra_funcs:
         va = func.va
@@ -826,7 +818,7 @@ def collect_library_candidates(
         # then recommended as a candidate, which is exactly the wrong answer
         # for a thunk or library stub the probe could not classify.
         try:
-            unmatchable = unmatchable_fn(va, size, binary_info, iat_set, ignored, name)
+            unmatchable = detect_unmatchable(va, size, binary_info, iat_set, ignored, name)
         except (TypeError, ValueError, AttributeError) as exc:
             log.warning(
                 "unmatchable probe failed for %s (0x%08x): %s", name, va, exc, exc_info=True
@@ -1212,8 +1204,6 @@ def collect_all(
     exclude_vas: set[int] | None = None,
     *,
     scanned: Sequence[Path] | None = None,
-    verify_entries_loader: Callable[[ProjectConfig], dict[str, VerifyCacheEntry]] | None = None,
-    unmatchable_detector: Callable[..., str | None] | None = None,
     effective_status_fn: Callable[[str, str | None], str] | None = None,
     prover_available_fn: Callable[[], bool] | None = None,
     infer_module_fn: Callable[[str, str], str] | None = None,
@@ -1221,7 +1211,6 @@ def collect_all(
     copied_ranges_fn: Callable[[ProjectConfig], list[tuple[int, int]]] | None = None,
     span_is_copied_fn: Callable[[int, int, list[tuple[int, int]]], bool] | None = None,
     find_built_image_fn: Callable[[Path, str, Path | None], Path | None] | None = None,
-    out_console: Any = None,
 ) -> list[TodoItem]:
     """Collect and rank actions by affected bytes, using effort to break ties.
 
@@ -1239,8 +1228,7 @@ def collect_all(
 
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     name_by_va: dict[int, str] = {f.va: f.name or "" for f in ghidra_funcs}
-    load_entries = verify_entries_loader or load_verify_entries
-    verify_entries = load_entries(cfg)
+    verify_entries = load_verify_entries(cfg)
 
     # 1. Collect all active functions tracked in the project
     # A caller whose own function is already byte-matched does not need its
@@ -1280,10 +1268,8 @@ def collect_all(
             covered_vas,
             cfg,
             exclude_vas or set(),
-            unmatchable_detector=unmatchable_detector,
             infer_module_fn=infer_module_fn,
             stock_lib_fns=stock_lib_fns,
-            out_console=out_console,
         )
     )
     items.extend(
@@ -1291,9 +1277,7 @@ def collect_all(
             ghidra_funcs,
             existing,
             cfg,
-            unmatchable_detector=unmatchable_detector,
             infer_module_fn=infer_module_fn,
-            out_console=out_console,
         )
     )
     items.extend(

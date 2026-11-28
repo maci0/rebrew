@@ -35,18 +35,6 @@ from rebrew.cli import (
     require_non_negative,
 )
 from rebrew.todo.collectors import (
-    collect_active_functions,
-    collect_data_drift,
-    collect_library_candidates,
-    collect_missing_bindings,
-    collect_new_functions,
-    collect_postlink_rewritten,
-    collect_prover_candidates,
-    collect_setup_steps,
-    collect_start_data,
-    zero_fill_tail_checker,
-)
-from rebrew.todo.collectors import (
     collect_all as _collect_all_impl,
 )
 from rebrew.todo.models import (
@@ -140,49 +128,12 @@ from rebrew.todo.render import (
 )
 lazy from rebrew.config import ProjectConfig as ProjectConfig
 lazy from rebrew.naming import (
-    detect_unmatchable,
     external_vas,
     inside_annotated_vas,
     load_data,
     scope_to_target,
 )
-lazy from rebrew.utils import atomic_write_text, floor_pct
-
-# ---------------------------------------------------------------------------
-# Local module-private aliases preserved for existing tests and benchmarks
-# ---------------------------------------------------------------------------
-
-_PROVE_MAX_DIFF_BYTES = PROVE_MAX_DIFF_BYTES
-_PROVE_MAX_FUNC_BYTES = PROVE_MAX_FUNC_BYTES
-_NON_TARGET_MARKERS = NON_TARGET_MARKERS
-_CATEGORY_COLORS = CATEGORY_COLORS
-_DATA_CATEGORIES = DATA_CATEGORIES
-_TODO_FIELDS = TODO_FIELDS
-_LETTER_STATUSES = LETTER_STATUSES
-
-_EXTERN_CACHE = EXTERN_CACHE
-_EXTERN_CACHE_MAX = EXTERN_CACHE_MAX
-_EXTERN_CACHE_LOCK = EXTERN_CACHE_LOCK
-_EXTERN_CACHE_VERSION = EXTERN_CACHE_VERSION
-
-_select_item_fields = select_item_fields
-_item_domain = item_domain
-_rank_by_impact = rank_by_impact
-_extern_path_key = extern_path_key
-_display_path = display_path
-_extern_source_stamp = extern_source_stamp
-_extern_cache_dir = extern_cache_dir
-_extern_entry = extern_entry
-_begin_extern_cache = begin_extern_cache
-_extern_cache_remember = extern_cache_remember
-_caller_counts = caller_counts
-_caller_boost = caller_boost
-_caller_suffix = caller_suffix
-_collect_setup_steps = collect_setup_steps
-_collect_start_data = collect_start_data
-_zero_fill_tail_checker = zero_fill_tail_checker
-_collect_missing_bindings = collect_missing_bindings
-_coverage_status_markup = coverage_status_markup
+lazy from rebrew.utils import floor_pct
 
 
 def _effective_status(ann_status: str, cached: str | None) -> str:
@@ -227,102 +178,6 @@ def _find_built_image(root: Path, target_name: str, raw_link: Path | None = None
     return find_built_image(root, target_name, raw_link)
 
 
-def _flush_extern_cache(cache: dict[str, Any]) -> None:
-    flush_extern_cache(cache, write_text=atomic_write_text)
-
-
-def _collect_active_functions(
-    existing: dict[int, dict[str, str]],
-    size_by_va: dict[int, int],
-    name_by_va: dict[int, str],
-    verify_entries: dict[str, Any],
-    caller_counts_map: dict[str, int] | None = None,
-) -> list[TodoItem]:
-    return collect_active_functions(
-        existing,
-        size_by_va,
-        name_by_va,
-        verify_entries,
-        caller_counts_map,
-        effective_status_fn=_effective_status,
-        prover_available_fn=_angr_available,
-    )
-
-
-def _collect_prover_candidates(
-    existing: dict[int, dict[str, str]],
-    size_by_va: dict[int, int],
-    verify_entries: dict[str, Any],
-) -> list[TodoItem]:
-    return collect_prover_candidates(
-        existing,
-        size_by_va,
-        verify_entries,
-        effective_status_fn=_effective_status,
-        prover_available_fn=_angr_available,
-    )
-
-
-def _collect_new_functions(
-    ghidra_funcs: list[FunctionEntry],
-    existing: dict[int, dict[str, str]],
-    covered_vas: dict[int, str],
-    cfg: ProjectConfig,
-    skip_vas: frozenset[int] | set[int] = frozenset(),
-) -> list[TodoItem]:
-    return collect_new_functions(
-        ghidra_funcs,
-        existing,
-        covered_vas,
-        cfg,
-        skip_vas,
-        unmatchable_detector=detect_unmatchable,
-        infer_module_fn=_infer_module,
-        stock_lib_fns=_stock_lib_fns(),
-        out_console=console,
-    )
-
-
-def _collect_library_candidates(
-    ghidra_funcs: list[FunctionEntry],
-    existing: dict[int, dict[str, str]],
-    cfg: ProjectConfig,
-) -> list[TodoItem]:
-    return collect_library_candidates(
-        ghidra_funcs,
-        existing,
-        cfg,
-        unmatchable_detector=detect_unmatchable,
-        infer_module_fn=_infer_module,
-        out_console=console,
-    )
-
-
-def _collect_data_drift(
-    cfg: ProjectConfig,
-    data_entries: dict[tuple[str, int], dict[str, Any]] | None = None,
-) -> list[TodoItem]:
-    return collect_data_drift(
-        cfg,
-        data_entries,
-        copied_ranges_fn=_copied_ranges,
-        span_is_copied_fn=_span_is_copied,
-    )
-
-
-def _collect_postlink_rewritten(
-    cfg: ProjectConfig,
-    existing: dict[int, dict[str, str]],
-    size_by_va: dict[int, int],
-) -> list[TodoItem]:
-    return collect_postlink_rewritten(
-        cfg,
-        existing,
-        size_by_va,
-        find_built_image_fn=_find_built_image,
-    )
-
-
 def collect_all(
     cfg: ProjectConfig,
     ghidra_funcs: list[FunctionEntry],
@@ -340,8 +195,6 @@ def collect_all(
         covered_vas,
         exclude_vas,
         scanned=scanned,
-        verify_entries_loader=load_verify_entries,
-        unmatchable_detector=detect_unmatchable,
         effective_status_fn=_effective_status,
         prover_available_fn=_angr_available,
         infer_module_fn=_infer_module,
@@ -349,7 +202,6 @@ def collect_all(
         copied_ranges_fn=_copied_ranges,
         span_is_copied_fn=_span_is_copied,
         find_built_image_fn=_find_built_image,
-        out_console=console,
     )
 
 

@@ -638,25 +638,9 @@ class TestCiPins:
         # workflow that would drift from the pin beside it.
         assert "registry.npmjs.org/vnu-jar" not in ci
 
-    def test_go_release_cache_restores_before_install(self) -> None:
-        """The pinned-Go cache must look up before the install that reads it.
-
-        ``actions/cache`` restores in step order: a cache step after the
-        install step can only save, never hit, so the install always
-        downloads the ~65 MB tarball. The cache step is ``lookup-only`` so a
-        poisoned entry can never be restored as the toolchain; the install
-        always downloads and SHA-256-verifies the pinned tarball. A warm
-        cache therefore only records the key was seen before - see the
-        poisoning rationale on the step itself.
-        """
+    def test_pinned_go_archive_is_verified_before_extraction(self) -> None:
+        """Verify the pinned archive and extract it into a clean directory."""
         ci = CI_YML.read_text(encoding="utf-8")
-        assert ci.index("- name: Cache the pinned Go release") < ci.index(
-            "- name: Install the pinned Go release"
-        )
-        cache = ci.split("- name: Cache the pinned Go release", 1)[1].split(
-            "- name: Install the pinned Go release", 1
-        )[0]
-        assert "lookup-only: true" in cache
         install = ci.split("- name: Install the pinned Go release", 1)[1].split("- name:", 1)[0]
         assert "sha256sum -c -" in install
         assert install.index("sha256sum -c -") < install.index("tar -xzf")

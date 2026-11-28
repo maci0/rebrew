@@ -95,11 +95,6 @@ def byte_score(a: NeImage, b: NeImage, window: int = 32) -> tuple[int, int]:
     return covered_bytes(a.data, block_set(b.data, window), window), len(a.data)
 
 
-def segment_budget(a: NeImage, b: NeImage, window: int = 32) -> list[tuple[int, int, int]]:
-    """Physical segment and trailing-region content overlap, without source claims."""
-    return _segment_budget(a, block_set(b.data, window), window)
-
-
 def _segment_budget(a: NeImage, runs: set[bytes], window: int) -> list[tuple[int, int, int]]:
     rows = [
         (i, len(a.seg_bytes(i)), covered_bytes(a.seg_bytes(i), runs, window))
@@ -126,79 +121,3 @@ def relocation_census(ne: NeImage) -> tuple[collections.Counter[int], collection
         collections.Counter(f.address_type for f in records),
         collections.Counter(f.relocation_type for f in records),
     )
-
-
-def segment_refs(ne: NeImage) -> tuple[dict[int, set[int]], dict[int, int]]:
-    """Internal segment edges and imported fixup counts (OS fixups excluded)."""
-    refs: dict[int, set[int]] = {}
-    imports: dict[int, int] = {}
-    for index, segment in enumerate(ne.segment_records):
-        if not segment.flags & 0x0100:
-            continue
-        records = ne.fixups(index)
-        refs[index] = {
-            f.target - 1
-            for f in records
-            if f.relocation_type & 3 == 0 and 1 <= f.target <= ne.seg_count
-        }
-        imports[index] = sum(f.relocation_type & 3 in (1, 2) for f in records)
-    return refs, imports
-
-
-def published_method_candidates(
-    data: bytes,
-    class_name: str,
-    *,
-    source_segment: int = 0,
-    fixups: dict[tuple[int, int], tuple[int, int]] | None = None,
-) -> list[tuple[str, int]]:
-    """Decode a complete Delphi 1 same-segment published-method table candidate.
-
-    Segment indices in fixups are zero-based. The key is (source segment,
-    pointer site), and the value is (target segment, offset). Cross-segment
-    pointers cannot be represented by this offset-only API. Invalid/truncated
-    candidates are skipped; no partial table is returned. This string-marker
-    probe is structural evidence, not proof that the class owns a procedure.
-    """
-    name_bytes = class_name.encode("latin1")
-    if not 0 < len(name_bytes) <= 255:
-        raise ValueError("class name must fit a Delphi short string")
-    marker = bytes([len(name_bytes)]) + name_bytes
-    start = 0
-    while True:
-        at = data.find(marker, start)
-        if at < 0:
-            return []
-        start = at + 1
-        pos = at + len(marker)
-        if pos + 2 > len(data):
-            continue
-        count = struct.unpack_from("<H", data, pos)[0]
-        pos += 2
-        # Bound speculative class-marker probes before accepting a complete table.
-        if not 0 < count <= 64:
-            continue
-        methods = []
-        for _ in range(count):
-            if pos + 5 > len(data):
-                break
-            site = pos
-            pointer = struct.unpack_from("<I", data, pos)[0]
-            pos += 4
-            size = data[pos]
-            if not 0 < size <= 64 or pos + 1 + size > len(data):
-                break
-            name = data[pos + 1 : pos + 1 + size].decode("latin1")
-            if not name.replace("_", "").isalnum():
-                break
-            offset = pointer & 0xFFFF
-            if fixups and (source_segment, site) in fixups:
-                target_segment, offset = fixups[(source_segment, site)]
-                if target_segment != source_segment:
-                    break
-            if offset >= len(data):
-                break
-            methods.append((name, offset))
-            pos += 1 + size
-        else:
-            return methods

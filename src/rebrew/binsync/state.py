@@ -1346,31 +1346,6 @@ def _expand_member_types(source_text: str, aliases: dict[str, str]) -> str:
     return source.decode("utf-8", errors="surrogateescape")
 
 
-def parse_struct_fields(
-    typedef_text: str, aliases: dict[str, str] | None = None
-) -> list[dict[str, Any]]:
-    """``{name, type, offset, size}`` field dicts of one struct definition.
-
-    Laid out by the shared :mod:`rebrew.c_syntax.types` model (tree-sitter, 32-bit
-    MSVC alignment) after simple typedef *aliases* are expanded, so a
-    ``DWORD`` member is sized as ``unsigned long`` and exported under that
-    spelling.  A member whose size the model cannot know (a nested or
-    unknown aggregate, a bitfield, a function pointer) ends the layout: it
-    and every later member are left out with a warning naming the struct,
-    because their offsets are unknown and declib keys members by offset.
-    Members are never guessed.
-    """
-    from rebrew.c_syntax.types import parse_structs
-
-    text = _expand_member_types(typedef_text, aliases) if aliases else typedef_text
-    parsed = parse_structs(text)
-    if not parsed:
-        return []
-    name = _struct_name(text)
-    struct = parsed.get(name) or next(iter(parsed.values()))
-    return _parsed_struct_fields(name, struct, parsed)
-
-
 def _parsed_struct_fields(
     name: str, struct: StructDef, known: dict[str, StructDef]
 ) -> list[dict[str, Any]]:

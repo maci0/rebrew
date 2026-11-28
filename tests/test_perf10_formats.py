@@ -81,18 +81,20 @@ class TestArchiveHeaders:
         lib.write_bytes(self._archive((b"a.o/", b"abc"), (b"b.o/", b"defg")))
         assert list(parse_archive(str(lib))) == [("a.o", b"abc"), ("b.o", b"defg")]
 
-    def test_non_numeric_size_stops_iteration(self, tmp_path: Path) -> None:
+    def test_non_numeric_size_is_refused(self, tmp_path: Path) -> None:
         lib = tmp_path / "a.lib"
         lib.write_bytes(
             self._archive((b"a.o/", b"abcd"))
             + self._archive((b"b.o/", b"x"), size_override=b"zz")[8:]
         )
-        assert list(parse_archive(str(lib))) == [("a.o", b"abcd")]
+        with pytest.raises(ValueError, match="invalid archive member size"):
+            list(parse_archive(str(lib)))
 
-    def test_truncated_trailing_header_is_ignored(self, tmp_path: Path) -> None:
+    def test_truncated_trailing_header_is_refused(self, tmp_path: Path) -> None:
         lib = tmp_path / "a.lib"
         lib.write_bytes(self._archive((b"a.o/", b"abcd")) + b"b.o/" + b" " * 20)
-        assert list(parse_archive(str(lib))) == [("a.o", b"abcd")]
+        with pytest.raises(ValueError, match="truncated archive member header"):
+            list(parse_archive(str(lib)))
 
 
 class TestOmf16Code:

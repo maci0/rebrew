@@ -2,7 +2,11 @@
 
 A tar (plain or compressed) or zip archive is read member by member and written
 by this module only: regular files and directories, under portable relative
-names, within entry and byte bounds.  Links, devices, FIFOs, absolute or
+names, within entry, byte, header and name-length bounds.  A compressed tar
+is decompressed here and handed to :mod:`tarfile` as a stream that refuses to
+read further than one member's headers plus its data, so a GNU long-name or pax
+record that tarfile would buffer whole cannot grow past
+:data:`ARCHIVE_MAX_HEADER_BYTES`.  Links, devices, FIFOs, absolute or
 ``..`` names, duplicate or case-colliding names and anything past a bound
 refuse the whole archive with :class:`ProjectArchiveError` before the member is
 written.  Nothing from the archive keeps a mode bit or runs.
@@ -10,12 +14,16 @@ written.  Nothing from the archive keeps a mode bit or runs.
 
 from __future__ import annotations
 
-from typing import IO, TYPE_CHECKING
-lazy import io
+import io  # base class: definition-time use
+from typing import IO, TYPE_CHECKING, override
+lazy import bz2
+lazy import gzip
+lazy import lzma
 lazy import tarfile
 lazy import unicodedata
 lazy import zipfile
 lazy import zlib
+lazy from compression import zstd
 
 from rebrew.errors import RebrewError  # base class: definition-time use
 lazy from rebrew.utils import portable_path_parts
@@ -30,6 +38,15 @@ ARCHIVE_MAX_ENTRIES = 32768
 #: Most bytes the archive's files may hold once unpacked.
 ARCHIVE_MAX_BYTES = 256 << 20
 
+#: Most decompressed bytes one tar member's headers (pax, GNU long-name and
+#: sparse records, which tarfile holds in memory whole) may take, including
+#: tarfile's 10240-byte read-ahead.
+ARCHIVE_MAX_HEADER_BYTES = 64 << 10
+
+#: Most UTF-8 bytes in one part of a member name (Linux ``NAME_MAX``) and in the whole name.
+ARCHIVE_MAX_NAME_PART_BYTES = 255
+ARCHIVE_MAX_NAME_BYTES = 1024
+
 #: The project configuration that marks the project root inside the archive.
 PROJECT_CONFIG = "rebrew-project.toml"
 
@@ -40,6 +57,55 @@ _NOT_REGULAR = "is not a regular file or directory"
 
 class ProjectArchiveError(RebrewError):
     """The archive is not one this module unpacks; the message names the member and is safe to show."""
+
+
+class _BoundedReader(io.RawIOBase):
+    """A decompressed tar stream that refuses the archive once it has read past ``limit``.
+
+    :func:`_members` sets ``limit`` per member: its headers' allowance plus, for
+    a regular file, its data.
+    """
+
+    def __init__(self, stream: io.BufferedIOBase | IO[bytes]) -> None:
+        self._stream = stream
+        self.position = 0
+        self.limit = ARCHIVE_MAX_HEADER_BYTES
+
+    @override
+    def read(self, size: int = -1) -> bytes:
+        try:
+            data = self._stream.read(size)
+        except (OSError, EOFError, zlib.error, lzma.LZMAError, zstd.ZstdError) as exc:
+            raise ProjectArchiveError(f"the archive is damaged ({type(exc).__name__})") from None
+        self.position += len(data)
+        if self.position > self.limit:
+            raise ProjectArchiveError(
+                f"an archive member's headers take more than {ARCHIVE_MAX_HEADER_BYTES} bytes"
+            )
+        return data
+
+
+def _decompressed(raw: IO[bytes]) -> io.BufferedIOBase | IO[bytes]:
+    """*raw* behind the decompressor its magic bytes name, or *raw* itself for a plain tar."""
+    magic = raw.read(6)
+    raw.seek(0)
+    if magic.startswith(b"\x1f\x8b"):
+        return gzip.GzipFile(fileobj=raw)
+    if magic.startswith(b"BZh"):
+        return bz2.BZ2File(raw)
+    if magic.startswith(b"\xfd7zXZ\x00"):
+        return lzma.LZMAFile(raw)
+    if magic.startswith(b"\x28\xb5\x2f\xfd"):
+        return zstd.ZstdFile(raw)
+    return raw
+
+
+def _open_tar(bounded: _BoundedReader) -> tarfile.TarFile:
+    """Open *bounded* as a forward-only tar stream; tarfile reads the first header here."""
+    try:
+        return tarfile.open(fileobj=bounded, mode="r|")
+    except tarfile.ReadError:
+        raise ProjectArchiveError("the archive is neither a tar nor a zip file") from None
 
 
 def _members(archive: Path) -> Iterator[tuple[str, bool, int, IO[bytes] | None, str]]:
@@ -56,16 +122,18 @@ def _members(archive: Path) -> Iterator[tuple[str, bool, int, IO[bytes] | None, 
                 with zipped.open(info) as reader:
                     yield info.filename, False, info.file_size, reader, ""
         return
-    if not tarfile.is_tarfile(archive):
-        raise ProjectArchiveError("the archive is neither a tar nor a zip file")
-    with tarfile.open(archive, mode="r:*") as tarred:
-        while (member := tarred.next()) is not None:
-            if member.isdir():
-                yield member.name, True, 0, None, ""
-            elif member.isreg():
-                yield member.name, False, member.size, tarred.extractfile(member), ""
-            else:
-                yield member.name, False, 0, None, _NOT_REGULAR
+    with archive.open("rb") as raw, _decompressed(raw) as stream:
+        bounded = _BoundedReader(stream)
+        with _open_tar(bounded) as tarred:
+            while (member := tarred.next()) is not None:
+                if member.isdir():
+                    yield member.name, True, 0, None, ""
+                elif member.isreg():
+                    bounded.limit += member.size
+                    yield member.name, False, member.size, tarred.extractfile(member), ""
+                else:
+                    yield member.name, False, 0, None, _NOT_REGULAR
+                bounded.limit = bounded.position + ARCHIVE_MAX_HEADER_BYTES
 
 
 def _unpack(archive: Path, into: Path) -> None:
@@ -86,6 +154,15 @@ def _unpack(archive: Path, into: Path) -> None:
         if not parts or raw.startswith("/"):
             raise ProjectArchiveError(
                 f"archive member {shown!r} is not a relative path inside the project"
+            )
+        if (
+            max(len(part.encode(errors="surrogateescape")) for part in parts)
+            > ARCHIVE_MAX_NAME_PART_BYTES
+            or len("/".join(parts).encode(errors="surrogateescape")) > ARCHIVE_MAX_NAME_BYTES
+        ):
+            raise ProjectArchiveError(
+                f"archive member {shown!r} is longer than {ARCHIVE_MAX_NAME_BYTES} bytes"
+                f" or has a part longer than {ARCHIVE_MAX_NAME_PART_BYTES}"
             )
         folded = "/".join(parts).casefold()
         if folded in seen:

@@ -1722,6 +1722,7 @@ def _run_batch_flag_sweep(
 
         cflags_updated = False
         confirmed = False
+        verdict = ""
         resolved = ""
         measured_inputs: dict[str, str] | None = None
         if is_exact and fix_cflags and best_flags and name_to_va:
@@ -1779,6 +1780,7 @@ def _run_batch_flag_sweep(
                     if not comparison_inputs_current(cfg, stub.filepath, measured_inputs):
                         measured_inputs = None
                     confirmed = cmp_res.matched
+                    verdict = cmp_res.status
                     if not confirmed and not json_output:
                         console.print(
                             f"  [yellow]sweep exact not confirmed:[/] "
@@ -1820,7 +1822,7 @@ def _run_batch_flag_sweep(
             try:
                 recorded = update_source_status(
                     cfg.metadata_dir,
-                    "EXACT",
+                    verdict,
                     module=stub.module,
                     va=int(stub.va, 16),
                     clear_blockers=True,
@@ -1837,12 +1839,13 @@ def _run_batch_flag_sweep(
                 # not land.
                 result_entry["promoted"] = False
                 log.warning(
-                    "promotion policy refused EXACT for %s — the function is parked "
+                    "promotion policy refused %s for %s — the function is parked "
                     "or classified as a documented STUB",
+                    verdict,
                     stub.symbol,
                 )
             else:
-                # Keep status/todo in sync with the fresh EXACT metadata (the
+                # Keep status/todo in sync with the fresh metadata (the
                 # verify cache may hold a stale NEAR_MATCHING entry).
                 try:
                     from rebrew.verify.cache import patch_verify_cache_entries
@@ -1852,7 +1855,7 @@ def _run_batch_flag_sweep(
                         [
                             {
                                 "va": int(stub.va, 16),
-                                "status": "EXACT",
+                                "status": verdict,
                                 "match_count": stub.size or 0,
                                 "total": stub.size or 0,
                                 "delta": 0,

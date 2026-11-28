@@ -32,6 +32,7 @@ lazy from pathlib import Path
 lazy from typing import Any, TypeGuard
 
 import typer
+lazy import capstone
 lazy import msgspec
 
 from rebrew.cli import (
@@ -851,16 +852,22 @@ def _fix_size_evidence_ok(
       masked).  A false fix here writes a size that hides unreproduced code
       (the annotated slice cut the function short but the tail differs).
     - compiled SHORTER than the annotated slice: the bytes beyond the
-      compiled function must be padding (0xCC/0x90).  If they are real code,
-      the annotation may cover a function my C only partially reproduces —
-      shrinking the size would produce a false EXACT on later runs.
+      compiled function must be padding (0xCC/0x90), and the compiled bytes
+      must decode to exactly their length.  The object parsers trim trailing
+      0xCC/0x90, which can cut the last instruction (``eb 90`` becomes
+      ``eb``); the binary's "padding" is then that instruction's operand.
+      If the extra bytes are real code, the annotation may cover a function
+      my C only partially reproduces — shrinking the size would produce a
+      false EXACT on later runs.
 
-    Fallback: when the padding/extension checks refuse (e.g. a discovery
-    boundary merged the NEXT function into the annotation), consult the
-    disassembly extent — the authoritative function end.  If it equals the
-    compiled size, the compiled function IS the whole function, so fixing to
-    the compiled size is safe.  The walk is conservative: a premature stop
-    (loop ``jmp`` read as a tail call) yields a smaller extent and refuses.
+    Fallback for the SHORTER direction: when the padding check refuses (e.g.
+    a discovery boundary merged the NEXT function into the annotation),
+    consult the disassembly extent — the authoritative function end.  If it
+    equals the compiled size, the compiled function IS the whole function, so
+    fixing to the compiled size is safe.  The walk is conservative: a
+    premature stop (loop ``jmp`` read as a tail call) yields a smaller extent
+    and refuses.  The LONGER direction has no fallback: a differing tail is
+    unreproduced code whatever the extent says.
     """
     if getattr(cfg, "check_known_bindings", False):
         reference = extract_raw_bytes(cfg.target_binary, ann_va, len(obj_bytes))
@@ -877,16 +884,10 @@ def _fix_size_evidence_ok(
             return False
         n = len(obj_bytes)
         masked = _expand_reloc_offsets(reloc_offsets, n)
-        if all(i in masked or obj_bytes[i] == ext[i] for i in range(n)):
-            return True
-        # Tail mismatch — the compiled bytes do not reproduce the binary
-        # beyond the annotated slice.  Only the disassembly extent can save
-        # this, and only if it agrees with the compiled size.
-        extent = _disasm_extent(cfg, ann_va)
-        return extent is not None and extent == len(obj_bytes)
+        return all(i in masked or obj_bytes[i] == ext[i] for i in range(n))
     if len(target_bytes) > len(obj_bytes):
         extra = target_bytes[len(obj_bytes) :]
-        if all(b in PADDING_BYTES for b in extra):
+        if all(b in PADDING_BYTES for b in extra) and _ends_on_instruction(cfg, obj_bytes):
             return True
         # The annotation covers real code beyond the compiled function.  If
         # the disassembly extent matches the compiled size, the annotation
@@ -894,6 +895,19 @@ def _fix_size_evidence_ok(
         extent = _disasm_extent(cfg, ann_va)
         return extent is not None and extent == len(obj_bytes)
     return True
+
+
+def _ends_on_instruction(cfg: ProjectConfig, code: bytes) -> bool:
+    """True when a linear decode of *code* from offset 0 stops exactly at its end."""
+    try:
+        md = capstone.Cs(
+            getattr(cfg, "capstone_arch", capstone.CS_ARCH_X86),
+            getattr(cfg, "capstone_mode", capstone.CS_MODE_32),
+        )
+    except NotImplementedError, capstone.CsError:
+        return False
+    decoded: int = sum(size for _addr, size, _mnemonic, _ops in md.disasm_lite(code, 0))
+    return decoded == len(code)
 
 
 def _disasm_extent(cfg: ProjectConfig, va: int) -> int | None:
@@ -2363,7 +2377,10 @@ def _test_multi(
                 full_target_size=orig_tgt_len if size_mismatch else None,
             )
             cmp.context_hash = context.sha256 if context is not None else None
-            if getattr(cfg, "check_known_bindings", False):
+            if getattr(cfg, "check_known_bindings", False) or getattr(cfg, "arch", "") in {
+                "mips32",
+                "mips64",
+            }:
                 cmp.relocation_bindings = relocation_binding_evidence(
                     obj_bytes,
                     target_bytes,

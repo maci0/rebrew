@@ -1,6 +1,6 @@
 # AGENTS.md: source/
 
-C source discovery, selection, layout/preprocessed views, contracts, bindings, address anchors, merging, splitting, rehoming, renaming, and string inlining.
+C source discovery, selection, layout views, contracts, bindings, address anchors, merging, splitting, rehoming, renaming, and string inlining.
 
 ## Modules
 
@@ -8,7 +8,7 @@ C source discovery, selection, layout/preprocessed views, contracts, bindings, a
 |--------|------|
 | `discovery.py` | `iter_sources`, `iter_library_headers`, `source_glob`, `scan_files` |
 | `selection.py` / `paths.py` / `units.py` | Target source selection, path helpers, and native unit inventory |
-| `layout.py` / `preprocessed.py` / `contracts.py` / `guard_context.py` | Parser-backed source spans, MSVC `-E` views, and source contract audits |
+| `layout.py` / `contracts.py` / `guard_context.py` | Parser-backed source spans and source contract audits |
 | `anchors.py` / `binding.py` / `register.py` / `cflags.py` / `consolidate.py` | Source anchor, binding, registration, and consolidation workflows |
 | `organization.py` / `organize.py` / `order.py` | Source organization review and native order planning |
 | `merge.py` / `merge_sweep.py` / `guarded_merge.py` / `split.py` / `rehome.py` | TU merge, split, and rehome operations |

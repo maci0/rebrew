@@ -1423,7 +1423,7 @@ def _set_cflags_locked(
 
     if target is not None:
         # Per-target cflags_presets — written under the target's COMPILER
-        # sub-table, which is where _merge_cflags_presets reads them from
+        # sub-table, which is where merge_cflags_presets reads them from
         # (writing [targets.X.cflags_presets] was a silent no-op).
         target = _resolve_target(doc, target, json_mode=json_mode)
         targets_table: Any = doc["targets"]

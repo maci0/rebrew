@@ -176,9 +176,12 @@ treated as the remote runner. Switching backends therefore cannot serve
 the other's object. The transport lives in `rebrew/compiler/recompile_client.py`.
 
 Local compile and per-entry verification caches hash the contents of reached
-headers. Nonliteral or forced includes use a conservative fingerprint of the
-header trees. Header bytes are reread when a key is checked, so edits remain
-visible even when a file's size and modification time are preserved. Both
+headers, forced (`/FI`, `-include`) headers included. A nonliteral include
+uses a conservative fingerprint of the header trees, and a header absent on the
+host is pinned by the toolchain identity. Compiler flags are hashed exactly as
+given: a reorder or repeat is a different key, because cl's option switches
+interact (`/Ox /Os` is not `/Os`). Header bytes are reread when a key is
+checked, so edits remain visible even when a file's size and modification time are preserved. Both
 resolve a header name in the compile's own search order, so the header they hash
 is the one the compiler opens and the one an include bundle ships, identified by
 the SHA-256 of the same bytes.
@@ -188,7 +191,10 @@ Every shipped profile is **image-backed**: `gcc-16.2.0`/`gcc-14.2.0`/`gcc-12.3.0
 rest of the matrix (GCC built from the GNU source tarball, Clang from LLVM's
 prebuilt release, MinGW-w64 from the mingw-builds release, Watcom from its
 snapshot), so a compile needs no host toolchain. Only a plugin toolchain
-registered without an `image` runs as a host binary. See ADR 015.
+registered without an `image` runs as a host binary, with only `PATH`, `HOME`,
+`TMPDIR`, `TEMP` and `TMP` from the host environment, plus `SOURCE_DATE_EPOCH`
+and `TZ=UTC0` when an epoch is set; variables such as `CPATH`, `CL` or `INCLUDE`
+would change the object without changing its cache key. See ADR 015.
 
 ---
 
@@ -1432,47 +1438,6 @@ are staged with collision checks. Each invocation owns a fresh directory.
 An explicit units directory replaces the image's library tree; custom DCC.CFG
 and switches are preserved. `find_dcc` and the separate host-only doctor check
 are removed; use the image inventory and compiler checks.
-
-### Reviewed MSVC preprocessor capture
-
-`rebrew.compiler.preprocessed_context.capture_msvc_context` is an opt-in,
-read-only API. Select an exact source and output from a CMake compilation
-database; it runs the pinned MSVC image with those ordered target flags and
-returns `/P` bytes, reported line markers, image and input hashes, and a review
-digest. Serialize compiler work using the project's compiler lock. To check a
-reviewed capture again, pass its digest as `expected_digest`.
-
-Only the source and a conservatively resolved transitive include closure are
-staged into the read-only compiler mount. Protected credential paths are
-refused. Macro-computed, backslash or rooted includes, symlinks, line directives, direct volatile
-time macros, unsupported switches and unknown paths are refused. Absent literal
-includes are checked as negative search probes before and after execution; an
-active missing include still fails in the compiler. Token pasting is refused
-unless `allow_token_paste=True` and `SOURCE_DATE_EPOCH` is set. That opt-in
-uses the image clock helper and preserves and records selected source/header
-mtimes; image identity pins SDK files and metadata. SDK headers are verified
-against the admitted image manifest. Docker or Podman is required: the experimental
-unshare rootfs cache is not authenticated as an image filesystem for this API.
-
-Line markers are compiler output and can be spoofed; the API does not claim
-they authenticate origin. The capture is scoped preprocessing evidence, not a
-complete macro table, proof that the build database is fresh, proof of original
-TU equivalence, or proof of a linked provider. Review native evidence and raw
-links separately. The lexical include closure is rescanned after execution;
-edits by writers that evade both observations remain outside its guarantee.
-
-`rebrew.source.preprocessed.parse_msvc_preprocessed` supplies an
-offset-preserving parser view of captured bytes and reports unsupported syntax.
-`reported_source_functions` inventories all definitions attributed to an exact
-reported source path, refusing internal markers, ambiguous names, unexpected
-definitions and masked prefixes. Compare original raw byte spans, not the
-masked parser view. Parsing does not authenticate markers or prove ABI, types,
-macro state or linked ownership.
-`reported_declaration_scopes` inventories ordered preceding declarations for
-syntactic identifier uses and refuses visible declarations with unparsed or
-masked prefixes; its results leave reference classification, full
-declaration extents, typedef/pragma context and provider binding explicitly
-unproven.
 
 ### Rebrew executable selection in generated CMake toolchains
 

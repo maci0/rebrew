@@ -1278,7 +1278,7 @@ def run_cli(app: Callable[[], Any]) -> None:
     - an uncaught ``ValueError`` / ``OSError`` / ``KeyError`` / ``RuntimeError``:
       one-line error (JSON envelope under ``--json``) and ``EXIT_ERROR``
     - Ctrl+C: ``EXIT_INTERRUPTED``
-    - ``ConfigWarning`` stays out of Python's warning display: ``_config_warn``
+    - ``ConfigWarning`` stays out of Python's warning display: ``config_warn``
       already printed it to stderr
 
     A :class:`typer.Typer` argument is converted to its click command first so

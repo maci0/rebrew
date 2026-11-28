@@ -333,18 +333,6 @@ def _parse_sig_files(files: list[Path]) -> list[Any]:
     return sigs
 
 
-def load_signatures(sig_dir: str) -> list[Any]:
-    """Load the FLIRT signature files of *sig_dir*, every architecture (:func:`load_signatures_for`)."""
-    console.print(f"Loading signatures from {sig_dir}...")
-
-    sig_path = Path(sig_dir)
-    if not sig_path.is_dir():
-        console.print(f"Signature directory {sig_dir} not found or not a directory.")
-        return []
-
-    return load_signatures_for([sig_path])
-
-
 #: BinaryInfo.arch -> the signature index's architecture vocabulary.  Public: `analyze`
 #: filters the dossier's FLIRT scan the same way `rebrew library scan-signatures` does.
 ARCH_FAMILIES: dict[str, str] = {

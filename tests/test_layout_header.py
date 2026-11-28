@@ -111,10 +111,10 @@ class TestReadLayoutHeader:
 
 class TestLayoutFirstCallers:
     def test_config_detect_uses_layout_without_lief(self, tmp_path: Path, monkeypatch) -> None:
-        """_detect_binary_layout answers from the package; LIEF never loads."""
+        """detect_binary_layout answers from the package; LIEF never loads."""
         import sys
 
-        from rebrew.config import _detect_binary_layout
+        from rebrew.config import detect_binary_layout
         from rebrew.formats import binary_loader
 
         binp = tmp_path / "program.exe"
@@ -130,7 +130,7 @@ class TestLayoutFirstCallers:
         # binary_loader.lief's cached attr from sys.modules and poisons
         # later tests that patch one against the other.)
         before = "lief" in sys.modules
-        facts = _detect_binary_layout(binp, root=tmp_path, target="main")
+        facts = detect_binary_layout(binp, root=tmp_path, target="main")
         assert facts == {"image_base": 0x400000, "text_va": 0x401000, "text_raw_offset": 512}
         assert ("lief" in sys.modules) == before
 
@@ -152,9 +152,9 @@ class TestLayoutFirstCallers:
 
     def test_missing_layout_falls_back_to_lief_path(self, tmp_path: Path) -> None:
         """No package → the old behaviour: zeros + a warning, no crash."""
-        from rebrew.config import _detect_binary_layout
+        from rebrew.config import detect_binary_layout
 
         binp = tmp_path / "program.exe"  # not a PE → detect fails soft
         binp.write_bytes(b"\x00" * 8)
-        facts = _detect_binary_layout(binp, root=tmp_path, target="main")
+        facts = detect_binary_layout(binp, root=tmp_path, target="main")
         assert facts == {"image_base": 0, "text_va": 0, "text_raw_offset": 0}

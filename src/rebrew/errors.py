@@ -60,7 +60,6 @@ if TYPE_CHECKING:
     from rebrew.c_syntax.struct_recover import NoDecompilationError as NoDecompilationError
     from rebrew.compare.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.compare.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
-    from rebrew.compare.strict_relocation import StrictRelocationError as StrictRelocationError
     from rebrew.compiler.compile import CompareResultError as CompareResultError
     from rebrew.compiler.delphi16 import Delphi16Error as Delphi16Error
     from rebrew.compiler.dosbox import DosboxError as DosboxError
@@ -314,7 +313,6 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "SecurityScanUnavailable": ("rebrew.security_scan", "SecurityScanUnavailable"),
     "SignatureFileError": ("rebrew.library.flirt", "SignatureFileError"),
     "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
-    "StrictRelocationError": ("rebrew.compare.strict_relocation", "StrictRelocationError"),
     "Tc16Error": ("rebrew.compiler.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.compiler.toolchain", "ToolchainError"),
     "UnshareError": ("rebrew.compiler.unshare", "UnshareError"),
@@ -428,7 +426,6 @@ __all__ = [
     "SecurityScanUnavailable",
     "SignatureFileError",
     "SimilarityUnavailable",
-    "StrictRelocationError",
     "Tc16Error",
     "ToolchainError",
     "ToolchainErrorKind",

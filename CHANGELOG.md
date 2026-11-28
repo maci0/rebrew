@@ -1,5 +1,77 @@
 ## [Unreleased]
 
+- **Breaking:** Removed five modules only tests used: `rebrew.binding_replacement_plan`, `rebrew.binding_replacement_conditions`, `rebrew.compiler.preprocessed_context`, `rebrew.source.preprocessed`, `rebrew.compare.strict_relocation`. Removed or reshaped these names (test-only functions and aliases, `canonicalize_cflags`, and injection keywords that only fed same-module functions). Import `parse_obj_symbol_and_relocs` from `rebrew.matcher.parsers`, where it is defined:
+  - `rebrew.binary.fingerprints`: `imphash_from_pairs`.
+  - `rebrew.binsync.state`: `parse_struct_fields`.
+  - `rebrew.c_syntax.type_metadata`: `rehome_type_bindings`.
+  - `rebrew.compiler.cache`: `canonicalize_cflags`.
+  - `rebrew.config`: `load_tomllib`.
+  - `rebrew.coverage.dashboard`: `APP_JS`, `APP_JS_URL`, `BOOT_GUARD_JS`, `BOOT_GUARD_JS_BYTES`, `ENTRY_PATHS`, `FAVICON_URL`, `STATUS_REFERENCE_JS`, `script_for_wire`.
+  - `rebrew.coverage.input_contract`: `plan_coverage_config`.
+  - `rebrew.cross_import.importer`: `import_function`, `import_shared_function`, `promote_to_shared`.
+  - `rebrew.cross_import.matching`: `matched_source_bytes`, `same_va_preview_rows`, `sizeless_dest_vas`, `unmatched_dest_bytes`.
+  - `rebrew.data.annotate`: `set_data_files`, `set_data_names`, `set_data_sections`, `set_data_sizes`, `set_data_types`.
+  - `rebrew.doctor`: `FAIL`, `KNOWN_ARCHES`, `OK`, `SKIP`, `WARN`, `image_available`, `inventory_spans`, `toolchain_download_hint`.
+  - `rebrew.formats.ne_analysis`: `published_method_candidates`, `segment_budget`, `segment_refs`.
+  - `rebrew.library.flirt`: `load_signatures`.
+  - `rebrew.lint`: `DATA_SECTION_NAMES`, `check_W037_data_definition`, `check_body_rules`, `data_section_names_for`, `function_containing_va`, `strip_all`.
+  - `rebrew.lint_cflags`: `inline_equals_store`, `parse_int_literal`.
+  - `rebrew.matching.batch`: `parse_matching_info`.
+  - `rebrew.matching.llm_seed`: `reset_last_seed_usage`.
+  - `rebrew.source.layout`: `mask_buffer_inplace`.
+  - `rebrew.status`: `DATA_SECTION_ORDER`, `STATUS_ORDER`, `TICK_WIDTH`, `breakdown_table`, `cut_range`, `data_block`, `file_rows`, `headline`, `merge_claimed`, `ordered_data_sections`, `panel_title`, `pe_data_directory`, `ticks`, `unclaimed`.
+  - `rebrew.todo`: `atomic_write_text`, `collect_active_functions`, `collect_data_drift`, `collect_library_candidates`, `collect_missing_bindings`, `collect_new_functions`, `collect_postlink_rewritten`, `collect_prover_candidates`, `collect_setup_steps`, `collect_start_data`, `detect_unmatchable`, `flush_extern_cache`, `zero_fill_tail_checker`.
+  - `rebrew.todo.collectors`: `collect_all`, `collect_library_candidates`, `collect_new_functions`, `default_console`, `load_target_binary`.
+  - `rebrew.todo.models`: `flush_extern_cache`.
+  - `rebrew.toolchain_cli`: `DOCKER_BUILD_TIMEOUT_S`, `HTTP_ATTEMPTS`, `HTTP_RETRY_BACKOFF_S`, `MAX_LIVE_SHA_BYTES`, `trusted_toolchain_download_url`.
+- **Breaking:** Compile cache schema 18 (`CACHE_SCHEMA_VERSION`) replaces schema 16. Objects in the
+  earlier cache are rebuilt on demand.
+
+- Validate MIPS jump relocations against both the opcode and target address.
+- Invalidate compile and verification caches when a forced include changes,
+  including files without header extensions.
+- Publish metadata backups as complete generations and deactivate newer TOML
+  drop-ins when restoring an older collection.
+- Keep the active jobs slot on cancellation retry and reject busy admissions
+  before copying the workspace.
+- `match batch --algorithm flags --fix-cflags` records the compare's verdict
+  (RELOC or EXACT) instead of always EXACT.
+- `rebrew test --fix-sizes` no longer grows SIZE when the newly visible bytes
+  differ from the binary, and no longer shrinks it when the "padding" past the
+  compiled bytes is the operand of a trimmed instruction (`eb 90`).
+- `rebrew verify` re-measures cached verdicts after the symbol catalog changes,
+  unless `check_known_bindings` is set.
+- Compile cache keys and the verify cache's CFLAGS check use flags exactly as
+  given; `/Ox /Os` and `/Os`, or reordered switches, no longer share an entry.
+- A `/FI` or `-include` header that includes an image-only header such as
+  `<windows.h>` gets a stable compile and verification fingerprint;
+  `-include-pch` is no longer read as a forced header.
+- Image-less compilers run with only `PATH`, `HOME`, `TMPDIR`, `TEMP`, `TMP`,
+  the build epoch and `TZ` (plus wine's variables on the matcher path), so host
+  `CPATH`, `CL`, `_CL_` and `INCLUDE` no longer change an object behind the cache.
+- GA and flag-sweep candidates on image-backed toolchains no longer write compile
+  cache entries that could never be read back.
+- MIPS HI16/LO16 relocations mask only the 16-bit immediate and check the linked
+  `%hi`/`%lo` value; a MIPS `jal` to a static function binds through its section
+  offset instead of always mismatching.
+- `metadata restore` (SQLite) rolls back a killed writer's journal and preserves
+  the live database as `.before-restore` before replacing it, and refuses a live
+  database it cannot read.
+- SQLite reads after a writer was killed mid-transaction roll back the journal
+  instead of failing until the next write.
+- `metadata backup` (TOML) holds the project-config and collection locks while
+  copying, so a bundle never captures half of a collection write.
+- `rebrew.import_archive` refuses (422) a tar member whose headers exceed 64 KiB
+  or whose name is over 1024 UTF-8 bytes or has a part over 255, instead of
+  buffering huge GNU long-name or pax headers or failing with a 500.
+- `parse_archive` raises `ValueError` on a malformed member size or truncated
+  header instead of dropping the members after it, and skips `/SYM64/` and other
+  special `/` members.
+- jobs service: kill a Docker container at the run timeout, at owner shutdown and
+  on cancel of an uncertain job; record a failure before launch (including a
+  failed `docker create`) as failed and never started, freeing the slot and its
+  compile mediator; remove the container and working copy once a stop is proven.
+
 ## [6.92.0] - 2026-11-28
 
 ### Changed

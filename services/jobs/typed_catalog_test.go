@@ -2,7 +2,6 @@ package jobs
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -112,10 +111,6 @@ func TestDockerCatalogRealCLI(t *testing.T) {
 	}
 	if !r.StopVerified || r.ExitCode == nil || *r.ExitCode != 0 || r.ResultWorkspaceSHA256 == "" {
 		t.Fatalf("catalog did not finish safely: %+v", r)
-	}
-	wrong := DockerProvider{Binary: docker, Image: image, Generations: r.Generations, Population: r.Population}
-	if _, err := wrong.InspectStop(context.Background(), r.ContainerID, r.ID, filepath.Join(dir, r.ID+".original"), filepath.Join(dir, r.ID+".workspace"), r.Seed); err == nil {
-		t.Fatal("foreign command accepted as stop evidence")
 	}
 	output, err := os.ReadFile(filepath.Join(dir, r.ID+".output"))
 	if err != nil {

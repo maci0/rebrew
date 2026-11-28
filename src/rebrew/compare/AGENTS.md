@@ -21,10 +21,10 @@ Binary/function comparison, relocations, near-match diagnosis, drift, and stack 
 | `similar.py` | Binary similarity search — rank functions by structural similarity. |
 | `stack_analysis.py` | stack_analysis.py — compare the stack frame of a compiled function against the target. |
 | `stack_cmp.py` | stack_cmp.py — the ``rebrew diagnose stack`` command. |
-| `strict_relocation.py` | Strict PE/COFF relocation evidence from retained binary and object bytes. |
 
 Externals (the only packages this one may import): `binary.analysis`, `binary.asm`, `binary.cfg_ged`, `binary.similarity`, `catalog`, `cli`, `compiler.compile`, `compiler.overrides`, `compiler.temp_dirs`, `config`, `data.ownership`, `data.scan`, `errors`, `formats.binary_loader`, `formats.binary_model`, `formats.relocations`, `formats.xtensa`, `function_providers`, `matcher`, `matcher.parsers`, `matcher.scoring`, `matching.semantics`, `matching.sweep`, `metadata.bindings`, `metadata.data`, `metadata.functions`, `metadata.native_identity`, `source.discovery`, `source.rename_ops`, `utils`, `workspace.status`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Contracts
 
 - Library modules remain free of CLI `app`/`main_entry` imports (`tools/check_layering.py`).
+- `apply_coff_relocations`, `smart_reloc_compare` and `relocation_binding_evidence` link MIPS ELF `R_MIPS_26`/`HI16`/`LO16` through one helper, `_mips_linked_word`, in the record's byte order, and compare every bit outside the relocated field. A record against the function's own section (`local_offset`, a `jal` to a static function) binds to `section_va + local_offset`, never to a catalog name.

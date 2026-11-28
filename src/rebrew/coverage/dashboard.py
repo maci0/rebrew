@@ -84,34 +84,26 @@ lazy from rich.markup import escape
 from rebrew import __version__, telemetry
 from rebrew.cli import RootOption, console, error_exit, json_print, option_default, require_root
 from rebrew.coverage.dashboard_assets import (
-    APP_JS,
     APP_JS_BYTES,
     APP_JS_ETAG,
-    APP_JS_URL,
     APP_JS_VERSION,
     APP_JS_WIRE,
     BOOT_GUARD_HASH,
-    BOOT_GUARD_JS,
-    BOOT_GUARD_JS_BYTES,
     CACHE_IMMUTABLE,
     CACHE_REVALIDATE,
-    ENTRY_PATHS,
     FAVICON_ETAG,
     FAVICON_SVG,
     FAVICON_SVG_BYTES,
-    FAVICON_URL,
     FAVICON_VERSION,
     INDEX_ETAG,
     INDEX_HTML,
     INDEX_HTML_BYTES,
-    STATUS_REFERENCE_JS,
     app_js_gzip,
     app_js_zstd,
     favicon_gzip,
     favicon_zstd,
     index_html_gzip,
     index_html_zstd,
-    script_for_wire,
 )
 lazy from rebrew.compression import WireEncoding, precompress
 lazy from rebrew.coverage.project import (
@@ -140,34 +132,26 @@ lazy from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
 log = logging.getLogger(__name__)
 
-_APP_JS = APP_JS
 _APP_JS_BYTES = APP_JS_BYTES
 _APP_JS_ETAG = APP_JS_ETAG
-_APP_JS_URL = APP_JS_URL
 _APP_JS_VERSION = APP_JS_VERSION
 _APP_JS_WIRE = APP_JS_WIRE
 _BOOT_GUARD_HASH = BOOT_GUARD_HASH
-_BOOT_GUARD_JS = BOOT_GUARD_JS
-_BOOT_GUARD_JS_BYTES = BOOT_GUARD_JS_BYTES
 _CACHE_IMMUTABLE = CACHE_IMMUTABLE
 _CACHE_REVALIDATE = CACHE_REVALIDATE
-_ENTRY_PATHS = ENTRY_PATHS
 _FAVICON_ETAG = FAVICON_ETAG
 _FAVICON_SVG = FAVICON_SVG
 _FAVICON_SVG_BYTES = FAVICON_SVG_BYTES
-_FAVICON_URL = FAVICON_URL
 _FAVICON_VERSION = FAVICON_VERSION
 _INDEX_ETAG = INDEX_ETAG
 _INDEX_HTML = INDEX_HTML
 _INDEX_HTML_BYTES = INDEX_HTML_BYTES
-_STATUS_REFERENCE_JS = STATUS_REFERENCE_JS
 _app_js_gzip = app_js_gzip
 _app_js_zstd = app_js_zstd
 _favicon_gzip = favicon_gzip
 _favicon_zstd = favicon_zstd
 _index_html_gzip = index_html_gzip
 _index_html_zstd = index_html_zstd
-_script_for_wire = script_for_wire
 _REQUEST_ID_VALUE = 0
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
@@ -218,7 +202,7 @@ def _stamp_request(request_id: str, line: str) -> None:
 def _trace_id() -> str:
     """Trace id of the open span, so logs join the MELT investigative path.
 
-    Mirrors ``ops._trace_id``: the access line and every error line of one
+    Mirrors ``ops.trace_id``: the access line and every error line of one
     request carry it, so an operator can pivot from a log line to the trace
     that explains it (and back) when the OTLP exporter is configured; ``"-"``
     off the HTTP transport or before the span is opened.

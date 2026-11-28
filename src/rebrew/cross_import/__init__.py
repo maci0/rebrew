@@ -24,7 +24,6 @@ are left untouched and reported.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-lazy import shutil
 
 import typer
 
@@ -39,6 +38,7 @@ from rebrew.cli import (
 from rebrew.cross_import import importer as _importer
 from rebrew.cross_import import matching as _matching
 from rebrew.cross_import.importer import (
+    promote_to_shared,
     retarget_moved_identity,
     rewrite_address,
     source_flags,
@@ -50,10 +50,14 @@ from rebrew.cross_import.matching import (
     import_size,
     interior_preview_rows,
     library_vas,
+    matched_source_bytes,
     merge_sizeless_warning,
     registry,
+    same_va_preview_rows,
+    sizeless_dest_vas,
     sizeless_warning,
     target_bytes_by_va,
+    unmatched_dest_bytes,
 )
 lazy from rebrew.cli import console
 lazy from rebrew.compare.similar import disasm_signature, similarity_score
@@ -87,7 +91,6 @@ __all__ = [
     "retarget_moved_identity",
     "rewrite_address",
     "same_va_preview_rows",
-    "shutil",
     "signature_for",
     "sizeless_dest_vas",
     "sizeless_warning",
@@ -98,16 +101,9 @@ __all__ = [
     "verify_import",
 ]
 
-# Legacy private-name bindings for test callers and monkeypatches.
-_library_vas = library_vas
-_rewrite_address = rewrite_address
-_symbol_for_va = symbol_for_va
-_retarget_moved_identity = retarget_moved_identity
-_source_flags = source_flags
-
 
 # ---------------------------------------------------------------------------
-# Public wrappers wiring command-layer dependencies and monkeypatch hooks
+# Wrappers injecting command-layer dependencies into the library submodules
 # ---------------------------------------------------------------------------
 
 
@@ -132,58 +128,6 @@ def signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | 
     return _matching.signature_for(cfg, code, va, disasm_signature_fn=disasm_signature)
 
 
-def sizeless_dest_vas(cfg: ProjectConfig) -> tuple[dict[int, int], list[int]]:
-    """Sizeless registry entries split into disassembly-sized matches and refusals."""
-    return _matching.sizeless_dest_vas(
-        cfg,
-        registry_fn=registry,
-        annotations_by_va_fn=annotations_by_va,
-        library_vas_fn=_library_vas,
-        disasm_sizes_fn=disasm_sizes,
-    )
-
-
-def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
-    """Source side: target bytes of the source target's matched functions."""
-    return _matching.matched_source_bytes(
-        cfg_src,
-        annotations_by_va_fn=annotations_by_va,
-        registry_fn=registry,
-        disasm_sizes_fn=disasm_sizes,
-        target_bytes_by_va_fn=target_bytes_by_va,
-    )
-
-
-def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> dict[int, bytes]:
-    """Destination side: target bytes of the destination's NOT-yet-matched functions."""
-    return _matching.unmatched_dest_bytes(
-        cfg_dst,
-        only_va,
-        annotations_by_va_fn=annotations_by_va,
-        library_vas_fn=_library_vas,
-        registry_fn=registry,
-        disasm_sizes_fn=disasm_sizes,
-        target_bytes_by_va_fn=target_bytes_by_va,
-    )
-
-
-def same_va_preview_rows(
-    cfg_src: ProjectConfig,
-    cfg_dst: ProjectConfig,
-    vas: list[int],
-    *,
-    source_vas: dict[int, int] | None = None,
-) -> tuple[list[dict[str, Any]], str]:
-    """Per-VA verdict: destination binary bytes at the same VA vs source reference bytes."""
-    return _matching.same_va_preview_rows(
-        cfg_src,
-        cfg_dst,
-        vas,
-        source_vas=source_vas,
-        matched_source_bytes_fn=matched_source_bytes,
-    )
-
-
 def verify_import(
     entry: SourceBinding,
     cfg_dst: ProjectConfig,
@@ -199,29 +143,11 @@ def verify_import(
     )
 
 
-_verify_import = verify_import
-
-
 def extract_function_text(text: str, name: str) -> str | None:
     """Copy one C definition, its shared declarations and static dependencies."""
     from rebrew.source.split import shared_preamble
 
     return _importer.extract_function_text(text, name, shared_preamble_fn=shared_preamble)
-
-
-_extract_function_text = extract_function_text
-
-
-def promote_to_shared(
-    cfg_src: ProjectConfig,
-    src_file: str,
-    *,
-    dry_run: bool = False,
-) -> dict[str, Any]:
-    """Move a per-target source into ``src/shared`` preserving relative path."""
-    return _importer.promote_to_shared(
-        cfg_src, src_file, dry_run=dry_run, retarget_fn=_retarget_moved_identity
-    )
 
 
 def import_shared_function(
@@ -255,7 +181,6 @@ def import_shared_function(
         require_resolved=require_resolved,
         verify_entry_fn=verify_entry,
         apply_status_updates_fn=apply_status_updates,
-        source_flags_fn=_source_flags,
     )
 
 
@@ -292,7 +217,6 @@ def import_function(
         shared_preamble_fn=shared_preamble,
         verify_entry_fn=verify_entry,
         apply_status_updates_fn=apply_status_updates,
-        source_flags_fn=_source_flags,
     )
 
 

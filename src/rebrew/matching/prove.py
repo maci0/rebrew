@@ -69,7 +69,11 @@ lazy from rebrew.compiler.compile import compile_to_obj
 lazy from rebrew.config import ProjectConfig, target_module
 lazy from rebrew.formats.binary_loader import extract_raw_bytes
 lazy from rebrew.formats.import_table import parse_import_table
-lazy from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+lazy from rebrew.matcher.parsers import (
+    parse_obj_relocs_full,
+    parse_obj_symbol_and_relocs,
+    parse_obj_symbol_bytes,
+)
 lazy from rebrew.matching.prove_simprocs import get_win32_simprocs
 lazy from rebrew.metadata.bindings import (
     find_source_binding_by_symbol,
@@ -1850,7 +1854,11 @@ def _prepare_prove_inputs(
         if obj_path is None:
             raise _ProveError(f"Compile error: {err}")
 
-        obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
+        if getattr(cfg, "arch", "") in {"mips32", "mips64"}:
+            obj_bytes, reloc_offsets, typed_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
+        else:
+            obj_bytes, reloc_offsets = parse_obj_symbol_bytes(obj_path, symbol)
+            typed_relocs = []
         if obj_bytes is None:
             raise _ProveError(f"Symbol '{symbol}' not found in compiled .obj")
         dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas), name_to_va)
@@ -1872,7 +1880,7 @@ def _prepare_prove_inputs(
         matched, _mc, _tot, _vr, _ir = smart_reloc_compare(
             obj_bytes,
             target_bytes,
-            reloc_offsets,
+            typed_relocs or reloc_offsets,
             name_to_va=name_to_va,
             section_va=va,
             iat_region=build_iat_region(cfg),

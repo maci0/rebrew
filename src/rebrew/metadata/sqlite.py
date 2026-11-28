@@ -269,6 +269,14 @@ class SqliteStore:
             connection.execute("PRAGMA busy_timeout = 30000")
             try:
                 self._check_schema(connection)
+            except sqlite3.OperationalError as exc:
+                # A writer killed mid-transaction left a hot journal, which only
+                # a read-write connection can roll back.
+                if exc.sqlite_errorcode != sqlite3.SQLITE_READONLY_ROLLBACK:
+                    raise
+                with self.transaction():
+                    pass
+                self._check_schema(connection)
             except MetadataStorageError:
                 # A 6.24.0 database (user_version 1, legacy DDL) is upgraded
                 # in place on first access, even for a read: the read-only
@@ -419,18 +427,17 @@ class SqliteStore:
         # Stat the rollback journal before opening.  A hot journal (a crash
         # that has not been recovered yet) makes a mode=ro open try to write
         # the database.  Callers fingerprint to decide whether a cached parse
-        # is stale, so that open must not become an availability error: the
-        # journal stat itself is the change, and the document revision is
-        # unknown until recovery, which a later read performs.
+        # is stale, so it does not open: the journal stat itself is the
+        # change, and the document revision stays unknown until a new reader
+        # connection rolls the journal back (``_open_reader``).
         journal = self.location.with_name(self.location.name + "-journal")
         try:
             journal_stat = journal.stat()
         except FileNotFoundError:
             journal_stat = None
         if journal_stat is not None and journal_stat.st_size:
-            # Non-empty: recovery would write, and a read-only open fails.
-            # The journal stat retires a cached parse; the revision stays 0
-            # until a read recovers the database.
+            # Non-empty: a write in progress or a crash; the journal stat
+            # retires a cached parse and the revision stays 0.
             row = (0,)
         else:
             with self._reader() as (connection, _, _):
@@ -1002,13 +1009,16 @@ def toml_store_trees(root: Path) -> list[tuple[Path, list[Path]]]:
             folders[:] = []
             continue
         for name in _TOML_STORE_NAMES:
-            if name in files:
-                found.setdefault(parent, []).extend(metadata_paths(parent / name))
+            if name in files or Path(name).with_suffix(".d").name in folders:
+                members = metadata_paths(parent / name)
+                if members:
+                    found.setdefault(parent, []).extend(members)
         folders[:] = [
             folder
             for folder in folders
             if not folder.startswith(".")
-            and folder not in {"node_modules", "__pycache__"}
+            and folder not in {"node_modules", "__pycache__", TOML_BACKUP_DIRNAME}
+            and not folder.startswith(TOML_BACKUP_DIRNAME + "-")
             and Path(folder).with_suffix(".toml").name not in _TOML_STORE_NAMES
         ]
     return sorted(found.items())
@@ -1086,6 +1096,40 @@ def _target_binary_relpaths(root: Path) -> list[Path]:
     return _config_relpaths(root, "binary", want_dir=False)
 
 
+@contextlib.contextmanager
+def _staged_backup(destination: Path, *, nested: bool = False) -> Iterator[tuple[Path, Path]]:
+    """Publish a verified bundle beside existing generations."""
+    from tempfile import TemporaryDirectory
+    from uuid import uuid4
+
+    destination = destination.resolve()
+    guard = (
+        contextlib.nullcontext()
+        if nested and destination.is_dir()
+        else file_transaction(destination.parent, f".{destination.name}.backup")
+    )
+    with guard:
+        target = destination
+        if destination.is_dir():
+            target = (
+                destination / f".rebrew-backup-{uuid4().hex}"
+                if nested
+                else destination.with_name(f"{destination.name}-{uuid4().hex}")
+            )
+        with TemporaryDirectory(prefix=".rebrew-backup-", dir=target.parent) as temp:
+            stage = Path(temp) / "bundle"
+            stage.mkdir(mode=0o700)
+            yield stage, target
+            verify_backup_manifest(stage)
+            stage.rename(target)
+            with contextlib.suppress(OSError):
+                fd = os.open(target.parent, os.O_RDONLY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+
+
 def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
     """Copy every present managed TOML store tree to *backup_dir*.
 
@@ -1108,28 +1152,37 @@ def backup_metadata_toml(root: Path, backup_dir: Path) -> Path:
     extras = extra_durable_sources(root)
     if not trees:
         raise FileNotFoundError(f"no metadata stores at {root}")
-    bundle = backup_dir / TOML_BACKUP_DIRNAME
-    sources: list[Path] = []
-    for _directory, tree in trees:
-        sources.extend(tree)
-    if config is not None:
-        sources.append(config)
-    for rel in _target_binary_relpaths(root):
-        sources.append(root / rel)
-    for rel in _binsync_state_relpaths(root):
-        sources.extend(sorted(p for p in (root / rel).rglob("*") if p.is_file()))
-    sources.extend(extras)
-    written: list[tuple[str, bytes]] = []
-    for source in sources:
-        dest = bundle / source.relative_to(root)
-        payload = source.read_bytes()
-        mode = _BINSYNC_MODE if _is_in_binsync_state(root, source) else _extra_mode(source)
-        atomic_write_bytes(dest, payload, mode=mode)
-        if dest.read_bytes() != payload:
-            raise MetadataStorageError(f"{dest}: backup verification failed")
-        written.append((str(source.relative_to(root)), payload))
-    _write_backup_manifest(bundle, written)
-    return bundle
+    collections = {
+        source if source.parent == directory else source.parent.with_suffix(".toml")
+        for directory, tree in trees
+        for source in tree
+    }
+    # A collection write replaces its main file and drop-ins one at a time;
+    # take restore's locks, in its order, so the copy sees whole collections.
+    with contextlib.ExitStack() as locks:
+        locks.enter_context(file_transaction(root, _PROJECT_CONFIG_NAME))
+        for store in sorted(collections):
+            locks.enter_context(file_transaction(store.parent, store.name))
+        sources = [path for store in sorted(collections) for path in metadata_paths(store)]
+        if config is not None:
+            sources.append(config)
+        for rel in _target_binary_relpaths(root):
+            sources.append(root / rel)
+        for rel in _binsync_state_relpaths(root):
+            sources.extend(sorted(p for p in (root / rel).rglob("*") if p.is_file()))
+        sources.extend(extras)
+        with _staged_backup(backup_dir / TOML_BACKUP_DIRNAME) as (bundle, published):
+            written: list[tuple[str, bytes]] = []
+            for source in sources:
+                dest = bundle / source.relative_to(root)
+                payload = source.read_bytes()
+                mode = _BINSYNC_MODE if _is_in_binsync_state(root, source) else _extra_mode(source)
+                atomic_write_bytes(dest, payload, mode=mode)
+                if dest.read_bytes() != payload:
+                    raise MetadataStorageError(f"{dest}: backup verification failed")
+                written.append((str(source.relative_to(root)), payload))
+            _write_backup_manifest(bundle, written)
+    return published
 
 
 def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
@@ -1148,6 +1201,7 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
         raise FileNotFoundError(f"no metadata backup bundle at {bundle}")
     verified = {Path(name) for name in verify_backup_manifest(bundle)}
     planned: list[Path] = []
+    collections: set[Path] = set()
     config = bundle / _PROJECT_CONFIG_NAME
     has_config = Path(_PROJECT_CONFIG_NAME) in verified
     trees = toml_store_trees(bundle)
@@ -1157,7 +1211,7 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
         except (ValueError, OSError) as exc:
             raise MetadataStorageError(f"{config}: corrupt backup: {exc}") from exc
         planned.append(config.relative_to(bundle))
-    for _directory, tree in trees:
+    for directory, tree in trees:
         for source in tree:
             relative = source.relative_to(bundle)
             if relative not in verified:
@@ -1167,6 +1221,9 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
             except (ValueError, OSError) as exc:
                 raise MetadataStorageError(f"{source}: corrupt backup: {exc}") from exc
             planned.append(relative)
+            collections.add(
+                relative if source.parent == directory else relative.parent.with_suffix(".toml")
+            )
     for rel in _target_binary_relpaths(bundle) if has_config else ():
         if rel in verified and rel not in planned:
             planned.append(rel)
@@ -1182,40 +1239,51 @@ def restore_metadata_toml(bundle: Path, root: Path) -> tuple[Path, ...]:
         if rel in verified and rel not in planned:
             _validate_extra(source)
             planned.append(rel)
-    if not planned:
+    if not collections:
         raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
-    if not any(rel.name in _TOML_STORE_NAMES for rel in planned):
-        raise FileNotFoundError(f"no metadata stores in backup bundle at {bundle}")
-    installed: list[tuple[Path, int]] = []
-    # Snapshot destinations first: a mid-restore failure must roll back
-    # already-installed files instead of leaving a half-restored store
-    # (silent data loss — the pre-restore bytes survive only in
-    # ``.before-restore`` sidecars, which a later run does not re-apply).
-    before: dict[Path, bytes | None] = {}
-    for rel in planned:
-        dest = root / rel
-        before[dest] = dest.read_bytes() if dest.is_file() else None
-    try:
-        for rel in planned:
-            raw = (bundle / rel).read_bytes()
-            dest = root / rel
-            original = before[dest]
-            mode = _BINSYNC_MODE if _is_in_binsync_state(root, dest) else _extra_mode(dest)
-            if original is not None and original != raw:
-                preserve_displaced(dest, original, mode)
-            atomic_write_bytes(dest, raw, mode=mode)
-            if dest.read_bytes() != raw:
-                raise MetadataStorageError(f"{dest}: restored copy verification failed")
-            installed.append((dest, mode))
-    except BaseException:
-        for dest, mode in reversed(installed):
-            original = before[dest]
-            if original is None:
-                dest.unlink(missing_ok=True)
-            else:
-                atomic_write_bytes(dest, original, mode=mode)
-        raise
-    return tuple(dest for dest, _mode in installed)
+    with contextlib.ExitStack() as locks:
+        locks.enter_context(file_transaction(root, _PROJECT_CONFIG_NAME))
+        for store in sorted(collections):
+            locks.enter_context(file_transaction(root / store.parent, store.name))
+        active = {
+            path.relative_to(root) for store in collections for path in metadata_paths(root / store)
+        }
+        removed = sorted(active.difference(planned))
+        before = {
+            dest: (dest.read_bytes(), dest.stat().st_mode & 0o777) if dest.is_file() else None
+            for dest in (root / rel for rel in [*planned, *removed])
+        }
+        installed: list[Path] = []
+        changed: list[Path] = []
+        try:
+            for rel in planned:
+                raw = (bundle / rel).read_bytes()
+                dest = root / rel
+                original = before[dest]
+                mode = _BINSYNC_MODE if _is_in_binsync_state(root, dest) else _extra_mode(dest)
+                if original is not None and original[0] != raw:
+                    preserve_displaced(dest, *original)
+                changed.append(dest)
+                atomic_write_bytes(dest, raw, mode=mode)
+                if dest.read_bytes() != raw:
+                    raise MetadataStorageError(f"{dest}: restored copy verification failed")
+                installed.append(dest)
+            for rel in removed:
+                dest = root / rel
+                original = before[dest]
+                if original is not None:
+                    preserve_displaced(dest, *original)
+                    changed.append(dest)
+                    dest.unlink()
+        except BaseException:
+            for dest in reversed(changed):
+                original = before[dest]
+                if original is None:
+                    dest.unlink(missing_ok=True)
+                else:
+                    atomic_write_bytes(dest, original[0], mode=original[1])
+            raise
+        return tuple(installed)
 
 
 def snapshot_metadata_database(root: Path, dest: Path) -> Path:
@@ -1329,37 +1397,38 @@ def read_metadata_database_documents(database: Path) -> dict[str, dict[str, Any]
 
 def backup_metadata_database(root: Path, backup_dir: Path) -> Path:
     """Copy the SQLite database, project config and durable project files to *backup_dir*."""
-    dest = snapshot_metadata_database(root, backup_dir / METADATA_BACKUP_FILENAME)
     from rebrew.utils import atomic_write_bytes
 
-    written: list[tuple[str, bytes]] = [(METADATA_BACKUP_FILENAME, dest.read_bytes())]
-    for rel in _target_binary_relpaths(root):
-        payload = (root / rel).read_bytes()
-        copied = backup_dir / rel
-        atomic_write_bytes(copied, payload, mode=0o444)
-        if copied.read_bytes() != payload:
-            raise MetadataStorageError(f"{copied}: backup verification failed")
-        written.append((str(rel), payload))
-    config = _project_config(root)
-    extras = ([config] if config is not None else []) + extra_durable_sources(root)
-    for extra in extras:
-        payload = extra.read_bytes()
-        copied_extra = backup_dir / extra.relative_to(root)
-        mode = extra.stat().st_mode & 0o777 if extra == config else _extra_mode(extra)
-        atomic_write_bytes(copied_extra, payload, mode=mode)
-        if copied_extra.read_bytes() != payload:
-            raise MetadataStorageError(f"{copied_extra}: backup verification failed")
-        written.append((str(extra.relative_to(root)), payload))
-    for rel in _binsync_state_relpaths(root):
-        for source in sorted(p for p in (root / rel).rglob("*") if p.is_file()):
-            payload = source.read_bytes()
-            copied_file = backup_dir / source.relative_to(root)
-            atomic_write_bytes(copied_file, payload, mode=_BINSYNC_MODE)
-            if copied_file.read_bytes() != payload:
-                raise MetadataStorageError(f"{copied_file}: backup verification failed")
-            written.append((str(source.relative_to(root)), payload))
-    _write_backup_manifest(backup_dir, written)
-    return dest
+    with _staged_backup(backup_dir, nested=True) as (bundle, published):
+        dest = snapshot_metadata_database(root, bundle / METADATA_BACKUP_FILENAME)
+        written: list[tuple[str, bytes]] = [(METADATA_BACKUP_FILENAME, dest.read_bytes())]
+        for rel in _target_binary_relpaths(root):
+            payload = (root / rel).read_bytes()
+            copied = bundle / rel
+            atomic_write_bytes(copied, payload, mode=0o444)
+            if copied.read_bytes() != payload:
+                raise MetadataStorageError(f"{copied}: backup verification failed")
+            written.append((str(rel), payload))
+        config = _project_config(root)
+        extras = ([config] if config is not None else []) + extra_durable_sources(root)
+        for extra in extras:
+            payload = extra.read_bytes()
+            copied_extra = bundle / extra.relative_to(root)
+            mode = extra.stat().st_mode & 0o777 if extra == config else _extra_mode(extra)
+            atomic_write_bytes(copied_extra, payload, mode=mode)
+            if copied_extra.read_bytes() != payload:
+                raise MetadataStorageError(f"{copied_extra}: backup verification failed")
+            written.append((str(extra.relative_to(root)), payload))
+        for rel in _binsync_state_relpaths(root):
+            for source in sorted(p for p in (root / rel).rglob("*") if p.is_file()):
+                payload = source.read_bytes()
+                copied_file = bundle / source.relative_to(root)
+                atomic_write_bytes(copied_file, payload, mode=_BINSYNC_MODE)
+                if copied_file.read_bytes() != payload:
+                    raise MetadataStorageError(f"{copied_file}: backup verification failed")
+                written.append((str(source.relative_to(root)), payload))
+        _write_backup_manifest(bundle, written)
+    return published / METADATA_BACKUP_FILENAME
 
 
 def restore_metadata_database(backup: Path, root: Path) -> Path:
@@ -1437,7 +1506,29 @@ def restore_metadata_database(backup: Path, root: Path) -> Path:
                 except sqlite3.Error:
                     return None
 
-            current_content = _snapshot(location)
+            # A writer killed mid-transaction leaves a hot journal that only a
+            # read-write connection rolls back, and the journal is deleted
+            # below, so read the live rows through one.  What cannot be read
+            # cannot be preserved: refuse rather than replace it.
+            location.chmod(0o644)
+            try:
+                with contextlib.closing(sqlite3.connect(location, timeout=30)) as live:
+                    current_content = (
+                        live.execute(
+                            "SELECT path, content FROM metadata_documents ORDER BY path"
+                        ).fetchall()
+                        if live.execute(
+                            "SELECT 1 FROM sqlite_master WHERE name = 'metadata_documents'"
+                        ).fetchone()
+                        else []
+                    )
+            except sqlite3.Error as exc:
+                raise MetadataStorageError(
+                    f"{location}: cannot read the live database to preserve it before "
+                    f"restore ({exc}); move it aside to restore over it"
+                ) from exc
+            finally:
+                os.chmod(location, 0o444)
             preserved_content = _snapshot(preserved) if preserved.is_file() else None
             backup_content = _snapshot(backup)
             # A re-run of the same restore finds the live database already

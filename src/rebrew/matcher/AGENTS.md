@@ -16,13 +16,13 @@ similarity to the target, and mutates source to improve byte matches.
 | `solutions.py` | Solution-transfer DB (seed GA from solved lookalikes) |
 | `ast_engine.py` | tree-sitter C AST for mutations |
 
-Flag axes (`rebrew.flags` / `rebrew.flag_data`) live at the package root so compile-cache canonicalization and the GA sweep share one definition without the cache layer importing the matcher package.
+Flag axes (`rebrew.flags` / `rebrew.flag_data`) live at the package root so the GA sweep and `rebrew.matching` share one definition.
 
 Externals (the only packages this one may import): `compare.coff_reloc`, `compiler.cache`, `compiler.compile`, `compiler.temp_dirs`, `compiler.toolchain`, `compiler.toolchain_spec`, `config`, `errors`, `flag_data`, `flags`, `formats.binary_loader`, `formats.omf16`, `formats.xtensa`, `metadata.sqlite`, `registry`, `utils`. `tools/check_layering.py` enforces `PACKAGE_EXTERNALS`; this line follows it.
 
 ## Data flow (GA path)
 
-`build_candidate_obj_only` → miss in same-run memo and shared compile cache → toolchain compile → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
+`build_candidate_obj_only` → miss in same-run memo (and, for an image-less compiler only, the shared compile cache: an image-backed candidate compiles from a fresh temp dir the key hashes, so it skips the disk cache) → toolchain compile → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
 
 ## Non-obvious types
 

@@ -17,7 +17,6 @@ from rebrew.lint_cflags import (
     cflags_key,
     check_redundant_cflags,
     drop_redundant_presets,
-    inline_equals_store,
 )
 
 # ---------------------------------------------------------------------------
@@ -67,32 +66,6 @@ class TestCflagsKey:
 
     def test_a_different_flag_set_is_a_different_key(self) -> None:
         assert cflags_key("/O2 /Gd") != cflags_key("/O2 /Gd /Ow")
-
-
-class TestInlineEqualsStore:
-    def test_cflags_compare_order_insensitively(self) -> None:
-        assert inline_equals_store("CFLAGS", " /O2 /Gd ", "/Gd /O2") is True
-
-    def test_other_keys_compare_as_stripped_strings(self) -> None:
-        assert inline_equals_store("BLOCKER", " ring0 halt ", "ring0 halt") is True
-
-    def test_a_differing_value_is_not_a_duplicate(self) -> None:
-        """Deleting a differing inline copy would destroy information."""
-        assert inline_equals_store("BLOCKER", "ring0 halt", "1B diff") is False
-        assert inline_equals_store("CFLAGS", "/O2 /Gd", "/O1") is False
-
-    def test_cflags_define_is_not_a_disagreement(self) -> None:
-        assert inline_equals_store("CFLAGS", "/O2 /Gd", "/DREBREW_ALLOW_NAKED /Gd /O2") is True
-
-    def test_size_compares_numerically(self) -> None:
-        assert inline_equals_store("SIZE", "32", "0x20") is True
-        assert inline_equals_store("SIZE", "31", "0x20") is False
-
-    def test_size_compares_numerically_with_leading_zero_decimal(self) -> None:
-        """A leading zero is decimal, matching parse_int_literal (010 is ten)."""
-        assert inline_equals_store("SIZE", "010", "10") is True
-        assert inline_equals_store("SIZE", "010", "0xa") is True
-        assert inline_equals_store("SIZE", "08", "8") is True
 
 
 # ---------------------------------------------------------------------------

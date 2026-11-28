@@ -41,7 +41,7 @@ class TestJsonCacheNumericLimits:
         elif kind == "roles":
             assert data_scan._begin_role_cache(tmp_path, None)["files"] == {}
         elif kind == "externs":
-            assert todo._begin_extern_cache(tmp_path)["files"] == {}
+            assert todo.begin_extern_cache(tmp_path)["files"] == {}
         elif kind == "metadata":
             assert document._read_doc_cache(tmp_path / "rebrew-functions.toml", (), None) is None
         else:

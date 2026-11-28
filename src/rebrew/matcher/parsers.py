@@ -136,8 +136,9 @@ def parse_obj_symbol_and_relocs(
         elf = lief.ELF.parse(str(obj_path))
         if elf is not None and elf.header.machine_type == lief.ELF.ARCH.XTENSA:
             return _parse_xtensa_symbol(elf, symbol)
-        code, relocs = _parse_elf_symbol_bytes(str(obj_path), symbol, elf=elf)
-        return code, relocs, []
+        records: list[CoffRelocRecord] = []
+        code, relocs = _parse_elf_symbol_bytes(str(obj_path), symbol, elf=elf, records=records)
+        return code, relocs, records
     if fmt == "macho":
         code, relocs = _parse_macho_symbol_bytes(str(obj_path), symbol)
         return code, relocs, []
@@ -385,7 +386,11 @@ def _list_coff_symbols(obj_path: str) -> list[str]:
 
 
 def _parse_elf_symbol_bytes(
-    obj_path: str, symbol: str, *, elf: Any = None
+    obj_path: str,
+    symbol: str,
+    *,
+    elf: Any = None,
+    records: list[CoffRelocRecord] | None = None,
 ) -> tuple[bytes | None, dict[int, str] | None]:
     """Extract code bytes + relocation offsets for a symbol from ELF .o using LIEF."""
     import lief
@@ -467,7 +472,29 @@ def _parse_elf_symbol_bytes(
         if elf.header.machine_type in (lief.ELF.ARCH.I386, lief.ELF.ARCH.M68K) and reloc.size != 32:
             log.warning("ELF relocation width is unsupported by the four-byte matcher")
             return None, None
-        reloc_offsets[reloc.address - func_start] = _extract_reloc_name(reloc)
+        offset = reloc.address - func_start
+        name = _extract_reloc_name(reloc)
+        reloc_offsets[offset] = name
+        if records is not None and elf.header.machine_type == lief.ELF.ARCH.MIPS:
+            fmt = (
+                "elf-mips"
+                if elf.header.identity_data == lief.ELF.Header.ELF_DATA.MSB
+                else "elf-mipsel"
+            )
+            # A call to a static function names the section symbol, so its
+            # destination is only known relative to this function.
+            sym = reloc.symbol
+            local = (
+                sym.value - func_start
+                if sym is not None
+                and sym.type == lief.ELF.Symbol.TYPE.SECTION
+                and getattr(sym, "section", None) is not None
+                and sym.section.name == section.name
+                else None
+            )
+            records.append(
+                CoffRelocRecord(offset, int(reloc.type) & 0xFFFF, name, fmt, reloc.addend, local)
+            )
     return code, reloc_offsets
 
 

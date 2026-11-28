@@ -20,10 +20,8 @@ Cache key
 SHA-256 of ``(schema_version, source_content, source_filename, source_ext,
 cflags, include_dirs, header_dependencies, toolchain_id, source_dir,
 source_date_epoch)``.  Flags are
-canonicalized first (see :func:`canonicalize_cflags`): order-insensitive
-flag classes and repeats within one option group collapse to one key, while order-sensitive
-input (``/I`` search order, ``/D`` redefinitions, last-wins flag values)
-keeps its order and still separates compilations.  Include dirs are hashed
+hashed exactly as given: cl's option switches interact (``/Ox /Os`` is not
+``/Os``), so no reorder or repeat is assumed harmless.  Include dirs are hashed
 in **order** because order affects search semantics.
 
 Invalidation
@@ -43,7 +41,7 @@ id is not cached.  Remote recompile results are not cached.  An include carrying
 compiler resolves it), and one that resolves nowhere on the host also falls
 back.  When the closure cannot be
 resolved statically
-(a non-literal ``#include MACRO``, a ``/FI`` force-include), the key falls
+(a non-literal ``#include MACRO``), the key falls
 back to per-directory fingerprints of the source dir and every include dir (the conservative
 ccache-style mode, via :func:`include_fingerprint`).  Resolution is
 memoized with search-directory mtimes: a header *created*
@@ -93,7 +91,7 @@ from rebrew.utils import (
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 16
+CACHE_SCHEMA_VERSION = 18
 
 # Warn once per process *and per operation*: a corrupt/contended store
 # degrades every get/put, and one line per lookup would flood a GA batch's
@@ -1681,7 +1679,11 @@ def scan_include_closure(
 
 
 def _header_key_entries(
-    paths: tuple[str, ...], source_dir: str | None, include_dirs: list[str]
+    paths: tuple[str, ...],
+    source_dir: str | None,
+    include_dirs: list[str],
+    *,
+    digests: dict[str, str] | None = None,
 ) -> list[tuple[int, str, str]]:
     """Map resolved header paths to sorted ``(anchor, rel_path, content_sha256)``.
 
@@ -1713,7 +1715,11 @@ def _header_key_entries(
                 anchor_idx = idx
                 break
         try:
-            digest = hashlib.sha256(p.read_bytes()).hexdigest()
+            digest = (
+                digests[p_str]
+                if digests is not None
+                else hashlib.sha256(p.read_bytes()).hexdigest()
+            )
         except OSError:
             # Omitting the header makes this key identical to one where the
             # file does not exist, so a .obj compiled before the read failure
@@ -1736,89 +1742,6 @@ def dir_fingerprint_hash(source_dir: str | None, include_dirs: list[str]) -> str
         h.update(include_fingerprint(d).encode("utf-8"))
         h.update(b"\x00")
     return h.hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Flag canonicalization (observational equivalence of flag sets)
-# ---------------------------------------------------------------------------
-
-
-@lru_cache(maxsize=1)
-def _flag_group_ids() -> dict[str, str]:
-    """Map each known flag token to its compiler-option group id.
-
-    Derived from the auto-synced decomp.me flag definitions
-    (:mod:`rebrew.flag_data`): a ``FlagSet`` is one compiler option
-    whose members are mutually exclusive, and a ``Checkbox`` an on/off toggle.
-    Flags within one group are **last-wins** (MSVC uses the last occurrence);
-    flags across groups set distinct options and commute.
-    """
-    from rebrew.flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS
-    from rebrew.flags import Checkbox
-
-    lookup: dict[str, str] = {}
-    for flags in (MSVC6_FLAGS, COMMON_MSVC_FLAGS):
-        for item in flags:
-            members: tuple[str, ...] = (
-                item.flags if not isinstance(item, Checkbox) else (item.flag,)
-            )
-            for member in members:
-                lookup.setdefault(member, item.id)
-    return lookup
-
-
-def canonicalize_cflags(cflags: list[str]) -> list[str]:
-    """Reduce a flag list to a canonical form that preserves compilation.
-
-    Two flag lists that differ only in the **order of flags that set distinct
-    compiler options**, or in **repeats within one option group**, canonicalize to the same
-    list — so :func:`compile_cache_key` yields one key per equivalence class,
-    the equivalence being "the compiler produces the same object" (the paper's
-    observational equivalence, read through the compiler as observer).  Sound:
-
-    - within one option group (one ``FlagSet``/``Checkbox``, e.g. ``/O1`` vs
-      ``/O2`` or ``/Gd`` vs ``/Gz``) only the LAST occurrence matters (MSVC
-      last-wins), so earlier members are dropped;
-    - flags across different option groups commute, so they are sorted by
-      group id for a deterministic order;
-    - flags absent from the synced definitions are unknown — kept as fixed
-      anchors in their original position and never reordered relative to
-      anything (an unknown flag could in principle conflict with a known
-      group, so moving it would be unsound).
-
-    ``/I``/``/D``/``/U`` and their arguments are not in the flag definitions,
-    so they fall into the anchor bucket and keep their order — include search
-    order and macro redefinition order still shape the key.
-    """
-    groups = _flag_group_ids()
-
-    # 1) Normalize.  No token dedupe: keeping the first of `/O1 /O2 /O1`
-    #    drops the winning `/O1`, and an unknown repeated token (`-O2 -O0
-    #    -O2`, `/D A /D B`) is not idempotent.  Known-group repeats collapse
-    #    in step 2.
-    normalized = [tok for flag in cflags if (tok := flag.strip().strip('"').strip("'"))]
-
-    # 2) Collapse last-wins groups; sort across groups between unknown
-    #    anchors (which act as fixed boundaries).
-    out: list[str] = []
-    group_last: dict[str, str] = {}
-
-    def _flush() -> None:
-        if not group_last:
-            return
-        for _gid, flag in sorted(group_last.items()):
-            out.append(flag)
-        group_last.clear()
-
-    for flag in normalized:
-        gid = groups.get(flag)
-        if gid is None:
-            _flush()
-            out.append(flag)  # unknown → fixed anchor
-        else:
-            group_last[gid] = flag  # last occurrence wins
-    _flush()
-    return out
 
 
 #: Digest for a translation unit with no header dependencies.  Never ``""`` —
@@ -1887,8 +1810,8 @@ def header_dependency_hash(
     an edit to an unreached header does not, and neither do mtime, inode or
     change time, so the value stored as ``headers_hash`` in committed metadata
     is the same on every clone.  Falls back to conservative per-directory
-    fingerprints when the closure cannot be resolved statically (non-literal
-    ``#include``, or ``/FI``-style force-includes — the caller forces this).
+    fingerprints when the closure cannot be resolved statically (a non-literal
+    ``#include``).
     Returns :data:`_NO_DEPS_HASH` for a unit with no header dependencies
     (never ``""`` — the verify cache reserves ``""`` for legacy entries).
 
@@ -1922,6 +1845,48 @@ def header_dependency_hash(
     return digest
 
 
+def forced_include_fingerprint(
+    source_content: str, cflags: list[str], source_dir: str | None, include_dirs: list[str]
+) -> str | None:
+    """Pin forced headers and their closure, or return a one-use fingerprint."""
+    flags = iter(cflags)
+    directives: list[str] = []
+    for flag in flags:
+        prefix = next((p for p in FORCE_INCLUDE_PREFIXES if flag.startswith(p)), None)
+        # clang -include-pch names a PCH, which the key does not track (nor /Yu).
+        if prefix is None or flag.startswith("-include-pch"):
+            continue
+        name = flag[len(prefix) :].removeprefix("=") or next(flags, "")
+        if not name or any(ch in name for ch in '"\n\r'):
+            return os.urandom(32).hex()
+        directives.append(f'#include "{name}"')
+    if not directives:
+        return None
+
+    # POSIX forced includes look in the compiler working directory before
+    # the include path. The staged working directory has no project headers.
+    # A header absent on the host (<windows.h> in the toolchain image) is
+    # pinned by the toolchain id, as in header_dependency_hash.
+    paths, fallback, stats, consistent = scan_include_closure(
+        "\n".join(directives), source_dir, tuple(include_dirs)
+    )
+    if fallback:
+        return dir_fingerprint_hash(source_dir, include_dirs)
+    if not consistent:
+        return os.urandom(32).hex()
+    # A forced header can define a macro used as a later include operand.
+    # That closure is unknown to the literal scanner and cannot be cached.
+    if any(kind == "nonliteral" for kind, _ in include_specs(source_content)):
+        return os.urandom(32).hex()
+    digests = {path: observed[-1] for path, observed in zip(paths, stats, strict=True)}
+    digest = hashlib.sha256()
+    for anchor, path, content_hash in _header_key_entries(
+        paths, source_dir, include_dirs, digests=digests
+    ):
+        digest.update(f"{anchor}\0{path}\0{content_hash}\0".encode(errors="surrogateescape"))
+    return digest.hexdigest()
+
+
 def compile_cache_key(
     source_content: str,
     source_filename: str,
@@ -1938,20 +1903,15 @@ def compile_cache_key(
     - **source_content** — the actual C code (not the file path)
     - **source_filename** — the filename the compiler sees (affects
       ``__FILE__`` expansion); use the basename, not a temp path
-    - **cflags** — all compiler flags in order (base + user + include).
-      Canonicalized via :func:`canonicalize_cflags` before hashing: flags
-      that set distinct compiler options may appear in any order,
-      and last-wins groups collapse to their final value —
-      so the key is shared by flag lists the compiler cannot tell apart,
-      while genuinely different compilations (e.g. ``/O1`` vs ``/O2``, or
-      ``/O1 /O2`` vs ``/O2 /O1``) still get distinct keys.
+    - **cflags** — all compiler flags in order (base + user + include),
+      hashed exactly as given.
     - **include_dirs** — ordered list of ``/I`` directory paths.  The
       source's ``#include`` closure is resolved against them (plus
       *source_dir* for quote includes) and each **reached** header is
       fingerprinted individually (see :func:`header_dependency_hash`), so
       editing a header invalidates exactly the entries that reach it.
-      ``/FI``/``-include`` force-includes and non-literal ``#include``
-      directives fall back to whole-directory fingerprints.
+      Forced headers are fingerprinted separately. Non-literal
+      ``#include`` directives fall back to whole-directory fingerprints.
     - **toolchain_id**: compiler identity.  Local images use
       ``<image tag>@sha256:<64 hex>`` (``compile._toolchain_cache_id``).
       Image-less plugin toolchains use ``native:<name>@<64 hex>``.
@@ -1975,28 +1935,15 @@ def compile_cache_key(
     h.update(source_digest(source_content).encode())
     h.update(f"\0filename={source_filename}\0".encode("utf-8", errors="surrogateescape"))
     h.update(f"\0ext={source_ext}\0".encode("utf-8", errors="surrogateescape"))
-    # Flags are canonicalized first (see canonicalize_cflags): the hash sees
-    # the equivalence class, not the raw list.  Flags and include dirs are
-    # separated by \0 to prevent collisions (e.g. "flag1 flag2" !=
-    # "flag1flag2").  This assumes none of the inputs contain embedded NUL
-    # bytes, which is safe because MSVC flags, filenames, and C source are
-    # NUL-free text.
-    h.update(
-        f"\0cflags={chr(0).join(canonicalize_cflags(cflags))}\0".encode(
-            "utf-8", errors="surrogateescape"
-        )
-    )
+    # Flags and include dirs are separated by \0 to prevent collisions (e.g.
+    # "flag1 flag2" != "flag1flag2").  This assumes none of the inputs contain
+    # embedded NUL bytes, which is safe because MSVC flags, filenames, and C
+    # source are NUL-free text.
+    h.update(f"\0cflags={chr(0).join(cflags)}\0".encode("utf-8", errors="surrogateescape"))
     h.update(f"\0includes={chr(0).join(include_dirs)}\0".encode("utf-8", errors="surrogateescape"))
-    # A force-include pulls a header's content into every compile regardless
-    # of the source's directives — resolution cannot see it, so fall back to
-    # conservative per-directory fingerprints.
-    force_include = any(f.startswith(FORCE_INCLUDE_PREFIXES) for f in cflags)
-    headers = (
-        header_dependency_hash(source_content, source_dir, include_dirs)
-        if not force_include
-        else dir_fingerprint_hash(source_dir, include_dirs)
-    )
-    h.update(f"\0headers={headers}\0".encode())
+    headers = header_dependency_hash(source_content, source_dir, include_dirs)
+    forced = forced_include_fingerprint(source_content, cflags, source_dir, include_dirs)
+    h.update(f"\0headers={headers}\0forced={forced or ''}\0".encode())
     h.update(f"\0toolchain={toolchain_id}\0".encode("utf-8", errors="surrogateescape"))
     from rebrew.config import source_date_epoch
 

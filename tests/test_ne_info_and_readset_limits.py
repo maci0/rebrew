@@ -136,7 +136,7 @@ def test_holiday_shaped_manifest_is_within_the_limits() -> None:
     # either limit (32768 files / 32 MiB) must not refuse it; +1 over
     # either limit must.
     files = [SimpleNamespace(size=HOLIDAY_BYTES // HOLIDAY_STUBS)] * HOLIDAY_STUBS
-    ops._check_manifest_size(files)
+    ops.check_manifest_size(files)
     assert len(files) == HOLIDAY_STUBS <= ops.MAX_READSET_FILES
     assert sum(f.size for f in files) == HOLIDAY_STUBS * (HOLIDAY_BYTES // HOLIDAY_STUBS)
     assert sum(f.size for f in files) <= ops.MAX_READSET_BYTES
@@ -145,7 +145,7 @@ def test_holiday_shaped_manifest_is_within_the_limits() -> None:
 def test_manifest_over_the_file_limit_names_the_count_and_the_limit() -> None:
     files = [SimpleNamespace(size=1)] * (ops.MAX_READSET_FILES + 1)
     with pytest.raises(ops.OpsError) as raised:
-        ops._check_manifest_size(files)
+        ops.check_manifest_size(files)
     assert raised.value.code == "readset-too-large" and raised.value.status == 422
     assert f"{ops.MAX_READSET_FILES + 1} files, over the limit of {ops.MAX_READSET_FILES}" in str(
         raised.value
@@ -155,7 +155,7 @@ def test_manifest_over_the_file_limit_names_the_count_and_the_limit() -> None:
 def test_manifest_over_the_byte_limit_is_refused() -> None:
     files = [SimpleNamespace(size=ops.MAX_READSET_BYTES), SimpleNamespace(size=1)]
     with pytest.raises(ops.OpsError) as raised:
-        ops._check_manifest_size(files)
+        ops.check_manifest_size(files)
     assert raised.value.code == "readset-too-large"
     assert "bytes, over the limit" in str(raised.value)
 

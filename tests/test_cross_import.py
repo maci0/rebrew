@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import errno
 import os
+import shutil
 from types import SimpleNamespace
 from typing import Any, ClassVar
 lazy from pathlib import Path
@@ -21,6 +22,7 @@ from cli_json import cli_payload
 from source_util import SourceFixture, write_source, write_store_fixture
 
 import rebrew.cross_import as ci
+import rebrew.cross_import.matching as ci_matching
 from rebrew.compiler.toolchain import TOOLCHAINS, image_present
 
 # Hand-crafted 32-bit x86 blobs: shared prologue/epilogue, distinct bodies.
@@ -34,6 +36,12 @@ G = bytes.fromhex("55 8b ec 83 ec 08 8b 45 08 03 45 0c 5d c3")  # different
 # PE_B: F1 @ 0x401040, F2 @ 0x401050, G  @ 0x401060  (same code, different VAs)
 A_F1, A_F2, A_F3 = 0x401000, 0x401010, 0x401020
 B_F1, B_F2, B_G = 0x401040, 0x401050, 0x401060
+
+
+def _patch_matching(monkeypatch: pytest.MonkeyPatch, name: str, value: Any) -> None:
+    """Patch *name* where the CLI and the matching helpers both look it up."""
+    monkeypatch.setattr(ci, name, value)
+    monkeypatch.setattr(ci_matching, name, value)
 
 
 def _place(slots: dict[int, bytes], total: int) -> bytes:
@@ -169,26 +177,26 @@ class TestAddressRewrite:
         source = (
             "/* ADDRESS: A 0x401000 */\n/* ADDRESS: B 0x501000 */\nint common(void) { return 1; }\n"
         )
-        copied = ci._rewrite_address(source, "DST", 0x601000, name="common")
+        copied = ci.rewrite_address(source, "DST", 0x601000, name="common")
         assert [(a.module, a.va, a.name) for a in parse_address_anchors(copied)] == [
             ("DST", 0x601000, "common")
         ]
         assert copied.endswith("int common(void) { return 1; }\n")
-        assert ci._rewrite_address(copied, "DST", 0x601000, name="common") == copied
+        assert ci.rewrite_address(copied, "DST", 0x601000, name="common") == copied
 
     def test_copy_adds_address_to_metadata_only_definition(self) -> None:
         source = "int f(void) { return 1; }\n"
-        assert ci._rewrite_address(source, "DST", 0x1234, name="f") == (
+        assert ci.rewrite_address(source, "DST", 0x1234, name="f") == (
             "/* ADDRESS: DST 0x00001234 */\n" + source
         )
 
     def test_ambiguous_definitions_are_rejected(self) -> None:
         with pytest.raises(ValueError, match="no declaration"):
-            ci._rewrite_address("int a(void) {}\nint b(void) {}\n", "D", 1, name="missing")
+            ci.rewrite_address("int a(void) {}\nint b(void) {}\n", "D", 1, name="missing")
 
     def test_copy_preserves_crlf(self) -> None:
         source = "/* ADDRESS: A 0x401000 */\r\nint f(void) {}\r\n"
-        copied = ci._rewrite_address(source, "D", 2, name="f")
+        copied = ci.rewrite_address(source, "D", 2, name="f")
         assert copied == "/* ADDRESS: D 0x00000002 */\r\nint f(void) {}\r\n"
 
 
@@ -198,7 +206,7 @@ class TestExtractSingleFunction:
             "/* ADDRESS: SRC 0x401000 */\nint f1(void){ return 1; }\n",
             {"SRC.0x401000": {"kind": "FUNCTION"}},
         )
-        assert ci._extract_function_text(src, "f1") == src
+        assert ci.extract_function_text(src, "f1") == src
 
     def test_multi_function_keeps_only_matched_block(self) -> None:
         """Copying a whole multi-function SERVER file into GOLDTL leaked every
@@ -208,7 +216,7 @@ class TestExtractSingleFunction:
             '#include "h.h"\n/* ADDRESS: SERVER 0x401000 */\nint f1(void){ return 1; }\n/* ADDRESS: SERVER 0x401010 */\nint f2(void){ return 2; }\n',
             {"SERVER.0x401000": {"kind": "FUNCTION"}, "SERVER.0x401010": {"kind": "FUNCTION"}},
         )
-        out = ci._extract_function_text(src, "f1")
+        out = ci.extract_function_text(src, "f1")
         assert out is not None
         assert "f1" in out
         assert "f2" not in out
@@ -220,7 +228,7 @@ class TestExtractSingleFunction:
             "/* ADDRESS: SERVER 0x401000 */\nint f1(void){ return 1; }\n/* ADDRESS: SERVER 0x401010 */\nint f2(void){ return 2; }\n",
             {"SERVER.0x401000": {"kind": "FUNCTION"}, "SERVER.0x401010": {"kind": "FUNCTION"}},
         )
-        out = ci._extract_function_text(src, "f2")
+        out = ci.extract_function_text(src, "f2")
         assert out is not None
         assert "f2" in out and "f1" not in out
         assert out.count("ADDRESS:") == 1
@@ -230,7 +238,7 @@ class TestExtractSingleFunction:
             "/* ADDRESS: SERVER 0x401000 */\nint f1(void){ return 1; }\n",
             {"SERVER.0x401000": {"kind": "FUNCTION"}},
         )
-        assert ci._extract_function_text(src, "absent") is None
+        assert ci.extract_function_text(src, "absent") is None
 
     def test_import_emits_only_matched_function(self, tmp_path: Path, monkeypatch) -> None:
         """End-to-end: a SERVER multi-function file imports ONLY f1 into GOLDTL
@@ -293,7 +301,7 @@ class TestExtractSingleFunction:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr(ci_mod, "_source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
 
         res = ci_mod.import_function(cfg_dst, cfg_src, 0x601000, 0x401000, "shared.c", 11)
         assert res["action"] == "imported"
@@ -381,19 +389,25 @@ class TestOnlyVaGuard:
         """``--va`` on an already matched destination function must not re-add
         it through the disassembler (that path skipped the status filter)."""
         cfg = SimpleNamespace()
-        monkeypatch.setattr(ci, "annotations_by_va", lambda cfg: {0x401040: ("EXACT", "f1.c")})
-        monkeypatch.setattr(ci, "registry", lambda cfg: {0x401040: {"canonical_size": 16}})
-        monkeypatch.setattr(ci, "disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
-        monkeypatch.setattr(ci, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        _patch_matching(monkeypatch, "annotations_by_va", lambda cfg: {0x401040: ("EXACT", "f1.c")})
+        _patch_matching(monkeypatch, "registry", lambda cfg: {0x401040: {"canonical_size": 16}})
+        _patch_matching(monkeypatch, "disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
+        _patch_matching(
+            monkeypatch, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3")
+        )
         assert ci.unmatched_dest_bytes(cfg, only_va=0x401040) == {}
 
     def test_proven_is_importable_destination_not_donor(self, monkeypatch) -> None:
         """PROVEN bytes differ from the target: a PROVEN destination is still
         unmatched work and a PROVEN source is not a byte-exact donor."""
         cfg = SimpleNamespace()
-        monkeypatch.setattr(ci, "annotations_by_va", lambda cfg: {0x401040: ("PROVEN", "f1.c")})
-        monkeypatch.setattr(ci, "registry", lambda cfg: {0x401040: {"canonical_size": 16}})
-        monkeypatch.setattr(ci, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        _patch_matching(
+            monkeypatch, "annotations_by_va", lambda cfg: {0x401040: ("PROVEN", "f1.c")}
+        )
+        _patch_matching(monkeypatch, "registry", lambda cfg: {0x401040: {"canonical_size": 16}})
+        _patch_matching(
+            monkeypatch, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3")
+        )
         assert set(ci.unmatched_dest_bytes(cfg, only_va=0x401040)) == {0x401040}
         assert ci.matched_source_bytes(cfg) == {}
 
@@ -401,10 +415,12 @@ class TestOnlyVaGuard:
         """A NOT-matched VA without a registry size still gets the disasm size
         (the guard must only block the matched case)."""
         cfg = SimpleNamespace()
-        monkeypatch.setattr(ci, "annotations_by_va", lambda cfg: {0x401040: ("STUB", "f1.c")})
-        monkeypatch.setattr(ci, "registry", lambda cfg: {})
-        monkeypatch.setattr(ci, "disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
-        monkeypatch.setattr(ci, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        _patch_matching(monkeypatch, "annotations_by_va", lambda cfg: {0x401040: ("STUB", "f1.c")})
+        _patch_matching(monkeypatch, "registry", lambda cfg: {})
+        _patch_matching(monkeypatch, "disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
+        _patch_matching(
+            monkeypatch, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3")
+        )
         assert set(ci.unmatched_dest_bytes(cfg, only_va=0x401040)) == {0x401040}
 
 
@@ -439,7 +455,7 @@ class TestLibraryRowsAreNotDestinations:
             )
         else:
             cfg.external_ranges = [(A_F1, A_F1 + len(F1))]
-        monkeypatch.setattr(ci, "registry", lambda cfg: {A_F1: {"canonical_size": 0}})
+        _patch_matching(monkeypatch, "registry", lambda cfg: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
@@ -475,7 +491,7 @@ class TestLibraryRowsAreNotDestinations:
             module="GOLD",
             external_libs=[],
         )
-        assert ci._library_vas(cfg) == {0x461E60}
+        assert ci.library_vas(cfg) == {0x461E60}
 
 
 class TestTargetBytes:
@@ -538,12 +554,12 @@ class TestImportMechanics:
             "\nvoid __cdecl LogMessageInternal(char*, unsigned int, char*, int);\nextern int g_counter;\n/* ADDRESS: SRC 0x401000 */\nint __cdecl f1(int value)\n{\n    return value + g_counter;\n}\n",
             {"SRC.0x401000": {"kind": "FUNCTION"}},
         )
-        assert ci._symbol_for_va(text, "SRC", 0x401000, "stem") == ("f1", "_f1")
+        assert ci.symbol_for_va(text, "SRC", 0x401000, "stem") == ("f1", "_f1")
 
     def test_source_name_falls_back_to_the_stem(self) -> None:
         """No definition under the marker: the fallback names the import."""
         text = SourceFixture("// no code here\n", {"SRC.0x401000": {"kind": "FUNCTION"}})
-        assert ci._symbol_for_va(text, "SRC", 0x401000, "f2") == ("f2", "_f2")
+        assert ci.symbol_for_va(text, "SRC", 0x401000, "f2") == ("f2", "_f2")
 
     def test_import_mirrors_the_source_path_and_records_flags(
         self, tmp_path: Path, monkeypatch
@@ -989,8 +1005,8 @@ class TestSizelessMatching:
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "DST", pa)
-        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
-        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        _patch_matching(monkeypatch, "annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
+        _patch_matching(monkeypatch, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
@@ -1004,8 +1020,8 @@ class TestSizelessMatching:
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "DST", pa)
-        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
-        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        _patch_matching(monkeypatch, "annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
+        _patch_matching(monkeypatch, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
@@ -1021,8 +1037,8 @@ class TestSizelessMatching:
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "SRC", pa)
-        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
-        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": len(F1) + 4}})
+        _patch_matching(monkeypatch, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        _patch_matching(monkeypatch, "registry", lambda _c: {A_F1: {"canonical_size": len(F1) + 4}})
         update_field(cfg.metadata_dir, A_F1, "size", len(F1), module="SRC")
         assert ci.matched_source_bytes(cfg)[A_F1] == F1
 
@@ -1034,8 +1050,8 @@ class TestSizelessMatching:
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "SRC", pa)
-        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
-        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": len(F1)}})
+        _patch_matching(monkeypatch, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        _patch_matching(monkeypatch, "registry", lambda _c: {A_F1: {"canonical_size": len(F1)}})
         update_field(cfg.metadata_dir, A_F1, "size", 1, module="DST")
         assert ci.matched_source_bytes(cfg)[A_F1] == F1
 
@@ -1045,8 +1061,8 @@ class TestSizelessMatching:
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "SRC", pa)
-        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
-        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        _patch_matching(monkeypatch, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        _patch_matching(monkeypatch, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
             "rebrew.formats.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
@@ -1077,20 +1093,20 @@ class TestCLI:
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(
-            "rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2}
-        )
-        monkeypatch.setattr(
-            "rebrew.cross_import.unmatched_dest_bytes",
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2})
+        _patch_matching(
+            monkeypatch,
+            "unmatched_dest_bytes",
             lambda cfg, only_va=None: {B_F1: F1, B_F2: F2},
         )
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match",
             lambda d, s, **k: {B_F1: (A_F1, 100.0), B_F2: (A_F2, 100.0)},
         )
-        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
-        monkeypatch.setattr(
-            "rebrew.cross_import.annotations_by_va",
+        _patch_matching(monkeypatch, "registry", lambda cfg: {})
+        _patch_matching(
+            monkeypatch,
+            "annotations_by_va",
             lambda cfg: {
                 B_F1: ("STUB", "f1.c"),
                 B_F2: ("STUB", "f2.c"),
@@ -1148,19 +1164,19 @@ class TestCLI:
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(
-            "rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2}
-        )
-        monkeypatch.setattr(
-            "rebrew.cross_import.unmatched_dest_bytes",
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2})
+        _patch_matching(
+            monkeypatch,
+            "unmatched_dest_bytes",
             lambda cfg, only_va=None: {B_F1: F1, B_F2: F2},
         )
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
         )
-        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
-        monkeypatch.setattr(
-            "rebrew.cross_import.annotations_by_va",
+        _patch_matching(monkeypatch, "registry", lambda cfg: {})
+        _patch_matching(
+            monkeypatch,
+            "annotations_by_va",
             lambda cfg: {B_F1: ("STUB", "f1.c"), A_F1: ("EXACT", "f1.c")},
         )
         monkeypatch.setattr(
@@ -1195,20 +1211,20 @@ class TestCLI:
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(
-            "rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2}
-        )
-        monkeypatch.setattr(
-            "rebrew.cross_import.unmatched_dest_bytes",
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2})
+        _patch_matching(
+            monkeypatch,
+            "unmatched_dest_bytes",
             lambda cfg, only_va=None: {B_F1: F1, B_F2: F2},
         )
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match",
             lambda d, s, **k: {B_F1: (A_F1, 100.0), B_F2: (A_F2, 100.0)},
         )
-        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
-        monkeypatch.setattr(
-            "rebrew.cross_import.annotations_by_va",
+        _patch_matching(monkeypatch, "registry", lambda cfg: {})
+        _patch_matching(
+            monkeypatch,
+            "annotations_by_va",
             lambda cfg: {B_F1: ("STUB", "f1.c"), A_F1: ("EXACT", "f1.c")},
         )
         calls: list[Any] = []
@@ -1244,22 +1260,25 @@ class TestCLI:
 
         self._project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1})
-        monkeypatch.setattr(
-            "rebrew.cross_import.unmatched_dest_bytes",
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: F1})
+        _patch_matching(
+            monkeypatch,
+            "unmatched_dest_bytes",
             lambda cfg, only_va=None: {B_F1: F1},
         )
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
         )
-        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
-        monkeypatch.setattr(
-            "rebrew.cross_import.annotations_by_va",
+        _patch_matching(monkeypatch, "registry", lambda cfg: {})
+        _patch_matching(
+            monkeypatch,
+            "annotations_by_va",
             lambda cfg: {B_F1: ("STUB", "f1.c"), A_F1: ("EXACT", "f1.c")},
         )
         # B_F1 sized by disassembly, 0x499999 refused by it.
-        monkeypatch.setattr(
-            "rebrew.cross_import.sizeless_dest_vas",
+        _patch_matching(
+            monkeypatch,
+            "sizeless_dest_vas",
             lambda cfg: ({B_F1: len(F1)}, [0x499999]),
         )
         monkeypatch.setattr(
@@ -1418,7 +1437,7 @@ class TestSharedImport:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
         assert res["action"] == "imported-shared"
@@ -1568,12 +1587,14 @@ class TestPromoteToShared:
             name="f1",
             symbol="_f1",
         )
-        retarget = ci._retarget_moved_identity
+        retarget = ci.retarget_moved_identity
 
         def fail_publication(*_args: Any, **_kwargs: Any) -> None:
             raise OSError("metadata publication interrupted")
 
-        monkeypatch.setattr(ci, "_retarget_moved_identity", fail_publication)
+        monkeypatch.setattr(
+            "rebrew.cross_import.importer.retarget_moved_identity", fail_publication
+        )
         with pytest.raises(OSError, match="metadata publication interrupted"):
             ci.promote_to_shared(cfg, "f1.c")
 
@@ -1582,7 +1603,7 @@ class TestPromoteToShared:
         assert not src.exists()
         assert get_entry(tmp_path, 0x401000, "SRC")["file"] == old_file
 
-        monkeypatch.setattr(ci, "_retarget_moved_identity", retarget)
+        monkeypatch.setattr("rebrew.cross_import.importer.retarget_moved_identity", retarget)
         retry_path = os.path.relpath(moved, cfg.reversed_dir) if shared_relative else "f1.c"
         retried = ci.promote_to_shared(cfg, retry_path)
 
@@ -1596,7 +1617,6 @@ class TestPromoteToShared:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Equal source and destination bytes are a copy waiting for its unlink."""
-        import shutil
 
         cfg = self._cfg(tmp_path)
         cfg.metadata_dir = tmp_path
@@ -1613,7 +1633,7 @@ class TestPromoteToShared:
             name="f1",
             symbol="_f1",
         )
-        move, retarget = ci.shutil.move, ci._retarget_moved_identity
+        move, retarget = shutil.move, ci.retarget_moved_identity
 
         def copy_without_unlink(source: Any, destination: Any) -> None:
             shutil.copyfile(source, destination)
@@ -1621,15 +1641,17 @@ class TestPromoteToShared:
         def fail_publication(*_args: Any, **_kwargs: Any) -> None:
             raise OSError("metadata publication interrupted")
 
-        monkeypatch.setattr(ci.shutil, "move", copy_without_unlink)
-        monkeypatch.setattr(ci, "_retarget_moved_identity", fail_publication)
+        monkeypatch.setattr(shutil, "move", copy_without_unlink)
+        monkeypatch.setattr(
+            "rebrew.cross_import.importer.retarget_moved_identity", fail_publication
+        )
         with pytest.raises(OSError, match="metadata publication interrupted"):
             ci.promote_to_shared(cfg, "f1.c")
 
         moved = cfg.shared_dir / "f1.c"
         assert src.is_file() and moved.is_file()
-        monkeypatch.setattr(ci.shutil, "move", move)
-        monkeypatch.setattr(ci, "_retarget_moved_identity", retarget)
+        monkeypatch.setattr(shutil, "move", move)
+        monkeypatch.setattr("rebrew.cross_import.importer.retarget_moved_identity", retarget)
 
         retried = ci.promote_to_shared(cfg, "f1.c")
 
@@ -1706,7 +1728,7 @@ class TestPromoteToShared:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
         assert res["action"] == "imported-shared"
@@ -1734,19 +1756,19 @@ class TestPromoteToShared:
             metadata_fields={"SRC.0x401000": {"kind": "FUNCTION", "size": 11}},
         )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1})
-        monkeypatch.setattr(
-            "rebrew.cross_import.unmatched_dest_bytes",
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: F1})
+        _patch_matching(
+            monkeypatch,
+            "unmatched_dest_bytes",
             lambda cfg, only_va=None: {B_F1: F1},
         )
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
         )
-        monkeypatch.setattr(
-            "rebrew.cross_import.registry", lambda cfg: {B_F1: {"canonical_size": 11}}
-        )
-        monkeypatch.setattr(
-            "rebrew.cross_import.annotations_by_va",
+        _patch_matching(monkeypatch, "registry", lambda cfg: {B_F1: {"canonical_size": 11}})
+        _patch_matching(
+            monkeypatch,
+            "annotations_by_va",
             lambda cfg: (
                 {B_F1: ("STUB", ""), A_F1: ("EXACT", "f1.c")}
                 if cfg.target_name == "DST"
@@ -1824,7 +1846,7 @@ class TestSharedSupersede:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
 
     def test_matched_shared_import_deletes_stub(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src, cfg_dst = self._cfgs(tmp_path)
@@ -1863,7 +1885,7 @@ class TestSharedSupersede:
             "rebrew.verify.cli.apply_status_updates",
             lambda *a, **k: applied.append(a),
         )
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
         # A failed new claim is not recorded. The stub stays the only owner.
         assert res["action"] == "skipped-unverified"
@@ -2075,7 +2097,7 @@ class TestSharedSupersede:
         update_source_status(tmp_path, "EXACT", "DST", 0x401040)
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _near_verify_entry)
         # Real apply_status_updates: the rollback must make it a no-op.
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
         assert res["action"] == "skipped-unverified"
         assert res["message"].endswith(
@@ -2104,7 +2126,7 @@ class TestSharedSupersede:
         )
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _near_verify_entry)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
         assert res["action"] == "skipped-unverified"
         assert res["message"].endswith(
@@ -2147,7 +2169,7 @@ class TestSharedSupersede:
             "rebrew.verify.cli.apply_status_updates",
             lambda fixes, cfg: applied.append(fixes),
         )
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
         assert res["action"] == "imported-unverified"
         assert "claim not recorded" not in res["message"]
@@ -2200,7 +2222,7 @@ class TestSharedSupersede:
             "rebrew.verify.cli.apply_status_updates",
             lambda fixes, cfg: applied.append(fixes),
         )
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
         assert res["action"] == "imported-unverified"
         assert "claim not recorded" not in res["message"]
@@ -2395,7 +2417,7 @@ class TestUnifiedTreeMarkerMove:
         )
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", _exact_verify_entry)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11)
         assert res["action"] == "imported-shared"
@@ -2455,7 +2477,7 @@ class TestUnifiedTreeMarkerMove:
             "rebrew.verify.cli.apply_status_updates",
             lambda *a, **k: applied.append(a),
         )
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11)
         assert res["action"] == "skipped-unverified"
@@ -2487,19 +2509,19 @@ class TestCandidatesOnly:
         return tmp_path
 
     def _patch(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2}
-        )
-        monkeypatch.setattr(
-            "rebrew.cross_import.unmatched_dest_bytes",
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2})
+        _patch_matching(
+            monkeypatch,
+            "unmatched_dest_bytes",
             lambda cfg, only_va=None: {B_F1: F1, B_F2: F2},
         )
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
         )
-        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
-        monkeypatch.setattr(
-            "rebrew.cross_import.annotations_by_va",
+        _patch_matching(monkeypatch, "registry", lambda cfg: {})
+        _patch_matching(
+            monkeypatch,
+            "annotations_by_va",
             lambda cfg: {A_F1: ("EXACT", "Units/vfs/f1.c")},
         )
 
@@ -2571,12 +2593,12 @@ class TestVerifiedSymbolFollowsTheBlock:
     )
 
     def test_name_for_va_picks_the_blocks_definition(self) -> None:
-        assert ci._symbol_for_va(self.MULTI, "SRC", 0x401010, "f") == ("second", "_second")
-        assert ci._symbol_for_va(self.MULTI, "SRC", 0x401000, "f") == ("first", "_first")
+        assert ci.symbol_for_va(self.MULTI, "SRC", 0x401010, "f") == ("second", "_second")
+        assert ci.symbol_for_va(self.MULTI, "SRC", 0x401000, "f") == ("first", "_first")
 
     def test_name_for_va_unknown_va(self) -> None:
-        assert ci._symbol_for_va(self.MULTI, "SRC", 0x409999, "f") == ("f", "_f")
-        assert ci._symbol_for_va(self.MULTI, "DST", 0x401010, "f") == ("f", "_f")
+        assert ci.symbol_for_va(self.MULTI, "SRC", 0x409999, "f") == ("f", "_f")
+        assert ci.symbol_for_va(self.MULTI, "DST", 0x401010, "f") == ("f", "_f")
 
     def test_name_for_va_marker_only_block_borrows_below(self) -> None:
         """A marker prepended above another block owns no body of its own."""
@@ -2587,7 +2609,7 @@ class TestVerifiedSymbolFollowsTheBlock:
                 "SRC.0x401010": {"kind": "FUNCTION", "size": 13},
             },
         )
-        assert ci._symbol_for_va(text, "DST", 0x401040, "f") == ("second", "_second")
+        assert ci.symbol_for_va(text, "DST", 0x401040, "f") == ("second", "_second")
 
     def test_shared_import_verifies_the_blocks_symbol(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compiler.compile import CompareResult
@@ -2626,7 +2648,7 @@ class TestVerifiedSymbolFollowsTheBlock:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
 
         res = ci.import_shared_function(cfg_dst, cfg_src, 0x401040, 0x401010, "f.c", 13)
         assert res["action"] == "imported-shared"
@@ -2752,7 +2774,7 @@ class TestVerifiedSymbolShapes:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
         return seen
 
     @pytest.mark.parametrize(("body", "symbol"), SHAPES)
@@ -2911,7 +2933,7 @@ class TestMergedInventoryEntry:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
         return sizes
 
     def _dst_sizes(self, cfg_dst: SimpleNamespace, path: Path) -> tuple[int, Any]:
@@ -3093,7 +3115,7 @@ class TestMergedInventoryEntry:
 
         monkeypatch.setattr("rebrew.verify.cli.verify_entry", fake_verify)
         monkeypatch.setattr("rebrew.verify.cli.apply_status_updates", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "")
 
     _BINDINGS = (
         {"offset": 4, "symbol": "_fcn_0043b500", "kind": "rel32", "status": "UNRESOLVED"},
@@ -3225,7 +3247,7 @@ class TestMergedInventoryEntry:
             kind="FUNCTION",
             module="DST",
         )
-        result, body = ci._verify_import(entry, dst, cache=None, name_to_va=None)
+        result, body = ci.verify_import(entry, dst, cache=None, name_to_va=None)
         assert not result.matched and body is None
         assert entry.size == _MERGED_ENTRY
         assert entry.comparison_inputs == {"reference_size": str(_MERGED_ENTRY)}
@@ -3271,7 +3293,7 @@ class TestMergedInventoryEntry:
             cflags="/O1 /DOLD",
         )
         self._verify(monkeypatch)
-        monkeypatch.setattr(ci, "_source_flags", lambda *a, **k: "/O2 /Gd")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "/O2 /Gd")
         result = ci.import_shared_function(
             dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY, dst_file="f.c"
         )
@@ -3315,7 +3337,7 @@ class TestMergedInventoryEntry:
         apply_updates = verify.apply_status_updates
         self._verify(monkeypatch, prefix_diffs=1)
         monkeypatch.setattr(verify, "apply_status_updates", apply_updates)
-        monkeypatch.setattr(ci, "_source_flags", lambda *a, **k: "/O2 /Gd")
+        monkeypatch.setattr("rebrew.cross_import.importer.source_flags", lambda *a, **k: "/O2 /Gd")
         result = ci.import_shared_function(
             dst, src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY, dst_file="f.c"
         )
@@ -3385,10 +3407,10 @@ class TestSourceVA:
                 f"/* ADDRESS: SRC 0x{va:x} */\nint f(void) {{ return 0; }}\n",
                 metadata_fields={f"SRC.0x{va:x}": {"kind": "FUNCTION"}},
             )
-        monkeypatch.setattr(ci, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F1})
-        monkeypatch.setattr(ci, "unmatched_dest_bytes", lambda cfg, only_va=None: {B_F1: F1})
-        monkeypatch.setattr(ci, "registry", lambda cfg: {})
-        monkeypatch.setattr(ci, "sizeless_dest_vas", lambda cfg: ({}, []))
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F1})
+        _patch_matching(monkeypatch, "unmatched_dest_bytes", lambda cfg, only_va=None: {B_F1: F1})
+        _patch_matching(monkeypatch, "registry", lambda cfg: {})
+        _patch_matching(monkeypatch, "sizeless_dest_vas", lambda cfg: ({}, []))
         monkeypatch.setattr(
             ci,
             "annotations_by_va",
@@ -3512,7 +3534,7 @@ class TestSameVaPreview:
         from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1})
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: F1})
         result = CliRunner().invoke(
             umbrella,
             ["source", "import-related", "--from", "SRC", "--same-va-preview", "--json"],
@@ -3530,7 +3552,7 @@ class TestSameVaPreview:
         info = load_binary(tmp_path / "a.exe")
         raw = extract_bytes_at_va(info, A_F1, len(F1), trim_padding=False)
         assert raw is not None and len(raw) == len(F1)
-        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: raw})
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: raw})
         result = CliRunner().invoke(
             umbrella,
             [
@@ -3551,7 +3573,7 @@ class TestSameVaPreview:
         assert payload["inputs_digest"]
 
         differ = bytes([raw[0] ^ 0xFF]) + raw[1:]
-        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: differ})
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {A_F1: differ})
         result = CliRunner().invoke(
             umbrella,
             [
@@ -3602,9 +3624,7 @@ class TestSameVaPreview:
         assert raw is not None and len(raw) == size
         donor = bytearray(raw)
         donor[:width] = b"\xde\xad\xbe\xef"
-        monkeypatch.setattr(
-            "rebrew.cross_import.matched_source_bytes", lambda cfg: {site_va: bytes(donor)}
-        )
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {site_va: bytes(donor)})
         result = CliRunner().invoke(
             umbrella,
             [
@@ -3631,7 +3651,7 @@ class TestSameVaPreview:
         from rebrew.app.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {})
+        _patch_matching(monkeypatch, "matched_source_bytes", lambda cfg: {})
         result = CliRunner().invoke(
             umbrella,
             [

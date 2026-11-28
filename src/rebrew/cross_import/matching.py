@@ -218,45 +218,24 @@ def disasm_sizes(cfg: ProjectConfig, vas: list[int]) -> tuple[dict[int, int], li
     return sizes, refused
 
 
-def sizeless_dest_vas(
-    cfg: ProjectConfig,
-    *,
-    registry_fn: Callable[[ProjectConfig], dict[int, RegistryEntry]] | None = None,
-    annotations_by_va_fn: Callable[[ProjectConfig], dict[int, tuple[str, str]]] | None = None,
-    library_vas_fn: Callable[[ProjectConfig], set[int]] | None = None,
-    disasm_sizes_fn: Callable[[ProjectConfig, list[int]], tuple[dict[int, int], list[int]]]
-    | None = None,
-) -> tuple[dict[int, int], list[int]]:
+def sizeless_dest_vas(cfg: ProjectConfig) -> tuple[dict[int, int], list[int]]:
     """Sizeless registry entries (``canonical_size`` 0/missing), split into
     disassembly-sized matches and refusals (see :func:`disasm_sizes`).
 
     Public so the CLI can attach the ``sizeless, use --va`` guidance rows
     for the refusals.
     """
-    entries = (registry_fn or registry)(cfg)
-    eligible = _destination_eligibility(
-        cfg,
-        annotations_by_va_fn=annotations_by_va_fn,
-        library_vas_fn=library_vas_fn,
-    )
+    entries = registry(cfg)
+    eligible = _destination_eligibility(cfg)
     sizeless = [
         va
         for va, reg in entries.items()
         if not int(reg.get("canonical_size") or 0) and eligible(va)
     ]
-    return (disasm_sizes_fn or disasm_sizes)(cfg, sizeless)
+    return disasm_sizes(cfg, sizeless)
 
 
-def matched_source_bytes(
-    cfg_src: ProjectConfig,
-    *,
-    annotations_by_va_fn: Callable[[ProjectConfig], dict[int, tuple[str, str]]] | None = None,
-    registry_fn: Callable[[ProjectConfig], dict[int, RegistryEntry]] | None = None,
-    disasm_sizes_fn: Callable[[ProjectConfig, list[int]], tuple[dict[int, int], list[int]]]
-    | None = None,
-    target_bytes_by_va_fn: Callable[[ProjectConfig, dict[int, int]], dict[int, bytes]]
-    | None = None,
-) -> dict[int, bytes]:
+def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
     """Source side: target bytes of the source target's matched functions.
 
     Only functions whose metadata STATUS is EXACT/RELOC participate (PROVEN
@@ -269,8 +248,8 @@ def matched_source_bytes(
     """
     from rebrew.metadata.functions import load_metadata
 
-    statuses = (annotations_by_va_fn or annotations_by_va)(cfg_src)
-    entries = (registry_fn or registry)(cfg_src)
+    statuses = annotations_by_va(cfg_src)
+    entries = registry(cfg_src)
     metadata_dir = getattr(cfg_src, "metadata_dir", None)
     metadata = load_metadata(metadata_dir, deepcopy=False) if metadata_dir is not None else {}
     module = (target_module(cfg_src) or "") if metadata else ""
@@ -287,9 +266,9 @@ def matched_source_bytes(
         va for va in entries if sizes[va] <= 0 and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
     ]
     if sizeless:
-        sizes, _refused = (disasm_sizes_fn or disasm_sizes)(cfg_src, sizeless)
+        sizes, _refused = disasm_sizes(cfg_src, sizeless)
         vas.update(sizes)
-    return (target_bytes_by_va_fn or target_bytes_by_va)(cfg_src, vas)
+    return target_bytes_by_va(cfg_src, vas)
 
 
 def import_size(dst_size: int, src_code: bytes | None) -> int:
@@ -381,14 +360,9 @@ def _in_external_range(va: int, ranges: list[tuple[int, int]]) -> bool:
     return any(lo <= va <= hi for lo, hi in ranges)
 
 
-def _destination_eligibility(
-    cfg: ProjectConfig,
-    *,
-    annotations_by_va_fn: Callable[[ProjectConfig], dict[int, tuple[str, str]]] | None = None,
-    library_vas_fn: Callable[[ProjectConfig], set[int]] | None = None,
-) -> Callable[[int], bool]:
-    statuses = (annotations_by_va_fn or annotations_by_va)(cfg)
-    library = (library_vas_fn or library_vas)(cfg)
+def _destination_eligibility(cfg: ProjectConfig) -> Callable[[int], bool]:
+    statuses = annotations_by_va(cfg)
+    library = library_vas(cfg)
     bands = list(getattr(cfg, "external_ranges", None) or [])
 
     def eligible(va: int) -> bool:
@@ -404,14 +378,6 @@ def _destination_eligibility(
 def unmatched_dest_bytes(
     cfg_dst: ProjectConfig,
     only_va: int | None = None,
-    *,
-    annotations_by_va_fn: Callable[[ProjectConfig], dict[int, tuple[str, str]]] | None = None,
-    library_vas_fn: Callable[[ProjectConfig], set[int]] | None = None,
-    registry_fn: Callable[[ProjectConfig], dict[int, RegistryEntry]] | None = None,
-    disasm_sizes_fn: Callable[[ProjectConfig, list[int]], tuple[dict[int, int], list[int]]]
-    | None = None,
-    target_bytes_by_va_fn: Callable[[ProjectConfig, dict[int, int]], dict[int, bytes]]
-    | None = None,
 ) -> dict[int, bytes]:
     """Destination side: target bytes of the destination's NOT-yet-matched
     functions (anything whose STATUS is not EXACT/RELOC, PROVEN included).
@@ -424,14 +390,10 @@ def unmatched_dest_bytes(
     extent (ret-ended only); ones the disassembler cannot size stay out of
     the match and surface as ``sizeless, use --va`` rows from
     :func:`sizeless_dest_vas`."""
-    eligible = _destination_eligibility(
-        cfg_dst,
-        annotations_by_va_fn=annotations_by_va_fn,
-        library_vas_fn=library_vas_fn,
-    )
+    eligible = _destination_eligibility(cfg_dst)
     if only_va is not None and not eligible(only_va):
         return {}
-    entries = (registry_fn or registry)(cfg_dst)
+    entries = registry(cfg_dst)
     if only_va is not None:
         entries = {only_va: entries.get(only_va, {})}
     candidates = {va: entry for va, entry in entries.items() if eligible(va)}
@@ -442,9 +404,9 @@ def unmatched_dest_bytes(
     }
     missing = list(candidates.keys() - vas.keys())
     if missing:
-        sizes, _refused = (disasm_sizes_fn or disasm_sizes)(cfg_dst, sorted(missing))
+        sizes, _refused = disasm_sizes(cfg_dst, sorted(missing))
         vas.update(sizes)
-    return (target_bytes_by_va_fn or target_bytes_by_va)(cfg_dst, vas)
+    return target_bytes_by_va(cfg_dst, vas)
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +432,6 @@ def same_va_preview_rows(
     vas: list[int],
     *,
     source_vas: dict[int, int] | None = None,
-    matched_source_bytes_fn: Callable[[ProjectConfig], dict[int, bytes]] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
     """Per-VA verdict: destination binary bytes at the same VA vs the source
     function reference bytes.
@@ -492,7 +453,7 @@ def same_va_preview_rows(
     from rebrew.formats.binary_loader import extract_bytes_at_va, load_binary
 
     source_vas = dict(source_vas or {})
-    src_bytes = (matched_source_bytes_fn or matched_source_bytes)(cfg_src)
+    src_bytes = matched_source_bytes(cfg_src)
     rows: list[dict[str, Any]] = []
     digest_lines: list[str] = []
     try:

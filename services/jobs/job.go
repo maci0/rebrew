@@ -405,6 +405,13 @@ func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, c
 	if credential != "" && (o.docker == nil || o.compileConfig == nil) {
 		return Receipt{}, false, errors.New("managed compile unavailable")
 	}
+	r, receiptErr := o.read(id)
+	if receiptErr != nil && !errors.Is(receiptErr, os.ErrNotExist) {
+		return Receipt{}, false, receiptErr
+	}
+	if receiptErr != nil && o.occupied {
+		return Receipt{}, false, ErrOccupied
+	}
 	stage, workspaceDigest, err := snapshot(o.root, o.dir)
 	if err != nil {
 		return Receipt{}, false, err
@@ -421,8 +428,7 @@ func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, c
 	if hex.EncodeToString(copySum[:]) != seedDigest {
 		return Receipt{}, false, errors.New("seed changed during snapshot")
 	}
-	r, err := o.read(id)
-	if err == nil {
+	if receiptErr == nil {
 		provider, image := "local", ""
 		if o.docker != nil {
 			provider, image = "docker", o.docker.Image
@@ -431,12 +437,6 @@ func (o *Owner) admit(ctx context.Context, key, seed, expectedWorkspaceSHA256, c
 			return Receipt{}, false, ErrIdempotencyConflict
 		}
 		return r, false, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return Receipt{}, false, err
-	}
-	if o.occupied {
-		return Receipt{}, false, ErrOccupied
 	}
 	if err = o.discardUnreceiptedCustody(id); err != nil {
 		return Receipt{}, false, err
@@ -520,26 +520,26 @@ func (o *Owner) runJob(ctx context.Context, r Receipt) error {
 	stage, snapshotDigest, err := snapshot(filepath.Join(o.dir, saved.ID+".original"), o.dir)
 	if err != nil {
 		o.mu.Unlock()
-		return err
+		return o.failNeverStarted(saved.ID, err)
 	}
 	defer os.RemoveAll(stage)
 	if snapshotDigest != saved.WorkspaceSHA256 {
 		o.mu.Unlock()
-		return errors.New("retained original changed")
+		return o.failNeverStarted(saved.ID, errors.New("retained original changed"))
 	}
 	workspace := filepath.Join(o.dir, saved.ID+".workspace")
 	if _, statErr := os.Lstat(workspace); !errors.Is(statErr, os.ErrNotExist) {
 		o.mu.Unlock()
-		return errors.New("workspace custody already exists")
+		return o.failNeverStarted(saved.ID, errors.New("workspace custody already exists"))
 	}
 	if err = os.Rename(stage, workspace); err != nil {
 		o.mu.Unlock()
-		return err
+		return o.failNeverStarted(saved.ID, err)
 	}
 	saved.State = "running"
 	if err = o.save(saved); err != nil {
 		o.mu.Unlock()
-		return err
+		return o.failNeverStarted(saved.ID, err)
 	}
 	o.notify(saved.ID)
 	log.Printf("level=info msg=job_started job_id=%q kind=%q provider=%q%s", saved.ID, saved.Kind, saved.Provider, jobLogFields(ctx))
@@ -620,9 +620,51 @@ func (o *Owner) runJob(ctx context.Context, r Receipt) error {
 	return nil
 }
 
+// failNeverStarted records that the job's process or container was never
+// started and releases its slot and compile mediator. It returns cause, or
+// the save error that keeps the slot fenced.
+func (o *Owner) failNeverStarted(id string, cause error) error {
+	o.mu.Lock()
+	var idle *CompileMediator
+	defer func() {
+		o.mu.Unlock()
+		waitManagedCompileIdle(idle)
+	}()
+	current, err := o.read(id)
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	current.State, current.NeverStarted = "failed", true
+	if err = o.save(current); err != nil {
+		return errors.Join(cause, err)
+	}
+	if current.ManagedCompile {
+		idle = o.stopManagedCompile()
+	}
+	o.occupied = false
+	o.notify(id)
+	return cause
+}
+
+// releaseStoppedCustody removes what a durable stop proof leaves redundant:
+// the container and the working copy, which .result (or, never started,
+// .original) already holds.
+func releaseStoppedCustody(provider DockerProvider, dir, job, container string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := provider.Remove(ctx, container); err != nil {
+		log.Printf("level=error msg=job_container_remove_error job_id=%q error=%q", job, err.Error())
+	}
+	workspace := filepath.Join(dir, job+".workspace")
+	makeTreeRemovable(workspace)
+	if err := os.RemoveAll(workspace); err != nil {
+		log.Printf("level=error msg=job_workspace_remove_error job_id=%q error=%q", job, err.Error())
+	}
+}
+
 func (o *Owner) runDocker(ctx context.Context, saved Receipt, workspace string) error {
 	if o.docker == nil || o.docker.Image != saved.Image {
-		return errors.New("container provider unavailable")
+		return o.failNeverStarted(saved.ID, errors.New("container provider unavailable"))
 	}
 	provider := *o.docker
 	provider.Generations, provider.Population, provider.Kind = saved.Generations, saved.Population, saved.Kind
@@ -642,7 +684,15 @@ func (o *Owner) runDocker(ctx context.Context, saved Receipt, workspace string) 
 	id, err := provider.Create(ctx, filepath.Join(o.dir, saved.ID+".original"), workspace, saved.ID, saved.Seed)
 	cancel()
 	if err != nil {
-		return err
+		// A create with an unknown outcome may have left the named container;
+		// it was never started either way.
+		rmCtx, rmCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		if rmErr := provider.Remove(rmCtx, "rebrew-job-"+saved.ID); rmErr != nil {
+			log.Printf("level=error msg=job_create_remove_error job_id=%q error=%q", saved.ID, rmErr.Error())
+		}
+		rmCancel()
+		managedRunning = false
+		return o.failNeverStarted(saved.ID, err)
 	}
 	o.mu.Lock()
 	current, err := o.read(saved.ID)
@@ -692,6 +742,14 @@ func (o *Owner) runDocker(ctx context.Context, saved Receipt, workspace string) 
 			// via InspectStop; record loss here for operators watching logs.
 			log.Printf("level=error msg=job_follow_error job_id=%q error=%q%s", saved.ID, err.Error(), jobLogFields(ctx))
 		}
+		if followCtx.Err() != nil {
+			// Timeout or owner shutdown ended the follow, not the container.
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			if err := provider.Stop(stopCtx, id); err != nil {
+				log.Printf("level=error msg=job_timeout_stop_error job_id=%q error=%q%s", saved.ID, err.Error(), jobLogFields(ctx))
+			}
+			stopCancel()
+		}
 		followCancel()
 	}
 	digest, outputErr := output.finish()
@@ -703,9 +761,13 @@ func (o *Owner) runDocker(ctx context.Context, saved Receipt, workspace string) 
 	inspectCancel()
 	o.mu.Lock()
 	var idle *CompileMediator
+	released := false
 	defer func() {
 		o.mu.Unlock()
 		waitManagedCompileIdle(idle)
+		if released {
+			releaseStoppedCustody(provider, o.dir, saved.ID, id)
+		}
 	}()
 	if managedRunning {
 		idle = o.stopManagedCompile()
@@ -739,6 +801,7 @@ func (o *Owner) runDocker(ctx context.Context, saved Receipt, workspace string) 
 	}
 	if stopErr == nil {
 		o.occupied = false
+		released = true
 	} else {
 		log.Printf("level=error msg=job_stop_error job_id=%q error=%q%s", saved.ID, stopErr.Error(), jobLogFields(ctx))
 	}
@@ -782,6 +845,13 @@ func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error)
 	}
 	external := r
 	o.mu.Unlock()
+	released := false
+	// Registered before the branches' deferred unlock, so it runs after it.
+	defer func() {
+		if released {
+			releaseStoppedCustody(provider, o.dir, id, external.ContainerID)
+		}
+	}()
 
 	stop, err := provider.InspectStop(ctx, external.ContainerID, external.ID, filepath.Join(o.dir, external.ID+".original"), filepath.Join(o.dir, external.ID+".workspace"), external.Seed)
 	if err == nil {
@@ -807,7 +877,7 @@ func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error)
 		if err = o.save(current); err != nil {
 			return current, err
 		}
-		o.occupied = false
+		o.occupied, released = false, true
 		o.notify(id)
 		return current, nil
 	}
@@ -830,7 +900,7 @@ func (o *Owner) ReconcileDocker(ctx context.Context, id string) (Receipt, error)
 	if err = o.save(current); err != nil {
 		return current, err
 	}
-	o.occupied = false
+	o.occupied, released = false, true
 	o.notify(id)
 	return current, nil
 }
@@ -850,22 +920,27 @@ func (o *Owner) Cancel(id string) (Receipt, error) {
 	if err != nil {
 		return r, err
 	}
+	switch r.State {
+	case "cancelled", "finished", "failed", "stopped_unsettled":
+		return r, nil
+	}
 	r.CancelRequested = true
-	if o.queued[id] && r.State == "uncertain" {
+	cancelledQueued := o.queued[id] && r.State == "uncertain"
+	if cancelledQueued {
 		r.State = "cancelled"
-		delete(o.queued, id)
-		if r.ManagedCompile {
-			idle = o.stopManagedCompile()
-		}
 	}
 	if err := o.save(r); err != nil {
 		return r, err
 	}
-	if r.State == "cancelled" {
+	if cancelledQueued {
+		delete(o.queued, id)
+		if r.ManagedCompile {
+			idle = o.stopManagedCompile()
+		}
 		o.occupied = false
 	}
 	o.notify(id)
-	if r.State == "running" && r.Provider == "docker" && r.ContainerID != "" && o.docker != nil {
+	if (r.State == "running" || r.State == "uncertain") && r.Provider == "docker" && r.ContainerID != "" && o.docker != nil {
 		provider, containerID := *o.docker, r.ContainerID
 		// Count the stop as in-flight work so Close waits for it.  Cancel
 		// holds the owner lock and rejects a closed owner, so this Add

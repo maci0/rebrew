@@ -15,11 +15,13 @@ from cli_json import cli_payload
 from source_util import write_source
 from typer.testing import CliRunner
 
+from rebrew.compare.coff_reloc import build_name_to_va
 from rebrew.compiler.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.metadata.bindings import SourceBinding
 from rebrew.verify.cache import (
     binary_id,
+    catalog_hash,
     load_verify_cache,
     load_verify_cache_raw,
     save_verify_cache,
@@ -95,6 +97,7 @@ def _measure_for_cache(cfg: ProjectConfig, entry: SourceBinding) -> None:
         "module": entry.module,
         "binary_id": binary_id(cfg),
         "image_id": _IMAGE_ID,
+        "catalog_hash": catalog_hash(build_name_to_va(cfg)),
     }
 
 
@@ -1417,6 +1420,29 @@ class TestIncrementalVerify:
         assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
         assert calls == [entry.va]
 
+    def test_catalog_change_invalidates_cached_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Relocation checks read the symbol catalog, so a `data set` that
+        adds or moves a global remeasures rows the old catalog earned."""
+        from rebrew.metadata.data import set_data_field
+
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        entry = SourceBinding(
+            va=0x10001000, name="f", filepath="f.c", size=16, kind="FUNCTION", status="RELOC"
+        )
+        calls: list[int] = []
+        _patch_verify(monkeypatch, cfg, [entry], calls)
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        calls.clear()
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        assert calls == []
+        set_data_field(cfg.metadata_dir, 0x500010, "name", "data_y", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x500000, "name", "data_x", "SERVER")
+        assert runner.invoke(app, ["--json", "--no-promote"]).exit_code == 0
+        assert calls == [entry.va]
+
     @pytest.mark.parametrize("preserve_keys", [None, {"0x00001000"}])
     def test_identical_full_save_refreshes_verify_time(
         self, tmp_path: Path, preserve_keys: set[str] | None
@@ -2370,17 +2396,18 @@ class TestEntryHeadersFp:
         assert entry_headers_fp(cfg, beside, "") == "digest"
         assert str(shared.resolve()) not in seen["dirs"]
 
-    def test_force_include_falls_back_to_dir_fp(self, tmp_path: Path) -> None:
-        """A force-include flag (/FI) must fall back to directory fingerprinting."""
+    def test_force_include_tracks_extensionless_files(self, tmp_path: Path) -> None:
+        """Changing an extensionless forced include invalidates verification."""
         cfg = _make_cfg(tmp_path)
         src = cfg.reversed_dir / "func.c"
         src.write_text("int func(void){return 0;}\n", encoding="utf-8")
-        header = cfg.reversed_dir / "types.h"
+        header = cfg.reversed_dir / "settings"
         header.write_text("typedef int BOOL;\n", encoding="utf-8")
 
-        fp1 = entry_headers_fp(cfg, src, "/FItypes.h")
+        fp1 = entry_headers_fp(cfg, src, "-include settings")
+        assert fp1 == entry_headers_fp(cfg, src, "-include settings")
         header.write_text("typedef long BOOL;\n", encoding="utf-8")
-        fp2 = entry_headers_fp(cfg, src, "/FItypes.h")
+        fp2 = entry_headers_fp(cfg, src, "-include settings")
         assert fp1 != fp2
 
     def test_save_persists_entry_headers_fp(self, tmp_path: Path) -> None:
@@ -2528,13 +2555,16 @@ class TestCflagsEquivalent:
     def test_identical_strings_are_equivalent(self) -> None:
         assert cflags_equivalent("/O2 /Gd", "/O2 /Gd")
 
-    def test_reorder_across_option_groups_is_equivalent(self) -> None:
-        """Different option groups commute, so /O2 /Gd and /Gd /O2 compile alike."""
-        assert cflags_equivalent("/O2 /Gd", "/Gd /O2")
+    def test_whitespace_only_difference_is_equivalent(self) -> None:
+        assert cflags_equivalent("/O2  /Gd", " /O2 /Gd ")
 
-    def test_repeated_known_option_collapses(self) -> None:
-        """MSVC is last-wins inside one option group, so a repeat is redundant."""
-        assert cflags_equivalent("/O2 /O2 /Gd", "/O2 /Gd")
+    @pytest.mark.parametrize(
+        ("stored", "current"),
+        [("/O2 /Gd", "/Gd /O2"), ("/O2 /O2 /Gd", "/O2 /Gd"), ("/Ox /Os", "/Os")],
+    )
+    def test_reorder_or_repeat_is_not_equivalent(self, stored: str, current: str) -> None:
+        """cl's switches interact (/Ox /Os is not /Os), so only equal token lists match."""
+        assert not cflags_equivalent(stored, current)
 
     def test_last_wins_difference_is_not_equivalent(self) -> None:
         """/O1 /O2 and /O2 /O1 leave a different last flag set: not equivalent."""

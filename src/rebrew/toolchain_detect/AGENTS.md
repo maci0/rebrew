@@ -6,7 +6,7 @@ Heuristic compiler-family, era, CRT-linkage, and codegen-signal detection for ta
 
 | Module | Role |
 |--------|------|
-| `__init__.py` | `detect_toolchain`, `profile_matches_detection`, `suggest_profile`, lazy `lief` loader, and compatibility aliases |
+| `__init__.py` | `detect_toolchain`, `profile_matches_detection`, `suggest_profile`, lazy `lief` loader, and the `_`-aliases this module and `resolve_pkg_hook` read |
 | `tables.py` | Compiler version/compatibility tables, `ToolchainInfo`, `CodegenSignals`, `DetectionTables`, and plugin registry refresh |
 | `diec.py` | Detect It Easy (`diec`) discovery, execution, and version-hint backend |
 | `codegen.py` | Byte/string/MZ/PDB/PE-metadata scanning and codegen fingerprint helpers |

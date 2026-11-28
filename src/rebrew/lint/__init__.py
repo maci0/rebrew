@@ -48,24 +48,18 @@ from rebrew.lint.metadata_rules import (
     check_W034_identity_paths,
     check_W035_unknown_modules,
     check_W036_stray_metadata_store,
-    check_W037_data_definition,
     check_W038_data_row_overlap,
-)
-from rebrew.lint.source_rules import (
-    DATA_SECTION_NAMES,
-    check_body_rules,
-    data_section_names_for,
-    function_containing_va,
-    retired_leftover,
-    source_headers,
-    strip_all,
-    strip_c_comments_strings,
 )
 from rebrew.lint.source_rules import (
     build_function_index as build_function_index,
 )
 from rebrew.lint.source_rules import (
     lint_file as lint_file_core,
+)
+from rebrew.lint.source_rules import (
+    retired_leftover,
+    source_headers,
+    strip_c_comments_strings,
 )
 from rebrew.metadata.bindings import SourceBinding as SourceBinding
 lazy from rebrew.config import ProjectConfig, load_config
@@ -85,7 +79,6 @@ lazy from rebrew.utils import TerminalTable, untrusted_ident
 log = logging.getLogger(__name__)
 
 # Local `_`-aliases retained for test compatibility (never imported across modules).
-_DATA_SECTION_NAMES = DATA_SECTION_NAMES
 _check_E001_kind = check_E001_kind  # noqa: N816
 _check_E002_va = check_E002_va  # noqa: N816
 _check_E013_duplicate_va = check_E013_duplicate_va  # noqa: N816
@@ -99,14 +92,9 @@ _check_W031_type_metadata = check_W031_type_metadata  # noqa: N816
 _check_W034_identity_paths = check_W034_identity_paths  # noqa: N816
 _check_W035_unknown_modules = check_W035_unknown_modules  # noqa: N816
 _check_W036_stray_metadata_store = check_W036_stray_metadata_store  # noqa: N816
-_check_W037_data_definition = check_W037_data_definition  # noqa: N816
 _check_W038_data_row_overlap = check_W038_data_row_overlap  # noqa: N816
-_check_body_rules = check_body_rules
-_data_section_names_for = data_section_names_for
-_function_containing_va = function_containing_va
 _retired_leftover = retired_leftover
 _source_headers = source_headers
-_strip_all = strip_all
 _strip_c_comments_strings = strip_c_comments_strings
 
 
@@ -267,7 +255,7 @@ def main(
         # `source_ext` may hold several comma-separated extensions; comparing
         # the raw string against `f.suffix` matched nothing, so `rebrew lint
         # foo.cpp` with `source_ext = ".c,.cpp"` silently checked 0 files.
-        # Both sides are lowercased: `_parse_source_ext` keeps the configured
+        # Both sides are lowercased: `parse_source_ext` keeps the configured
         # spelling, and `iter_sources` matches suffixes case-insensitively
         # (sources.files_with_ext), so `rebrew lint FOO.C` with
         # `source_ext = ".C"` must find the same file as a bare run.

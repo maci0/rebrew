@@ -1503,6 +1503,73 @@ class TestFlagSweepMatchValidation:
         assert exact == 1
         assert calls == ["status"]  # promoted
 
+    def test_confirmed_reloc_promoted_as_reloc(self, tmp_path, monkeypatch) -> None:
+        """A RELOC compare is a match but not EXACT: STATUS and the verify
+        cache record RELOC."""
+        from rebrew.compiler.compile import CompareResult
+        from rebrew.matching.run import _run_batch_flag_sweep
+
+        cfg = self._cfg(tmp_path)
+        src_dir = tmp_path / "src" / "T"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        f = src_dir / "near.c"
+        write_source(
+            f,
+            "/* ADDRESS: SERVER 0x10001000 */\n\nint near(void) { return 0; }\n",
+            encoding="utf-8",
+            metadata_fields={"SERVER.0x10001000": {"kind": "FUNCTION"}},
+        )
+        stub = StubInfo(
+            filepath=f,
+            va="0x10001000",
+            size=64,
+            symbol="near",
+            cflags="/O2",
+            status="NEAR_MATCHING",
+            module="SERVER",
+        )
+        reloc = CompareResult(
+            matched=True,
+            status="RELOC",
+            match_percent=100.0,
+            delta=0,
+            obj_bytes=b"\x90" * 64,
+            reloc_offsets=[],
+            message="RELOC-NORMALIZED MATCH",
+        )
+        monkeypatch.setattr(
+            "rebrew.matching.run.run_flag_sweep", lambda *a, **k: (0.0, "/O1", [(0.0, "/O1")])
+        )
+        monkeypatch.setattr("rebrew.compiler.compile.compile_and_compare", lambda *a, **k: reloc)
+        monkeypatch.setattr(
+            "rebrew.formats.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64
+        )
+        statuses: list[str] = []
+        monkeypatch.setattr(
+            "rebrew.metadata.functions.update_source_status",
+            lambda _dir, status, **k: statuses.append(status) or True,
+        )
+        patched: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            "rebrew.verify.cache.patch_verify_cache_entries",
+            lambda _cfg, rows: patched.extend(rows),
+        )
+        monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.matching.run.update_cflags_annotation", lambda *a, **k: True)
+
+        _run_batch_flag_sweep(
+            [stub],
+            cfg,
+            "targeted",
+            1,
+            fix_cflags=True,
+            json_output=True,
+            mode_label="sweep",
+            name_to_va={"near": 0x10001000},
+        )
+        assert statuses == ["RELOC"]
+        assert [row["status"] for row in patched] == ["RELOC"]
+
     def test_unvalidated_sweep_exact_still_counted(self, tmp_path, monkeypatch) -> None:
         """Without --fix-cflags no authoritative re-verify runs, so the
         batch must report the sweep's exact rows instead of `exact: 0` and

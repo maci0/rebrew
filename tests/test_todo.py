@@ -13,7 +13,11 @@ from cache_util import cache_text
 from cli_json import cli_payload
 from source_util import write_store_fixture
 
+from rebrew import status as status_cmd
 from rebrew.catalog import FunctionEntry
+from rebrew.library import identify
+from rebrew.library import match as library_match
+from rebrew.matching import prove
 from rebrew.todo import (
     CAT_COMPILE_ERROR,
     CAT_DOCUMENTED,
@@ -29,15 +33,68 @@ from rebrew.todo import (
     CAT_SETUP,
     CAT_START_FUNCTION,
     TodoItem,
-    _collect_active_functions,
-    _collect_library_candidates,
-    _collect_new_functions,
-    _collect_postlink_rewritten,
-    _collect_prover_candidates,
-    _collect_setup_steps,
     calculate_roi,
     collect_all,
 )
+from rebrew.todo.collectors import (
+    collect_active_functions,
+    collect_data_drift,
+    collect_library_candidates,
+    collect_new_functions,
+    collect_postlink_rewritten,
+    collect_prover_candidates,
+    collect_setup_steps,
+)
+
+# The lanes take the command-layer callables ``rebrew todo`` injects
+# (``todo.collect_all``); these read them at call time so monkeypatches apply.
+
+
+def _status_fns() -> dict[str, Any]:
+    return {
+        "effective_status_fn": status_cmd.effective_status,
+        "prover_available_fn": prove.angr_available,
+    }
+
+
+def _library_fns() -> dict[str, Any]:
+    return {
+        "infer_module_fn": identify.infer_module,
+        "stock_lib_fns": (
+            library_match.stock_lib_cache,
+            library_match.stock_lib_valid,
+            library_match.index_library,
+            library_match.match_bytes,
+        ),
+    }
+
+
+def _collect_active_functions(*args: Any, **kwargs: Any) -> list[TodoItem]:
+    return collect_active_functions(*args, **kwargs, **_status_fns())
+
+
+def _collect_prover_candidates(*args: Any) -> list[TodoItem]:
+    return collect_prover_candidates(*args, **_status_fns())
+
+
+def _collect_new_functions(*args: Any) -> list[TodoItem]:
+    return collect_new_functions(*args, **_library_fns())
+
+
+def _collect_library_candidates(*args: Any) -> list[TodoItem]:
+    return collect_library_candidates(*args, infer_module_fn=identify.infer_module)
+
+
+def _collect_data_drift(*args: Any) -> list[TodoItem]:
+    return collect_data_drift(
+        *args,
+        copied_ranges_fn=status_cmd.postlink_copied_ranges,
+        span_is_copied_fn=status_cmd.span_is_copied,
+    )
+
+
+def _collect_postlink_rewritten(*args: Any) -> list[TodoItem]:
+    return collect_postlink_rewritten(*args, find_built_image_fn=status_cmd.find_built_image)
 
 
 def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
@@ -136,11 +193,11 @@ class TestScoring:
 
 
 class TestCallerCounts:
-    """`_caller_counts` backs the +ROI caller boost and the "unblocks N
+    """`caller_counts` backs the +ROI caller boost and the "unblocks N
     caller(s)" note, so it must count only UNRESOLVED callers."""
 
     def test_matched_caller_does_not_count(self, tmp_path: Path) -> None:
-        from rebrew.todo import _caller_counts
+        from rebrew.todo import caller_counts
 
         cfg = _make_cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
@@ -150,9 +207,9 @@ class TestCallerCounts:
         (cfg.reversed_dir / "b.c").write_text(
             "extern int helper(void);\nint other(void) { return helper(); }\n", encoding="utf-8"
         )
-        assert _caller_counts(cfg) == {"helper": 2}
+        assert caller_counts(cfg) == {"helper": 2}
         # a.c's own function is byte-matched, so it no longer needs helper.
-        assert _caller_counts(cfg, {"a.c"}) == {"helper": 1}
+        assert caller_counts(cfg, {"a.c"}) == {"helper": 1}
 
     def test_extern_names_are_reused_across_processes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -184,22 +241,22 @@ class TestCallerCounts:
             return real(source)
 
         monkeypatch.setattr(c_parser, "find_extern_function_names", counting)
-        todo._EXTERN_CACHE.clear()
-        assert todo._caller_counts(cfg) == {"helper": 2}
+        todo.EXTERN_CACHE.clear()
+        assert todo.caller_counts(cfg) == {"helper": 2}
         assert calls["n"] == 2
 
-        todo._EXTERN_CACHE.clear()
-        assert todo._caller_counts(cfg) == {"helper": 2}
+        todo.EXTERN_CACHE.clear()
+        assert todo.caller_counts(cfg) == {"helper": 2}
         assert calls["n"] == 2
-        assert todo._caller_counts(cfg, {"a.c"}) == {"helper": 1}
+        assert todo.caller_counts(cfg, {"a.c"}) == {"helper": 1}
         assert calls["n"] == 2
 
         (cfg.reversed_dir / "b.c").write_text(
             "extern int helper(void);\nextern int other(void);\n",
             encoding="utf-8",
         )
-        todo._EXTERN_CACHE.clear()
-        assert todo._caller_counts(cfg) == {"helper": 2, "other": 1}
+        todo.EXTERN_CACHE.clear()
+        assert todo.caller_counts(cfg) == {"helper": 2, "other": 1}
         assert calls["n"] == 3
 
     def test_warm_scan_does_not_resolve_absolute_paths(
@@ -222,10 +279,10 @@ class TestCallerCounts:
         )
         (cfg.reversed_dir / "b.c").write_text("int b(void) { return 1; }\n", encoding="utf-8")
         scanned = scan_files(cfg.reversed_dir)
-        todo._EXTERN_CACHE.clear()
-        assert todo._caller_counts(cfg, scanned=scanned) == {"helper": 1}
+        todo.EXTERN_CACHE.clear()
+        assert todo.caller_counts(cfg, scanned=scanned) == {"helper": 1}
 
-        todo._EXTERN_CACHE.clear()
+        todo.EXTERN_CACHE.clear()
         calls = {"n": 0}
         real = Path.resolve
 
@@ -234,21 +291,21 @@ class TestCallerCounts:
             return real(self, *args, **kwargs)
 
         monkeypatch.setattr(Path, "resolve", counting)
-        assert todo._caller_counts(cfg, {"a.c"}, scanned=scanned) == {}
+        assert todo.caller_counts(cfg, {"a.c"}, scanned=scanned) == {}
         assert calls["n"] == 0
 
     def test_extern_cache_is_bounded(self, tmp_path: Path) -> None:
         """A process that visits many project roots must not retain every one."""
         import rebrew.todo as todo
 
-        todo._EXTERN_CACHE.clear()
-        directories = [tmp_path / f"project-{index}" for index in range(todo._EXTERN_CACHE_MAX + 2)]
+        todo.EXTERN_CACHE.clear()
+        directories = [tmp_path / f"project-{index}" for index in range(todo.EXTERN_CACHE_MAX + 2)]
         for directory in directories:
             directory.mkdir()
-            todo._begin_extern_cache(directory)
-        assert len(todo._EXTERN_CACHE) == todo._EXTERN_CACHE_MAX
-        assert str(directories[0]) not in todo._EXTERN_CACHE
-        assert str(directories[-1]) in todo._EXTERN_CACHE
+            todo.begin_extern_cache(directory)
+        assert len(todo.EXTERN_CACHE) == todo.EXTERN_CACHE_MAX
+        assert str(directories[0]) not in todo.EXTERN_CACHE
+        assert str(directories[-1]) in todo.EXTERN_CACHE
 
     def test_extern_cache_flush_serializes_a_concurrent_remember(
         self, tmp_path: Path, monkeypatch
@@ -259,36 +316,37 @@ class TestCallerCounts:
         from thread_util import join_all
 
         import rebrew.todo as todo
+        import rebrew.utils as utils
 
         first = tmp_path / "a.c"
         first.write_text("extern int f(void);\n")
         second = tmp_path / "b.c"
         second.write_text("extern int g(void);\n")
-        todo._EXTERN_CACHE.clear()
-        cache = todo._begin_extern_cache(tmp_path)
-        first_stamp = todo._extern_source_stamp(first)
-        second_stamp = todo._extern_source_stamp(second)
+        todo.EXTERN_CACHE.clear()
+        cache = todo.begin_extern_cache(tmp_path)
+        first_stamp = todo.extern_source_stamp(first)
+        second_stamp = todo.extern_source_stamp(second)
         assert first_stamp is not None and second_stamp is not None
-        todo._extern_cache_remember(cache, first, first_stamp, ["f"])
+        todo.extern_cache_remember(cache, first, first_stamp, ["f"])
 
         writing = threading.Event()
         release = threading.Event()
-        real_write = todo.atomic_write_text
+        real_write = utils.atomic_write_text
 
         def _blocking_write(path, text, **kwargs):
             writing.set()
             assert release.wait(10.0), "test never released the extern write"
             return real_write(path, text, **kwargs)
 
-        monkeypatch.setattr(todo, "atomic_write_text", _blocking_write)
-        flush = threading.Thread(target=todo._flush_extern_cache, args=(cache,))
+        monkeypatch.setattr(utils, "atomic_write_text", _blocking_write)
+        flush = threading.Thread(target=todo.flush_extern_cache, args=(cache,))
         flush.start()
         assert writing.wait(10.0), "flush never reached the write"
 
         remembered = threading.Event()
 
         def _remember() -> None:
-            todo._extern_cache_remember(cache, second, second_stamp, ["g"])
+            todo.extern_cache_remember(cache, second, second_stamp, ["g"])
             remembered.set()
 
         remember = threading.Thread(target=_remember)
@@ -315,9 +373,9 @@ class TestCallerCounts:
         cache_path = tmp_path / ".rebrew" / "extern-names.json"
         cache_path.parent.mkdir(parents=True)
         cache_path.write_text(
-            json.dumps({"version": todo._EXTERN_CACHE_VERSION, "files": {}}), encoding="utf-8"
+            json.dumps({"version": todo.EXTERN_CACHE_VERSION, "files": {}}), encoding="utf-8"
         )
-        todo._EXTERN_CACHE.clear()
+        todo.EXTERN_CACHE.clear()
         published = {
             "dir": tmp_path,
             "files": {},
@@ -329,12 +387,12 @@ class TestCallerCounts:
         def _loads(text: str) -> object:
             # Stand in for the peer that publishes while this caller is between
             # the lookup and the publish.
-            with todo._EXTERN_CACHE_LOCK:
-                todo._EXTERN_CACHE.setdefault(todo._extern_path_key(tmp_path), published)
+            with todo.EXTERN_CACHE_LOCK:
+                todo.EXTERN_CACHE.setdefault(todo.extern_path_key(tmp_path), published)
             return real_loads(text)
 
         monkeypatch.setattr(todo.json, "loads", _loads)
-        assert todo._begin_extern_cache(tmp_path) is published
+        assert todo.begin_extern_cache(tmp_path) is published
 
     def test_unversioned_extern_cache_is_ignored(self, tmp_path: Path) -> None:
         """A sidecar written by older parser semantics must not answer lookups."""
@@ -349,14 +407,14 @@ class TestCallerCounts:
         source.write_text("extern int f(void);\n")
         entry = {"stamp": [1, 2, 3, 4], "names": ["f"]}
         cache_path.write_text(json.dumps({str(source): entry}), encoding="utf-8")
-        todo._EXTERN_CACHE.clear()
-        assert todo._begin_extern_cache(directory)["files"] == {}
+        todo.EXTERN_CACHE.clear()
+        assert todo.begin_extern_cache(directory)["files"] == {}
         cache_path.write_text(
-            json.dumps({"version": todo._EXTERN_CACHE_VERSION, "files": {str(source): entry}}),
+            json.dumps({"version": todo.EXTERN_CACHE_VERSION, "files": {str(source): entry}}),
             encoding="utf-8",
         )
-        todo._EXTERN_CACHE.clear()
-        assert todo._begin_extern_cache(directory)["files"] == {str(source): entry}
+        todo.EXTERN_CACHE.clear()
+        assert todo.begin_extern_cache(directory)["files"] == {str(source): entry}
 
 
 class TestCollectors:
@@ -1102,7 +1160,7 @@ class TestCollectors:
 
 class TestRoiOrdering:
     def test_zero_address_work_counts_as_a_function(self) -> None:
-        from rebrew.todo import CAT_COMPILE_ERROR, TodoItem, _rank_by_impact
+        from rebrew.todo import CAT_COMPILE_ERROR, TodoItem, rank_by_impact
 
         item = TodoItem(
             category=CAT_COMPILE_ERROR,
@@ -1114,7 +1172,7 @@ class TestRoiOrdering:
             description="compile",
             command="rebrew verify",
         )
-        assert _rank_by_impact([item]) == [item]
+        assert rank_by_impact([item]) == [item]
         assert item.affected_functions == 1
         assert item.impact_bytes == 12
 
@@ -1125,12 +1183,12 @@ class TestRoiOrdering:
         )
 
     def test_affected_extent_outranks_a_small_quick_win(self) -> None:
-        from rebrew.todo import CAT_DATA_DRIFT, _rank_by_impact
+        from rebrew.todo import CAT_DATA_DRIFT, rank_by_impact
 
         tiny = self._item(CAT_FIX_DELTA, 20, 0x1000)
         body = self._item(CAT_IMPROVE_MATCH, 12000, 0x2000)
         data = self._item(CAT_DATA_DRIFT, 40000, 0x10000)
-        assert _rank_by_impact([tiny, body, data]) == [data, body, tiny]
+        assert rank_by_impact([tiny, body, data]) == [data, body, tiny]
         assert data.to_dict()["impact_bytes"] == 40000
         assert data.affected_functions == 0
 
@@ -1151,7 +1209,7 @@ class TestRoiOrdering:
         assert work[0].impact_bytes == 12000
 
     def test_shared_compile_failure_counts_unique_unfinished_bytes(self) -> None:
-        from rebrew.todo import _rank_by_impact
+        from rebrew.todo import rank_by_impact
 
         a = self._item(CAT_COMPILE_ERROR, 100, 0x1000, filename="shared.c")
         b = self._item(CAT_COMPILE_ERROR, 100, 0x1032, filename="shared.c")
@@ -1159,7 +1217,7 @@ class TestRoiOrdering:
         other = self._item(CAT_IMPROVE_MATCH, 300, 0x3000, filename="other.c")
         data = self._item("data-drift", 90000, 0x4000, filename="shared.c")
         neighbor = self._item(CAT_START_FUNCTION, 50000, 0x5000, filename="shared.c")
-        result = _rank_by_impact([b, other, c, a, data, neighbor])
+        result = rank_by_impact([b, other, c, a, data, neighbor])
         assert result == [data, neighbor, a, other, c]
         assert a.impact_bytes == 350
         assert a.affected_functions == 3
@@ -1167,14 +1225,14 @@ class TestRoiOrdering:
         assert a.size == 100
 
     def test_setup_and_audits_keep_their_meaning(self) -> None:
-        from rebrew.todo import _rank_by_impact
+        from rebrew.todo import rank_by_impact
 
         setup = self._item(CAT_SETUP, 0, 0)
         audit = self._item(CAT_EXACT_ONLY, 1000000, 0x1000)
         work = self._item(CAT_IMPROVE_MATCH, 1, 0x2000)
         documented = self._item(CAT_DOCUMENTED, 1000000, 0x3000)
         unknown = self._item(CAT_COMPILE_ERROR, -1, 0x4000)
-        assert _rank_by_impact([documented, audit, work, unknown, setup]) == [
+        assert rank_by_impact([documented, audit, work, unknown, setup]) == [
             setup,
             work,
             unknown,
@@ -1184,12 +1242,12 @@ class TestRoiOrdering:
         assert unknown.impact_bytes == 0
 
     def test_equal_scope_uses_effort_then_address(self) -> None:
-        from rebrew.todo import _rank_by_impact
+        from rebrew.todo import rank_by_impact
 
         a = self._item(CAT_IMPROVE_MATCH, 100, 0x1000)
         b = self._item(CAT_FIX_DELTA, 100, 0x2000)
         b.roi_score = 20
-        assert _rank_by_impact([a, b]) == [b, a]
+        assert rank_by_impact([a, b]) == [b, a]
 
     def test_small_delta_ranks_higher(self) -> None:
         small = TodoItem(
@@ -1272,7 +1330,7 @@ class TestSetupSteps:
     def test_no_ghidra_json_no_funclist(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         (tmp_path / "src").mkdir()
-        items = _collect_setup_steps(cfg, [], {})
+        items = collect_setup_steps(cfg, [], {})
         assert len(items) == 1
         assert "doctor" in items[0].command
         assert items[0].roi_score == 98.0
@@ -1283,7 +1341,7 @@ class TestSetupSteps:
         (tmp_path / "src" / "function_structure.json").write_text(
             json.dumps([{"va": 0x1000, "size": 16, "name": "func"}]), encoding="utf-8"
         )
-        items = _collect_setup_steps(cfg, [FunctionEntry(va=0x1000, size=16, name="func")], {})
+        items = collect_setup_steps(cfg, [FunctionEntry(va=0x1000, size=16, name="func")], {})
         assert len(items) == 2
         assert any("todo" in i.command for i in items)
         assert any("skeleton" in i.command for i in items)
@@ -1294,7 +1352,7 @@ class TestSetupSteps:
         src_dir.mkdir()
         (src_dir / "function_structure.json").write_text("[]", encoding="utf-8")
         ghidra_funcs = [FunctionEntry(va=0x1000, size=100, name="f")]
-        items = _collect_setup_steps(cfg, ghidra_funcs, {})
+        items = collect_setup_steps(cfg, ghidra_funcs, {})
         assert len(items) == 2
         assert any("todo" in i.command for i in items)
         assert any("skeleton" in i.command for i in items)
@@ -1306,7 +1364,7 @@ class TestSetupSteps:
         src_dir.mkdir()
         (src_dir / "function_structure.json").write_text("[]", encoding="utf-8")
         ghidra_funcs = [FunctionEntry(va=0x1000, size=100, name="f")]
-        items = _collect_setup_steps(cfg, ghidra_funcs, {0x1000: {"status": "STUB"}})
+        items = collect_setup_steps(cfg, ghidra_funcs, {0x1000: {"status": "STUB"}})
         assert [(i.command, i.roi_score) for i in items] == [("rebrew verify", 89.0)]
 
 
@@ -1564,23 +1622,24 @@ class TestCalculateRoiEdges:
 class TestSetupStepsExtended:
     def test_ghidra_json_without_funcs_returns_empty(self, tmp_path: Path) -> None:
         from rebrew.config import FUNCTION_STRUCTURE_JSON
-        from rebrew.todo import _collect_setup_steps
+        from rebrew.todo.collectors import collect_setup_steps
 
         cfg = _make_cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
         (cfg.reversed_dir / FUNCTION_STRUCTURE_JSON).write_text("[]", encoding="utf-8")
-        assert _collect_setup_steps(cfg, [], {}) == []
+        assert collect_setup_steps(cfg, [], {}) == []
 
     def test_sources_never_verified(self, tmp_path: Path) -> None:
         from types import SimpleNamespace as SN
 
         from rebrew.config import FUNCTION_STRUCTURE_JSON
-        from rebrew.todo import CAT_SETUP, _collect_setup_steps
+        from rebrew.todo import CAT_SETUP
+        from rebrew.todo.collectors import collect_setup_steps
 
         cfg = _make_cfg(tmp_path)
         cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
         (cfg.reversed_dir / FUNCTION_STRUCTURE_JSON).write_text("[]", encoding="utf-8")
-        items = _collect_setup_steps(cfg, [SN(va=1)], {0x1: {"status": "STUB"}})
+        items = collect_setup_steps(cfg, [SN(va=1)], {0x1: {"status": "STUB"}})
         assert any(i.category == CAT_SETUP and i.command == "rebrew verify" for i in items)
 
 
@@ -1588,15 +1647,12 @@ class TestActiveFunctionsEdges:
     def test_unparseable_verify_va_skipped(self) -> None:
         from types import SimpleNamespace as SN
 
-        from rebrew.todo import _collect_active_functions
-
         # A non-numeric VA key raises ValueError on int() and is skipped.
         verify_entries = {"bogus": SN(status="COMPILE_ERROR", match_percent=None, delta=None)}
         items = _collect_active_functions({}, {}, {}, verify_entries)  # type: ignore[arg-type]
         assert items == []
 
     def test_blocker_delta_non_numeric_falls_back_to_blocker(self) -> None:
-        from rebrew.todo import _collect_active_functions
 
         existing = {
             0x1000: {
@@ -1612,7 +1668,6 @@ class TestActiveFunctionsEdges:
         assert items[0].byte_delta == 12
 
     def test_fix_delta_uses_flag_sweep_cmd(self) -> None:
-        from rebrew.todo import _collect_active_functions
 
         # delta 12 (>4, <=20) → `match flags` command.
         existing = {
@@ -1628,7 +1683,6 @@ class TestActiveFunctionsEdges:
         assert "match flags" in items[0].command
 
     def test_empty_or_non_numeric_size_does_not_crash(self) -> None:
-        from rebrew.todo import _collect_active_functions
 
         existing = {
             0x1000: {"status": "NEAR_MATCHING", "symbol": "f", "size": ""},
@@ -1645,7 +1699,7 @@ class TestProverCandidatesWithAngr:
         import sys
         from types import SimpleNamespace as SN
 
-        from rebrew.todo import CAT_RUN_PROVER, _collect_prover_candidates
+        from rebrew.todo import CAT_RUN_PROVER
 
         monkeypatch.setitem(sys.modules, "angr", SN())
         existing = {
@@ -1666,8 +1720,6 @@ class TestProverCandidatesWithAngr:
     def test_prover_candidates_empty_or_invalid_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import sys
         from types import SimpleNamespace as SN
-
-        from rebrew.todo import _collect_prover_candidates
 
         monkeypatch.setitem(sys.modules, "angr", SN())
         existing = {
@@ -1727,8 +1779,6 @@ class TestCollectNewFunctionsExtended:
     ) -> None:
         from types import SimpleNamespace as SN
 
-        from rebrew.todo import _collect_new_functions
-
         cfg = self._cfg_with_binary(tmp_path)
         # Fake BinaryInfo with no sections → extract_bytes_at_va returns None.
         monkeypatch.setattr(
@@ -1742,15 +1792,15 @@ class TestCollectNewFunctionsExtended:
     def test_unmatchable_reason_skipped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.todo import _collect_new_functions
 
         cfg = self._cfg_with_binary(tmp_path)
-        monkeypatch.setattr("rebrew.todo.detect_unmatchable", lambda *a, **k: "IAT thunk (config)")
+        monkeypatch.setattr(
+            "rebrew.todo.collectors.detect_unmatchable", lambda *a, **k: "IAT thunk (config)"
+        )
         ghidra_funcs = [FunctionEntry(va=0x1000, size=50, name="func_small")]
         assert _collect_new_functions(ghidra_funcs, {}, {}, cfg) == []
 
     def test_tiny_function_skipped(self, tmp_path: Path) -> None:
-        from rebrew.todo import _collect_new_functions
 
         cfg = self._cfg_with_binary(tmp_path)
         monkeypatch_tiny = pytest.MonkeyPatch()
@@ -1765,7 +1815,6 @@ class TestCollectNewFunctionsExtended:
             monkeypatch_tiny.undo()
 
     def test_neighbor_file_append_command(self, tmp_path: Path) -> None:
-        from rebrew.todo import _collect_new_functions
 
         cfg = self._cfg_with_binary(tmp_path)
         ghidra_funcs = [FunctionEntry(va=0x1000, size=50, name="func_small")]
@@ -1776,7 +1825,6 @@ class TestCollectNewFunctionsExtended:
         assert "--append" in items[0].command
 
     def test_fifty_item_cap(self, tmp_path: Path) -> None:
-        from rebrew.todo import _collect_new_functions
 
         cfg = self._cfg_with_binary(tmp_path)
         ghidra_funcs = [
@@ -1786,7 +1834,6 @@ class TestCollectNewFunctionsExtended:
         assert len(items) <= 50
 
     def test_library_existing_skipped(self, tmp_path: Path) -> None:
-        from rebrew.todo import _collect_library_candidates
 
         func = SimpleNamespace(va=0x1000, size=50, name="x", module="MSVCRT")
         existing = {0x1000: {"status": "STUB"}}
@@ -2009,7 +2056,9 @@ class TestTodoCli:
             match_percent=99.6,
             delta=8,
         )
-        monkeypatch.setattr("rebrew.todo.load_verify_entries", lambda cfg: {"0x00001000": entry})
+        monkeypatch.setattr(
+            "rebrew.todo.collectors.load_verify_entries", lambda cfg: {"0x00001000": entry}
+        )
         from rebrew.cli import console
 
         monkeypatch.setattr(console, "_width", 250)
@@ -2383,8 +2432,6 @@ class TestProverCandidateFiltering:
     def test_low_match_excluded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
 
-        from rebrew.todo import _collect_prover_candidates
-
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         existing = self._existing("50")
         verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=65.0, delta=17)}
@@ -2398,8 +2445,6 @@ class TestProverCandidateFiltering:
         negative, so without the clamp the size gate never fires and a badly
         mismatched function is queued for the prover."""
         from types import SimpleNamespace as SN
-
-        from rebrew.todo import _collect_prover_candidates
 
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         existing = self._existing("600")
@@ -2421,8 +2466,6 @@ class TestProverCandidateFiltering:
         """
         from types import SimpleNamespace as SN
 
-        from rebrew.todo import _collect_prover_candidates
-
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         existing = self._existing("50")
         for bad in (float("nan"), float("inf"), float("-inf")):
@@ -2433,8 +2476,6 @@ class TestProverCandidateFiltering:
     def test_metadata_size_preferred_over_ghidra(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
 
-        from rebrew.todo import _collect_prover_candidates
-
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # Ghidra says 50, but metadata SIZE (600) is the real extent → skipped.
         existing = self._existing("600")
@@ -2443,8 +2484,6 @@ class TestProverCandidateFiltering:
 
     def test_metadata_size_smaller_than_ghidra_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
-
-        from rebrew.todo import _collect_prover_candidates
 
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # Ghidra says 600, metadata says 50 → the real extent is small → kept.
@@ -2457,8 +2496,6 @@ class TestProverCandidateFiltering:
     def test_proven_not_reoffered(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
 
-        from rebrew.todo import _collect_prover_candidates
-
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         existing = {0x1000: {"status": "PROVEN", "symbol": "a", "size": "50"}}
         verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=96.0, delta=2)}
@@ -2467,8 +2504,6 @@ class TestProverCandidateFiltering:
 
     def test_unmeasured_candidate_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN
-
-        from rebrew.todo import _collect_prover_candidates
 
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # No verify cache → match_pct unknown → still eligible.
@@ -2525,7 +2560,6 @@ class TestDataDrift:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.metadata.data import set_data_fields_batch
-        from rebrew.todo import _collect_data_drift
 
         cfg = _make_cfg(tmp_path)
         set_data_fields_batch(
@@ -2549,7 +2583,7 @@ class TestDataDrift:
 
     def test_drift_symbol_surfaces(self, tmp_path: Path) -> None:
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import CAT_DATA_DRIFT, _collect_data_drift
+        from rebrew.todo import CAT_DATA_DRIFT
 
         cfg = _make_cfg(tmp_path)
         set_data_field(tmp_path, 0x1000, "name", "g_a", "TEST")
@@ -2564,7 +2598,6 @@ class TestDataDrift:
 
     def test_displaced_symbol_surfaces(self, tmp_path: Path) -> None:
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import _collect_data_drift
 
         cfg = _make_cfg(tmp_path)
         set_data_field(tmp_path, 0x1000, "name", "g_moved", "TEST")
@@ -2577,7 +2610,6 @@ class TestDataDrift:
 
     def test_other_target_drift_is_omitted(self, tmp_path: Path) -> None:
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import _collect_data_drift
 
         cfg = _make_cfg(tmp_path, target_modules={"TEST", "GOLD"})
         set_data_field(tmp_path, 0x1000, "name", "g_ours", "TEST")
@@ -2588,7 +2620,6 @@ class TestDataDrift:
         assert [i.name for i in items] == ["g_ours"]
 
     def test_no_drift_no_items(self, tmp_path: Path) -> None:
-        from rebrew.todo import _collect_data_drift
 
         cfg = _make_cfg(tmp_path)
         assert _collect_data_drift(cfg) == []
@@ -2596,7 +2627,7 @@ class TestDataDrift:
     def test_import_slots_are_not_start_data(self, tmp_path: Path) -> None:
         """A __imp__ slot is never undone work -- the linker supplies it."""
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import _collect_start_data
+        from rebrew.todo.collectors import collect_start_data
 
         cfg = _make_cfg(tmp_path)
         for va, name, section in (
@@ -2607,34 +2638,34 @@ class TestDataDrift:
             set_data_field(tmp_path, va, "name", name, "TEST")
             set_data_field(tmp_path, va, "section", section, "TEST")
             set_data_field(tmp_path, va, "status", "UNCHECKED", "TEST")
-        items = _collect_start_data(cfg)
+        items = collect_start_data(cfg)
         assert [i.name for i in items] == ["g_real_global"]
         assert [i.va for i in items] == [0x10027000]
 
     def test_import_slot_skipped_by_section_alone(self, tmp_path: Path) -> None:
         """The section label alone is enough; the name may be a placeholder."""
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import _collect_start_data
+        from rebrew.todo.collectors import collect_start_data
 
         cfg = _make_cfg(tmp_path)
         set_data_field(tmp_path, 0x10024008, "section", ".idata", "TEST")
         set_data_field(tmp_path, 0x10024008, "status", "UNCHECKED", "TEST")
-        assert _collect_start_data(cfg) == []
+        assert collect_start_data(cfg) == []
 
     def test_verified_symbol_not_start_data(self, tmp_path: Path) -> None:
         """The lane is UNCHECKED-only; a VERIFIED global must not reappear."""
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import _collect_start_data
+        from rebrew.todo.collectors import collect_start_data
 
         cfg = _make_cfg(tmp_path)
         set_data_field(tmp_path, 0x10027000, "name", "g_done", "TEST")
         set_data_field(tmp_path, 0x10027000, "section", ".data", "TEST")
         set_data_field(tmp_path, 0x10027000, "status", "VERIFIED", "TEST")
-        assert _collect_start_data(cfg) == []
+        assert collect_start_data(cfg) == []
 
     def test_unknown_status_is_unchecked_work(self, tmp_path: Path) -> None:
         """A hand-edited spelling is unchecked, the same bucket status uses."""
-        from rebrew.todo import _collect_start_data
+        from rebrew.todo.collectors import collect_start_data
 
         cfg = _make_cfg(tmp_path)
         write_store_fixture(
@@ -2643,24 +2674,24 @@ class TestDataDrift:
             '["TEST.0x00002010"]\nname = "g_spaced"\nsize = 4\nstatus = " exact "\n',
             encoding="utf-8",
         )
-        items = _collect_start_data(cfg)
+        items = collect_start_data(cfg)
         assert [item.name for item in items] == ["g_typo"]
 
     def test_bss_label_skipped(self, tmp_path: Path) -> None:
         """A .bss symbol is not start-data work; the lane leaves it out."""
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import _collect_start_data
+        from rebrew.todo.collectors import collect_start_data
 
         cfg = _make_cfg(tmp_path)
         set_data_field(tmp_path, 0x10035000, "name", "g_bss", "TEST")
         set_data_field(tmp_path, 0x10035000, "section", ".bss", "TEST")
         set_data_field(tmp_path, 0x10035000, "status", "UNCHECKED", "TEST")
         set_data_field(tmp_path, 0x10035000, "size", "4", "TEST")
-        assert _collect_start_data(cfg) == []
+        assert collect_start_data(cfg) == []
 
     def test_symbol_past_raw_size_is_skipped(self, tmp_path: Path) -> None:
         """Declared .data but sitting in the zero-fill tail -- same thing."""
-        from rebrew.todo import _zero_fill_tail_checker
+        from rebrew.todo.collectors import zero_fill_tail_checker
 
         cfg = _make_cfg(tmp_path)
         cfg.target_binary = tmp_path / "ref.dll"
@@ -2673,7 +2704,7 @@ class TestDataDrift:
             "rebrew.formats.binary_loader.load_binary", lambda _p: cfg_blob, raising=True
         )
         try:
-            check = _zero_fill_tail_checker(cfg)
+            check = zero_fill_tail_checker(cfg)
             # inside the raw region: verifiable, keep it
             assert check({"section": ".data", "size": 4, "va": 0x10028000}) is False
             # past raw_size: zero-fill tail, unverifiable, skip it
@@ -2685,7 +2716,7 @@ class TestDataDrift:
 
     def test_zero_fill_checker_survives_missing_binary(self, tmp_path: Path) -> None:
         """A failed load must not crash, and must not hide real work."""
-        from rebrew.todo import _zero_fill_tail_checker
+        from rebrew.todo.collectors import zero_fill_tail_checker
 
         cfg = _make_cfg(tmp_path)
         cfg.target_binary = tmp_path / "absent.dll"
@@ -2696,7 +2727,7 @@ class TestDataDrift:
         monkey = pytest.MonkeyPatch()
         monkey.setattr("rebrew.formats.binary_loader.load_binary", boom, raising=True)
         try:
-            check = _zero_fill_tail_checker(cfg)
+            check = zero_fill_tail_checker(cfg)
             assert check({"section": ".data", "size": 4, "va": 0x10028000}) is False
         finally:
             monkey.undo()
@@ -2704,7 +2735,7 @@ class TestDataDrift:
     def test_data_labelled_tail_symbol_is_filtered_end_to_end(self, tmp_path: Path) -> None:
         """The lane must drop a .data symbol that lives in the zero-fill tail."""
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import _collect_start_data
+        from rebrew.todo.collectors import collect_start_data
 
         cfg = _make_cfg(tmp_path)
         cfg.target_binary = tmp_path / "ref.dll"
@@ -2720,7 +2751,7 @@ class TestDataDrift:
         monkey = pytest.MonkeyPatch()
         monkey.setattr("rebrew.formats.binary_loader.load_binary", lambda _p: blob, raising=True)
         try:
-            items = _collect_start_data(cfg)
+            items = collect_start_data(cfg)
         finally:
             monkey.undo()
         assert [i.name for i in items] == ["g_raw"]
@@ -2728,22 +2759,22 @@ class TestDataDrift:
 
 class TestCallerBoost:
     def test_unblocks_suffix_and_boost(self, tmp_path: Path) -> None:
-        from rebrew.todo import _caller_boost, _caller_suffix
+        from rebrew.todo import caller_boost, caller_suffix
 
         counts = {"helper": 2}
-        assert _caller_boost("helper", counts) == 10.0
-        assert _caller_boost("other", counts) == 0.0
-        assert _caller_boost("helper", None) == 0.0
-        assert _caller_boost("helper", {"helper": 10}) == 15.0
-        assert "declared by 2 unfinished source file(s)" in _caller_suffix(
+        assert caller_boost("helper", counts) == 10.0
+        assert caller_boost("other", counts) == 0.0
+        assert caller_boost("helper", None) == 0.0
+        assert caller_boost("helper", {"helper": 10}) == 15.0
+        assert "declared by 2 unfinished source file(s)" in caller_suffix(
             "do work", "helper", counts
         )
-        assert _caller_suffix("do work", "other", counts) == "do work"
+        assert caller_suffix("do work", "other", counts) == "do work"
 
     def test_underscore_symbol_matches(self, tmp_path: Path) -> None:
-        from rebrew.todo import _caller_boost
+        from rebrew.todo import caller_boost
 
-        assert _caller_boost("helper", {"_helper": 1}) == 5.0
+        assert caller_boost("helper", {"_helper": 1}) == 5.0
 
 
 class TestPlaceholderLaneVerifyState:
@@ -2835,7 +2866,7 @@ class TestLibraryAndCrossTargetScoping:
 
     def test_start_data_scoped_to_the_active_module(self, tmp_path: Path) -> None:
         from rebrew.metadata.data import set_data_field
-        from rebrew.todo import _collect_start_data
+        from rebrew.todo.collectors import collect_start_data
 
         cfg = _make_cfg(tmp_path)  # marker TEST
         set_data_field(tmp_path, 0x627000, "name", "g_other_target", "OTHER")
@@ -2844,7 +2875,7 @@ class TestLibraryAndCrossTargetScoping:
         set_data_field(tmp_path, 0x10027000, "name", "g_mine", "TEST")
         set_data_field(tmp_path, 0x10027000, "section", ".data", "TEST")
         set_data_field(tmp_path, 0x10027000, "status", "UNCHECKED", "TEST")
-        items = _collect_start_data(cfg)
+        items = collect_start_data(cfg)
         assert [i.name for i in items] == ["g_mine"]
 
 
@@ -2895,7 +2926,9 @@ class TestMissingManagedBindings:
             message="old match",
             passed=True,
         )
-        monkeypatch.setattr("rebrew.todo.load_verify_entries", lambda cfg: {"0x00001000": cached})
+        monkeypatch.setattr(
+            "rebrew.todo.collectors.load_verify_entries", lambda cfg: {"0x00001000": cached}
+        )
         items = collect_all(cfg, [FunctionEntry(va=0x1000, size=64, name="fcn.00001000")], {}, {})
         item = next(i for i in items if i.va == 0x1000)
         assert item.category == CAT_EXTRACT_ERROR
@@ -2916,7 +2949,7 @@ class TestMissingManagedBindings:
             set_fields_batch,
             update_statuses_batch,
         )
-        from rebrew.todo import _collect_missing_bindings
+        from rebrew.todo.collectors import collect_missing_bindings
 
         cfg = _make_cfg(tmp_path)
         for module, va, kind in [
@@ -2941,11 +2974,11 @@ class TestMissingManagedBindings:
                 {"module": "TEST", "va": 0x4000, "fields": {"size": 32}},
             ],
         )
-        assert _collect_missing_bindings(cfg, {}) == []
+        assert collect_missing_bindings(cfg, {}) == []
 
     def test_live_binding_and_definition_outside_tree_are_not_missing(self, tmp_path: Path) -> None:
         from rebrew.metadata.functions import record_function_identity
-        from rebrew.todo import _collect_missing_bindings
+        from rebrew.todo.collectors import collect_missing_bindings
 
         cfg = _make_cfg(tmp_path)
         (tmp_path / "outside.c").write_text("int Outside(void) { return 1; }\n")
@@ -2960,7 +2993,7 @@ class TestMissingManagedBindings:
                 symbol="_" + name,
                 size=32,
             )
-        assert _collect_missing_bindings(cfg, {0x1000: {"symbol": "_Live"}}) == []
+        assert collect_missing_bindings(cfg, {0x1000: {"symbol": "_Live"}}) == []
 
     def test_one_collect_parses_a_shared_source_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2973,7 +3006,7 @@ class TestMissingManagedBindings:
         """
         import rebrew.c_syntax.parser as c_parser
         from rebrew.metadata.functions import record_function_identity
-        from rebrew.todo import _collect_missing_bindings
+        from rebrew.todo.collectors import collect_missing_bindings
 
         cfg = _make_cfg(tmp_path)
         (tmp_path / "shared.c").write_text(
@@ -3009,7 +3042,7 @@ class TestMissingManagedBindings:
             return real(source)
 
         monkeypatch.setattr(c_parser, "function_signatures", counting)
-        items = _collect_missing_bindings(cfg, {})
+        items = collect_missing_bindings(cfg, {})
         assert calls == 1
         expected = [
             (0x3000, "_Missing", "Managed source definition missing: shared.c", "../shared.c"),
@@ -3023,7 +3056,7 @@ class TestMissingManagedBindings:
             "rebrew test 0x00005000",
             "rebrew test 0x00006000",
         ]
-        again = _collect_missing_bindings(cfg, {})
+        again = collect_missing_bindings(cfg, {})
         assert calls == 2
         assert [(item.va, item.name, item.description) for item in again] == [
             (va, name, description) for va, name, description, _filename in expected

@@ -197,39 +197,39 @@ class TestCommentConfiguration:
             parses.append(path)
             return load_tomllib(path)
 
-        monkeypatch.setattr("rebrew.config.load_tomllib", counting)
+        monkeypatch.setattr("rebrew.config.schema.load_tomllib", counting)
         for name in ("a.c", "b.c", "c.c"):
             assert address_comments_for_file(tmp_path / "src/shared" / name).style == "cpp"
         assert len(parses) == 1
 
     def test_project_parse_cache_drops_stale_documents(self, tmp_path: Path) -> None:
-        from rebrew import config as config_mod
+        from rebrew.config import address_comments
 
-        config_mod._PROJECT_TOML.clear()
-        config_mod._PROJECT_LAYOUT.clear()
+        address_comments.PROJECT_TOML.clear()
+        address_comments.PROJECT_LAYOUT.clear()
         projects = []
-        for index in range(config_mod._PROJECT_CACHE_MAX + 3):
+        for index in range(address_comments.PROJECT_CACHE_MAX + 3):
             root = tmp_path / f"proj{index}"
             root.mkdir()
             (root / "rebrew-project.toml").write_text('[project.address_comments]\nstyle="cpp"\n')
             projects.append(root)
         for root in projects:
             assert address_comments_for_file(root / "src/shared/a.c").style == "cpp"
-        assert len(config_mod._PROJECT_TOML) == config_mod._PROJECT_CACHE_MAX
-        assert len(config_mod._PROJECT_LAYOUT) == config_mod._PROJECT_CACHE_MAX
+        assert len(address_comments.PROJECT_TOML) == address_comments.PROJECT_CACHE_MAX
+        assert len(address_comments.PROJECT_LAYOUT) == address_comments.PROJECT_CACHE_MAX
 
         live = projects[-1] / "rebrew-project.toml"
-        for index in range(config_mod._PROJECT_CACHE_MAX + 1):
+        for index in range(address_comments.PROJECT_CACHE_MAX + 1):
             live.write_text(f'[project.address_comments]\nstyle="cpp"\n# {index}\n')
             # A same-length rewrite inside one timestamp tick can keep the
             # stamp, which is a hit, not a new entry.  Move mtime so each
             # write is a distinct document the cache must not retain.
             os.utime(live, ns=(index + 1, index + 1))
             assert address_comments_for_file(projects[-1] / "src/shared/a.c").style == "cpp"
-        assert len(config_mod._PROJECT_TOML) <= config_mod._PROJECT_CACHE_MAX
-        assert len(config_mod._PROJECT_LAYOUT) <= config_mod._PROJECT_CACHE_MAX
-        assert live in config_mod._PROJECT_TOML
-        assert live in config_mod._PROJECT_LAYOUT
+        assert len(address_comments.PROJECT_TOML) <= address_comments.PROJECT_CACHE_MAX
+        assert len(address_comments.PROJECT_LAYOUT) <= address_comments.PROJECT_CACHE_MAX
+        assert live in address_comments.PROJECT_TOML
+        assert live in address_comments.PROJECT_LAYOUT
 
     def test_project_target_override_registration_and_metadata_read(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-project.toml").write_text(

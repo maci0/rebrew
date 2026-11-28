@@ -55,7 +55,16 @@ before start and reports completion only after inspecting that same container's
 exit and isolation. After a lost response, reconciliation may prove stop while
 marking output incomplete. Once stop is proven, the complete result workspace
 is copied, sealed and hashed before capacity is released. A changed retained
-result refuses recovery.
+result refuses recovery. A container still running at the 10-minute run
+timeout, or when the owner closes, is killed and then inspected. Once a stop
+proof is durable, the owner removes the container and the `<id>.workspace`
+working copy; `<id>.original`, `<id>.result` and `<id>.output` stay.
+
+A job that fails before its container or process starts (a changed retained
+original, existing workspace custody, a failed or timed-out `docker create`)
+is retained as `failed` with `never_started` and releases capacity and its
+compile mediator. After a failed create the owner removes any container left
+under the fixed name `rebrew-job-<id>`; that container was never started.
 
 ## Managed compiles
 
@@ -118,7 +127,8 @@ the copied bytes but its creation still requires a trusted, quiescent source;
 stronger custody is needed against same-user mutation. The direct local-process
 provider cannot prove the whole process tree or a daemon-launched container
 stopped, so its CLI exit remains uncertain and fences new jobs. A live owner's
-queued job can be cancelled as never started. Docker cancellation is recorded
+queued job can be cancelled as never started. Cancelling a running or
+`uncertain` Docker job kills its exact container. Docker cancellation is recorded
 only after the exact container's stop or never-started state is inspected;
 unresolved remote compiles also keep capacity fenced.
 

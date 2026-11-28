@@ -251,6 +251,7 @@ class TestPrepareEntriesCache:
     _src_dir: Path | None = None
     _root: Path | None = None
     _entry: SourceBinding | None = None
+    _catalog: dict[str, int] | None = None
 
     def _setup(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: SourceBinding
@@ -271,9 +272,11 @@ class TestPrepareEntriesCache:
         monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
         monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
         monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
+        catalog = {entry.name: entry.va} if entry.name else {}
+        self._catalog = catalog
         monkeypatch.setattr(
             "rebrew.compare.coff_reloc.build_name_to_va",
-            lambda cfg, annotations=None: {entry.name: entry.va} if entry.name else {},
+            lambda cfg, annotations=None: dict(catalog),
         )
         return cfg
 
@@ -287,7 +290,12 @@ class TestPrepareEntriesCache:
         size: int = 64,
         cflags: str | None = None,
     ) -> dict:
-        if self._root is None or self._src_dir is None or self._entry is None:
+        if (
+            self._root is None
+            or self._src_dir is None
+            or self._entry is None
+            or self._catalog is None
+        ):
             raise AssertionError("_setup() must run before _cache_entry()")
         root, src_dir = self._root, self._src_dir
         if cflags is None:
@@ -323,6 +331,7 @@ class TestPrepareEntriesCache:
             "headers_fp": headers_fp,
             "toolchain": toolchain,
             "image_id": "sha256:" + "a" * 64,
+            "catalog_hash": verify_cache_mod.catalog_hash(self._catalog),
             "defines": "(none)",
             "status": "EXACT" if passed else "STUB",
             "va": "0x1000",
@@ -606,17 +615,13 @@ class TestPrepareEntriesCache:
         )
         assert cached == 1
 
-    def test_cflags_order_only_change_keeps_cache(
+    def test_cflags_reorder_invalidates_cache(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A rebrew-libraries.toml edit that only reorders flags compiles
-        identically — the canonicalized equivalence class matches, so the
-        entry is served (observational equivalence: material-change
-        classification rather than raw-string comparison)."""
+        """cl applies options left to right, so reordered flags re-verify."""
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
-        # Resolved flags are "/O2 /Gd"; the cached entry holds the same flags
-        # in a different order — no material change.
+        # Resolved flags are "/O2 /Gd"; the cached entry holds them reordered.
         cache = {
             "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", cflags="/Gd /O2")
@@ -632,7 +637,7 @@ class TestPrepareEntriesCache:
         _, _, _, _, _, cached, _, _, _dup, _n2v, _inv = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
-        assert cached == 1
+        assert cached == 0
 
     def test_defines_change_invalidates_cache(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

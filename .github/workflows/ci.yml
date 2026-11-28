@@ -64,23 +64,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Cache the pinned Go release
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/jobs-go
-          key: go-release-${{ runner.os }}-${{ env.GO_VERSION }}-${{ env.GO_SHA256 }}
-          # Query the cache without restoring a toolchain.
-          lookup-only: true
       - name: Install the pinned Go release
         # Download the pinned tarball and verify its SHA-256 on every run.
         run: |
           set -euo pipefail
           go_root="$RUNNER_TEMP/jobs-go"
-          # Never trust a restored tree: a cache hit could be a poisoned entry
-          # written by anyone with cache write scope.  The lookup-only cache
-          # step above restores nothing, so this dir is fresh unless a
-          # previous step in this job wrote it; remove it defensively so a
-          # future restore cannot serve a tampered toolchain unverified.
           rm -rf -- "$go_root"
           curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o "$RUNNER_TEMP/go.tar.gz" \
             "https://go.dev/dl/go$GO_VERSION.linux-amd64.tar.gz"
@@ -99,17 +87,6 @@ jobs:
           key: go-build-${{ runner.os }}-${{ env.GO_VERSION }}-${{ hashFiles('services/jobs/go.mod') }}
           restore-keys: |
             go-build-${{ runner.os }}-${{ env.GO_VERSION }}-
-      - name: Cache the Go module cache
-        # The jobs module is stdlib-only. The cache key uses go.mod, and the
-        # jobs gate runs with GOPROXY=off.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/go/pkg/mod
-          key: >-
-            go-${{ runner.os }}-${{ env.GO_VERSION }}-
-            ${{ hashFiles('services/jobs/go.mod') }}
-          restore-keys: |
-            go-${{ runner.os }}-${{ env.GO_VERSION }}-
       - name: Check the jobs service
         working-directory: services/jobs
         env:

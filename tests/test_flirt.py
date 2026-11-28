@@ -6,7 +6,7 @@ lazy from pathlib import Path
 import pytest
 from cli_json import cli_payload
 
-from rebrew.library.flirt import find_func_size, iter_match_offsets, load_signatures
+from rebrew.library.flirt import find_func_size, iter_match_offsets, load_signatures_for
 
 # ---------------------------------------------------------------------------
 # find_func_size
@@ -71,32 +71,16 @@ class TestIterMatchOffsets:
 
 
 # ---------------------------------------------------------------------------
-# load_signatures
+# load_signatures_for
 # ---------------------------------------------------------------------------
 
 
 class TestLoadSignatures:
-    """Tests for load_signatures() -- filesystem tests."""
-
-    def test_missing_directory(self, tmp_path: Path) -> None:
-        """Returns empty list when directory doesn't exist."""
-        sigs = load_signatures(str(tmp_path / "nonexistent"))
-        assert sigs == []
+    """Tests for load_signatures_for() -- filesystem tests."""
 
     def test_empty_directory(self, tmp_path: Path) -> None:
         """Returns empty list when directory has no .sig/.pat files."""
-        sig_dir = tmp_path / "sigs"
-        sig_dir.mkdir()
-        sigs = load_signatures(str(sig_dir))
-        assert sigs == []
-
-    def test_no_flirt_module(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Returns empty list when flirt module is not available."""
-        import rebrew.library.flirt as flirt_mod
-
-        monkeypatch.setattr(flirt_mod, "flirt", None)
-        sigs = load_signatures("/some/dir")
-        assert sigs == []
+        assert load_signatures_for([tmp_path]) == []
 
     @pytest.mark.parametrize(
         "index",
@@ -112,7 +96,6 @@ class TestLoadSignatures:
         not read as no index: every file unfiltered is the load that does not fit in
         memory."""
         from rebrew.config import ConfigError
-        from rebrew.library.flirt import load_signatures_for
         from rebrew.library.gen_flirt_pat import bytes_to_pat_line
 
         sig_dir = tmp_path / "sigs"

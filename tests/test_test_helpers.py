@@ -534,6 +534,95 @@ class TestFixSize:
         assert 'status = "RELOC"' in meta
         assert size_writer.call_count == 1
 
+    def test_differing_tail_not_fixed_even_when_extent_agrees(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """The binary ends `ret 8`, the compile `ret 4`: the disassembly
+        extent equals the compiled size, but the tail bytes differ."""
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        binary = self._real_binary_bytes()[:9] + b"\xc2\x08\x00"
+        monkeypatch.setattr(
+            "rebrew.verify.test.compile_and_compare",
+            lambda *a, **k: self._size_mismatch_result(100.0),
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.test.extract_raw_bytes", lambda binpath, va, size: binary[:size]
+        )
+        monkeypatch.setattr("rebrew.verify.test._disasm_extent", lambda cfg, va: 12)
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "test",
+                "src/x/f.c",
+                "--va",
+                "0x1000",
+                "--size",
+                "9",
+                "--symbol",
+                "_f@4",
+                "--fix-sizes",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        meta = (tmp_path / "rebrew-functions.toml").read_text()
+        assert "size = 12" not in meta
+        assert 'status = "RELOC"' not in meta
+
+    def test_padding_inside_last_instruction_not_fixed(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """The compile ended `eb 90` (jmp short) and the object parser trimmed
+        the 0x90; the binary's `eb cc` tail is not padding to shrink past."""
+        from typer.testing import CliRunner
+
+        from rebrew.app.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        binary = bytes.fromhex("8b 44 24 04 c2 04 00 eb cc")
+        trimmed = binary[:-1]
+        monkeypatch.setattr(
+            "rebrew.verify.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="SIZE_MISMATCH",
+                match_percent=100.0,
+                delta=1,
+                obj_bytes=trimmed,
+                reloc_offsets=[],
+                message="SIZE_MISMATCH",
+                full_obj_size=len(trimmed),
+                full_obj_bytes=trimmed,
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.test.extract_raw_bytes", lambda binpath, va, size: binary[:size]
+        )
+        monkeypatch.setattr("rebrew.verify.test._disasm_extent", lambda cfg, va: len(binary))
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "test",
+                "src/x/f.c",
+                "--va",
+                "0x1000",
+                "--size",
+                "9",
+                "--symbol",
+                "_f@4",
+                "--fix-sizes",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        meta = (tmp_path / "rebrew-functions.toml").read_text()
+        assert "size = 8" not in meta
+        assert 'status = "EXACT"' not in meta
+
     def test_real_mismatch_not_fixed(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner
 

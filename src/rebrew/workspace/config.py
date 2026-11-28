@@ -120,7 +120,7 @@ def project_table(config: dict[str, Any]) -> dict[str, Any]:
 def targets_table(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """The ``[targets]`` entries that are tables, keyed by target name.
 
-    Keys are NFC: ``rebrew.config._normalized_targets`` already re-keys
+    Keys are NFC: ``rebrew.config.schema.normalized_targets`` already re-keys
     the same table to NFC and fails on an NFD/NFC collision, so every
     reader built on this table — including ``default_target`` and the
     coverage project — agrees with the config loader on one spelling.

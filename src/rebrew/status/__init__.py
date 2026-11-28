@@ -27,20 +27,6 @@ from rebrew.status.collect import (
     CODE_ACCOUNT_CAPTION as CODE_ACCOUNT_CAPTION,
 )
 from rebrew.status.collect import (
-    DATA_SECTION_ORDER,
-    attach_file_similarity,
-    compute_text_size,
-    cut_range,
-    initialized_data_ranges,
-    load_cache_raw,
-    load_verify_info,
-    merge_claimed,
-    ordered_data_sections,
-    pe_data_directory,
-    target_binary,
-    unclaimed,
-)
-from rebrew.status.collect import (
     SourceData as SourceData,
 )
 from rebrew.status.collect import (
@@ -48,6 +34,14 @@ from rebrew.status.collect import (
 )
 from rebrew.status.collect import (
     VerifyInfo as VerifyInfo,
+)
+from rebrew.status.collect import (
+    attach_file_similarity,
+    compute_text_size,
+    initialized_data_ranges,
+    load_cache_raw,
+    load_verify_info,
+    target_binary,
 )
 from rebrew.status.collect import (
     classify_text_gaps as classify_text_gaps,
@@ -95,16 +89,6 @@ from rebrew.status.collect import (
     span_is_copied as span_is_copied,
 )
 from rebrew.status.render import (
-    STATUS_ORDER,
-    TICK_WIDTH,
-    breakdown_table,
-    data_block,
-    file_rows,
-    headline,
-    panel_title,
-    ticks,
-)
-from rebrew.status.render import (
     render_terminal as render_terminal,
 )
 lazy from rebrew.config import ProjectConfig as ProjectConfig
@@ -112,26 +96,12 @@ lazy from rebrew.formats.binary_model import BinaryInfo as BinaryInfo
 lazy from rebrew.source.discovery import iter_sources as iter_sources
 
 # Local private aliases preserved for existing test imports and monkeypatches.
-_STATUS_ORDER = STATUS_ORDER
-_DATA_SECTION_ORDER = DATA_SECTION_ORDER
-_TICK_WIDTH = TICK_WIDTH
-_ordered_data_sections = ordered_data_sections
 _attach_file_similarity = attach_file_similarity
 _load_cache_raw = load_cache_raw
 _load_verify_info = load_verify_info
 _compute_text_size = compute_text_size
-_merge_claimed = merge_claimed
-_unclaimed = unclaimed
-_pe_data_directory = pe_data_directory
-_cut_range = cut_range
 _target_binary = target_binary
 _initialized_data_ranges = initialized_data_ranges
-_ticks = ticks
-_breakdown_table = breakdown_table
-_data_block = data_block
-_panel_title = panel_title
-_file_rows = file_rows
-_headline = headline
 _render_terminal = render_terminal
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 lazy import math
 lazy import shlex
-lazy import sys
 lazy import tomllib
 lazy import unicodedata
 lazy from collections.abc import Mapping
@@ -154,10 +153,8 @@ class ProjectDocumentStruct(msgspec.Struct, kw_only=True):
 
 
 def read_toml_doc(path: Path) -> dict[str, Any]:
-    """Read TOML via ``rebrew.config.load_tomllib`` when patched by callers."""
-    cfg_mod = sys.modules.get("rebrew.config")
-    loader = getattr(cfg_mod, "load_tomllib", load_tomllib) if cfg_mod is not None else load_tomllib
-    return loader(path)
+    """Read a TOML document at *path*."""
+    return load_tomllib(path)
 
 
 #: Characters stripped from a target name when deriving its module:

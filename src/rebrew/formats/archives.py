@@ -13,9 +13,11 @@ def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
     """Parse an ar archive (.lib / .a) and yield (member_name, obj_data).
 
     The ``!<arch>`` layout is shared by MSVC COFF .lib files and GNU/IDO
-    ELF .a archives; the special ``/`` (symbol index) and ``//`` (long-name
-    table) members are skipped. COFF NUL-terminated and GNU ``/\n``-terminated
-    long names are resolved before yielding their object bodies.
+    ELF .a archives; the special ``/`` (symbol index), ``//`` (long-name
+    table) and other ``/<non-digit>`` members such as GNU ``/SYM64/`` are
+    skipped. COFF NUL-terminated and GNU ``/\n``-terminated long names are
+    resolved before yielding their object bodies.  A malformed header, size,
+    long-name reference or truncated member raises :class:`ValueError`.
     """
     yield from parse_archive_bytes(Path(lib_path).read_bytes(), lib_path)
 
@@ -31,19 +33,22 @@ def parse_archive_bytes(data: bytes, lib_path: str) -> Iterator[tuple[str, bytes
     while pos < len(data):
         if pos % 2 == 1:
             pos += 1
-        if pos + 60 > len(data):
+        if pos >= len(data):
             break
+        if pos + 60 > len(data):
+            raise ValueError(f"{lib_path}: truncated archive member header at offset {pos}")
 
         header = data[pos : pos + 60]
         if header[58:60] != b"`\n":
             raise ValueError(f"{lib_path}: invalid archive member header at offset {pos}")
         name_field = header[0:16].rstrip(b" ")
+        bad_size = f"{lib_path}: invalid archive member size at offset {pos}"
         try:
             size = int(header[48:58].strip())
         except ValueError:
-            break
+            raise ValueError(bad_size) from None
         if size < 0:
-            break
+            raise ValueError(bad_size)
 
         pos += 60
         if pos + size > len(data):
@@ -58,7 +63,11 @@ def parse_archive_bytes(data: bytes, lib_path: str) -> Iterator[tuple[str, bytes
         name = raw_name.rstrip("/")
         if not name:
             continue
-        if name.startswith("/") and name[1:].isdigit():
+        if name.startswith("/"):
+            if not name[1:2].isdigit():
+                continue  # a special member such as the GNU "/SYM64/" symbol index
+            if not name[1:].isdigit():
+                raise ValueError(f"{lib_path}: invalid long-name reference {name!r}")
             offset = int(name[1:])
             if offset >= len(long_names):
                 raise ValueError(f"{lib_path}: invalid long-name offset {offset}")

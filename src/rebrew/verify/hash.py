@@ -246,11 +246,11 @@ def fresh_entry_fingerprint(
 
 
 def cflags_equivalent(stored: str, current: str) -> bool:
-    """True when two CFLAGS strings compile identically.
+    """True when two CFLAGS strings tokenize to the same argument list.
 
-    Raw strings may differ cosmetically (flag reorder, dedup) while landing
-    in the same canonical equivalence class — only a material difference
-    invalidates the entry.  A legacy/degenerate empty side is never
+    Only spacing and shell quoting may differ: cl's option switches interact
+    (``/Ox /Os`` is not ``/Os``), so a reorder or repeat re-verifies.  A
+    legacy/degenerate empty side is never
     equivalent (re-verify once), and neither is one that ``shlex`` cannot
     tokenize at all: an unbalanced quote makes a stored CFLAGS string
     unreadable rather than wrong, and the entry is re-verified once.
@@ -261,14 +261,10 @@ def cflags_equivalent(stored: str, current: str) -> bool:
         return False
     if stored == current:
         return True
-    from rebrew.compiler.cache import canonicalize_cflags
-
     try:
-        stored_flags = shlex.split(stored)
-        current_flags = shlex.split(current)
+        return shlex.split(stored) == shlex.split(current)
     except ValueError:
         return False
-    return canonicalize_cflags(stored_flags) == canonicalize_cflags(current_flags)
 
 
 def _package_source_fingerprint() -> tuple[tuple[str, int, int, int, int], ...]:
@@ -763,8 +759,7 @@ def entry_headers_fp(
     path) so the second full-file read is skipped.
     """
     from rebrew.compiler.cache import (
-        FORCE_INCLUDE_PREFIXES,
-        dir_fingerprint_hash,
+        forced_include_fingerprint,
         header_dependency_hash,
     )
     from rebrew.compiler.compile import (
@@ -803,10 +798,6 @@ def entry_headers_fp(
     lead, tail = local_include_order(cfg, source_dir, flags, None)
     include_dirs = list(dict.fromkeys([*lead, *flag_dirs, *tail]))
 
-    force_include = any(f.startswith(FORCE_INCLUDE_PREFIXES) for f in flags)
-    if force_include:
-        return dir_fingerprint_hash(str(source_dir), include_dirs)
-
     try:
         if source_bytes is None:
             # Reuse the memoized source body: source_hash() just read it, so a
@@ -825,7 +816,11 @@ def entry_headers_fp(
         content = source_bytes.decode("utf-8", errors="surrogateescape")
     except OSError:
         return ""
-    return header_dependency_hash(content, str(source_dir), include_dirs)
+    headers = header_dependency_hash(content, str(source_dir), include_dirs)
+    forced = forced_include_fingerprint(content, flags, str(source_dir), include_dirs)
+    if forced is None:
+        return headers
+    return hashlib.sha256(f"{headers}:{forced}".encode()).hexdigest()
 
 
 def comparison_inputs(

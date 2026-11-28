@@ -283,3 +283,15 @@ func (p DockerProvider) Stop(ctx context.Context, id string) error {
 	}
 	return exec.CommandContext(ctx, p.Binary, "kill", "--signal", strconv.Itoa(9), id).Run()
 }
+
+// Remove deletes a stopped or never-started container by exact ID or by its
+// fixed job name, rebrew-job-<job>. It never forces a running container.
+func (p DockerProvider) Remove(ctx context.Context, ref string) error {
+	if err := p.check(); err != nil {
+		return err
+	}
+	if !validHex(strings.TrimPrefix(ref, "rebrew-job-"), 64) {
+		return errors.New("invalid container identity")
+	}
+	return exec.CommandContext(ctx, p.Binary, "rm", ref).Run()
+}

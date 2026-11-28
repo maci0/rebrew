@@ -198,62 +198,6 @@ def load_types(directory: Path) -> list[dict[str, Any]]:
     return validate_type_document(store.read("type metadata", validate=validate_type_document))
 
 
-def rehome_type_bindings(
-    directory: Path,
-    old: str,
-    new: str,
-    *,
-    dry_run: bool = False,
-    expected_digest: str | None = None,
-) -> dict[str, Any]:
-    """Retarget type owners while retaining prior evidence as explicitly unassessed history.
-
-    This does not move a source or prove the destination compile context. Use
-    inside the same coordinated transaction as source and other owner changes.
-    """
-    if old == new or any(
-        validate_identity_file(path) != path or Path(path).suffix.lower() not in {".c", ".h"}
-        for path in (old, new)
-    ):
-        raise ValueError("type rehome requires distinct contained C source paths")
-    path = directory / TYPE_METADATA_FILENAME
-    if not dry_run:
-        from rebrew.metadata.coordinated import require_staged_source_move
-
-        require_staged_source_move(directory, old, new)
-    with metadata_write_lock(directory, TYPE_METADATA_FILENAME):
-        store = metadata_store(path)
-        before = store.digest()
-        if before is None:
-            return {"input_digest": None, "rows": [], "written": False}
-        doc = store.read("type metadata", validate=validate_type_document, roundtrip=True)
-        records = validate_type_document(doc)
-        rows = [r for r in records if r["file"] == old]
-        if any(r.get("path_revalidation_required") for r in rows):
-            raise ValueError("rebind invalidated type evidence before moving it again")
-        digest = hashlib.sha256(json.dumps([before, old, new], sort_keys=True).encode()).hexdigest()
-        for row in rows:
-            entry = doc["types"][row["id"]][row["module"]]
-            history = list(entry.get("path_history", []))
-            prior = {"freshness": "unassessed", **{k: row[k] for k in _FIELDS}}
-            # Idempotent: a retry (e.g. crash after the metadata write but
-            # before the coordinated file publish committed) must not append
-            # the same prior-file record again.
-            if prior not in history:
-                history.append(prior)
-            entry["file"] = new
-            entry["path_history"] = history
-            entry["path_revalidation_required"] = True
-        validate_type_document(doc)
-        if store.digest() != before:
-            raise ValueError("type metadata changed while planning rehome")
-        if not dry_run and rows:
-            if expected_digest != digest:
-                raise ValueError("type rehome digest does not match preview")
-            store.write(doc, "type metadata")
-        return {"input_digest": digest, "rows": rows, "written": bool(rows) and not dry_run}
-
-
 _CONTEXT_KEYS = (
     "compiler_profile",
     "base_cflags",

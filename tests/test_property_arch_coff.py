@@ -63,7 +63,9 @@ def _parse_archive_bytes(data: bytes) -> list[tuple[str, bytes]]:
 
 
 #: Member names covering a plain name, the long-name table, and its offsets.
-_AR_MEMBER_NAME = st.sampled_from((b"a.obj/", b"//", b"/0", b"/9999", b"b.o/", b""))
+_AR_MEMBER_NAME = st.sampled_from(
+    (b"a.obj/", b"//", b"/0", b"/9999", b"b.o/", b"", b"/", b"/SYM64/", b"/1x")
+)
 
 
 class TestParseArchiveRobust:
@@ -110,6 +112,7 @@ class TestParseArchiveRobust:
             name = self(_AR_MEMBER_NAME)
             body = self(st.binary(max_size=16))
             size = self(st.integers(0, len(body) + 8))
+            size_field = self(st.sampled_from((str(size).encode(), b"4x", b"-1")))
             # Header layout: name[16] mtime[12] uid[6] gid[6] mode[8] size[10] "`\n"
             hdr = (
                 name.ljust(16, b" ")[:16]
@@ -117,7 +120,7 @@ class TestParseArchiveRobust:
                 + b"0".ljust(6, b" ")
                 + b"0".ljust(6, b" ")
                 + b"100644".ljust(8, b" ")
-                + str(size).encode().ljust(10, b" ")
+                + size_field.ljust(10, b" ")
                 + b"`\n"
             )
             out += hdr + body[:size]
@@ -138,6 +141,16 @@ class TestParseArchiveRobust:
         for name, body in members:
             assert isinstance(name, str) and name
             assert isinstance(body, bytes)
+            assert not name.startswith("/SYM")
+        # The two walkers agree: a parsed archive is one the cache would keep,
+        # so a malformed header never silently drops the members after it.
+        fd, lib = tempfile.mkstemp(suffix=".lib")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(data)
+            assert stock_lib_valid(Path(lib))
+        finally:
+            os.unlink(lib)
 
     @settings(max_examples=50)
     @given(

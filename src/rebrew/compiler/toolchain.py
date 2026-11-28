@@ -39,7 +39,7 @@ lazy import tempfile
 lazy import tomllib
 lazy import unicodedata
 lazy import uuid
-lazy from collections.abc import Callable, Mapping
+lazy from collections.abc import Callable, Iterable, Mapping
 lazy from pathlib import Path
 lazy from types import MappingProxyType
 
@@ -1286,6 +1286,27 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
     return None
 
 
+#: Host variables an image-less compiler receives.  Anything else (CPATH,
+#: CL, _CL_, INCLUDE, GCC_EXEC_PREFIX, ...) can change the object without
+#: reaching the compile-cache key.
+_NATIVE_COMPILER_ENV = frozenset({"PATH", "HOME", "TMPDIR", "TEMP", "TMP"})
+
+
+def native_compiler_env(source: Mapping[str, str], keep: Iterable[str] = ()) -> dict[str, str]:
+    """*source* cut to ``_NATIVE_COMPILER_ENV`` and *keep*, plus the build clock.
+
+    TZ changes ``__DATE__``/``__TIME__`` expansion but the key hashes only
+    ``SOURCE_DATE_EPOCH``, so an epoch pins ``TZ=UTC0`` and no epoch leaves
+    both unset.  Raises :class:`ConfigError` for an invalid epoch.
+    """
+    names = _NATIVE_COMPILER_ENV.union(keep)
+    env = {name: value for name, value in source.items() if name in names}
+    epoch = source_date_epoch()
+    if epoch is not None:
+        env |= {"SOURCE_DATE_EPOCH": epoch, "TZ": "UTC0"}
+    return env
+
+
 def image_msvc_env(spec: ToolchainSpec) -> dict[str, str]:
     """INCLUDE/LIB for an image-backed MSVC run, derived from ``tool_root``.
 
@@ -1735,21 +1756,10 @@ def run_toolchain(
         # Image-less compiler (plugin/overlay spec) — vendored binary
         # executed directly.  No wine glue is involved.
         binary = _resolve_binary(spec)
-        env = dict(os.environ)
-        # An ambient TZ reaches a native compiler and changes
-        # __DATE__/__TIME__/__TIMESTAMP__ expansion (local time), but the
-        # compile-cache key hashes only SOURCE_DATE_EPOCH — so two runs with
-        # different TZ would share a key and one would serve the other's
-        # .obj.  Pin TZ to UTC when an epoch is set, otherwise drop it so
-        # the compiler's clock matches the key's (epoch-less) assumption.
         try:
-            native_epoch = source_date_epoch()
+            env = native_compiler_env(os.environ)
         except ConfigError as exc:
             raise ToolchainError(str(exc), kind="validation", name=spec.name) from exc
-        if native_epoch is not None:
-            env["TZ"] = "UTC0"
-        else:
-            env.pop("TZ", None)
         try:
             r = run_process_group(
                 [binary, *args],
@@ -1927,6 +1937,7 @@ __all__ = [
     "invalidate_toolchain_digest",
     "kill_container",
     "list_toolchains",
+    "native_compiler_env",
     "profile_family",
     "pull_toolchain",
     "refresh_toolchain_registry",

@@ -15,7 +15,6 @@ __all__ = [
     "SourceSpan",
     "decode_span",
     "gap_is_blank",
-    "mask_buffer_inplace",
     "mask_for_parse",
     "source_layout",
     "span_extent",
@@ -213,13 +212,6 @@ def mask_for_parse(raw: bytes) -> bytes:
 
     text = raw.decode("utf-8", errors="surrogateescape")
     return mask_msvc_syntax(text).encode("utf-8", errors="surrogateescape")
-
-
-def mask_buffer_inplace(out: bytearray) -> bytearray:
-    """Blank calling conventions and ``__asm`` bodies in *out*, in place."""
-    masked = mask_for_parse(bytes(out))
-    out[:] = masked
-    return out
 
 
 def source_layout(text: str) -> tuple[bytes, list[SourceSpan]]:

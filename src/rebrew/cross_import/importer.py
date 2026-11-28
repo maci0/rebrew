@@ -229,7 +229,6 @@ def promote_to_shared(
     src_file: str,
     *,
     dry_run: bool = False,
-    retarget_fn: Callable[[Any, Path, Path], None] | None = None,
 ) -> dict[str, Any]:
     """Move a per-target source into ``src/shared`` preserving relative path.
 
@@ -249,7 +248,6 @@ def promote_to_shared(
     the move landed but its metadata update did not, the replay finishes that
     update instead of leaving rows pointed at the vanished per-target path.
     """
-    retarget = retarget_fn or retarget_moved_identity
     shared_root = getattr(cfg_src, "shared_dir", None)
     if shared_root is None:
         return {
@@ -287,7 +285,7 @@ def promote_to_shared(
         if not dry_run and getattr(cfg_src, "metadata_dir", None) is not None:
             previous = Path(cfg_src.reversed_dir).resolve() / src_path.relative_to(shared_path)
             if not previous.exists():
-                retarget(cfg_src, previous, src_path)
+                retarget_moved_identity(cfg_src, previous, src_path)
         return {
             "action": "already-shared",
             "status": "",
@@ -326,7 +324,7 @@ def promote_to_shared(
                         "filepath": src_file,
                         "message": str(exc),
                     }
-                retarget(cfg_src, src_path, dst_path)
+                retarget_moved_identity(cfg_src, src_path, dst_path)
                 return {
                     "action": "promoted",
                     "status": "",
@@ -357,7 +355,7 @@ def promote_to_shared(
             "filepath": src_file,
             "message": str(exc),
         }
-    retarget(cfg_src, src_path, dst_path)
+    retarget_moved_identity(cfg_src, src_path, dst_path)
     return {
         "action": "promoted",
         "status": "",
@@ -487,7 +485,6 @@ def import_shared_function(
     require_resolved: bool = False,
     verify_entry_fn: Callable[..., CompareResult] | None = None,
     apply_status_updates_fn: Callable[..., Any] | None = None,
-    source_flags_fn: Callable[[ProjectConfig, Path, int], str] | None = None,
 ) -> dict[str, Any]:
     """Import by recording a destination row for the SHARED source file.
 
@@ -619,7 +616,7 @@ def import_shared_function(
     from rebrew.metadata.bindings import SourceBinding
     from rebrew.metadata.functions import remove_field, update_field
 
-    src_flags = (source_flags_fn or source_flags)(cfg_src, target_path, src_va)
+    src_flags = source_flags(cfg_src, target_path, src_va)
     # No source-dir /I here (unlike the copy path): the shared file moves
     # WITH its tree under src/shared, so relative #include chains resolve
     # against its own directory already (compiler/compile.py always adds src_parent).
@@ -779,7 +776,6 @@ def import_function(
     shared_preamble_fn: Callable[..., str] | None = None,
     verify_entry_fn: Callable[..., CompareResult] | None = None,
     apply_status_updates_fn: Callable[..., Any] | None = None,
-    source_flags_fn: Callable[[ProjectConfig, Path, int], str] | None = None,
 ) -> dict[str, Any]:
     """Import the matched source function *src_file* into the destination.
 
@@ -1013,7 +1009,7 @@ def import_function(
     # fails with C1083 and is recorded without the source's effective CFLAGS.
     # The absolute path is a known portability wart (breaks on clone/move) —
     # the shared path avoids it because the file itself moves with its headers.
-    src_flags = (source_flags_fn or source_flags)(cfg_src, src_path, src_va)
+    src_flags = source_flags(cfg_src, src_path, src_va)
     include = "-I" if cfg_dst.posix_style else "/I"
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
     from rebrew.metadata.functions import identity_file, record_function_identity

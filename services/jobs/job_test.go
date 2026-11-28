@@ -433,3 +433,40 @@ func TestRetainedResultWorkspacePinsStoppedOutput(t *testing.T) {
 		t.Fatal("changed retained result was not detected")
 	}
 }
+
+func TestCancelRetryKeepsActiveJobSlot(t *testing.T) {
+	owner, err := Open(t.TempDir(), testJobDir(t), "/bin/false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	old := Receipt{ID: strings.Repeat("a", 64), Seed: "seed.c", State: "cancelled", CancelRequested: true}
+	if err = owner.save(old); err != nil {
+		t.Fatal(err)
+	}
+	owner.occupied = true
+	if got, err := owner.Cancel(old.ID); err != nil || got != old {
+		t.Fatalf("cancel retry changed the receipt: %v, %v", got, err)
+	}
+	if !owner.occupied {
+		t.Fatal("cancel retry cleared another job's slot")
+	}
+}
+
+func TestBusyAdmissionSkipsWorkspaceSnapshot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "seed.c"), []byte("seed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := Open(root, testJobDir(t), "/bin/false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	owner.occupied = true
+	// An incorrect digest would fail before the busy check if admission tried
+	// to take a snapshot.
+	if _, _, err := owner.Admit("new-job", "seed.c", strings.Repeat("a", 64)); !errors.Is(err, ErrOccupied) {
+		t.Fatalf("busy admission: %v", err)
+	}
+}

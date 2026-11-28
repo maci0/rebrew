@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from cli_json import cli_payload
@@ -12,10 +13,7 @@ from typer.testing import CliRunner
 from rebrew.data.annotate import (
     _emit_extern_decl,
     gen_globals_header,
-    set_data_names,
-    set_data_sections,
-    set_data_sizes,
-    set_data_types,
+    patch_data_fields,
 )
 from rebrew.data.cli import _generate_bss_fix
 from rebrew.data.render import (
@@ -48,6 +46,11 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
+
+
+def _set(cfg: SimpleNamespace, field: str, specs: list[str], *, dry_run: bool = False) -> Any:
+    """Rows `rebrew data set --<field>` plans for *specs*."""
+    return patch_data_fields(cfg, {field: specs}, dry_run=dry_run)["set"]
 
 
 def _console(buf: object | None = None) -> object:
@@ -348,7 +351,7 @@ class TestSetDataType:
         self._meta(cfg).write_text(
             'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
-        rows = set_data_types(cfg, ["0x1000=int[]"])
+        rows = _set(cfg, "type", ["0x1000=int[]"])
         assert rows == [{"va": "0x1000", "type": "int[]", "module": "SERVER"}]
         assert 'type = "int[]"' in self._meta(cfg).read_text(encoding="utf-8")
 
@@ -357,13 +360,13 @@ class TestSetDataType:
         self._meta(cfg).write_text(
             'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
-        set_data_types(cfg, ["0x1000=int[]"], dry_run=True)
+        _set(cfg, "type", ["0x1000=int[]"], dry_run=True)
         assert 'type = "int"' in self._meta(cfg).read_text(encoding="utf-8")
 
     def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         with pytest.raises(ValueError, match="0xVA=TYPE"):
-            set_data_types(cfg, ["0x1000"])
+            _set(cfg, "type", ["0x1000"])
 
     def test_empty_type_clears_it(self, tmp_path: Path) -> None:
         """Clearing the type makes --gen-header omit the global, which is how a
@@ -372,7 +375,7 @@ class TestSetDataType:
         self._meta(cfg).write_text(
             'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
-        set_data_types(cfg, ["0x1000="])
+        _set(cfg, "type", ["0x1000="])
         text = self._meta(cfg).read_text(encoding="utf-8")
         assert 'type = "int"' not in text
 
@@ -385,10 +388,10 @@ class TestSetDataName:
         meta = cfg.metadata_dir / "rebrew-data.toml"
         write_store_fixture(meta, 'format = 2\n["SERVER.0x1000"]\nsize = 16\nsection = ".data"\n')
         before = meta.read_bytes()
-        rows = set_data_names(cfg, ["0x1000=records"], dry_run=True)
+        rows = _set(cfg, "name", ["0x1000=records"], dry_run=True)
         assert rows == [{"va": "0x1000", "name": "records", "module": "SERVER"}]
         assert meta.read_bytes() == before
-        set_data_names(cfg, ["0x1000=records"])
+        _set(cfg, "name", ["0x1000=records"])
         fields = tomllib.loads(meta.read_text())["SERVER.0x1000"]
         assert fields["name"] == "records"
         assert fields["size"] == 16
@@ -397,7 +400,7 @@ class TestSetDataName:
     def test_rejects_bad_names_without_writing(self, tmp_path: Path, name: str) -> None:
         cfg = _cfg(tmp_path)
         with pytest.raises(ValueError, match="C identifier"):
-            set_data_names(cfg, [f"0x1000={name}"])
+            _set(cfg, "name", [f"0x1000={name}"])
         assert not (cfg.metadata_dir / "rebrew-data.toml").exists()
 
 
@@ -411,10 +414,10 @@ class TestSetDataSize:
             meta, 'format = 2\n["SERVER.0x1000"]\nname = "slots"\nsize = 2\nstatus = "VERIFIED"\n'
         )
         before = meta.read_bytes()
-        rows = set_data_sizes(cfg, ["0x1000=0x65400"], dry_run=True)
+        rows = _set(cfg, "size", ["0x1000=0x65400"], dry_run=True)
         assert rows == [{"va": "0x1000", "size": 0x65400, "module": "SERVER"}]
         assert meta.read_bytes() == before
-        set_data_sizes(cfg, ["0x1000=414720"])
+        _set(cfg, "size", ["0x1000=414720"])
         fields = tomllib.loads(meta.read_text())["SERVER.0x1000"]
         assert fields["size"] == 0x65400
         assert "status" not in fields
@@ -424,7 +427,7 @@ class TestSetDataSize:
     def test_rejects_bad_sizes_without_partial_writes(self, tmp_path: Path, spec: str) -> None:
         cfg = _cfg(tmp_path)
         with pytest.raises(ValueError):
-            set_data_sizes(cfg, ["0x2000=4", spec])
+            _set(cfg, "size", ["0x2000=4", spec])
         assert not (cfg.metadata_dir / "rebrew-data.toml").exists()
 
 
@@ -1533,7 +1536,7 @@ class TestSetDataSection:
         self._meta(cfg).write_text(
             'format = 2\n["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
-        rows = set_data_sections(cfg, [f"0x1000={section}"])
+        rows = _set(cfg, "section", [f"0x1000={section}"])
         assert rows == [{"va": "0x1000", "section": section, "module": "SERVER"}]
         assert f'section = "{section}"' in self._meta(cfg).read_text(encoding="utf-8")
 
@@ -1542,16 +1545,16 @@ class TestSetDataSection:
         self._meta(cfg).write_text(
             'format = 2\n["SERVER.0x1000"]\ntype = "int"\n', encoding="utf-8"
         )
-        set_data_sections(cfg, ["0x1000=.data"], dry_run=True)
+        _set(cfg, "section", ["0x1000=.data"], dry_run=True)
         assert "section" not in self._meta(cfg).read_text(encoding="utf-8")
 
     def test_rejects_an_unknown_section(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="--section"):
-            set_data_sections(_cfg(tmp_path), ["0x1000=.bogus"])
+            _set(_cfg(tmp_path), "section", ["0x1000=.bogus"])
 
     def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="0xVA=SECTION"):
-            set_data_sections(_cfg(tmp_path), ["0x1000"])
+            _set(_cfg(tmp_path), "section", ["0x1000"])
 
 
 class TestSetDataFile:
@@ -1564,8 +1567,6 @@ class TestSetDataFile:
     def test_points_a_row_at_an_existing_source(self, tmp_path: Path) -> None:
         import tomllib
 
-        from rebrew.data.annotate import set_data_files
-
         cfg = _cfg(tmp_path)
         meta = cfg.metadata_dir / "rebrew-data.toml"
         write_store_fixture(
@@ -1576,20 +1577,18 @@ class TestSetDataFile:
         src = cfg.root / "src" / "data_only.c"
         src.parent.mkdir(parents=True, exist_ok=True)
         src.write_text("int g_x = 1;\n", encoding="utf-8")
-        rows = set_data_files(cfg, ["0x1000=src/data_only.c"], dry_run=True)
+        rows = _set(cfg, "file", ["0x1000=src/data_only.c"], dry_run=True)
         assert rows[0]["file"].endswith("data_only.c")
         assert 'file = "src/a.c"' in meta.read_text(encoding="utf-8")
-        set_data_files(cfg, ["0x1000=src/data_only.c"])
+        _set(cfg, "file", ["0x1000=src/data_only.c"])
         fields = tomllib.loads(meta.read_text(encoding="utf-8"))["SERVER.0x1000"]
         assert fields["file"] == rows[0]["file"]
         assert fields["name"] == "g_x"
 
     def test_rejects_a_missing_source(self, tmp_path: Path) -> None:
-        from rebrew.data.annotate import set_data_files
-
         cfg = _cfg(tmp_path)
         with pytest.raises(ValueError, match="missing source"):
-            set_data_files(cfg, ["0x1000=src/nope.c"])
+            _set(cfg, "file", ["0x1000=src/nope.c"])
 
 
 class TestDataSetMarkerTypeAndNote:

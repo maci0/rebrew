@@ -99,6 +99,7 @@ lazy from rebrew.verify.cache import (
     VerifyCacheEntry,
     binary_id,
     cache_path_for,
+    catalog_hash,
     load_verify_cache,
     order_result_row,
     save_verify_cache,
@@ -2893,10 +2894,11 @@ def prepare_entries(
     results: list[dict[str, Any]] = []
 
     cache_path = cache_path_for(cfg)
-    # --no-cache remeasures everything. check_known_bindings still reads the file:
-    # each row is admitted only when its recorded bound_va values match
-    # name_to_va. A hash of the whole catalog would miss on every STATUS write.
+    # --no-cache remeasures everything. check_known_bindings admits a row only
+    # when its recorded bound_va values match name_to_va; otherwise the row's
+    # catalog_hash must equal the current catalog's.
     verify_cache_obj = None if full else load_verify_cache(cache_path, cfg)
+    current_catalog = catalog_hash(name_to_va)
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )
@@ -2987,8 +2989,15 @@ def prepare_entries(
         # Known-binding mode refuses a row whose operand proof is missing or
         # whose catalog VA moved. Conflicts stay cached while bound_va is the
         # same value. Masked rows have no bound_va and miss.
-        if getattr(cfg, "check_known_bindings", False) and not binding_evidence_current(
-            cached_entry.relocation_bindings, name_to_va
+        bindings = cached_entry.relocation_bindings
+        if (
+            getattr(cfg, "check_known_bindings", False)
+            or getattr(cfg, "arch", "") in {"mips32", "mips64"}
+        ) and not binding_evidence_current(bindings, name_to_va):
+            continue
+        if (
+            not getattr(cfg, "check_known_bindings", False)
+            and cached_entry.catalog_hash != current_catalog
         ):
             continue
         # A function with linked EXACT evidence is served from the cache only
@@ -3012,6 +3021,7 @@ def prepare_entries(
             "module": getattr(entry, "module", ""),
             "binary_id": getattr(verify_cache_obj, "binary_id", ""),
             "image_id": cached_entry.image_id,
+            "catalog_hash": current_catalog,
         }
         # A cached row ran no compile in this run: no compile record.
         results.append(
@@ -3135,7 +3145,7 @@ def run_verification(
     reporter = ProgressReporter.from_environment()
     reporter.report(cached_count, total)
     settled = 0
-    # The CLI --jobs flag bypasses config's _positive_int validation — clamp
+    # The CLI --jobs flag bypasses config's positive_int validation — clamp
     # here so `--jobs 0` (or negative) cannot crash ThreadPoolExecutor.
     effective_jobs = max(1, min(jobs, fresh_count)) if fresh_count else 1
     # Set only after every worker has stopped.  ``interruptible_pool`` leaves
@@ -3162,23 +3172,26 @@ def run_verification(
         except CatalogScanError as exc:
             error_exit(str(exc), json_mode=json_output)
 
+    # Hashed once per batch, not per entry: every compare reads this map.
+    measured_catalog = catalog_hash(name_to_va)
+
     def _verify(
         e: SourceBinding,
     ) -> tuple[SourceBinding, CompareResult]:
         precompiled = _batch_objs.get(id(e)) if _batch_objs else None
-        return (
+        result = verify_entry(
             e,
-            verify_entry(
-                e,
-                cfg,
-                cache=compile_cache,
-                name_to_va=name_to_va,
-                context=context,
-                instructions=instructions,
-                _precompiled_obj=precompiled,
-                _precompiled_image=batch_images.get(precompiled, "") if precompiled else "",
-            ),
+            cfg,
+            cache=compile_cache,
+            name_to_va=name_to_va,
+            context=context,
+            instructions=instructions,
+            _precompiled_obj=precompiled,
+            _precompiled_image=batch_images.get(precompiled, "") if precompiled else "",
         )
+        if e.verify_snapshot:
+            e.verify_snapshot["catalog_hash"] = measured_catalog
+        return e, result
 
     # Batch pre-compile (ADR-021): group cache-miss entries by (toolchain,
     # cflags) and compile each group with one container invocation instead

@@ -218,10 +218,10 @@ class TestSkillFacts:
         assert missing == [], f"rebrew-workflow SKILL.md metadata key list lacks {missing}"
 
     def test_workflow_lists_every_todo_category(self) -> None:
-        from rebrew.todo import _CATEGORY_COLORS
+        from rebrew.todo import CATEGORY_COLORS
 
         text = (_SRC / "rebrew-workflow" / "SKILL.md").read_text(encoding="utf-8")
-        missing = sorted(c for c in _CATEGORY_COLORS if c not in text)
+        missing = sorted(c for c in CATEGORY_COLORS if c not in text)
         assert missing == [], f"rebrew-workflow SKILL.md 'todo -c' list lacks {missing}"
 
     def test_intake_lists_every_decompiler_backend(self) -> None:

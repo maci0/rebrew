@@ -237,7 +237,10 @@ and remain available at every depth. `none` means no explicit value. The
 Meaning column describes defaults read from configuration.
 
 `--fix-sizes` uses evidence specific to each operation: `test` accepts a compiled
-size only when all common bytes match, `verify` records binary-derived extents,
+size only when all common bytes match; a longer compile must also match the
+binary in the extra bytes, and a shorter one must end on an instruction boundary
+before padding-only bytes or at the disassembled function end. `verify` records
+binary-derived extents,
 and `coverage catalog` writes canonical registry sizes with confirmation
 (`--json` or a non-terminal stdin requires `--force`; a piped answer does not
 approve). `--module` filters metadata modules in batch
@@ -544,7 +547,7 @@ Output prefixes for unambiguous parsing:
 | `--jobs` / `-j` | int | none | Parallel jobs (default: project.jobs, or 4) |
 | `--summary` / `-s` | flag | `False` | Show summary table with STATUS breakdown and match percentages |
 | `--compare` | flag | `False` | Compare against the saved baseline and detect regressions |
-| `--no-cache` | flag | `False` | Recheck every selected function, ignoring saved verdicts; compiler objects may still be reused. The default reuses unchanged verdicts. |
+| `--no-cache` | flag | `False` | Recheck every selected function, ignoring saved verdicts; compiler objects may still be reused. The default reuses unchanged verdicts; a symbol-catalog change re-verifies every row unless `check_known_bindings` is set. |
 | `--fix-sizes` | flag | `False` | Correct stored SIZE from the binary-derived size: stale sizes (false SIZE_MISMATCH) and missing sizes (MISSING_SIZE stubs, which rebrew test refuses) are both backfilled into metadata |
 | `--dir` | path | none | Restrict to this subdirectory of reversed_dir |
 | `--module` | str | none | Restrict to one module (e.g. GAME) |
@@ -4223,14 +4226,6 @@ raw-text absence does not prove independence. Refusals name the first five
 incomplete contexts and count the rest. `--image-headers` resolves SDK paths,
 but reports remain `preprocessed=false`.
 
-The separate `compiler.preprocessed_context.capture_msvc_context` API captures
-one explicit CMake source/output with the real pinned MSVC preprocessor. It
-requires a verified staged closure and rejects unreviewed macro/token-pasting,
-include-path and compiler-option contexts. Reconciliation does not silently
-substitute that restricted capture for every audited TU or ignore conditional
-missing includes. Those contexts need a compiler-backed audit before their
-unknowns can safely be removed.
-
 ```bash
 rebrew types reconcile queue src/api.h --prototype 'int queue(int id)' --image-headers --dry-run --json
 ```
@@ -7359,7 +7354,8 @@ Op details the contract leaves open:
   for `project_id`, and answers what `rebrew.analyse` answers. The archive is a
   tar (plain or compressed) or zip with `rebrew-project.toml` at its top or in
   its one top-level directory. It is unpacked into scratch first: at most
-  32768 entries and 256 MiB unpacked, regular files and directories only,
+  32768 entries and 256 MiB unpacked, 64 KiB of headers per tar member, names
+  up to 1024 UTF-8 bytes with no part over 255, regular files and directories only,
   under portable relative names; a link, device, FIFO, absolute or `..` name,
   repeated or case-colliding name, or a member under a file refuses it. The
   one target whose binary inside the archive hashes to `sha256` is imported;

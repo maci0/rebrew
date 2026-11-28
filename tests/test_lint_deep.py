@@ -342,12 +342,13 @@ class TestLintFileEdgeCases:
 class TestBodyRulesFirstLine:
     @pytest.mark.parametrize("has_size", [False, True])
     def test_pure_c_struct_size_comment_is_optional(self, has_size: bool) -> None:
-        from rebrew.lint import LintResult, _check_body_rules
+        from rebrew.lint import LintResult
+        from rebrew.lint.source_rules import check_body_rules
 
         lines = ["typedef struct { int value; } RECORD;"]
         if has_size:
             lines.insert(0, "// SIZE 0x4")
         result = LintResult(Path("record.c"))
-        _check_body_rules(result, lines, False)
+        check_body_rules(result, lines, False)
         warnings = [(line, code) for line, code, _message in result.warnings]
         assert warnings == []

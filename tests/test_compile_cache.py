@@ -366,13 +366,6 @@ class TestCompileCacheKey:
         k2 = compile_cache_key("int f(){return 1;}", "f.c", ["/O2"], ["/inc"], "wine CL", ".cpp")
         assert k1 != k2
 
-    def test_flag_order_insensitive_classes_same_key(self) -> None:
-        """Flags setting distinct compiler options commute — /O2 and /Gd are
-        different options, so their order cannot change the object."""
-        k1 = compile_cache_key("src", "f.c", ["/O2", "/Gd"], ["/inc"], "wine CL")
-        k2 = compile_cache_key("src", "f.c", ["/Gd", "/O2"], ["/inc"], "wine CL")
-        assert k1 == k2
-
     def test_last_wins_flags_keep_order(self) -> None:
         """/O1 /O2 and /O2 /O1 compile differently (the last wins) — order
         within an option group must still separate the keys."""
@@ -380,24 +373,26 @@ class TestCompileCacheKey:
         k2 = compile_cache_key("src", "f.c", ["/O2", "/O1"], ["/inc"], "wine CL")
         assert k1 != k2
 
-    def test_duplicate_flags_same_key(self) -> None:
-        k1 = compile_cache_key("src", "f.c", ["/O2", "/O2"], ["/inc"], "wine CL")
-        k2 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
-        assert k1 == k2
-
-    def test_group_collapses_to_last_occurrence(self) -> None:
-        """Within one option group only the last occurrence matters."""
-        k1 = compile_cache_key("src", "f.c", ["/O1", "/O2"], ["/inc"], "wine CL")
-        k2 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
-        assert k1 == k2
-
-    def test_repeated_group_flag_keeps_last_occurrence(self) -> None:
-        """/O1 /O2 /O1 compiles as /O1: a keep-first dedupe would key it as /O2."""
-        k1 = compile_cache_key("src", "f.c", ["/O1", "/O2", "/O1"], ["/inc"], "wine CL")
-        k2 = compile_cache_key("src", "f.c", ["/O1"], ["/inc"], "wine CL")
-        k3 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
-        assert k1 == k2
-        assert k1 != k3
+    @pytest.mark.parametrize(
+        ("left", "right"),
+        [
+            # cl's /O* switches are not mutually exclusive: /Ox /Os keeps /Ox's
+            # /Og /Oi /Oy, which /Os alone does not set.
+            (["/Ox", "/Os"], ["/Os"]),
+            (["/Og", "/Ot"], ["/Ot"]),
+            (["/Oy-", "/O2"], ["/O2", "/Oy-"]),
+            (["/O1", "/O2", "/O1"], ["/O1"]),
+            (["/O2", "/Gd"], ["/Gd", "/O2"]),
+            (["/O2", "/O2"], ["/O2"]),
+            (["/O2"], [" /O2 "]),
+            (["/O2"], ['"/O2"']),
+        ],
+    )
+    def test_flags_are_hashed_as_given(self, left: list[str], right: list[str]) -> None:
+        """Reordering, repeating or respelling a flag never shares a key."""
+        k1 = compile_cache_key("src", "f.c", left, ["/inc"], "wine CL")
+        k2 = compile_cache_key("src", "f.c", right, ["/inc"], "wine CL")
+        assert k1 != k2
 
     def test_repeated_unknown_flag_not_deduped(self) -> None:
         """Unknown tokens are not idempotent: -O2 -O0 -O2 builds at -O2, and
@@ -421,16 +416,6 @@ class TestCompileCacheKey:
         k1 = compile_cache_key("src", "f.c", ["/Iinc1", "/Iinc2"], ["/inc"], "wine CL")
         k2 = compile_cache_key("src", "f.c", ["/Iinc2", "/Iinc1"], ["/inc"], "wine CL")
         assert k1 != k2
-
-    def test_default_rebrew_flags_canonicalize(self) -> None:
-        """The everyday flag set (/O2 /Gd /MT) canonicalizes to one key
-        regardless of input order — flag sweeps and repeated compiles share
-        entries."""
-        flags_a = ["/O2", "/Gd", "/MT"]
-        flags_b = ["/MT", "/Gd", "/O2"]
-        k1 = compile_cache_key("src", "f.c", flags_a, ["/inc"], "wine CL")
-        k2 = compile_cache_key("src", "f.c", flags_b, ["/inc"], "wine CL")
-        assert k1 == k2
 
     def test_returns_hex_string(self) -> None:
         key = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
@@ -1624,26 +1609,48 @@ class TestHeaderDependencyHash:
         assert k1 != k2
 
     @pytest.mark.parametrize("prefix", ["/FI", "-FI", "-include", "--include=", "-imacros", "-fi="])
-    def test_force_include_flag_falls_back(self, tmp_path: Path, prefix: str) -> None:
-        """A force-include pulls a header into every compile invisibly —
-        conservative whole-directory fingerprints are used instead."""
+    def test_force_include_tracks_extensionless_files(self, tmp_path: Path, prefix: str) -> None:
+        """The extension is irrelevant to a compiler's forced include."""
         inc = tmp_path / "inc"
         inc.mkdir()
-        (inc / "a.h").write_text("typedef int A;\n")
+        (inc / "settings").write_text("typedef int A;\n")
         src = "int f(void){return 1;}\n"
-        flags = ["/O2", f"{prefix}{inc}/a.h"]
+        flags = ["/O2", f"{prefix}{inc}/settings"]
         k1 = compile_cache_key(src, "f.c", flags, [str(inc)], "wine CL")
 
-        (inc / "a.h").write_text("typedef long A;\n")
+        assert k1 == compile_cache_key(src, "f.c", flags, [str(inc)], "wine CL")
+        (inc / "settings").write_text("typedef long A;\n")
         include_fingerprint.cache_clear()
         k2 = compile_cache_key(src, "f.c", flags, [str(inc)], "wine CL")
         assert k1 != k2
+
+    def test_forced_header_with_image_only_include_is_stable(self, tmp_path: Path) -> None:
+        """<windows.h> lives in the toolchain image, which the key pins by id."""
+        (tmp_path / "stdafx.h").write_text("#include <windows.h>\nint g;\n")
+        src = "int f(void){return 1;}\n"
+        flags = ["/O2", "/FIstdafx.h"]
+
+        def key() -> str:
+            return compile_cache_key(src, "f.c", flags, [], "wine CL", source_dir=str(tmp_path))
+
+        k1 = key()
+        assert k1 == key()
+        (tmp_path / "stdafx.h").write_text("#include <windows.h>\nlong g;\n")
+        assert key() != k1
+
+    def test_include_pch_is_not_a_forced_header(self, tmp_path: Path) -> None:
+        """clang's -include-pch names a PCH file, not a header called "-pch"."""
+        src = "int f(void){return 1;}\n"
+        flags = ["-O2", "-include-pch", "pre.pch"]
+        k1 = compile_cache_key(src, "f.c", flags, [str(tmp_path)], "clang")
+        assert k1 == compile_cache_key(src, "f.c", flags, [str(tmp_path)], "clang")
 
     @pytest.mark.parametrize(
         ("src", "flags"),
         [
             ('#include "local.h"\n#include LIB_H\nint f(void){return 1;}\n', ["/O2"]),
-            ('#include "local.h"\nint f(void){return 1;}\n', ["/O2", "/FIforced.h"]),
+            # local.h is reached only through the forced header's fallback.
+            ("int f(void){return 1;}\n", ["/O2", "/FIforced.h"]),
         ],
     )
     def test_fallback_fingerprints_source_dir(
@@ -1654,7 +1661,9 @@ class TestHeaderDependencyHash:
         src_dir = tmp_path / "src"
         src_dir.mkdir()
         (src_dir / "local.h").write_text("#define L 1\n")
+        (src_dir / "forced.h").write_text("#include LIB_H\n")
         k1 = compile_cache_key(src, "f.c", flags, [], "wine CL", source_dir=str(src_dir))
+        assert k1 == compile_cache_key(src, "f.c", flags, [], "wine CL", source_dir=str(src_dir))
 
         (src_dir / "local.h").write_text("#define L 22\n")
         include_fingerprint.cache_clear()

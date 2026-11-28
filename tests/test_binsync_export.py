@@ -682,13 +682,6 @@ class TestBinsyncExportModuleFilter:
 
 
 class TestBinsyncStructFields:
-    def testparse_struct_fields(self) -> None:
-        from rebrew.binsync.state import parse_struct_fields
-
-        fields = parse_struct_fields("typedef struct { int x; int y; char name[32]; } Foo;")
-        names = [f["name"] for f in fields]
-        assert "x" in names and "y" in names and "name" in names
-
     def test_struct_with_fields_written(self, tmp_path: Path) -> None:
         from rebrew.binsync.export import _write_struct_toml
         from rebrew.binsync.serial import load_artifact
@@ -1605,7 +1598,6 @@ class TestStructLayouts:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from rebrew.binsync.serial import load_artifact
-        from rebrew.binsync.state import parse_struct_fields
 
         definition = "typedef struct DWORD { DWORD DWORD; char tag; } Record;\n"
         _make_project(
@@ -1623,10 +1615,6 @@ class TestStructLayouts:
         }
         struct = load_artifact(outdir / "structs" / "Record.toml", "struct")
         assert struct is not None and struct.size == 8
-        assert parse_struct_fields(definition, {"DWORD": "unsigned long"}) == [
-            {"name": "DWORD", "type": "unsigned long", "offset": 0, "size": 4},
-            {"name": "tag", "type": "char", "offset": 4, "size": 1},
-        ]
 
 
 class TestExportIdentityWarnings:
