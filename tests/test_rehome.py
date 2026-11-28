@@ -44,6 +44,38 @@ def test_points_row_at_defining_file(tmp_path: Path) -> None:
     assert row["updated_by"] == "rehome"
 
 
+@pytest.mark.parametrize("documented_destination", [False, True])
+def test_positional_rehome_moves_only_selected_assembly_evidence(
+    tmp_path: Path, documented_destination: bool
+) -> None:
+    from rebrew.metadata.source_provenance import document_assembly, load_source_provenance
+
+    cfg = _cfg(tmp_path)
+    old = tmp_path / "src/a.c"
+    new = tmp_path / "src/b.c"
+    f_body = "int f(void) { return 1; }\n"
+    old.write_text(f_body + "int g(void) { return 2; }\n")
+    new.write_text(f_body + "int h(void) { return 3; }\n")
+    for file, symbol, module in (
+        (old, "f", "SERVER"),
+        (old, "f", "GOLD"),
+        (old, "g", "SERVER"),
+    ):
+        document_assembly(tmp_path, file, symbol, module, "Reviewed assembly")
+    if documented_destination:
+        document_assembly(tmp_path, new, "h", "SERVER", "Reviewed assembly")
+    before = {
+        (record.file, record.symbol, record.module): record.source_hash
+        for record in load_source_provenance(tmp_path)
+    }
+    rehome_functions(cfg, ["0x1000=src/b.c"])
+    before[("src/b.c", "f", "SERVER")] = before.pop(("src/a.c", "f", "SERVER"))
+    assert {
+        (record.file, record.symbol, record.module): record.source_hash
+        for record in load_source_provenance(tmp_path)
+    } == before
+
+
 def test_rejects_file_without_definition(tmp_path: Path) -> None:
     cfg = _cfg(tmp_path)
     (tmp_path / "src" / "c.c").write_text(

@@ -50,6 +50,7 @@ __all__ = [
     "function_definition_hashes",
     "load_source_files",
     "load_source_provenance",
+    "move_definition_provenance",
     "move_source_provenance",
     "plan_source_rehome",
     "remove_source_files",
@@ -350,40 +351,72 @@ def rename_source_provenance(
 
 
 def move_source_provenance(directory: Path, moves: Sequence[tuple[Path, Path]]) -> None:
+    """Follow complete file moves in one locked write."""
+    _move_source_provenance(directory, moves)
+
+
+def move_definition_provenance(
+    directory: Path, moves: Sequence[tuple[Path, Path, str, str]]
+) -> None:
+    """Follow definition moves selected by old path, new path, symbol and module."""
+    _move_source_provenance(directory, moves)
+
+
+def _move_source_provenance(
+    directory: Path,
+    moves: Sequence[tuple[Path, Path] | tuple[Path, Path, str, str]],
+) -> None:
     """Follow several byte-preserving source moves, in order, in one locked write.
 
-    Each move does what ``rename_source_provenance(directory, {}, move=move)``
-    does against the records the moves before it left: the ``source.files`` and
-    ``source.definitions`` entries of the old path move to the new one. A move
-    that rename_source_provenance refuses (a path outside *directory*, or a new
-    path that already holds records) changes nothing and the rest still apply.
+    A path pair moves all records at that path. Adding a symbol and module
+    selects only the evidence for that definition and target. An out-of-tree
+    move or a conflicting destination leaves the affected records where they are.
     """
     directory = directory.resolve()
     path = directory / SOURCE_PROVENANCE_FILENAME
     if not moves or not metadata_store(path).exists():
         return
-    relative: list[tuple[str, str]] = []
-    for old, new in moves:
-        old_path, new_path = old.resolve(), new.resolve()
+    relative: list[tuple[str, str, tuple[str, str] | None]] = []
+    for move in moves:
+        old_path, new_path = move[0].resolve(), move[1].resolve()
         if old_path.is_relative_to(directory) and new_path.is_relative_to(directory):
             relative.append(
                 (
                     old_path.relative_to(directory).as_posix(),
                     new_path.relative_to(directory).as_posix(),
+                    (move[2], preset_module_key(move[3])) if len(move) == 4 else None,
                 )
             )
     with metadata_write_lock(directory, SOURCE_PROVENANCE_FILENAME):
         definition_paths, file_paths = _source_paths(path, metadata_format(path))
         # A later move can start where an earlier one ended.
-        reached = definition_paths | file_paths | {new_rel for _old_rel, new_rel in relative}
-        if not any(old_rel in reached for old_rel, _new_rel in relative):
+        reached = definition_paths | file_paths | {new_rel for _, new_rel, _ in relative}
+        if not any(old_rel in reached for old_rel, _, _ in relative):
             return
         store = load_metadata_for_write(path, "function metadata", known_fields=_FUNCTION_FIELDS)
         doc = store.setdefault("source", {"definitions": {}, "files": {}})
         files, definitions = doc["files"], doc["definitions"]
         changed = False
-        for old_rel, new_rel in relative:
-            if old_rel == new_rel or (old_rel in files and new_rel in files):
+        for old_rel, new_rel, selected in relative:
+            if old_rel == new_rel:
+                continue
+            if selected is not None:
+                symbol, module = selected
+                old_symbols = definitions.get(old_rel, {})
+                old_modules = old_symbols.get(symbol, {})
+                if module not in old_modules:
+                    continue
+                new_modules = definitions.setdefault(new_rel, {}).setdefault(symbol, {})
+                if module in new_modules:
+                    continue
+                new_modules[module] = old_modules.pop(module)
+                if not old_modules:
+                    del old_symbols[symbol]
+                if not old_symbols:
+                    del definitions[old_rel]
+                changed = True
+                continue
+            if old_rel in files and new_rel in files:
                 continue
             if old_rel in definitions and new_rel in definitions:
                 continue

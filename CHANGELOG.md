@@ -72,6 +72,10 @@
   failed `docker create`) as failed and never started, freeing the slot and its
   compile mediator; remove the container and working copy once a stop is proven.
 
+### Fixed
+
+- Positional `source rehome` moves assembly evidence only for the selected definition and target. Whole-file `--from/--to` keeps moving the file's complete provenance.
+
 ## [6.92.0] - 2026-11-28
 
 ### Changed
